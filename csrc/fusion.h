@@ -523,31 +523,33 @@ class NVF_API Fusion : public PolymorphicBase {
   }
 
   // Collections access (return values in insertion order)
-  const std::deque<Val*> deterministic_vals() const noexcept {
-    return ir_container()->deterministic_vals();
+  // Phase 2: These return only statements owned by THIS Fusion,
+  // not all statements in the (possibly shared) container.
+  std::deque<Val*> deterministic_vals() const noexcept {
+    return ir_container()->deterministicValsOwnedBy(const_cast<Fusion*>(this));
   }
 
-  const std::deque<Expr*> deterministic_exprs() const noexcept {
-    return ir_container()->deterministic_exprs();
+  std::deque<Expr*> deterministic_exprs() const noexcept {
+    return ir_container()->deterministicExprsOwnedBy(const_cast<Fusion*>(this));
   }
 
-  const std::unordered_map<Val*, int64_t> deterministic_vals_map()
-      const noexcept {
-    return ir_container()->deterministic_vals_map();
+  std::unordered_map<Val*, int64_t> deterministic_vals_map() const noexcept {
+    return ir_container()->deterministicValsMapOwnedBy(
+        const_cast<Fusion*>(this));
   }
 
-  const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
-      const noexcept {
-    return ir_container()->deterministic_exprs_map();
+  std::unordered_map<Expr*, int64_t> deterministic_exprs_map() const noexcept {
+    return ir_container()->deterministicExprsMapOwnedBy(
+        const_cast<Fusion*>(this));
   }
 
   // Collections access (unordered sets)
   const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return ir_container()->unordered_exprs();
+    return ownedExprs();
   }
 
   const std::unordered_set<Val*>& vals() const noexcept {
-    return ir_container()->vals();
+    return ownedVals();
   }
 
   // Per-Fusion Statement Access (Phase 2 Task 4)
@@ -573,11 +575,11 @@ class NVF_API Fusion : public PolymorphicBase {
 
   // Count queries
   int64_t numExprs() const noexcept {
-    return ir_container()->numExprs();
+    return ownedExprs().size();
   }
 
   int64_t numVals(bool include_shortcuts) const noexcept {
-    return ir_container()->numVals(include_shortcuts);
+    return ownedVals().size();
   }
 
   // Shortcut values (frequently used constants)
@@ -603,11 +605,13 @@ class NVF_API Fusion : public PolymorphicBase {
   void assumeNonNegative(Val* val);
 
   // Statement removal
+  // Phase 2: Now takes this Fusion as parameter to properly handle
+  // shared containers. Only removes statements owned by this Fusion.
   void removeStatementsCreatedAfter(
       int64_t num_exprs_before,
       int64_t num_vals_before) {
     ir_container()->removeStatementsCreatedAfter(
-        num_exprs_before, num_vals_before);
+        this, num_exprs_before, num_vals_before);
   }
 
  protected:

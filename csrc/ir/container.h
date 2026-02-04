@@ -31,7 +31,7 @@ class NamedScalar;
 
 class IrContainer {
  public:
-  NVF_API IrContainer();
+  IrContainer();
 
   // Copy/Move Constructors and Operators are deleted. IrContainer is managed
   // through a smart pointer in IrContainer. Semantic operations for Fusion
@@ -64,6 +64,27 @@ class IrContainer {
   //! Return mapping from expression to integer id
   const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
       const noexcept;
+
+  // =========================================================================
+  // Per-Fusion Deterministic Accessors (Phase 2)
+  // These return statements in insertion order, filtered by ownership.
+  // =========================================================================
+
+  //! Return values owned by a specific Fusion in insertion order
+  std::deque<Val*> deterministicValsOwnedBy(Fusion* fusion) const noexcept;
+
+  //! Return expressions owned by a specific Fusion in insertion order
+  std::deque<Expr*> deterministicExprsOwnedBy(Fusion* fusion) const noexcept;
+
+  //! Return mapping from value to integer id for values owned by a Fusion
+  //! The integer ids are local to this Fusion's values (0, 1, 2, ...)
+  std::unordered_map<Val*, int64_t> deterministicValsMapOwnedBy(
+      Fusion* fusion) const noexcept;
+
+  //! Return mapping from expression to integer id for exprs owned by a Fusion
+  //! The integer ids are local to this Fusion's exprs (0, 1, 2, ...)
+  std::unordered_map<Expr*, int64_t> deterministicExprsMapOwnedBy(
+      Fusion* fusion) const noexcept;
 
   //! Return the set of Exprs registered with this fusion. Warning: This will
   //! return exprs outside inputs/outputs, so can be unsafe for use with
@@ -119,7 +140,7 @@ class IrContainer {
 
   //! Get Vals owned by a specific Fusion
   //! Returns empty set if Fusion has no vals in this container
-  const std::unordered_set<Val*>& valsOwnedBy(Fusion* fusion) const;
+  NVF_API const std::unordered_set<Val*>& valsOwnedBy(Fusion* fusion) const;
 
   //! Get Exprs owned by a specific Fusion
   //! Returns empty set if Fusion has no exprs in this container
@@ -192,7 +213,13 @@ class IrContainer {
   // itself.
   //
   // Used by StatementGuard only.
+  //
+  // Phase 2 Note: This method now takes a Fusion pointer to properly handle
+  // shared containers. It removes only statements owned by the specified
+  // Fusion that were created after the snapshot point, preserving statements
+  // owned by other Fusions sharing the container.
   void removeStatementsCreatedAfter(
+      Fusion* fusion,
       int64_t prev_num_exprs,
       int64_t prev_num_vals);
 

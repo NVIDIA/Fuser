@@ -72,6 +72,100 @@ const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
   return exprs_map;
 }
 
+// =========================================================================
+// Per-Fusion Deterministic Accessors (Phase 2)
+// =========================================================================
+
+std::deque<Val*> IrContainer::deterministicValsOwnedBy(
+    Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
+  std::deque<Val*> result;
+
+  // Get the set of vals owned by this Fusion for O(1) lookup
+  auto it = per_fusion_vals_.find(fusion);
+  if (it == per_fusion_vals_.end()) {
+    return result; // Empty - no vals owned by this Fusion
+  }
+  const auto& owned_vals = it->second;
+
+  // Iterate in insertion order, filtering to only owned vals
+  for (const auto& val_up : vals_up_) {
+    Val* val = val_up.get();
+    if (owned_vals.count(val) > 0) {
+      result.push_back(val);
+    }
+  }
+  return result;
+}
+
+std::deque<Expr*> IrContainer::deterministicExprsOwnedBy(
+    Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
+  std::deque<Expr*> result;
+
+  // Get the set of exprs owned by this Fusion for O(1) lookup
+  auto it = per_fusion_exprs_.find(fusion);
+  if (it == per_fusion_exprs_.end()) {
+    return result; // Empty - no exprs owned by this Fusion
+  }
+  const auto& owned_exprs = it->second;
+
+  // Iterate in insertion order, filtering to only owned exprs
+  for (const auto& expr_up : exprs_up_) {
+    Expr* expr = expr_up.get();
+    if (owned_exprs.count(expr) > 0) {
+      result.push_back(expr);
+    }
+  }
+  return result;
+}
+
+std::unordered_map<Val*, int64_t> IrContainer::deterministicValsMapOwnedBy(
+    Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
+  std::unordered_map<Val*, int64_t> result;
+
+  // Get the set of vals owned by this Fusion for O(1) lookup
+  auto it = per_fusion_vals_.find(fusion);
+  if (it == per_fusion_vals_.end()) {
+    return result; // Empty - no vals owned by this Fusion
+  }
+  const auto& owned_vals = it->second;
+
+  // Iterate in insertion order, assigning sequential ids to owned vals
+  int64_t count = 0;
+  for (const auto& val_up : vals_up_) {
+    Val* val = val_up.get();
+    if (owned_vals.count(val) > 0) {
+      result[val] = count++;
+    }
+  }
+  return result;
+}
+
+std::unordered_map<Expr*, int64_t> IrContainer::deterministicExprsMapOwnedBy(
+    Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
+  std::unordered_map<Expr*, int64_t> result;
+
+  // Get the set of exprs owned by this Fusion for O(1) lookup
+  auto it = per_fusion_exprs_.find(fusion);
+  if (it == per_fusion_exprs_.end()) {
+    return result; // Empty - no exprs owned by this Fusion
+  }
+  const auto& owned_exprs = it->second;
+
+  // Iterate in insertion order, assigning sequential ids to owned exprs
+  int64_t count = 0;
+  for (const auto& expr_up : exprs_up_) {
+    Expr* expr = expr_up.get();
+    if (owned_exprs.count(expr) > 0) {
+      result[expr] = count++;
+    }
+  }
+  return result;
+}
+
 const std::unordered_set<Expr*>& IrContainer::unordered_exprs() const noexcept {
   // Note: Returns reference - caller responsible for not holding across
   // concurrent modifications. Lock provides snapshot consistency during call.
@@ -459,36 +553,72 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
 // This avoids ownership conflicts when multiple Fusions share an IrContainer.
 
 void IrContainer::removeStatementsCreatedAfter(
+    Fusion* fusion,
     int64_t prev_num_exprs,
     int64_t prev_num_vals) {
-  NVF_ERROR(
-      exprs_up_.size() == exprs_.size(),
-      "exprs_up_ (size ",
-      exprs_up_.size(),
-      ") and exprs_ (size ",
-      exprs_.size(),
-      ") are out of sync.");
-  NVF_ERROR(
-      std::ssize(exprs_up_) >= prev_num_exprs,
-      "exprs_up_ size (",
-      std::ssize(exprs_up_),
-      ") is less than prev_num_exprs (",
-      prev_num_exprs,
-      ").");
+  std::unique_lock lock(mutex_);
 
-  // Remove expressions before values because we need to change Val::uses_.
-  while (std::ssize(exprs_up_) > prev_num_exprs) {
-    Expr* e = exprs_up_.back().get();
-    for (Val* in : e->inputs()) {
-      in->removeUse(e);
-    }
-    exprs_.erase(e);
-    exprs_up_.pop_back();
+  // Phase 2: Remove only statements owned by the specified Fusion.
+  // This correctly handles shared containers where multiple Fusions
+  // have statements interleaved in the container's deques.
+
+  // Get current per-Fusion counts
+  auto vals_it = per_fusion_vals_.find(fusion);
+  auto exprs_it = per_fusion_exprs_.find(fusion);
+
+  int64_t current_fusion_exprs =
+      (exprs_it != per_fusion_exprs_.end()) ? exprs_it->second.size() : 0;
+  int64_t current_fusion_vals =
+      (vals_it != per_fusion_vals_.end()) ? vals_it->second.size() : 0;
+
+  // Calculate how many statements to remove from this Fusion
+  int64_t exprs_to_remove = current_fusion_exprs - prev_num_exprs;
+  int64_t vals_to_remove = current_fusion_vals - prev_num_vals;
+
+  if (exprs_to_remove <= 0 && vals_to_remove <= 0) {
+    return; // Nothing to remove
   }
 
-  while (std::ssize(vals_up_) > prev_num_vals) {
-    vals_.erase(vals_up_.back().get());
-    vals_up_.pop_back();
+  // Remove expressions owned by this Fusion (from back of deque)
+  // We iterate backwards and remove only those owned by this Fusion
+  int64_t exprs_removed = 0;
+  // Use index-based iteration to avoid iterator invalidation issues
+  for (int64_t i = static_cast<int64_t>(exprs_up_.size()) - 1;
+       i >= 0 && exprs_removed < exprs_to_remove;
+       --i) {
+    Expr* e = exprs_up_[i].get();
+    if (e->container() == fusion) {
+      // Clean up use-def chains
+      for (Val* in : e->inputs()) {
+        in->removeUse(e);
+      }
+      // Remove from tracking sets
+      exprs_.erase(e);
+      if (exprs_it != per_fusion_exprs_.end()) {
+        exprs_it->second.erase(e);
+      }
+      // Erase from deque
+      exprs_up_.erase(exprs_up_.begin() + i);
+      exprs_removed++;
+    }
+  }
+
+  // Remove vals owned by this Fusion (from back of deque)
+  int64_t vals_removed = 0;
+  for (int64_t i = static_cast<int64_t>(vals_up_.size()) - 1;
+       i >= 0 && vals_removed < vals_to_remove;
+       --i) {
+    Val* v = vals_up_[i].get();
+    if (v->container() == fusion) {
+      // Remove from tracking sets
+      vals_.erase(v);
+      if (vals_it != per_fusion_vals_.end()) {
+        vals_it->second.erase(v);
+      }
+      // Erase from deque
+      vals_up_.erase(vals_up_.begin() + i);
+      vals_removed++;
+    }
   }
 }
 

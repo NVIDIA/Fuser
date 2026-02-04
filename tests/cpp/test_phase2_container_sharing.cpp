@@ -15,6 +15,7 @@
 #include "fusion.h"
 #include "ir/container.h"
 #include "ops/all_ops.h"
+#include "statement_guard.h"
 #include "tests/cpp/utils.h"
 
 namespace nvfuser {
@@ -1109,6 +1110,477 @@ TEST_F(Phase2ContainerTest, MovePreservesInputsOutputs) {
   // a is empty
   EXPECT_EQ(a.inputs().size(), 0);
   EXPECT_EQ(a.outputs().size(), 0);
+}
+
+// =============================================================================
+// Deterministic Accessor Tests: Per-Fusion Filtering
+// =============================================================================
+
+TEST_F(Phase2ContainerTest, DeterministicValsReturnsOnlyOwned) {
+  // With a single Fusion, deterministic_vals() should return all vals
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  // deterministic_vals() should return same count as ownedVals()
+  auto det_vals = a.deterministic_vals();
+  EXPECT_EQ(det_vals.size(), a.ownedVals().size());
+
+  // All vals in deterministic_vals should be owned by a
+  for (auto* val : det_vals) {
+    EXPECT_EQ(val->container(), &a);
+    EXPECT_TRUE(a.ownedVals().count(val) > 0);
+  }
+}
+
+TEST_F(Phase2ContainerTest, DeterministicExprsReturnsOnlyOwned) {
+  // With a single Fusion, deterministic_exprs() should return all exprs
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  // deterministic_exprs() should return same count as ownedExprs()
+  auto det_exprs = a.deterministic_exprs();
+  EXPECT_EQ(det_exprs.size(), a.ownedExprs().size());
+
+  // All exprs in deterministic_exprs should be owned by a
+  for (auto* expr : det_exprs) {
+    EXPECT_EQ(expr->container(), &a);
+    EXPECT_TRUE(a.ownedExprs().count(expr) > 0);
+  }
+}
+
+TEST_F(
+    Phase2ContainerTest,
+    DeterministicValsFiltersByOwnershipInSharedContainer) {
+  // After copy, each Fusion's deterministic_vals() returns only ITS vals
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a); // Copy - shares container
+
+  // Both share the same container
+  EXPECT_EQ(a.ir_container_ptr().get(), b.ir_container_ptr().get());
+
+  // But each has its own deterministic vals
+  auto a_det_vals = a.deterministic_vals();
+  auto b_det_vals = b.deterministic_vals();
+
+  // Sizes should match ownedVals
+  EXPECT_EQ(a_det_vals.size(), a.ownedVals().size());
+  EXPECT_EQ(b_det_vals.size(), b.ownedVals().size());
+
+  // a's deterministic_vals should all be owned by a
+  for (auto* val : a_det_vals) {
+    EXPECT_EQ(val->container(), &a);
+  }
+
+  // b's deterministic_vals should all be owned by b
+  for (auto* val : b_det_vals) {
+    EXPECT_EQ(val->container(), &b);
+  }
+
+  // The sets should be disjoint
+  std::unordered_set<Val*> a_set(a_det_vals.begin(), a_det_vals.end());
+  for (auto* val : b_det_vals) {
+    EXPECT_EQ(a_set.count(val), 0);
+  }
+}
+
+TEST_F(
+    Phase2ContainerTest,
+    DeterministicExprsFiltersByOwnershipInSharedContainer) {
+  // After copy, each Fusion's deterministic_exprs() returns only ITS exprs
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a); // Copy - shares container
+
+  // Both share the same container
+  EXPECT_EQ(a.ir_container_ptr().get(), b.ir_container_ptr().get());
+
+  // But each has its own deterministic exprs
+  auto a_det_exprs = a.deterministic_exprs();
+  auto b_det_exprs = b.deterministic_exprs();
+
+  // Sizes should match ownedExprs
+  EXPECT_EQ(a_det_exprs.size(), a.ownedExprs().size());
+  EXPECT_EQ(b_det_exprs.size(), b.ownedExprs().size());
+
+  // a's deterministic_exprs should all be owned by a
+  for (auto* expr : a_det_exprs) {
+    EXPECT_EQ(expr->container(), &a);
+  }
+
+  // b's deterministic_exprs should all be owned by b
+  for (auto* expr : b_det_exprs) {
+    EXPECT_EQ(expr->container(), &b);
+  }
+
+  // The sets should be disjoint
+  std::unordered_set<Expr*> a_set(a_det_exprs.begin(), a_det_exprs.end());
+  for (auto* expr : b_det_exprs) {
+    EXPECT_EQ(a_set.count(expr), 0);
+  }
+}
+
+TEST_F(Phase2ContainerTest, DeterministicValsMapFiltersByOwnership) {
+  // deterministic_vals_map should only include owned vals with local indices
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a); // Copy - shares container
+
+  auto a_map = a.deterministic_vals_map();
+  auto b_map = b.deterministic_vals_map();
+
+  // Maps should have same size as ownedVals
+  EXPECT_EQ(a_map.size(), a.ownedVals().size());
+  EXPECT_EQ(b_map.size(), b.ownedVals().size());
+
+  // All keys in a_map should be owned by a
+  for (const auto& [val, idx] : a_map) {
+    EXPECT_EQ(val->container(), &a);
+  }
+
+  // All keys in b_map should be owned by b
+  for (const auto& [val, idx] : b_map) {
+    EXPECT_EQ(val->container(), &b);
+  }
+
+  // Indices should be sequential starting from 0 (local to each Fusion)
+  std::vector<int64_t> a_indices, b_indices;
+  for (const auto& [val, idx] : a_map) {
+    a_indices.push_back(idx);
+  }
+  for (const auto& [val, idx] : b_map) {
+    b_indices.push_back(idx);
+  }
+
+  std::sort(a_indices.begin(), a_indices.end());
+  std::sort(b_indices.begin(), b_indices.end());
+
+  // Should be 0, 1, 2, ... for each
+  for (size_t i = 0; i < a_indices.size(); ++i) {
+    EXPECT_EQ(a_indices[i], static_cast<int64_t>(i));
+  }
+  for (size_t i = 0; i < b_indices.size(); ++i) {
+    EXPECT_EQ(b_indices[i], static_cast<int64_t>(i));
+  }
+}
+
+TEST_F(Phase2ContainerTest, DeterministicExprsMapFiltersByOwnership) {
+  // deterministic_exprs_map should only include owned exprs with local indices
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a); // Copy - shares container
+
+  auto a_map = a.deterministic_exprs_map();
+  auto b_map = b.deterministic_exprs_map();
+
+  // Maps should have same size as ownedExprs
+  EXPECT_EQ(a_map.size(), a.ownedExprs().size());
+  EXPECT_EQ(b_map.size(), b.ownedExprs().size());
+
+  // All keys in a_map should be owned by a
+  for (const auto& [expr, idx] : a_map) {
+    EXPECT_EQ(expr->container(), &a);
+  }
+
+  // All keys in b_map should be owned by b
+  for (const auto& [expr, idx] : b_map) {
+    EXPECT_EQ(expr->container(), &b);
+  }
+
+  // Indices should be sequential starting from 0
+  std::vector<int64_t> a_indices, b_indices;
+  for (const auto& [expr, idx] : a_map) {
+    a_indices.push_back(idx);
+  }
+  for (const auto& [expr, idx] : b_map) {
+    b_indices.push_back(idx);
+  }
+
+  std::sort(a_indices.begin(), a_indices.end());
+  std::sort(b_indices.begin(), b_indices.end());
+
+  for (size_t i = 0; i < a_indices.size(); ++i) {
+    EXPECT_EQ(a_indices[i], static_cast<int64_t>(i));
+  }
+  for (size_t i = 0; i < b_indices.size(); ++i) {
+    EXPECT_EQ(b_indices[i], static_cast<int64_t>(i));
+  }
+}
+
+TEST_F(Phase2ContainerTest, DeterministicValsMaintainsInsertionOrder) {
+  // deterministic_vals should maintain insertion order
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  // Create multiple tensors in specific order
+  auto* tv0 = makeSymbolicTensor(1);
+  a.addInput(tv0);
+  auto* tv1 = makeSymbolicTensor(2);
+  a.addInput(tv1);
+  auto* tv2 = add(tv0, tv0);
+  auto* tv3 = add(tv1, tv1);
+  a.addOutput(tv2);
+  a.addOutput(tv3);
+
+  auto det_vals = a.deterministic_vals();
+  auto det_map = a.deterministic_vals_map();
+
+  // Verify deque order matches map indices
+  for (size_t i = 0; i < det_vals.size(); ++i) {
+    Val* val = det_vals[i];
+    EXPECT_EQ(det_map.at(val), static_cast<int64_t>(i));
+  }
+}
+
+TEST_F(Phase2ContainerTest, DeterministicExprsMaintainsInsertionOrder) {
+  // deterministic_exprs should maintain insertion order
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  auto* tv2 = mul(tv1, tv0);
+  auto* tv3 = sub(tv2, tv1);
+  a.addOutput(tv3);
+
+  auto det_exprs = a.deterministic_exprs();
+  auto det_map = a.deterministic_exprs_map();
+
+  // Verify deque order matches map indices
+  for (size_t i = 0; i < det_exprs.size(); ++i) {
+    Expr* expr = det_exprs[i];
+    EXPECT_EQ(det_map.at(expr), static_cast<int64_t>(i));
+  }
+}
+
+TEST_F(Phase2ContainerTest, DeterministicAccessorsAfterCopyPreservesOrder) {
+  // After copy, deterministic order for each Fusion should be correct
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  auto* tv2 = mul(tv1, tv1);
+  a.addOutput(tv2);
+
+  // Capture a's deterministic vals
+  auto a_det_vals_before = a.deterministic_vals();
+  auto a_det_map_before = a.deterministic_vals_map();
+
+  Fusion b(a); // Copy
+
+  // a's deterministic_vals should be unchanged
+  auto a_det_vals_after = a.deterministic_vals();
+  EXPECT_EQ(a_det_vals_before.size(), a_det_vals_after.size());
+  for (size_t i = 0; i < a_det_vals_before.size(); ++i) {
+    EXPECT_EQ(a_det_vals_before[i], a_det_vals_after[i]);
+  }
+
+  // b's deterministic_vals should have same structure (but different objects)
+  auto b_det_vals = b.deterministic_vals();
+  EXPECT_EQ(b_det_vals.size(), a_det_vals_before.size());
+}
+
+TEST_F(Phase2ContainerTest, DeterministicAccessorsAfterDestroyingCopy) {
+  // After destroying a copy, original's deterministic accessors still work
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  auto a_det_vals_before = a.deterministic_vals();
+  auto a_det_map_before = a.deterministic_vals_map();
+
+  {
+    Fusion b(a); // Copy
+    // b destroyed here
+  }
+
+  // a's deterministic accessors should still work correctly
+  auto a_det_vals_after = a.deterministic_vals();
+  auto a_det_map_after = a.deterministic_vals_map();
+
+  EXPECT_EQ(a_det_vals_before.size(), a_det_vals_after.size());
+  EXPECT_EQ(a_det_map_before.size(), a_det_map_after.size());
+
+  // Same values, same order
+  for (size_t i = 0; i < a_det_vals_before.size(); ++i) {
+    EXPECT_EQ(a_det_vals_before[i], a_det_vals_after[i]);
+  }
+}
+
+TEST_F(Phase2ContainerTest, DeterministicValsEmptyForNewFusion) {
+  // New empty Fusion should have empty deterministic vals
+  Fusion a;
+
+  auto det_vals = a.deterministic_vals();
+  auto det_exprs = a.deterministic_exprs();
+  auto det_vals_map = a.deterministic_vals_map();
+  auto det_exprs_map = a.deterministic_exprs_map();
+
+  EXPECT_EQ(det_vals.size(), 0);
+  EXPECT_EQ(det_exprs.size(), 0);
+  EXPECT_EQ(det_vals_map.size(), 0);
+  EXPECT_EQ(det_exprs_map.size(), 0);
+}
+
+TEST_F(Phase2ContainerTest, DeterministicValsAfterClear) {
+  // After clear, deterministic vals should be empty
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  EXPECT_GT(a.deterministic_vals().size(), 0);
+  EXPECT_GT(a.deterministic_exprs().size(), 0);
+
+  a.clear();
+
+  EXPECT_EQ(a.deterministic_vals().size(), 0);
+  EXPECT_EQ(a.deterministic_exprs().size(), 0);
+  EXPECT_EQ(a.deterministic_vals_map().size(), 0);
+  EXPECT_EQ(a.deterministic_exprs_map().size(), 0);
+}
+
+// =============================================================================
+// StatementGuard Tests with Shared Containers
+// =============================================================================
+
+TEST_F(Phase2ContainerTest, StatementGuardWithSharedContainer) {
+  // Test that StatementGuard works correctly with shared containers
+  // Bug: StatementGuard uses per-Fusion counts but removes from container
+  // deques
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a); // Copy - shares container
+
+  // Capture b's state before StatementGuard on a
+  size_t b_vals_before = b.ownedVals().size();
+  size_t b_exprs_before = b.ownedExprs().size();
+  std::vector<Val*> b_vals(b.ownedVals().begin(), b.ownedVals().end());
+
+  {
+    FusionGuard fg_inner(&a);
+    StatementGuard sg(&a);
+
+    // Create temporary vals in a
+    auto* temp = add(tv1, tv1);
+    (void)temp;
+
+    // a has more vals now
+    EXPECT_GT(a.ownedVals().size(), b_vals_before);
+  }
+  // StatementGuard destructor should only remove a's new vals, not b's
+
+  // b should be completely unaffected
+  EXPECT_EQ(b.ownedVals().size(), b_vals_before);
+  EXPECT_EQ(b.ownedExprs().size(), b_exprs_before);
+
+  // b's vals should still have correct container
+  for (auto* val : b_vals) {
+    EXPECT_EQ(val->container(), &b);
+    EXPECT_TRUE(b.ownedVals().count(val) > 0);
+  }
+}
+
+TEST_F(Phase2ContainerTest, StatementGuardDoesNotAffectOtherFusion) {
+  // StatementGuard on one Fusion should not affect another sharing the
+  // container
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  size_t a_vals_before_copy = a.ownedVals().size();
+
+  Fusion b(a); // Copy - shares container
+
+  // Both should have same number of vals (cloned)
+  EXPECT_EQ(a_vals_before_copy, b.ownedVals().size());
+
+  size_t b_vals_at_guard_start = 0;
+  size_t b_vals_in_guard = 0;
+
+  // Use StatementGuard on b to create and remove temp statements
+  {
+    FusionGuard fg_b(&b);
+    StatementGuard sg(&b);
+
+    // Note: StatementGuard constructor calls axioms() which may create
+    // additional vals. The snapshot is taken AFTER axioms initialization.
+    b_vals_at_guard_start = b.ownedVals().size();
+
+    // Create temp vals in b
+    auto* b_input = b.inputs()[0]->as<TensorView>();
+    auto* temp = mul(b_input, b_input);
+    (void)temp;
+
+    b_vals_in_guard = b.ownedVals().size();
+
+    // b should have more vals now (from the temp operation)
+    EXPECT_GT(b_vals_in_guard, b_vals_at_guard_start);
+  }
+
+  size_t a_vals_after = a.ownedVals().size();
+  size_t b_vals_after = b.ownedVals().size();
+
+  // After guard, a should be unchanged
+  EXPECT_EQ(a_vals_after, a_vals_before_copy);
+
+  // b should be back to its state at guard construction time
+  // (which includes axioms but not the temp vals created inside the guard)
+  EXPECT_EQ(b_vals_after, b_vals_at_guard_start);
 }
 
 } // namespace nvfuser
