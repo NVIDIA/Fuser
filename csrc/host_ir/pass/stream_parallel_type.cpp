@@ -222,7 +222,22 @@ std::list<Expr*> groupStreamParallelRegions(
     if (stream_axis == nullptr) {
       auto* input = expr->input(0)->as<TensorView>();
       IterDomain* input_stream_axis = getStreamAxis(input->getLoopDomain());
-      if (input_stream_axis == nullptr) {
+      int64_t input_stream_axis_index = -1;
+      if (input_stream_axis != nullptr) {
+        const auto& input_loop_domain = input->getLoopDomain();
+        for (size_t idx = 0; idx < input_loop_domain.size(); ++idx) {
+          if (input_loop_domain[idx] == input_stream_axis) {
+            input_stream_axis_index = static_cast<int64_t>(idx);
+            break;
+          }
+        }
+      }
+      // Check if input_stream_axis is nullptr, or if the stream axis is the outermost axis (index 0)
+      // This is to differentiate between the reduce-collective-based algorithm and the p2p-based algorithm
+      // In both algorithms, we have a reduce op at the end of the fusion. But in the reduce-collective-based algorithm,
+      // the reduce op's input is [didx(d), stream(d), M/d, N] and in the p2p-based algorithm, it's [stream(d), didx(d), M/d, N]
+      // So, if it's the p2p-based algorithm, don't merge the reduce op into the for-loop
+      if (input_stream_axis == nullptr || input_stream_axis_index == 0) {
         new_top_level_exprs.push_back(expr);
         continue;
       } else {
