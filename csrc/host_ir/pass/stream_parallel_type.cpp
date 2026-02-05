@@ -322,7 +322,7 @@ std::list<Expr*> addTensorAllocations(
           NVF_ERROR(output_tv != nullptr, "expected a tensor output but got ", reduction_op);
           int input_stream_axis =
               findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model);
-          if(input_stream_axis != -1) {
+          if(input_stream_axis == 1) { // The stream axis is the second axis (MM+RS reduce-collective-based algorithm)
             new_top_level_exprs.push_back(
                 IrBuilder::create<kir::Allocate>(output_tv, output_tv->getMemoryType()));
           }
