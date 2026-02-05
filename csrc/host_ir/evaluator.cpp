@@ -718,11 +718,20 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   auto indexed_id =
       hir_alias_select->in()->getLogicalDomain().at(hir_alias_select->axis());
+  auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
+                   .as<at::Tensor>();
+
+  // If the axis being selected is a reduction axis, the tensor doesn't have
+  // that dimension (it was skipped during allocation). The select is a no-op -
+  // just bind the input tensor directly to the output.
+  if (indexed_id->isReduction()) {
+    expr_evaluator_.bind(hir_alias_select->out(), input);
+    return;
+  }
+
   auto index = indexed_id->isBroadcast()
       ? 0
       : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
-  auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
-                   .as<at::Tensor>();
 
   // Count reduction axes up to the target axis
   int64_t reduction_count = std::count_if(

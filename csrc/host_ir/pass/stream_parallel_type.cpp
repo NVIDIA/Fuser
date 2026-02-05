@@ -213,13 +213,24 @@ std::list<Expr*> groupStreamParallelRegions(
         "Each expr should have at most one output.");
 
     // Get the output tensor and check for stream parallelization
-    auto* output = expr->output(0)->as<TensorView>();
-    IterDomain* stream_axis = getStreamAxis(output->getLoopDomain());
+    auto* tv = expr->output(0)->as<TensorView>();
+    IterDomain* stream_axis = getStreamAxis(tv->getLoopDomain());
+    bool is_input = false;
 
-    // If no stream axis found, keep the expression as is
+    // If no stream axis found, check the input tensor for a stream axis
+    // If found, use that. If not, keep the expression as is
     if (stream_axis == nullptr) {
-      new_top_level_exprs.push_back(expr);
-      continue;
+      auto* input = expr->input(0)->as<TensorView>();
+      IterDomain* input_stream_axis = getStreamAxis(input->getLoopDomain());
+      if (input_stream_axis == nullptr) {
+        new_top_level_exprs.push_back(expr);
+        continue;
+      } else {
+        // Special handling to allow reduction ops to have the stream axis on the input for the MM+RS reduce-collective-based algorithm
+        tv = input;
+        stream_axis = input_stream_axis;
+        is_input = true;
+      }
     }
 
     // Verify that the expression can be handled as a standalone host operation
@@ -229,14 +240,14 @@ std::list<Expr*> groupStreamParallelRegions(
         expr);
 
     // Validate stream axis
-    validateStreamAxis(stream_axis, output);
+    validateStreamAxis(stream_axis, tv);
 
     // Check if we can merge this expression with the previous for-loop
     if (canMergeWithPreviousForLoop(
             new_top_level_exprs, stream_axis, id_model, isResharding(expr))) {
       // Merge with existing for-loop by adding the expression to its body
       new_top_level_exprs.back()->as<kir::ForLoop>()->body().pushBack(expr);
-    } else {
+    } else if (!is_input) {
       // Create a new for-loop for stream parallelization
       auto* for_loop = IrBuilder::create<kir::ForLoop>(
           stream_axis,
@@ -282,6 +293,23 @@ std::list<Expr*> addTensorAllocations(
             }
             new_top_level_exprs.push_back(IrBuilder::create<kir::Allocate>(
                 output, output->getMemoryType()));
+          }
+        }
+        // If this expression is a reduction op,
+        // check if any axis on the input was stream parallelized.
+        // If yes, push_back an allocation for it.
+        // This is to handle allocating outputs for the MM+RS reduce-collective-based algorithm
+        if (body_expr->isA<ReductionOp>()) {
+          auto* reduction_op = body_expr->as<ReductionOp>();
+          auto* input_tv = dynamic_cast<TensorView*>(reduction_op->in());
+          TensorView* output_tv = dynamic_cast<TensorView*>(reduction_op->out());
+          NVF_ERROR(input_tv != nullptr, "expected a tensor input but got ", reduction_op);
+          NVF_ERROR(output_tv != nullptr, "expected a tensor output but got ", reduction_op);
+          int input_stream_axis =
+              findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model);
+          if(input_stream_axis != -1) {
+            new_top_level_exprs.push_back(
+                IrBuilder::create<kir::Allocate>(output_tv, output_tv->getMemoryType()));
           }
         }
       }
@@ -369,7 +397,7 @@ std::list<Expr*> processForLoopBodies(
 
       const auto& communicator_backend = params.communicator_backend;
 
-      // Lower to MM + RS algorithm
+      // Lower to MM + RS p2p based algorithm
       if (did_to_stream && stream_to_did) {
         NVF_ERROR(
             body_expr->isA<LoadStoreOp>() &&
@@ -383,7 +411,7 @@ std::list<Expr*> processForLoopBodies(
         NVF_ERROR(
             params.offset_stream_indexing_by_rank == true,
             "offset_stream_indexing_by_rank==false not supported for "
-            "ReduceScatter patterns");
+            "ReduceScatter p2p basedpatterns");
         auto* set_op = body_expr->as<LoadStoreOp>();
         auto* input_tv = set_op->in()->as<TensorView>();
         auto* output_tv = set_op->out()->as<TensorView>();
@@ -472,7 +500,44 @@ std::list<Expr*> processForLoopBodies(
         new_loop_body.push_back(slicing_input);
         new_loop_body.push_back(slicing_output);
         new_loop_body.push_back(if_sending_to_self);
-      } else if (did_to_stream) {
+      } else if (!did_to_stream && stream_to_did) {
+        // Lower to the MM+RS reduce-collective-based algorithm
+        NVF_ERROR(
+            params.offset_stream_indexing_by_rank == false,
+            "offset_stream_indexing_by_rank==true not supported for "
+            "MM+RS reduce-collective-based patterns");
+        NVF_ERROR(
+            body_expr->isA<ReductionOp>(),
+            "expected a reduction operation but got ",
+            body_expr);
+        NVF_ERROR(
+            body_expr->as<ReductionOp>()->getReductionOpType() == BinaryOpType::Add,
+            "expected a reduce operation but got ",
+            body_expr);
+        auto* reduction_op = body_expr->as<ReductionOp>();
+        auto* input_tv = reduction_op->in()->as<TensorView>();
+        auto* output_tv = reduction_op->out()->as<TensorView>();
+        auto [slicing_input, is_new] = tensor_slicing_cache.get(
+            input_tv,
+            /*dim*/
+            findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model),
+            /*index=*/tensor_index);
+        auto [slicing_output, is_new_] =
+            tensor_slicing_cache.get(output_tv, /*dim*/ 0, /*index=*/tensor_index);
+        auto reduce = IrBuilder::create<Communication>(
+            CommunicationType::Reduce,
+            slicing_output->out(),
+            slicing_input->out(),
+            input_tv->getDeviceMesh().vector(),
+            tensor_index,
+            c10d::ReduceOp::RedOpType::SUM,
+            communicator_backend);
+        auto wait = IrBuilder::create<hir::Wait>(reduce);
+        new_loop_body.push_back(slicing_input);
+        new_loop_body.push_back(slicing_output);
+        new_loop_body.push_back(reduce);
+        new_loop_body.push_back(wait);
+      } else if (did_to_stream && !stream_to_did) {
         // Lower to AG+MM algorithm if did_to_stream=true && stream_to_did=false
         //
         // We have a special handling for when an axis pass from DIDx to Stream
