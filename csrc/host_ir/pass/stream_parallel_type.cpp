@@ -310,23 +310,6 @@ std::list<Expr*> addTensorAllocations(
                 output, output->getMemoryType()));
           }
         }
-        // If this expression is a reduction op,
-        // check if any axis on the input was stream parallelized.
-        // If yes, push_back an allocation for it.
-        // This is to handle allocating outputs for the MM+RS reduce-collective-based algorithm
-        if (body_expr->isA<ReductionOp>()) {
-          auto* reduction_op = body_expr->as<ReductionOp>();
-          auto* input_tv = dynamic_cast<TensorView*>(reduction_op->in());
-          TensorView* output_tv = dynamic_cast<TensorView*>(reduction_op->out());
-          NVF_ERROR(input_tv != nullptr, "expected a tensor input but got ", reduction_op);
-          NVF_ERROR(output_tv != nullptr, "expected a tensor output but got ", reduction_op);
-          int input_stream_axis =
-              findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model);
-          if(input_stream_axis == 1) { // The stream axis is the second axis (MM+RS reduce-collective-based algorithm)
-            new_top_level_exprs.push_back(
-                IrBuilder::create<kir::Allocate>(output_tv, output_tv->getMemoryType()));
-          }
-        }
       }
     }
     new_top_level_exprs.push_back(expr);
