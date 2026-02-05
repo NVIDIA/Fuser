@@ -5,8 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/utils.h>
-#include "base.h"
+#include "scheduler/utils.h"
 
 #include <algorithm>
 #include <queue>
@@ -14,34 +13,35 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <bfs.h>
-#include <contiguity.h>
-#include <cuda_utils.h>
-#include <expr_evaluator.h>
-#include <id_model/id_model.h>
-#include <id_model/schedule.h>
-#include <instrumentation.h>
-#include <ir/allocation_utils.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <multidevice/allocation_utils.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <scheduler/vectorize_helper.h>
-#include <transform_iter.h>
-#include <transform_replay.h>
-#include <type.h>
-#include <val_graph_visitor.h>
+#include "base.h"
+#include "bfs.h"
+#include "contiguity.h"
+#include "cuda_utils.h"
+#include "expr_evaluator.h"
+#include "id_model/id_model.h"
+#include "id_model/schedule.h"
+#include "instrumentation.h"
+#include "ir/allocation_utils.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "multidevice/allocation_utils.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/registry.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "scheduler/vectorize_helper.h"
+#include "transform_iter.h"
+#include "transform_replay.h"
+#include "type.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 

@@ -5,15 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ops/arith.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/normalization_inner_tma.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-
-#include <ATen/cuda/CUDAContext.h>
+#include "scheduler/normalization_inner_tma.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -21,9 +13,17 @@
 #include <optional>
 #include <ranges>
 
-#include <exceptions.h>
-#include <iter_visitor.h>
-#include <runtime/executor_params.h>
+#include <ATen/cuda/CUDAContext.h>
+
+#include "exceptions.h"
+#include "iter_visitor.h"
+#include "ops/arith.h"
+#include "runtime/executor_params.h"
+#include "scheduler/cache_policy_refiner.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 namespace normalization_inner {

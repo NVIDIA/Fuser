@@ -6,7 +6,8 @@
  */
 // clang-format on
 
-#include <scheduler/tools/cub_utils.h>
+#include "scheduler/tools/cub_utils.h"
+
 #include "base.h"
 
 namespace nvfuser {

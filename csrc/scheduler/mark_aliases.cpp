@@ -5,12 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <alias_analysis.h>
-#include <ir/internal_nodes.h>
-#include <ir/utils.h>
-#include <options.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/mark_aliases.h>
+#include "scheduler/mark_aliases.h"
+
+#include "alias_analysis.h"
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
+#include "options.h"
+#include "scheduler/debug_utils.h"
 
 namespace nvfuser {
 

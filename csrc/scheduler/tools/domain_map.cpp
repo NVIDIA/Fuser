@@ -5,10 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/utils.h>
+#include "scheduler/tools/domain_map.h"
 
 #include <ranges>
+
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 namespace scheduler_tools {

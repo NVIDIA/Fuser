@@ -6,34 +6,35 @@
  */
 // clang-format on
 
-#include <debug.h>
-#include <device_lower/analysis/fusion_info.h>
-#include <device_lower/analysis/sync_information.h>
-#include <device_lower/utils.h>
-#include <exceptions.h>
-#include <id_model/id_model.h>
-#include <id_model/to_string.h>
-#include <instrumentation.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <ops/all_ops.h>
-#include <options.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/greedy.h>
-#include <scheduler/mark_aliases.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/cub_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <scheduler/tools/maxinfo_propagator.h>
-#include <scheduler/utils.h>
-#include <transform_replay.h>
-#include <val_graph_visitor.h>
-
-#include <ATen/cuda/CUDAContext.h>
+#include "scheduler/greedy.h"
 
 #include <ranges>
 #include <vector>
+
+#include <ATen/cuda/CUDAContext.h>
+
+#include "debug.h"
+#include "device_lower/analysis/fusion_info.h"
+#include "device_lower/analysis/sync_information.h"
+#include "device_lower/utils.h"
+#include "exceptions.h"
+#include "id_model/id_model.h"
+#include "id_model/to_string.h"
+#include "instrumentation.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "ops/all_ops.h"
+#include "options.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/mark_aliases.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/cub_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "scheduler/tools/maxinfo_propagator.h"
+#include "scheduler/utils.h"
+#include "transform_replay.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
