@@ -5,20 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "scheduler/reduction_utils.h"
+
 #include <ATen/cuda/CUDAContext.h>
-#include <expr_evaluator.h>
-#include <ir/cloner.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <multidevice/utils.h>
-#include <ops/arith.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/maxinfo_propagator.h>
-#include <scheduler/utils.h>
-#include <transform_replay.h>
+
 #include "base.h"
+#include "expr_evaluator.h"
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "multidevice/utils.h"
+#include "ops/arith.h"
+#include "scheduler/registry.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/maxinfo_propagator.h"
+#include "scheduler/utils.h"
+#include "transform_replay.h"
 
 namespace nvfuser {
 

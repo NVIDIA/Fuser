@@ -6,16 +6,18 @@
  */
 // clang-format on
 
-#include <ir/interface_nodes.h>
-#include <mma_type.h>
-#include <scheduler/matmul_heuristic_plugin.h>
-#include <scheduler/mma_utils.h>
-#include <sys_utils.h>
-#include "base.h"
+#include "scheduler/matmul_heuristic_plugin.h"
 
 #include <cstdint>
 #include <memory>
+
 #include <mutex>
+
+#include "base.h"
+#include "ir/interface_nodes.h"
+#include "mma_type.h"
+#include "scheduler/mma_utils.h"
+#include "sys_utils.h"
 
 namespace nvfuser {
 

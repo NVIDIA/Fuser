@@ -5,16 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "scheduler/reduction.h"
+
 #include <ATen/cuda/CUDAContext.h>
-#include <debug.h>
-#include <instrumentation.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/reduction.h>
-#include <scheduler/reduction_non_tma.h>
-#include <scheduler/reduction_tma.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
+
+#include "debug.h"
+#include "instrumentation.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/reduction_non_tma.h"
+#include "scheduler/reduction_tma.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
 
 namespace nvfuser {
 

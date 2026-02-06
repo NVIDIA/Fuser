@@ -6,16 +6,16 @@
  */
 // clang-format on
 
-#include <device_lower/utils.h>
-#include <exceptions.h>
-#include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <scheduler/cutlass.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
-
 #include <dlfcn.h>
+
+#include "device_lower/utils.h"
+#include "exceptions.h"
+#include "instrumentation.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "scheduler/cutlass.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 

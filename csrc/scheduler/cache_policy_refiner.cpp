@@ -6,13 +6,14 @@
  */
 // clang-format on
 
-#include <fusion.h>
-#include <ir/base_nodes.h>
-#include <ir/internal_nodes.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/debug_utils.h>
+#include "scheduler/cache_policy_refiner.h"
+
+#include "fusion.h"
+#include "ir/base_nodes.h"
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "scheduler/debug_utils.h"
 
 namespace nvfuser {
 

@@ -6,14 +6,15 @@
  */
 // clang-format on
 
-#include <id_model/id_model.h>
-#include <ir/cloner.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <logical_domain_map.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <scheduler/tools/resize_utils.h>
-#include <val_graph_visitor.h>
+#include "scheduler/tools/resize_utils.h"
+
+#include "id_model/id_model.h"
+#include "ir/cloner.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "logical_domain_map.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 namespace scheduler_tools {
