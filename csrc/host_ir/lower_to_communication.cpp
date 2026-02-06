@@ -8,17 +8,14 @@
 
 #include "host_ir/lower_to_communication.h"
 
-#include "host_ir/container.h"
-#include "ir/all_nodes.h"
-#include "ir/allocation_utils.h"
 #include "ir/builder.h"
+#include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/iostream.h"
-#include "kernel_ir.h"
+#include "logical_domain_map.h"
 #include "multidevice/communication.h"
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
-#include "ops/all_ops.h"
 
 namespace nvfuser {
 
@@ -56,10 +53,11 @@ void lowerToScatter(
     const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
-  NVF_ERROR(
-      receiver_mesh.rank() == 1,
+  NVF_ERROR_EQ(
+      receiver_mesh.rank(),
+      1,
       "Gather only supported on a 1D mesh. Given ",
-      receiver_mesh);
+      output_tv->toString());
 
   // Find a common device between input and receiver meshes to be the root
   std::vector<DeviceIdxType> input_devices = input_tv->getDeviceMesh().vector();
@@ -348,13 +346,16 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       "getCommunicationInfo should only be called when `e` is known to be a "
       "communication. Given: ",
       e);
-
+  NVF_ERROR_EQ(
+      e->inputs().size(), 1, "Expected 1 input, but got ", e->toString());
   auto* producer = e->inputs().at(0)->as<TensorView>();
+  NVF_ERROR_EQ(
+      e->outputs().size(), 1, "Expected 1 output, but got ", e->toString());
   auto* consumer = e->outputs().at(0)->as<TensorView>();
-  std::optional<CommunicationInfo> communication_info = std::nullopt;
 
-  // Fill `communication_info` instead of returning the result, so we can catch
-  // errors when more than one DIDs have sharding changes.
+  std::optional<CommunicationInfo> communication_info = std::nullopt;
+  // Fill `communication_info` instead of returning the result, so we can
+  // catch errors when more than one DIDs have sharding changes.
   auto fill_communication_info = [&](CommunicationType type,
                                      IterDomain* p_sharded_id,
                                      IterDomain* c_sharded_id) {
@@ -375,18 +376,22 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
   auto consumer_pt_to_did =
       mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
 
+  const DeviceMesh& producer_mesh = producer->getDeviceMesh();
+  const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
+  const bool same_mesh = producer_mesh == consumer_mesh;
+
   for (ParallelType pt : kParallelTypeDIDs) {
+    if (!haveDifferentShardings(producer, consumer, {pt})) {
+      continue;
+    }
+
     IterDomain* p_loop_did = getOrDefault(producer_pt_to_did, pt);
     IterDomain* c_loop_did = getOrDefault(consumer_pt_to_did, pt);
 
     if (p_loop_did == nullptr && c_loop_did == nullptr) {
       // Not sharded on this parallel type
-      continue;
+      NVF_THROW("Not sharded on this parallel type: ", pt);
     }
-
-    const DeviceMesh& producer_mesh = producer->getDeviceMesh();
-    const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
-    const bool same_mesh = producer_mesh == consumer_mesh;
 
     if (e->isA<LoadStoreOp>()) {
       if (p_loop_did && !c_loop_did) {
@@ -435,7 +440,8 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       auto c_it = p2c_map.find(p_logical_id);
       NVF_ERROR(
           c_it != p2c_map.end(),
-          "Cannot find the mapped consumer logical ID for the producer logical "
+          "Cannot find the mapped consumer logical ID for the producer "
+          "logical "
           "ID ",
           p_logical_id->toString());
       if (!c_it->second->isReduction()) {

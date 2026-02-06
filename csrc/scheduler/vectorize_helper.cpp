@@ -829,8 +829,13 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       break;
     }
 
-    auto sharded_extent = SimplifyingIrBuilder::divExpr(
-        getProjectedExtent(logical_id), num_devices);
+    Val* sharded_extent;
+    if (logical_id->isDeviceDim()) {
+      sharded_extent = of_tv->container()->oneVal();
+    } else {
+      sharded_extent = SimplifyingIrBuilder::divExpr(
+          getProjectedExtent(logical_id), num_devices);
+    }
     product_of_inner_extents =
         SimplifyingIrBuilder::mulExpr(product_of_inner_extents, sharded_extent);
   }
