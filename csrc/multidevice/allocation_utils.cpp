@@ -93,16 +93,23 @@ void shardAllocationAsLoop(
       {loop_ids_to_replicate.begin(), loop_ids_to_replicate.end()});
 
   for (auto* e : transforms) {
-    auto* split = dynamic_cast<Split*>(e);
-    NVF_ERROR(
-        split != nullptr,
-        "Expected all transform exprs to be a split between allocation and "
-        "loop domain during sharding propagation.");
-    const auto [contiguity, split_i] =
-        allocation_to_contiguity.erase(split->in());
-    auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
-    allocation_to_contiguity.insert(split_i, split->outer(), outer_contiguity);
-    allocation_to_contiguity.insert(split_i, split->inner(), inner_contiguity);
+    if (e->isA<Swizzle1D>()) {
+      auto* swizzle1d = e->as<Swizzle1D>();
+      const auto [contiguity, swizzle_i] =
+          allocation_to_contiguity.erase(swizzle1d->in());
+      allocation_to_contiguity.insert(swizzle_i, swizzle1d->out(), contiguity);
+    } else if (e->isA<Split>()) {
+      auto* split = e->as<Split>();
+      const auto [contiguity, split_i] =
+          allocation_to_contiguity.erase(split->in());
+      auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
+      allocation_to_contiguity.insert(
+          split_i, split->outer(), outer_contiguity);
+      allocation_to_contiguity.insert(
+          split_i, split->inner(), inner_contiguity);
+    } else {
+      NVF_THROW("Expected a swizzle1d or split transform. Got: ", e);
+    }
   }
 
   std::vector<IterDomain*> new_allocation_domain;

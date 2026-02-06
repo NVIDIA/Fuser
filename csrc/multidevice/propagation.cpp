@@ -181,51 +181,66 @@ void transformLoopDomain(
       {device_or_stream_ids.begin(), device_or_stream_ids.end()});
 
   for (Expr* transform : transforms) {
-    auto* split = dynamic_cast<Split*>(transform);
-    NVF_ERROR(
-        split != nullptr,
-        "Expected a split transform producing the device/stream id. Got: ",
-        transform);
+    if (transform->isA<Swizzle1D>()) {
+      auto* swizzle = transform->as<Swizzle1D>();
+      IterDomain* ref_id = swizzle->in();
+      IterDomain* target_id = get_target_id(ref_id);
+      NVF_ERROR(
+          transformed_loop.contains(target_id),
+          "Expected the target ID, ",
+          target_id,
+          ", to be in the loop domain.");
+      auto it = transformed_loop.erase(target_id).second;
+      auto replayed_id =
+          IterDomain::swizzle1d(target_id, swizzle->parallelType());
+      transformed_loop.insert(it, replayed_id, std::monostate());
+      ref2target[swizzle->out()] = replayed_id;
+    } else if (transform->isA<Split>()) {
+      auto* split = transform->as<Split>();
+      IterDomain* ref_id = split->in();
+      IterDomain* target_id = get_target_id(ref_id);
+      NVF_ERROR(
+          transformed_loop.contains(target_id),
+          "Expected the target ID, ",
+          target_id,
+          ", to be in the loop domain.");
 
-    IterDomain* ref_id = split->in();
-    IterDomain* target_id = get_target_id(ref_id);
-    NVF_ERROR(
-        transformed_loop.contains(target_id),
-        "Expected the target ID, ",
-        target_id,
-        ", to be in the loop domain.");
+      // Sharding on producer logical id is equivalent to sharding on the
+      // outermost consumer reshaped id iff:
+      // 1. The reference is outer split by num_devices.
+      // 2. The extent of sharded id in producer / consumer is divisible by
+      // split_factor. NOTE: We can only check if DID(d) is on the outer of the
+      // split regardless of the split_factor. However, when applying the split
+      // to the target, the split_factor will need to be num_devices. For e.g.:
+      // A[h]
+      // -> reshape -> B[a, h/a] If A is inner split `h/d`, then directly
+      // replaying the split on `a` will produce `a/(h/d), h/d` instead of `d,
+      // a/d`. So we should instead outer split by num_devices.
 
-    // Sharding on producer logical id is equivalent to sharding on the
-    // outermost consumer reshaped id iff:
-    // 1. The reference is outer split by num_devices.
-    // 2. The extent of sharded id in producer / consumer is divisible by
-    // split_factor. NOTE: We can only check if DID(d) is on the outer of the
-    // split regardless of the split_factor. However, when applying the split to
-    // the target, the split_factor will need to be num_devices. For e.g.: A[h]
-    // -> reshape -> B[a, h/a] If A is inner split `h/d`, then directly
-    // replaying the split on `a` will produce `a/(h/d), h/d` instead of `d,
-    // a/d`. So we should instead outer split by num_devices.
+      // Find the consumer between the reference and target.
+      auto [consumer_id, consumer_tv] =
+          direction == PropagateDirection::kForward
+          ? std::make_pair(target_id, target)
+          : std::make_pair(ref_id, ref);
 
-    // Find the consumer between the reference and target.
-    auto [consumer_id, consumer_tv] = direction == PropagateDirection::kForward
-        ? std::make_pair(target_id, target)
-        : std::make_pair(ref_id, ref);
+      if (hasRootToLogicalTransform(consumer_id, consumer_tv)) {
+        validate_split(split, target_id);
+      }
 
-    if (hasRootToLogicalTransform(consumer_id, consumer_tv)) {
-      validate_split(split, target_id);
+      auto it = transformed_loop.erase(target_id).second;
+      auto [outer, inner] =
+          IterDomain::split(target_id, split->factor(), split->innerSplit());
+
+      transformed_loop.insert(it, outer, std::monostate());
+      transformed_loop.insert(it, inner, std::monostate());
+
+      // Add mapping between ref and target for the propagated DID split.
+      // This is used to propagate 2D sharding and parallelization.
+      ref2target[split->outer()] = outer;
+      ref2target[split->inner()] = inner;
+    } else {
+      NVF_THROW("Expected a split or swizzle1d transform. Got: ", transform);
     }
-
-    auto it = transformed_loop.erase(target_id).second;
-    auto [outer, inner] =
-        IterDomain::split(target_id, split->factor(), split->innerSplit());
-
-    transformed_loop.insert(it, outer, std::monostate());
-    transformed_loop.insert(it, inner, std::monostate());
-
-    // Add mapping between ref and target for the propagated DID split.
-    // This is used to propagate 2D sharding and parallelization.
-    ref2target[split->outer()] = outer;
-    ref2target[split->inner()] = inner;
   }
 
   // Parallelize based on the ref2target map.

@@ -18,7 +18,8 @@ namespace nvfuser {
 
 // Transform dispatch
 void ReplayTransformations::dispatch(Expr* e) {
-  auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle, Resize>();
+  auto is_supported_expr =
+      e->isOneOf<Split, Merge, Swizzle, Swizzle1D, Resize>();
   NVF_ERROR(
       is_supported_expr, "Invalid expr type found in transform traversal.");
   IterVisitor::dispatch(e);
@@ -183,6 +184,13 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
   // Update our ID map to include these outputs
   id_map_[swizzle->outX()] = outs.first;
   id_map_[swizzle->outY()] = outs.second;
+}
+
+void ReplayTransformations::handle(Swizzle1D* swizzle1d) {
+  NVF_THROW(
+      "Swizzle1D replay not supported in ReplayTransformations, use ReplaySelf "
+      "instead: ",
+      swizzle1d->toString());
 }
 
 void ReplayTransformations::handle(Resize* exp) {
