@@ -51,12 +51,13 @@ def test_pointwise(multidevice_test):
 
 
 @pytest.mark.mpi
-def test_transpose(multidevice_test):
+def test_pointwise_vectorization(multidevice_test):
+    # Repro for https://github.com/NVIDIA/Fuser/issues/5920
     d = multidevice_test.size
     cp_size = 2
     if d % (cp_size * cp_size) != 0:
         pytest.skip(
-            f"We only support even split, so {d} has to be divisible by {cp_size * cp_size} for {cp_size=}."
+            f"We only support even split, so {d=} has to be divisible by {cp_size * cp_size} for {cp_size=}."
         )
     dp_size = d // (cp_size * cp_size)
 
@@ -104,7 +105,8 @@ def test_transpose(multidevice_test):
     out_ref = inp_ref
 
     inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
-    fd.execute([inp])
+    (out,) = fd.execute([inp])
+    torch.testing.assert_close(out, multidevice_test.shard_tensor(out_ref, out_tv))
 
 
 class QkvFormat(Enum):
