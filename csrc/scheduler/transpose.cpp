@@ -682,6 +682,29 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
       "combination of view op with small transpose dimensions are not "
       "supported by transpose scheduler");
 
+  // Double tile_size2 if the default configuration doesn't provide enough
+  // bytes in flight to saturate memory bandwidth. This is based on Little's
+  // law: bytes_in_flight = bandwidth * latency. We estimate the bits in flight
+  // per SM as: (sum of input tensor element sizes) * elements_per_tile *
+  // blocks_per_sm. If this is less than the required bits in flight (derived
+  // from hardware bandwidth and memory latency), we double tile_size2 to
+  // increase the data in flight.
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t max_blocks_per_sm = dev_prop->maxBlocksPerMultiProcessor;
+  const int64_t num_elems_per_tile = tparams->tile_size1 * tparams->tile_size2;
+  const int64_t required_bits_per_sm =
+      scheduler_utils::getRequiredBitsInFlight();
+  int64_t total_input_bits_per_elem = 0;
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    total_input_bits_per_elem +=
+        dataTypeSizeBit(tv->getDataType().value(), index_type);
+  }
+  const int64_t bits_in_flight_per_sm =
+      total_input_bits_per_elem * num_elems_per_tile * max_blocks_per_sm;
+  if (bits_in_flight_per_sm < required_bits_per_sm) {
+    tparams->tile_size2 *= 2;
+  }
+
   // Note [vectorization and unroll of input and output]
   //
   // The choice of vectorization size, block size and tile sizes needs to be
