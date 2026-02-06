@@ -418,6 +418,132 @@ def test_column_parallel_linear_forward_reference_benchmark(
 
 
 @pytest.mark.mpi
+def column_parallel_linear_forward(h: int, d: int):
+    with FusionDefinition() as fd:
+        inp_tv = fd.define_tensor((-1, h), contiguity=True, dtype=DataType.BFloat16)
+        weight_tv = fd.define_tensor(
+            (4 * h, h), contiguity=True, dtype=DataType.BFloat16
+        )
+        ag_out = fd.ops.set(inp_tv)
+        out_tv = fd.ops.linear(ag_out, weight_tv)
+        fd.add_output(out_tv)
+
+        mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+        for tv in [inp_tv, weight_tv]:
+            tv.set_device_mesh(mesh)
+            tv.outer_split(0, d)
+            tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+        ag_out.set_device_mesh(mesh)
+        ag_out.outer_split(0, d)
+        ag_out.axis(0).parallelize(nvfuser.ParallelType.stream)
+
+        # Fusion IR before segmentation will look like this:
+        #   [t, h]
+        #   /\.
+        #  d
+        # (deviceIdx.x)
+        #    |
+        #    | set (lowered to StreamBroadcast. This decomposition is done manually in the definition above. It will later be done by preseg)
+        #    |
+        #   [t, h]                                  [4h,  h]
+        #   /\                                      /\.
+        #  s                                       d
+        # (streamIdx)
+        #                      |
+        #                      | linear
+        #                      |
+        #                   [t, 4h, r{h}]
+        #                   /\  /\.
+        #                  s*   d
+
+    return fd
+
+
+@pytest.mark.mpi
+def test_column_parallel_linear_forward(multidevice_test):
+    # This is a port of CollectiveBasedOverlapTest.ColumnAndSequenceParallelLinear_Forward.
+    # The difference is we are using broadcast based overlapping instead of send/recv.
+    h, t = 2, 24
+    d = multidevice_test.size
+    if (h * 4) % d != 0:
+        pytest.skip(
+            f"Row-parallel linear requires {h * 4} to be divisible by world size {d}."
+        )
+    if t % d != 0:
+        pytest.skip(
+            f"Column-parallel linear requires {t} to be divisible by world size {d}."
+        )
+
+    fd = column_parallel_linear_forward(h, d)
+
+    inp_ref = torch.testing.make_tensor(t, h, dtype=torch.int32, device="cpu").to(
+        torch.bfloat16
+    )
+    weight_ref = torch.testing.make_tensor(
+        4 * h, h, dtype=torch.int32, device="cpu"
+    ).to(torch.bfloat16)
+
+    inp = multidevice_test.shard_tensor(inp_ref, fd.fusion.inputs()[0])
+    weight = multidevice_test.shard_tensor(weight_ref, fd.fusion.inputs()[1])
+
+    out_ref = torch.nn.functional.linear(inp_ref.cuda(), weight)
+
+    with torch.profiler.profile(record_shapes=True) as prof:
+        (out,) = fd.execute(
+            [inp, weight],
+            _enable_options=["host_ir_lowering"],
+            _disable_options=["infer_contiguity"],
+        )
+    torch.testing.assert_close(out, out_ref)
+    with torch.profiler.profile(record_shapes=True) as profile:
+        (out,) = fd.execute(
+            [inp],
+            _enable_options=["host_ir_lowering"],
+            _disable_options=["infer_contiguity"],
+        )
+    broadcast_events = [
+        event for event in profile.events() if "ncclDevKernel_Broadcast" in event.name
+    ]
+    assert len(broadcast_events) == d
+
+
+@pytest.mark.mpi
+@pytest.mark.benchmark
+def test_column_parallel_linear_forward_benchmark(multidevice_test, benchmark):
+    # This is a port of CollectiveBasedOverlapTest.RowParallelLinear_Forward.
+    h, t = 8192, 8192
+    d = multidevice_test.size
+    if (4 * h) % d != 0:
+        pytest.skip(
+            f"Column-parallel linear requires {4 * h} to be divisible by world size {d}."
+        )
+    if t % d != 0:
+        pytest.skip(
+            f"Column-parallel linear requires {t} to be divisible by world size {d}."
+        )
+
+    fd = column_parallel_linear_forward(h, d)
+
+    inp_ref = torch.randn(t, h, dtype=torch.bfloat16, device="cpu")
+    weight_ref = torch.randn(4 * h, h, dtype=torch.bfloat16, device="cpu")
+
+    inp = multidevice_test.shard_tensor(inp_ref, fd.fusion.inputs()[0])
+    weight = multidevice_test.shard_tensor(weight_ref, fd.fusion.inputs()[1])
+
+    warmup_fn, benchmark_fn = get_benchmark_fns(
+        lambda: fd.execute(
+            [inp, weight],
+            _enable_options=["host_ir_lowering"],
+            _disable_options=["infer_contiguity"],
+        )
+    )
+    warmup_fn()
+    benchmark.pedantic(benchmark_fn, rounds=5)
+
+
+@pytest.mark.mpi
 @pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(

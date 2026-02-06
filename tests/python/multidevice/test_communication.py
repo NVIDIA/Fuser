@@ -171,38 +171,3 @@ def test_alltoall(multidevice_test, inp_axis, out_axis):
     inp = multidevice_test.shard_tensor(in_ref, inp_tv)
     (out,) = fd.execute([inp])
     torch.testing.assert_close(out, multidevice_test.shard_tensor(out_ref, out_tv))
-
-
-@pytest.mark.mpi
-def test_broadcast_based_allgather(multidevice_test):
-    d = multidevice_test.size
-
-    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
-
-    with FusionDefinition() as fd:
-        inp_tv = fd.define_tensor((d * 3,), contiguity=True, dtype=DataType.Half)
-        out_tv = fd.ops.set(inp_tv)
-        fd.add_output(out_tv)
-
-        mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
-        inp_tv.set_device_mesh(mesh)
-        inp_tv.outer_split(0, d)
-        inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
-
-        out_tv.set_device_mesh(mesh)
-        out_tv.outer_split(0, d)
-        out_tv.axis(0).parallelize(nvfuser.ParallelType.stream)
-
-    unsharded_inp = torch.randn(d * 3, dtype=torch.float16)
-    inp = multidevice_test.shard_tensor(unsharded_inp, inp_tv)
-    with torch.profiler.profile(record_shapes=True) as profile:
-        (out,) = fd.execute(
-            [inp],
-            _enable_options=["host_ir_lowering"],
-            _disable_options=["infer_contiguity"],
-        )
-    broadcast_events = [
-        event for event in profile.events() if "ncclDevKernel_Broadcast" in event.name
-    ]
-    torch.testing.assert_close(out.cpu(), unsharded_inp)
-    print(broadcast_events, len(broadcast_events))
