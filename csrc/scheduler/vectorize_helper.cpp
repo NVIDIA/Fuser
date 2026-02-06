@@ -10,8 +10,6 @@
 #include <unordered_set>
 
 #include "compute_at_map.h"
-#include "contiguity.h"
-#include "device_lower/analysis/divisible_split.h"
 #include "expr_evaluator.h"
 #include "expr_simplifier.h"
 #include "id_model/id_model.h"
