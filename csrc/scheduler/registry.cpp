@@ -5,19 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "scheduler/registry.h"
+
 #include <ATen/cuda/CUDAContext.h>
-#include <instrumentation.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/greedy.h>
-#include <scheduler/heuristic.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/resize.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
-#include <visibility.h>
+
+#include "instrumentation.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/greedy.h"
+#include "scheduler/heuristic.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/resize.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

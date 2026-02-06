@@ -5,24 +5,25 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <expr_evaluator.h>
-#include <grouped_reduction.h>
-#include <id_model/id_model.h>
-#include <instrumentation.h>
-#include <iter_visitor.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <val_graph_visitor.h>
-#include "base.h"
+#include "scheduler/normalization_utils.h"
 
 #include <ATen/cuda/CUDAContext.h>
+
+#include "base.h"
+#include "expr_evaluator.h"
+#include "grouped_reduction.h"
+#include "id_model/id_model.h"
+#include "instrumentation.h"
+#include "iter_visitor.h"
+#include "scheduler/cache_policy_refiner.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/domain_map.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 namespace normalization_scheduler_utils {

@@ -5,22 +5,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/analysis/circular_buffer.h>
-#include <instrumentation.h>
-#include <multidevice/utils.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/matmul.h>
-#include <scheduler/matmul_hopper+.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
+#include "scheduler/matmul.h"
 
-// NOTE: included to avoid compilation error caused by missing destructor in
-// 'SchedulerRuntimeInfo'
-#include <runtime/executor_utils.h>
+#include "device_lower/analysis/circular_buffer.h"
+#include "instrumentation.h"
 #include "mma_type.h"
+#include "multidevice/utils.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/matmul_hopper+.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 

@@ -6,13 +6,15 @@
  */
 // clang-format on
 
+#include "scheduler/reduction_tma.h"
+
 #include <ATen/cuda/CUDAContext.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/reduction_tma.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
+
+#include "scheduler/cache_policy_refiner.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 namespace reduction {

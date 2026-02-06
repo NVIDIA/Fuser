@@ -6,18 +6,20 @@
  */
 // clang-format on
 
-#include <scheduler/pointwise.h>
+#include "scheduler/pointwise.h"
+
+#include <ranges>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <instrumentation.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/pointwise_non_tma.h>
-#include <scheduler/pointwise_tma.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
-#include <ranges>
+
+#include "instrumentation.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/pointwise_non_tma.h"
+#include "scheduler/pointwise_tma.h"
+#include "scheduler/pointwise_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 

@@ -6,10 +6,11 @@
  */
 // clang-format on
 
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <scheduler/tools/static_repeat.h>
+#include "scheduler/tools/static_repeat.h"
+
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
 
 namespace nvfuser {
 namespace scheduler_tools {
