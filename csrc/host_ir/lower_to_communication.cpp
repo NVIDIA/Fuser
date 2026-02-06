@@ -422,6 +422,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
         // Check if we are going from DIDx -> Stream, which is a ring allgather.
         // This can be executed as a broadcast or send recvs, which is decided
         // by the presence of a swizzle in the stream id definition.
+        // TODO: Lower to SendRecv if swizzle is present.
         if (c_stream_id != nullptr) {
           IterDomain* c_stream_logical_id =
               getLogicalFromLoopId(consumer, c_stream_id);
