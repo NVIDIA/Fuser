@@ -945,7 +945,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     }
   }
 
-  TensorView* reg_cached_input_tv = nullptr;
+  // TensorView* reg_cached_input_tv = nullptr;
   for (auto tv : smem_cached_input_tvs) {
     const auto& consumers = ir_utils::consumerTvsOf(tv);
     if (std::any_of(
@@ -1150,12 +1150,12 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   reference2->split(pos, tparams->vectorize_factor2);
   reference2->split(pos, tparams->getThreadsPerBlock());
 
-  reg_cached_input_tv->merge(pos);
-  reg_cached_input_tv->split(pos, tparams->vectorize_factor2);
-  reg_cached_input_tv->split(pos, tparams->getThreadsPerBlock());
-  reg_cached_input_tv->axis(pos)->parallelize(ParallelType::Unroll);
-  reg_cached_input_tv->axis(pos + 1)->parallelize(ParallelType::TIDx);
-  reg_cached_input_tv->axis(pos + 2)->parallelize(ParallelType::Vectorize);
+  // reg_cached_input_tv->merge(pos);
+  // reg_cached_input_tv->split(pos, tparams->vectorize_factor2);
+  // reg_cached_input_tv->split(pos, tparams->getThreadsPerBlock());
+  // reg_cached_input_tv->axis(pos)->parallelize(ParallelType::Unroll);
+  // reg_cached_input_tv->axis(pos + 1)->parallelize(ParallelType::TIDx);
+  // reg_cached_input_tv->axis(pos + 2)->parallelize(ParallelType::Vectorize);
   // [..., Unroll, TIDx, Vectorize, b...]
 
   // Propagate transformations of reference2 to the entire DAG except
