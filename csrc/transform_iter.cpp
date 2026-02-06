@@ -18,10 +18,10 @@ namespace nvfuser {
 
 // Transform dispatch
 void ReplayTransformations::dispatch(Expr* e) {
-  auto is_supported_expr =
-      e->isOneOf<Split, Merge, Swizzle, Swizzle1D, Resize>();
   NVF_ERROR(
-      is_supported_expr, "Invalid expr type found in transform traversal.");
+      (e->isOneOf<Split, Merge, Swizzle, Swizzle1D, Resize>()),
+      "Unsupported expr found in traversal: ",
+      e);
   IterVisitor::dispatch(e);
 }
 

@@ -93,13 +93,13 @@ void shardAllocationAsLoop(
       {loop_ids_to_replicate.begin(), loop_ids_to_replicate.end()});
 
   for (auto* e : transforms) {
-    if (e->isA<Swizzle1D>()) {
-      auto* swizzle1d = e->as<Swizzle1D>();
+    if (auto* swizzle1d = dynamic_cast<Swizzle1D*>(e)) {
       const auto [contiguity, swizzle_i] =
           allocation_to_contiguity.erase(swizzle1d->in());
       allocation_to_contiguity.insert(swizzle_i, swizzle1d->out(), contiguity);
-    } else if (e->isA<Split>()) {
-      auto* split = e->as<Split>();
+      continue;
+    }
+    if (auto* split = dynamic_cast<Split*>(e)) {
       const auto [contiguity, split_i] =
           allocation_to_contiguity.erase(split->in());
       auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
@@ -107,9 +107,9 @@ void shardAllocationAsLoop(
           split_i, split->outer(), outer_contiguity);
       allocation_to_contiguity.insert(
           split_i, split->inner(), inner_contiguity);
-    } else {
-      NVF_THROW("Expected a swizzle1d or split transform. Got: ", e);
+      continue;
     }
+    NVF_THROW("Expected a swizzle1d or split transform. Got: ", e);
   }
 
   std::vector<IterDomain*> new_allocation_domain;

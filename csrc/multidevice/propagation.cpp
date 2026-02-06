@@ -181,9 +181,8 @@ void transformLoopDomain(
       {device_or_stream_ids.begin(), device_or_stream_ids.end()});
 
   for (Expr* transform : transforms) {
-    if (transform->isA<Swizzle1D>()) {
-      auto* swizzle = transform->as<Swizzle1D>();
-      IterDomain* ref_id = swizzle->in();
+    if (auto* swizzle1d = dynamic_cast<Swizzle1D*>(transform)) {
+      IterDomain* ref_id = swizzle1d->in();
       IterDomain* target_id = get_target_id(ref_id);
       NVF_ERROR(
           transformed_loop.contains(target_id),
@@ -192,11 +191,12 @@ void transformLoopDomain(
           ", to be in the loop domain.");
       auto it = transformed_loop.erase(target_id).second;
       auto replayed_id =
-          IterDomain::swizzle1d(target_id, swizzle->parallelType());
+          IterDomain::swizzle1d(target_id, swizzle1d->parallelType());
       transformed_loop.insert(it, replayed_id, std::monostate());
-      ref2target[swizzle->out()] = replayed_id;
-    } else if (transform->isA<Split>()) {
-      auto* split = transform->as<Split>();
+      ref2target[swizzle1d->out()] = replayed_id;
+      continue;
+    }
+    if (auto* split = dynamic_cast<Split*>(transform)) {
       IterDomain* ref_id = split->in();
       IterDomain* target_id = get_target_id(ref_id);
       NVF_ERROR(
@@ -238,9 +238,9 @@ void transformLoopDomain(
       // This is used to propagate 2D sharding and parallelization.
       ref2target[split->outer()] = outer;
       ref2target[split->inner()] = inner;
-    } else {
-      NVF_THROW("Expected a split or swizzle1d transform. Got: ", transform);
+      continue;
     }
+    NVF_THROW("Expected a split or swizzle1d transform. Got: ", transform);
   }
 
   // Parallelize based on the ref2target map.
