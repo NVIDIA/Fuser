@@ -497,14 +497,8 @@ def test_column_parallel_linear_forward(multidevice_test):
             _disable_options=["infer_contiguity"],
         )
     torch.testing.assert_close(out, out_ref)
-    with torch.profiler.profile(record_shapes=True) as profile:
-        (out,) = fd.execute(
-            [inp],
-            _enable_options=["host_ir_lowering"],
-            _disable_options=["infer_contiguity"],
-        )
     broadcast_events = [
-        event for event in profile.events() if "ncclDevKernel_Broadcast" in event.name
+        event for event in prof.events() if "ncclDevKernel_Broadcast" in event.name
     ]
     assert len(broadcast_events) == d
 
@@ -536,7 +530,6 @@ def test_column_parallel_linear_forward_benchmark(multidevice_test, benchmark):
         lambda: fd.execute(
             [inp, weight],
             _enable_options=["host_ir_lowering"],
-            _disable_options=["infer_contiguity"],
         )
     )
     warmup_fn()
