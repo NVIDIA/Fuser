@@ -54,6 +54,7 @@ Layout getCommunicationLayout(
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* c,
     DeviceIdxType my_device_idx,
+    Val* host_loop_index = nullptr,
     const CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
 } // namespace nvfuser

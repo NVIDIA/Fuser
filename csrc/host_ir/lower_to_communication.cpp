@@ -170,7 +170,8 @@ void lowerToStreamBroadcast(
     TensorView* input_tv,
     TensorView* output_tv,
     const CommunicatorBackend backend,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    Val* root) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR_EQ(
@@ -186,8 +187,7 @@ void lowerToStreamBroadcast(
       output_tv,
       input_tv,
       team,
-      /*root=*/-1, // This will be replaced by HostIrLowering with the for-loop
-                   // index
+      root,
       c10d::ReduceOp::RedOpType::UNUSED,
       backend));
 }
@@ -583,6 +583,7 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* e,
     DeviceIdxType my_device_idx,
+    Val* host_loop_index,
     const CommunicatorBackend backend) {
   FusionGuard fg(e->fusion());
 
@@ -653,7 +654,11 @@ std::vector<Expr*> convertSingleOpToCommunication(
       lowerToAllToAll(input_tv, output_tv, backend, comms);
       break;
     case CommunicationType::StreamBroadcast:
-      lowerToStreamBroadcast(input_tv, output_tv, backend, comms);
+      NVF_ERROR(
+          host_loop_index != nullptr,
+          "StreamBroadcast requires a host loop index");
+      lowerToStreamBroadcast(
+          input_tv, output_tv, backend, comms, /*root=*/host_loop_index);
       break;
   }
 

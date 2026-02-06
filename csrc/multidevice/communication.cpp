@@ -236,13 +236,13 @@ Communication::Communication(
 
 void Communication::validate() {
   if (root()->isConstScalar() && root()->isIntegralScalar()) {
-    // auto root_val = root()->evaluate().as<int64_t>();
-    // NVF_ERROR(
-    //     hasRoot(type()) == (root_val >= 0),
-    //     "Root ",
-    //     root_val,
-    //     " is not expected by CommunicationType ",
-    //     type());
+    auto root_val = root()->evaluate().as<int64_t>();
+    NVF_ERROR(
+        hasRoot(type()) == (root_val >= 0),
+        "Root ",
+        root_val,
+        " is not expected by CommunicationType ",
+        type());
   }
   NVF_ERROR(isReduction(type()) == (reduceOp() != RedOpType::UNUSED));
 }
