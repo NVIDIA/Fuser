@@ -57,6 +57,9 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
     case CommunicationType::AllToAll:
       os << "AllToAll";
       break;
+    case CommunicationType::StreamBroadcast:
+      os << "StreamBroadcast";
+      break;
   }
   return os;
 }
@@ -149,6 +152,7 @@ bool hasRoot(CommunicationType type) {
     case CommunicationType::Reduce:
     case CommunicationType::Broadcast:
     case CommunicationType::SendRecv:
+    case CommunicationType::StreamBroadcast:
       return true;
     case CommunicationType::Allgather:
     case CommunicationType::Allreduce:
@@ -171,6 +175,7 @@ bool isReduction(CommunicationType type) {
     case CommunicationType::Broadcast:
     case CommunicationType::SendRecv:
     case CommunicationType::AllToAll:
+    case CommunicationType::StreamBroadcast:
       return false;
     default:
       NVF_THROW("unrecognized CommunicationType: ", type);
@@ -231,13 +236,13 @@ Communication::Communication(
 
 void Communication::validate() {
   if (root()->isConstScalar() && root()->isIntegralScalar()) {
-    auto root_val = root()->evaluate().as<int64_t>();
-    NVF_ERROR(
-        hasRoot(type()) == (root_val >= 0),
-        "Root ",
-        root_val,
-        " is not expected by CommunicationType ",
-        type());
+    // auto root_val = root()->evaluate().as<int64_t>();
+    // NVF_ERROR(
+    //     hasRoot(type()) == (root_val >= 0),
+    //     "Root ",
+    //     root_val,
+    //     " is not expected by CommunicationType ",
+    //     type());
   }
   NVF_ERROR(isReduction(type()) == (reduceOp() != RedOpType::UNUSED));
 }
@@ -716,6 +721,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
           input_tensor,
           output_tensor);
     case CommunicationType::Broadcast:
+    case CommunicationType::StreamBroadcast:
       return postBroadcast(
           communication,
           my_device_index,

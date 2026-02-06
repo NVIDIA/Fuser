@@ -90,7 +90,7 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
           nullptr,
       "Destination allocation should be sharded on stream after "
       "shardAllocationAsLoop: ",
-      destination);
+      destination->domain()->toString(0, /*loop_only=*/false));
 
   // Refine the contiguity flags so `out` aliases `in`. This is done similar
   // to AliasFinder::handle(const SliceOp*). We scan through the allocation

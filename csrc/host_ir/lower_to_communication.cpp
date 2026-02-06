@@ -166,6 +166,32 @@ void lowerToBroadcast(
       backend));
 }
 
+void lowerToStreamBroadcast(
+    TensorView* input_tv,
+    TensorView* output_tv,
+    const CommunicatorBackend backend,
+    std::vector<Expr*>& comms) {
+  const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
+  const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
+  NVF_ERROR_EQ(
+      sender_mesh,
+      receiver_mesh,
+      "StreamBroadcast sender and receiver meshes must be the same. Given ",
+      sender_mesh,
+      " and ",
+      receiver_mesh);
+  Team team = receiver_mesh.vector();
+  comms.push_back(IrBuilder::create<Communication>(
+      CommunicationType::StreamBroadcast,
+      output_tv,
+      input_tv,
+      team,
+      /*root=*/-1, // This will be replaced by HostIrLowering with the for-loop
+                   // index
+      c10d::ReduceOp::RedOpType::UNUSED,
+      backend));
+}
+
 // Adds several SendRecv communications to the vector 'comms'
 // For now, we assume that this function is called only if
 // the input and output have the same sharding. Later we could support more
@@ -370,14 +396,16 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
   const auto c2p_map = pairwise_map.mapConsumerToProducer();
 
   // This ignores device dimensions on reduction axis.
-  auto producer_pt_to_did =
+  auto producer_pt_to_id =
       mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
-  auto consumer_pt_to_did =
+  auto consumer_pt_to_id =
       mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
 
   for (ParallelType pt : kParallelTypeDIDs) {
-    IterDomain* p_loop_did = getOrDefault(producer_pt_to_did, pt);
-    IterDomain* c_loop_did = getOrDefault(consumer_pt_to_did, pt);
+    IterDomain* p_loop_did = getOrDefault(producer_pt_to_id, pt);
+    IterDomain* c_loop_did = getOrDefault(consumer_pt_to_id, pt);
+    IterDomain* c_stream_id =
+        getOrDefault(consumer_pt_to_id, ParallelType::Stream);
 
     if (p_loop_did == nullptr && c_loop_did == nullptr) {
       // Not sharded on this parallel type
@@ -391,6 +419,24 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
     if (e->isA<LoadStoreOp>()) {
       if (p_loop_did && !c_loop_did) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+        // Check if we are going from DIDx -> Stream, which is a ring allgather.
+        // This can be executed as a broadcast or send recvs, which is decided
+        // by the presence of a swizzle in the stream id definition.
+        if (c_stream_id != nullptr) {
+          IterDomain* c_stream_logical_id =
+              getLogicalFromLoopId(consumer, c_stream_id);
+          if (c_stream_logical_id == p2c_map.at(p_logical_id)) {
+            NVF_CHECK(
+                same_mesh,
+                "Broadcast based allgather in stream parallel requires same "
+                "mesh.")
+            fill_communication_info(
+                CommunicationType::StreamBroadcast,
+                p_logical_id,
+                c_stream_logical_id);
+            continue;
+          }
+        }
         CommunicationType type = same_mesh ? CommunicationType::Allgather
                                            : CommunicationType::Gather;
         fill_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
@@ -478,7 +524,8 @@ Layout getCommunicationLayout(
       type == CommunicationType::Allreduce ||
       type == CommunicationType::Broadcast ||
       type == CommunicationType::SendRecv ||
-      type == CommunicationType::AllToAll) {
+      type == CommunicationType::AllToAll ||
+      type == CommunicationType::StreamBroadcast) {
     return layout;
   }
 
@@ -604,6 +651,9 @@ std::vector<Expr*> convertSingleOpToCommunication(
       break;
     case CommunicationType::AllToAll:
       lowerToAllToAll(input_tv, output_tv, backend, comms);
+      break;
+    case CommunicationType::StreamBroadcast:
+      lowerToStreamBroadcast(input_tv, output_tv, backend, comms);
       break;
   }
 

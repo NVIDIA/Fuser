@@ -186,7 +186,8 @@ void lowerSegment(
         auto* communication = c->as<Communication>();
         TensorView* in = communication->in();
         TensorView* out = communication->out();
-        if (haveDifferentShardings(
+        if (communication->type() != CommunicationType::StreamBroadcast &&
+            haveDifferentShardings(
                 in,
                 DomainType::kAllocation,
                 out,
@@ -217,6 +218,10 @@ void lowerSegment(
           innermost_scope.pushBack(i->second->definition());
         } else {
           innermost_scope.pushBack(allocate);
+        }
+
+        if (communication->type() == CommunicationType::StreamBroadcast) {
+          replacement_map[communication->root()] = innermost.loop->index();
         }
 
         Expr* new_c = cloneWithNewOperands(c, replacement_map);
