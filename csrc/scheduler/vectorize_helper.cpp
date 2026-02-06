@@ -5,27 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/vectorize_helper.h>
-
-#include <compute_at_map.h>
-#include <contiguity.h>
-#include <device_lower/analysis/divisible_split.h>
-#include <expr_evaluator.h>
-#include <expr_simplifier.h>
-#include <id_model/id_model.h>
-#include <instrumentation.h>
-#include <ir/builder.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <iter_visitor.h>
-#include <multidevice/utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/resize_utils.h>
-#include <scheduler/utils.h>
-#include <val_graph_visitor.h>
+#include "scheduler/vectorize_helper.h"
 
 #include <unordered_set>
+
+#include "compute_at_map.h"
+#include "contiguity.h"
+#include "device_lower/analysis/divisible_split.h"
+#include "expr_evaluator.h"
+#include "expr_simplifier.h"
+#include "id_model/id_model.h"
+#include "instrumentation.h"
+#include "ir/builder.h"
+#include "ir/iostream.h"
+#include "ir/printer.h"
+#include "iter_visitor.h"
+#include "multidevice/utils.h"
+#include "scheduler/registry.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/resize_utils.h"
+#include "scheduler/utils.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 namespace vectorize_helper {

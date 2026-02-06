@@ -152,6 +152,14 @@ void bindMultiDeviceExecutor(py::module& nvfuser) {
             self.executor.use_allocation_cache = value;
           })
       .def_property(
+          "number_of_streams",
+          [](const MultiDeviceExecutorParams& self) {
+            return self.executor.number_of_streams;
+          },
+          [](MultiDeviceExecutorParams& self, int64_t value) {
+            self.executor.number_of_streams = value;
+          })
+      .def_property(
           "backend_type",
           [](const MultiDeviceExecutorParams& self) {
             return self.lower.communicator_backend;

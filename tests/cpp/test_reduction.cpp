@@ -2563,7 +2563,7 @@ TEST_F(ReductionTest, CrossEntropyGatherPattern) {
   fusion.addInput(labels);
 
   auto tv2 = broadcast(labels, {false, true});
-  auto tv3 = gather(log_probs, 1, tv2);
+  auto tv3 = takeAlongAxis(log_probs, tv2, 1);
   auto tv4 = squeeze(tv3, std::vector<bool>({false, true}));
 
   fusion.addOutput(tv4);

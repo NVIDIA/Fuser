@@ -6,16 +6,17 @@
  */
 // clang-format on
 
-#include <dispatch.h>
-#include <id_model/id_model.h>
-#include <id_model/schedule.h>
-#include <ir/internal_nodes.h>
-#include <ir/utils.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <val_graph_visitor.h>
+#include "scheduler/tools/loop_domain_scheduler.h"
 
 #include <ranges>
 #include <unordered_set>
+
+#include "dispatch.h"
+#include "id_model/id_model.h"
+#include "id_model/schedule.h"
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 namespace scheduler_tools {

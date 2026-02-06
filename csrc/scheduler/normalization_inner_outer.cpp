@@ -5,18 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <instrumentation.h>
-#include <options.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/normalization_inner_outer_multi_wave.h>
-#include <scheduler/normalization_inner_outer_tma_ws.h>
-#include <scheduler/normalization_inner_outer_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
-
 #include <ATen/cuda/CUDAContext.h>
+
+#include "instrumentation.h"
+#include "options.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/normalization_inner_outer_multi_wave.h"
+#include "scheduler/normalization_inner_outer_tma_ws.h"
+#include "scheduler/normalization_inner_outer_utils.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 namespace {

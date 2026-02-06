@@ -13,7 +13,7 @@
 
 namespace nvfuser {
 
-IrCloner::IrCloner(IrContainer* container) : ir_container_(container) {
+IrCloner::IrCloner(Fusion* container) : ir_container_(container) {
   NVF_ERROR(
       container != nullptr,
       "IrCloner constructor received NULL container pointer");

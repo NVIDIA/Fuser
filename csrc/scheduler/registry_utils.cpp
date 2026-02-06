@@ -5,14 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <multidevice/utils.h>
-#include <runtime/executor_kernel_arg.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/tools/resize_utils.h>
-#include <scheduler/utils.h>
+#include "scheduler/registry_utils.h"
+
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "multidevice/utils.h"
+#include "runtime/executor_kernel_arg.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/tools/resize_utils.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 

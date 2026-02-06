@@ -6,25 +6,26 @@
  */
 // clang-format on
 
-#include <debug.h>
-#include <instrumentation.h>
-#include <ir/utils.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/mark_aliases.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/resize.h>
-#include <scheduler/resize_heuristic.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <scheduler/tools/resize_utils.h>
-#include <scheduler/tools/static_repeat.h>
-#include <val_graph_visitor.h>
+#include "scheduler/resize.h"
 
 #include <memory>
 #include <ranges>
+
+#include "debug.h"
+#include "instrumentation.h"
+#include "ir/utils.h"
+#include "scheduler/cache_policy_refiner.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/mark_aliases.h"
+#include "scheduler/pointwise_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/resize_heuristic.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "scheduler/tools/resize_utils.h"
+#include "scheduler/tools/static_repeat.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
