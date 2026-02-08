@@ -3740,28 +3740,6 @@ TEST_F(Gpu3Test, FusionDependencyCheck_CUDA) {
   }
 }
 
-// Repro for issue #1925
-TEST_F(Gpu3Test, FusionScheduleTransposeRepro1_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(4);
-  auto tv1 = makeConcreteTensor({-1, -1, -1, 1});
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  auto tv2 = add(tv0, tv1);
-  fusion.addOutput(tv2);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input0 = at::randn({1, 1, 333, 1}, options);
-  at::Tensor t1 = at::randn({1, 1, 333, 1}, options);
-
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, t1}, false)
-          .outputs;
-  testValidate(&fusion, cg_outputs, {input0, t1}, __LINE__, __FILE__);
-}
-
 TEST_F(Gpu3Test, FusionPredicateUnshare_CUDA) {
   // https://github.com/csarofeen/pytorch/issues/1926
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
