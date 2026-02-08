@@ -190,8 +190,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
   bool should_reject = false;
 };
 
-bool hasSmallTransposeDimensions(
-    const std::unique_ptr<TransposeParams>& params) {
+bool hasSmallTransposeDimensions(const TransposeParams* params) {
   return !params->split_before_tiling.empty() ||
       !params->dims_merged_with_1.empty() ||
       !params->dims_merged_with_2.empty();
@@ -579,7 +578,7 @@ std::string getTransposeRuntimeRejectReason(
     // 1. view op; and
     // 2. small transpose transformation
     // See note [Supporting small transpose dimensions]
-    if (hasSmallTransposeDimensions(params)) {
+    if (hasSmallTransposeDimensions(params.get())) {
       return "Small transpose dimensions and view op cannot be currently be "
              "handled by transpose scheduler. See: "
              "https://github.com/NVIDIA/Fuser/pull/592";
@@ -677,7 +676,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
       inner_most_pos2_in_ref1);
 
   NVF_ERROR(
-      !hasSmallTransposeDimensions(tparams) ||
+      !hasSmallTransposeDimensions(tparams.get()) ||
           scheduler_utils::getViewTVs(fusion).empty(),
       "combination of view op with small transpose dimensions are not "
       "supported by transpose scheduler");
@@ -867,7 +866,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
             << "reference2: " << reference2->toString() << "\n"
             << "inner_most_id2 position: " << inner_most_pos2_in_ref1
             << " (in reference 1)" << std::endl;
-    if (hasSmallTransposeDimensions(tparams)) {
+    if (hasSmallTransposeDimensions(tparams.get())) {
       debug() << "small transposed dim, needs virtual inner-most dim"
               << std::endl;
     }
@@ -953,11 +952,15 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
         auto new_cache = tv->cacheAfter();
         new_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(new_cache);
-        smem_cached_input_tvs.push_back(existing_cache);
+        if (!hasSmallTransposeDimensions(tparams)) {
+          smem_cached_input_tvs.push_back(new_cache);
+        }
       } else {
         existing_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(existing_cache);
-        smem_cached_input_tvs.push_back(existing_cache);
+        if (!hasSmallTransposeDimensions(tparams)) {
+          smem_cached_input_tvs.push_back(existing_cache);
+        }
       }
     }
   }
