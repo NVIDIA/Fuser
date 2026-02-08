@@ -280,6 +280,9 @@ TEST_F(ResizeTest, Pad6) {
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  scheduler_utils::promoteProducerMemoryTypes(&fusion, {});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -340,12 +343,12 @@ TEST_F(ResizeTest, Pad7) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Stencil-like pattern
+//
 // Disable for now. Unclear what would be the best way to handle
 // when a tensor is resized multiple times. It would likely need a
 // different transform propagator.
-#if 0
-// Stencil-like pattern
-TEST_F(ResizeTest, Pad8) {
+TEST_F(ResizeTest, DISABLED_Pad8) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -371,7 +374,7 @@ TEST_F(ResizeTest, Pad8) {
   tv4->axis(1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
 
-  scheduler_utils::promoteProducerMemoryTypesOfResizedTensors(&fusion, {});
+  scheduler_utils::promoteProducerMemoryTypes(&fusion, {});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -385,7 +388,6 @@ TEST_F(ResizeTest, Pad8) {
 
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
-#endif
 
 TEST_F(ResizeTest, PadScheduler1) {
   auto fusion = std::make_unique<Fusion>();
