@@ -775,7 +775,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     }
 
     product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
-        product_of_inner_extents, alloc_id->extent());
+        product_of_inner_extents, getProjectedExtent(alloc_id));
   }
   return product_of_inner_extents;
 }
