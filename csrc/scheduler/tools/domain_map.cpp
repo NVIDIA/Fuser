@@ -541,7 +541,8 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   const auto& ref2_loop = ref2->getMaybeAllocationDomain();
   const auto& ca_map = domain_map.getComputeAtMap();
 
-  // Filter out reduction domains before comparing
+  // Filter out reduction domains before comparing as they are ignored during
+  // scheduling.
   auto is_not_reduction = [](IterDomain* id) { return !id->isReduction(); };
   auto ref1_filtered = ref1_loop | std::views::filter(is_not_reduction);
   auto ref2_filtered = ref2_loop | std::views::filter(is_not_reduction);
