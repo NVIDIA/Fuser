@@ -952,24 +952,30 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
         auto new_cache = tv->cacheAfter();
         new_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(new_cache);
-        if (!hasSmallTransposeDimensions(tparams)) {
-          smem_cached_input_tvs.push_back(new_cache);
-        }
+        smem_cached_input_tvs.push_back(new_cache);
       } else {
         existing_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(existing_cache);
-        if (!hasSmallTransposeDimensions(tparams)) {
-          smem_cached_input_tvs.push_back(existing_cache);
-        }
+        smem_cached_input_tvs.push_back(existing_cache);
       }
     }
   }
+
+  bool use_smem_swizzle = !hasSmallTransposeDimensions(tparams);
   // set cached outputs of group 2 to shared memory
   for (const auto& [cached_output, output_idx] : cached_outputs) {
     auto output = fusion->outputs()[output_idx]->as<TensorView>();
     if (group2_and_cached_inputs.count(output) > 0) {
       cached_output->setMemoryType(MemoryType::Shared);
+      // current smem swizzle only works for cached input
+      use_smem_swizzle = false;
     }
+  }
+  // For non-square tile, can't create smem swizzle chunks if tile2 is larger
+  // and not vectorized
+  if (tparams->tile_size2 > tparams->tile_size1 &&
+      tparams->vectorize_factor2 == 1) {
+    use_smem_swizzle = false;
   }
 
   TensorView* reference1 =
@@ -1175,8 +1181,10 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     std::unordered_set<TensorView*> except_tvs;
     except_tvs.insert(
         grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end());
-    except_tvs.insert(
-        smem_cached_input_tvs.begin(), smem_cached_input_tvs.end());
+    if (use_smem_swizzle) {
+      except_tvs.insert(
+          smem_cached_input_tvs.begin(), smem_cached_input_tvs.end());
+    }
     auto all_tvs_except1 = ir_utils::allTvsExcept(fusion, except_tvs);
     SetSelector selector({all_tvs_except1.begin(), all_tvs_except1.end()});
     MaxLogicalDomainInfoSpanningTree entire_dag_except1(reference2, &selector);
@@ -1271,8 +1279,10 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     std::unordered_set<TensorView*> except_tvs;
     except_tvs.insert(
         group2_and_cached_inputs.begin(), group2_and_cached_inputs.end());
-    except_tvs.insert(
-        smem_cached_input_tvs.begin(), smem_cached_input_tvs.end());
+    if (use_smem_swizzle) {
+      except_tvs.insert(
+          smem_cached_input_tvs.begin(), smem_cached_input_tvs.end());
+    }
     auto all_tvs_except2 = ir_utils::allTvsExcept(fusion, except_tvs);
     SetSelector selector({all_tvs_except2.begin(), all_tvs_except2.end()});
     MaxLogicalDomainInfoSpanningTree entire_dag_except_outputs(
@@ -1339,25 +1349,27 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   }
 
   // schedule smem_cached_input_tvs
-  for (auto tv : smem_cached_input_tvs) {
-    std::cout << "scheduling smem_cached_tv: " << tv->toString() << std::endl;
-    int64_t pos = tv->nDims() - 2;
-    bool is_group2 = group2_and_cached_inputs.count(tv) > 0;
-    int64_t tile2_factor =
-        is_group2 ? tparams->vectorize_factor2 : tparams->vectorize_factor1;
-    int64_t tile1_factor =
-        tparams->tile_size1 * tile2_factor / tparams->tile_size2;
-    // [BIDx, UnSwitch, tile1, tile2]
-    tv->split(pos + 1, tile2_factor);
-    tv->split(pos, tile1_factor);
-    tv->swizzle(SwizzleType::XOR, pos, pos + 2);
-    tv->merge(pos);
-    tv->merge(pos);
-    tv->split(pos, tparams->getThreadsPerBlock());
-    tv->axis(pos)->parallelize(ParallelType::Unroll);
-    tv->axis(pos + 1)->parallelize(ParallelType::TIDx);
-    tv->axis(pos + 2)->parallelize(ParallelType::Vectorize);
-    std::cout << "scheduled smem_cached_tv: " << tv->toString() << std::endl;
+  if (use_smem_swizzle) {
+    for (auto tv : smem_cached_input_tvs) {
+      std::cout << "scheduling smem_cached_tv: " << tv->toString() << std::endl;
+      int64_t pos = tv->nDims() - 2;
+      bool is_group2 = group2_and_cached_inputs.count(tv) > 0;
+      int64_t tile2_factor =
+          is_group2 ? tparams->vectorize_factor2 : tparams->vectorize_factor1;
+      int64_t tile1_factor =
+          tparams->tile_size1 * tile2_factor / tparams->tile_size2;
+      // [BIDx, UnSwitch, tile1, tile2]
+      tv->split(pos + 1, tile2_factor);
+      tv->split(pos, tile1_factor);
+      tv->swizzle(SwizzleType::XOR, pos, pos + 2);
+      tv->merge(pos);
+      tv->merge(pos);
+      tv->split(pos, tparams->getThreadsPerBlock());
+      tv->axis(pos)->parallelize(ParallelType::Unroll);
+      tv->axis(pos + 1)->parallelize(ParallelType::TIDx);
+      tv->axis(pos + 2)->parallelize(ParallelType::Vectorize);
+      std::cout << "scheduled smem_cached_tv: " << tv->toString() << std::endl;
+    }
   }
 
   ////////////////////////////////
