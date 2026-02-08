@@ -760,11 +760,6 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
 
   auto alloc_no_reductions_size = alloc_no_reductions.size();
 
-  // Filter out 0-dim tensors
-  if (alloc_no_reductions_size < 1) {
-    return product_of_inner_extents;
-  }
-
   NVF_ERROR_EQ(alloc_no_reductions_size, contiguity.size());
 
   // Order is important, need to make sure dimensions match up correctly with
