@@ -735,7 +735,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   const std::vector<IterDomain*>& projected_dims = mappedLogicalIds(tv);
   auto alloc_no_reductions = TensorDomain::noReductions(alloc);
 
-  std::vector<std::optional<bool>> contiguity = tv->domain()->contiguity();
+  std::vector<std::optional<bool>> contiguity = tv->getContiguity();
   NVF_ERROR_EQ(contiguity.size(), alloc.size());
   // Appears after reductions the reduction domain often has a contiguity entry.
   // This only matters if the result of the reduction is an output
