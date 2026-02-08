@@ -17,7 +17,6 @@
 #include "ir/iostream.h"
 #include "ir/printer.h"
 #include "iter_visitor.h"
-#include "multidevice/utils.h"
 #include "scheduler/registry.h"
 #include "scheduler/runtime_info.h"
 #include "scheduler/tools/resize_utils.h"
@@ -727,99 +726,56 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* tv) {
   FusionGuard fg(tv->fusion());
-  Val* product_of_inner_extents = tv->container()->oneVal();
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+  const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
 
   NVF_ERROR(hasMappedDims(tv));
-
   const std::vector<IterDomain*>& projected_dims = mappedLogicalIds(tv);
-  auto alloc_no_reductions = TensorDomain::noReductions(alloc);
 
-  std::vector<std::optional<bool>> contiguity = tv->getContiguity();
-  NVF_ERROR_EQ(contiguity.size(), alloc.size());
-  // Appears after reductions the reduction domain often has a contiguity entry.
-  // This only matters if the result of the reduction is an output
-  if (contiguity.size() != alloc_no_reductions.size()) {
-    std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : arange(alloc.size())) {
-      if (!alloc[i]->isReduction()) {
-        new_contiguity.push_back(contiguity.at(i));
-      }
-    }
-    contiguity = new_contiguity;
-  }
-
-  auto alloc_no_reductions_size = alloc_no_reductions.size();
-
-  NVF_ERROR_EQ(alloc_no_reductions_size, contiguity.size());
-
+  Val* product_of_inner_extents = tv->container()->oneVal();
   // Order is important, need to make sure dimensions match up correctly with
   // what was propogated through the mapper. The mapper's dimensions is
   // propogated in the order of the reference, if that order doesn't match the
   // tensor we're mapping too then a transpose interfered with expanded the
   // vectorize dimension.
-  size_t projected_dims_i = projected_dims.size();
-
-  for (auto i : arange(alloc_no_reductions_size)) {
-    if (projected_dims_i == 0) {
-      break;
-    }
-    auto alloc_ii = alloc_no_reductions_size - i - 1;
-    auto alloc_iid = alloc_no_reductions.at(alloc_ii);
-
-    if (alloc_iid->extent()->isOneInt() || alloc_iid->isBroadcast()) {
-      if (projected_dims[projected_dims_i - 1] == alloc_iid) {
-        --projected_dims_i;
-      }
+  auto projected_dims_i = std::ssize(projected_dims) - 1;
+  // FIXME: use zip
+  for (auto alloc_i = std::ssize(alloc) - 1; alloc_i >= 0; alloc_i--) {
+    IterDomain* alloc_id = alloc[alloc_i];
+    // FIXME: isParallel?
+    if (alloc_id->isReduction() || alloc_id->isBroadcast() ||
+        alloc_id->isDeviceDim()) {
       continue;
     }
 
-    auto contiguity_i = contiguity.at(alloc_ii);
-    if (!contiguity_i.has_value()) {
-      NVF_THROW("contiguity flag at alloc_ii can't be null");
-    } else {
-      // Not contiguous
-      if (!contiguity_i.value()) {
-        break;
-      }
-    }
+    // FIXME: getInputsInTargetDomain.
+    const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
+        {alloc_id},
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+    NVF_ERROR_EQ(inputs_as_vals.size(), 1);
+    auto* logical_id = inputs_as_vals.front()->as<IterDomain>();
 
-    // Get the logical ID corresponding to the allocation ID.
-    auto exprs = DependencyCheck::getAllExprsBetween(
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-        {alloc_iid});
-    IterDomain* logical_id = alloc_iid;
-    Val* num_devices = tv->container()->oneVal();
-    bool only_valid_device_split = true;
-    for (Expr* expr : exprs | std::views::reverse) {
-      if (!isValidDeviceSplit(expr)) {
-        only_valid_device_split = false;
-        break;
-      }
-      auto* split = expr->as<Split>();
-      logical_id = split->in();
-      num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
+    while (projected_dims_i >= 0 &&
+           (projected_dims[projected_dims_i]->isBroadcast() ||
+            projected_dims[projected_dims_i]->isReduction() ||
+            projected_dims[projected_dims_i]->isDeviceDim())) {
+      projected_dims_i--;
     }
-
-    // Non device split could lead to padding, which prevents vectorization
-    if (!only_valid_device_split) {
-      break;
-    }
-
     // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (projected_dims[--projected_dims_i] != logical_id) {
+    if (projected_dims_i < 0 ||
+        projected_dims[projected_dims_i] != logical_id) {
+      break;
+    }
+    projected_dims_i--;
+
+    auto contiguity_i = contiguity.at(alloc_i);
+    NVF_ERROR(contiguity_i.has_value());
+    if (!contiguity_i.value()) {
       break;
     }
 
-    Val* sharded_extent;
-    if (logical_id->isDeviceDim()) {
-      sharded_extent = tv->container()->oneVal();
-    } else {
-      sharded_extent = SimplifyingIrBuilder::divExpr(
-          getProjectedExtent(logical_id), num_devices);
-    }
-    product_of_inner_extents =
-        SimplifyingIrBuilder::mulExpr(product_of_inner_extents, sharded_extent);
+    product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
+        product_of_inner_extents, alloc_id->extent());
   }
   return product_of_inner_extents;
 }
