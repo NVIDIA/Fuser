@@ -2998,9 +2998,6 @@ TEST_P(TmaOuterReductionManualTest, Basic) {
   tv0smem->axis(3)->parallelize(ParallelType::BIDx);
   tv0smem->axis(4)->parallelize(ParallelType::Bulk); // iteration tile
 
-  // Set allocation domain for proper shared memory layout
-  tv0smem->setAllocationDomain(tv0smem->getLoopDomain(), true);
-
   // ========== Phase 5: Sub-split TMA tiles into thread dims ==========
   // Split tma_tile_i into [iter_unroll, bdimx]
   redu_tv->split(4, bdimx);
