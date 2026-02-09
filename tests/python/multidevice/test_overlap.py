@@ -491,11 +491,7 @@ def test_column_parallel_linear_forward(multidevice_test):
     out_ref = torch.nn.functional.linear(inp_ref.cuda(), weight)
 
     with torch.profiler.profile(record_shapes=True) as prof:
-        (out,) = fd.execute(
-            [inp, weight],
-            _enable_options=["host_ir_lowering"],
-            _disable_options=["infer_contiguity"],
-        )
+        (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
     torch.testing.assert_close(out, out_ref)
     broadcast_events = [
         event for event in prof.events() if "ncclDevKernel_Broadcast" in event.name
