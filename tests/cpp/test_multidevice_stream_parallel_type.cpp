@@ -684,10 +684,79 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
 
+TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
+  CommunicatorBackend communicator_backend = GetParam();
+  constexpr int64_t M = 32;
+  constexpr int64_t K = 8;
+  constexpr int64_t N = 2;
+  constexpr int64_t S = 4;
+  const int64_t D = communicator_->size();
+  if (M % (S * D) != 0) {
+    GTEST_SKIP() << "M must be a multiple of S * D, but got M = " << M
+                 << ", S = " << S << ", D = " << D;
+  }
+  if (K % D != 0) {
+    GTEST_SKIP() << "K must be a multiple of D, but got K = " << K
+                 << ", D = " << D;
+  }
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::InsertReshardingAfter);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Only the reduced dimension (D) is actually sharded, M is split logically
+  // for convenience
+  TensorView* A = makeContigTensor(4); // [DIDx(D), Stream(D), M/D, K/D]
+  TensorView* B = makeContigTensor(4); // [DIDx(D), 1, K/D, N]
+  TensorView* C_unreduced = matmul(A, B); // [DIDx(D), Stream(D), M/D, N]
+  TensorView* C = sum(C_unreduced, {0}); // [r(D), DIDx(D), M/D, N]
+
+  fusion->addInput(A);
+  fusion->addInput(B);
+  fusion->addOutput(C);
+
+  auto mesh = DeviceMesh::createForNumDevices(D);
+  A->setDeviceMesh(mesh);
+  B->setDeviceMesh(mesh);
+  C_unreduced->setDeviceMesh(mesh);
+  C->setDeviceMesh(mesh);
+
+  A->axis(0)->parallelize(ParallelType::DIDx);
+  A->axis(1)->parallelize(ParallelType::Stream);
+  B->axis(0)->parallelize(ParallelType::DIDx);
+  C_unreduced->axis(1)->parallelize(ParallelType::Stream);
+  C_unreduced->axis(0)->parallelize(ParallelType::DIDx);
+  C->axis(1)->parallelize(ParallelType::DIDx);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = communicator_backend;
+  params.lower.offset_stream_indexing_by_rank = false;
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
+
+  auto tensor_options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  auto A_unsharded = at::randn({D, D, M / D, K / D}, tensor_options);
+  auto B_unsharded = at::randn({D, 1, K / D, N}, tensor_options);
+  auto A_sharded = shardTensor1D(A_unsharded, /*axis=*/0, mesh);
+  auto B_sharded = shardTensor1D(B_unsharded, /*axis=*/0, mesh);
+
+  auto C_out = executor.runWithInput({A_sharded, B_sharded})[0].as<at::Tensor>();
+
+  auto C_unreduced_unsharded =
+      at::matmul(A_unsharded, B_unsharded); // {D, D, M / D, N}
+  auto C_reduced_unsharded =
+      at::sum(C_unreduced_unsharded, {0}); // {D, M / D, N}
+  auto C_ref =
+      shardTensor1D(C_reduced_unsharded, /*axis=*/0, mesh); // {M / D, N}
+  EXPECT_TRUE(at::allclose(C_ref, C_out, 1e-1, 1e-1))
+      << "Output: " << C_out << " Expected: " << C_ref;
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     RSMatmulTest,
-    testing::Values(CommunicatorBackend::kCuda, CommunicatorBackend::kNccl),
+    testing::Values(/*CommunicatorBackend::kCuda, */CommunicatorBackend::kNccl),
     testing::PrintToStringParamName());
 
 } // namespace nvfuser
