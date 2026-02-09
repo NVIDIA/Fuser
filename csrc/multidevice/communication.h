@@ -179,8 +179,8 @@ class P2PCommunication : public Expr {
 //
 // Example shapes (topk=1):
 //   in_x: [T, H], in_topk_idx: [T] or [T, 1],
-//   in_topk_weights: [T] or [T, 1],
-//   in_is_token_in_rank: [T, R] (one-hot), num_experts = R * experts_per_rank.
+//   in_topk_weights: [T] or [T, 1], num_experts = R * experts_per_rank.
+//   Experts are assumed to be placed contiguously by rank.
 //   out_src_idx/out_src_rank are returned for the combine step to restore the
 //   original token order.
 //   Outputs are recv-aligned tensors: out_x/out_topk_idx/out_topk_weights/
@@ -202,12 +202,8 @@ class MoeDispatch : public Expr {
       TensorView* in_x,
       TensorView* in_topk_idx,
       TensorView* in_topk_weights,
-      TensorView* in_is_token_in_rank,
       int64_t num_experts,
       CommunicatorBackend backend = CommunicatorBackend::kNccl);
-  TensorView* inIsTokenInRank() const {
-    return input(3)->as<TensorView>();
-  }
 
   MoeDispatch(const MoeDispatch& other) = delete;
   MoeDispatch& operator=(const MoeDispatch& other) = delete;

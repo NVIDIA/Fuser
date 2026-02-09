@@ -42,7 +42,6 @@ DispatchResult doMoeDispatch(
     const at::Tensor& x,
     const at::Tensor& topk_idx,
     const at::Tensor& topk_weights,
-    const at::Tensor& is_token_in_rank,
     int64_t num_experts,
     Communicator* communicator,
     CommunicatorBackend backend) {
@@ -54,35 +53,17 @@ DispatchResult doMoeDispatch(
       topk_weights.is_floating_point(),
       "Dispatch topk_weights must be floating point.");
   NVF_CHECK(
-      is_token_in_rank.is_cuda(), "Dispatch is_token_in_rank must be on CUDA.");
-  NVF_CHECK(
       x.device() == topk_idx.device(),
       "Dispatch expects x and topk_idx on the same device.");
   NVF_CHECK(
       x.device() == topk_weights.device(),
       "Dispatch expects x and topk_weights on the same device.");
-  NVF_CHECK(
-      x.device() == is_token_in_rank.device(),
-      "Dispatch expects x and is_token_in_rank on the same device.");
-  NVF_CHECK_EQ(
-      is_token_in_rank.dim(),
-      2,
-      "is_token_in_rank must be [tokens, ranks], got: ",
-      is_token_in_rank.sizes());
   NVF_CHECK_EQ(x.dim(), 2, "Dispatch expects x to be 2D [tokens, hidden].");
 
   const int64_t num_tokens = x.size(0);
   const int64_t hidden = x.size(1);
   const int64_t world_size = communicator->size();
   const int64_t my_rank = communicator->deviceId();
-  NVF_CHECK_EQ(
-      is_token_in_rank.size(0),
-      num_tokens,
-      "is_token_in_rank first dim must match number of tokens.");
-  NVF_CHECK_EQ(
-      is_token_in_rank.size(1),
-      world_size,
-      "is_token_in_rank second dim must match world size.");
   NVF_CHECK_EQ(num_experts % world_size, 0, "num_experts must be divisible.");
   const int64_t experts_per_rank = num_experts / world_size;
 
@@ -104,10 +85,11 @@ DispatchResult doMoeDispatch(
       topk_weights.sizes());
   auto topk_weights_flat = topk_weights.reshape({num_tokens});
 
-  // Determine destination rank per token (topk=1).
-  auto rank_for_token = is_token_in_rank.to(at::kLong).argmax(1).to(at::kLong);
-  // Sort tokens by destination rank for contiguous alltoall slices.
-  auto sorted_indices = at::argsort(rank_for_token);
+  // Assume contiguous expert placement: rank = expert_id / experts_per_rank.
+  auto topk_idx_long = topk_idx_flat.to(at::kLong);
+  auto rank_for_token = at::floor_divide(topk_idx_long, experts_per_rank);
+  // Sorting by expert id groups tokens by rank and by expert within rank.
+  auto sorted_indices = at::argsort(topk_idx_long);
 
   // Reorder payloads so alltoall can send contiguous chunks per rank.
   auto send_x = x.index_select(0, sorted_indices);
@@ -169,15 +151,6 @@ DispatchResult doMoeDispatch(
       recv_src_idx, send_src_idx, output_splits, input_splits));
   waitWork(pg->alltoall_base(
       recv_src_rank, send_src_rank, output_splits, input_splits));
-
-  // Locally reorder by expert id so each rank processes contiguous experts.
-  auto local_expert = recv_topk_idx - my_rank * experts_per_rank;
-  auto expert_order = at::argsort(local_expert);
-  recv_x = recv_x.index_select(0, expert_order);
-  recv_topk_idx = recv_topk_idx.index_select(0, expert_order);
-  recv_topk_weights = recv_topk_weights.index_select(0, expert_order);
-  recv_src_idx = recv_src_idx.index_select(0, expert_order);
-  recv_src_rank = recv_src_rank.index_select(0, expert_order);
 
   return DispatchResult{
       recv_x,

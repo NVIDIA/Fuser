@@ -41,7 +41,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   auto* in_x = makeSymbolicTensor(2);
   auto* in_topk_idx = makeSymbolicTensor(1, DataType::Int);
   auto* in_topk_weights = makeSymbolicTensor(1);
-  auto* in_is_token_in_rank = makeSymbolicTensor(2, DataType::Bool);
 
   auto* recv_x = makeSymbolicTensor(2);
   auto* recv_topk_idx = makeSymbolicTensor(1, DataType::Int);
@@ -62,7 +61,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       in_x,
       in_topk_idx,
       in_topk_weights,
-      in_is_token_in_rank,
       num_experts,
       CommunicatorBackend::kNccl);
 
@@ -85,7 +83,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   hic->addInput(in_x);
   hic->addInput(in_topk_idx);
   hic->addInput(in_topk_weights);
-  hic->addInput(in_is_token_in_rank);
   hic->addOutput(combined_x);
   hic->addOutput(combined_topk_weights);
 
@@ -105,10 +102,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
 
   // Asymmetric example:
   // token->rank: [0, 1, 1, 1] so rank0 gets 1 token, rank1 gets 3 tokens.
-  auto rank_ids = at::arange(world_size, int_options);
-  auto token_rank = at::tensor({0, 1, 1, 1}, int_options);
-  auto is_token_in_rank = token_rank.unsqueeze(1).eq(rank_ids);
-
   // Experts are partitioned by rank. Use rank0 expert0, rank1 experts0/1.
   topk_idx.index_put_({0}, 0);
   topk_idx.index_put_({1}, kNumExpertsPerRank);
@@ -118,8 +111,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   auto outputs = hie.runWithInput(
       {{in_x, x},
        {in_topk_idx, topk_idx},
-       {in_topk_weights, topk_weights},
-       {in_is_token_in_rank, is_token_in_rank}});
+       {in_topk_weights, topk_weights}});
   auto combined = outputs[0].as<at::Tensor>();
   auto combined_weights = outputs[1].as<at::Tensor>();
 
@@ -147,7 +139,6 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
   auto* in_x = makeSymbolicTensor(2);
   auto* in_topk_idx = makeSymbolicTensor(1, DataType::Int);
   auto* in_topk_weights = makeSymbolicTensor(1);
-  auto* in_is_token_in_rank = makeSymbolicTensor(2, DataType::Bool);
 
   auto* recv_x = makeSymbolicTensor(2);
   auto* recv_topk_idx = makeSymbolicTensor(1, DataType::Int);
@@ -168,7 +159,6 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
       in_x,
       in_topk_idx,
       in_topk_weights,
-      in_is_token_in_rank,
       num_experts,
       CommunicatorBackend::kNccl);
 
@@ -177,7 +167,6 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
   hic->addInput(in_x);
   hic->addInput(in_topk_idx);
   hic->addInput(in_topk_weights);
-  hic->addInput(in_is_token_in_rank);
   hic->addOutput(recv_x);
   hic->addOutput(recv_topk_idx);
   hic->addOutput(recv_topk_weights);
@@ -202,10 +191,6 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
 
   // Asymmetric example:
   // token->rank: [0, 1, 1, 1] so rank0 gets 1 token, rank1 gets 3 tokens.
-  auto rank_ids = at::arange(world_size, int_options);
-  auto token_rank = at::tensor({0, 1, 1, 1}, int_options);
-  auto is_token_in_rank = token_rank.unsqueeze(1).eq(rank_ids);
-
   // Experts are partitioned by rank. Use rank0 expert0, rank1 experts0/1.
   topk_idx.index_put_({0}, 0);
   topk_idx.index_put_({1}, kNumExpertsPerRank);
@@ -215,14 +200,12 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
   auto outputs = hie.runWithInput(
       {{in_x, x},
        {in_topk_idx, topk_idx},
-       {in_topk_weights, topk_weights},
-       {in_is_token_in_rank, is_token_in_rank}});
+       {in_topk_weights, topk_weights}});
 
   auto expected = doMoeDispatch(
       x,
       topk_idx,
       topk_weights,
-      is_token_in_rank,
       num_experts,
       communicator_,
       CommunicatorBackend::kNccl);
@@ -275,10 +258,6 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
 
   // Asymmetric example:
   // token->rank: [0, 1, 1, 1] so rank0 gets 1 token, rank1 gets 3 tokens.
-  auto rank_ids = at::arange(world_size, int_options);
-  auto token_rank = at::tensor({0, 1, 1, 1}, int_options);
-  auto is_token_in_rank = token_rank.unsqueeze(1).eq(rank_ids);
-
   // Experts are partitioned by rank. Use rank0 expert0, rank1 experts0/1.
   topk_idx.index_put_({0}, 0);
   topk_idx.index_put_({1}, kNumExpertsPerRank);
@@ -289,7 +268,6 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
       x,
       topk_idx,
       topk_weights,
-      is_token_in_rank,
       num_experts,
       communicator_,
       CommunicatorBackend::kNccl);

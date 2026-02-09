@@ -333,14 +333,12 @@ MoeDispatch::MoeDispatch(
     TensorView* in_x,
     TensorView* in_topk_idx,
     TensorView* in_topk_weights,
-    TensorView* in_is_token_in_rank,
     int64_t num_experts,
     CommunicatorBackend backend)
     : Expr(passkey) {
   addInput(in_x);
   addInput(in_topk_idx);
   addInput(in_topk_weights);
-  addInput(in_is_token_in_rank);
   addOutput(out_x);
   addOutput(out_topk_idx);
   addOutput(out_topk_weights);
@@ -363,7 +361,6 @@ std::string MoeDispatch::toInlineString(int indent_size) const {
                           << "in=" << inX() << ", "
                           << "topk_idx=" << inTopkIdx() << ", "
                           << "topk_weights=" << inTopkWeights() << ", "
-                          << "is_token_in_rank=" << inIsTokenInRank() << ", "
                           << "out=" << outX() << ")";
   return ss.str();
 }
@@ -384,10 +381,6 @@ void MoeDispatch::validate() {
       inTopkWeights()->getDataType().has_value() &&
           isFloatingPointType(*inTopkWeights()->getDataType()),
       "topk_weights must be floating point.");
-  NVF_CHECK(
-      inIsTokenInRank()->getDataType().has_value() &&
-          inIsTokenInRank()->getDataType() == DataType::Bool,
-      "is_token_in_rank must be Bool.");
   NVF_CHECK(
       outTopkIdx()->getDataType().has_value() &&
           isIntegralType(*outTopkIdx()->getDataType()),

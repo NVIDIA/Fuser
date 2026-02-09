@@ -396,14 +396,11 @@ void HostIrEvaluator::handle(MoeDispatch* dispatch) {
   auto topk_idx = getKnownConcreteValue(dispatch->inTopkIdx()).as<at::Tensor>();
   auto topk_weights =
       getKnownConcreteValue(dispatch->inTopkWeights()).as<at::Tensor>();
-  auto is_token_in_rank =
-      getKnownConcreteValue(dispatch->inIsTokenInRank()).as<at::Tensor>();
 
   auto result = doMoeDispatch(
       x,
       topk_idx,
       topk_weights,
-      is_token_in_rank,
       dispatch->numExperts(),
       communicator_,
       dispatch->backend());

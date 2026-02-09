@@ -35,8 +35,8 @@ struct CombineResult {
 //   x: Token embeddings on this rank, shape [T, H].
 //   topk_idx: Global expert ids per token (topk=1), shape [T] or [T, 1].
 //   topk_weights: Gating weights per token (topk=1), shape [T] or [T, 1].
-//   is_token_in_rank: One-hot token-to-rank assignment, shape [T, R], enabling
-//   non-trivial device meshes or uneven expert-to-rank mappings.
+//   Experts are assumed to be placed contiguously by rank so
+//   rank = topk_idx / experts_per_rank.
 //   num_experts: Total experts across all ranks (must be divisible by R).
 //   communicator: Communicator for alltoall exchange.
 //   backend: Communication backend (only NCCL is supported for now).
@@ -50,13 +50,8 @@ struct CombineResult {
 //     rank0 owns experts {0, 1}, rank1 owns experts {2, 3}
 //   Rank0 holds tokens 0,1 and rank1 holds tokens 2,3 in x:
 //     rank0 x = [x0, x1], rank1 x = [x2, x3]
-//   token->rank: [0, 1, 1, 1]  (rank0 keeps x0, sends x1; rank1 keeps x2,x3)
-//   is_token_in_rank =
-//     [[1, 0],
-//      [0, 1],
-//      [0, 1],
-//      [0, 1]]
-//   topk_idx = [0, 2, 3, 2]  (global expert ids)
+//   token->rank: [0, 1, 1, 1]  (via expert ids below)
+//   topk_idx = [0, 2, 3, 2]  (global expert ids, contiguous per rank)
 //   After dispatch on rank0:
 //     recv_x has token {0}
 //     recv_topk_idx aligned with recv_x (e.g., [0])
@@ -71,7 +66,6 @@ struct CombineResult {
 //       x,
 //       topk_idx,
 //       topk_weights,
-//       is_token_in_rank,
 //       4,
 //       comm,
 //       CommunicatorBackend::kNccl);
@@ -79,7 +73,6 @@ NVF_API DispatchResult doMoeDispatch(
     const at::Tensor& x, // [T, H]
     const at::Tensor& topk_idx, // [T] or [T, 1]
     const at::Tensor& topk_weights, // [T] or [T, 1]
-    const at::Tensor& is_token_in_rank, // [T, R]
     int64_t num_experts,
     Communicator* communicator,
     CommunicatorBackend backend);
