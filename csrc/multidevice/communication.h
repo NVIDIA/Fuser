@@ -275,10 +275,9 @@ class MoeDispatch : public Expr {
 // their source ranks using `in_src_rank` and `in_src_idx`.
 //
 // Example shapes (topk=1):
-//   in_x: [T_recv, H], in_topk_weights: [T_recv], in_src_idx: [T_recv],
+//   in_x: [T_recv, H], in_topk_weights: [T_recv, 1], in_src_idx: [T_recv],
 //   in_src_rank: [T_recv], in_n_tokens_to_rank: [R], in_n_tokens_from_rank:
-//   [R]. Outputs are source-aligned: out_x/out_topk_weights with shape [T_src,
-//   ...].
+//   [R]. Output out_x is source-aligned with shape [T_src, ...].
 class MoeCombine : public Expr {
  public:
   using Expr::Expr;
@@ -286,7 +285,6 @@ class MoeCombine : public Expr {
   MoeCombine(
       IrBuilderPasskey passkey,
       TensorView* out_x,
-      TensorView* out_topk_weights,
       TensorView* in_x,
       TensorView* in_topk_weights,
       TensorView* in_src_idx,
@@ -310,10 +308,6 @@ class MoeCombine : public Expr {
 
   TensorView* outX() const {
     return output(0)->as<TensorView>();
-  }
-
-  TensorView* outTopkWeights() const {
-    return output(1)->as<TensorView>();
   }
 
   TensorView* inX() const {

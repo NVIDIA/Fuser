@@ -65,10 +65,8 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       CommunicatorBackend::kNccl);
 
   auto* combined_x = makeSymbolicTensor(2);
-  auto* combined_topk_weights = makeSymbolicTensor(2);
   auto* combine = IrBuilder::create<MoeCombine>(
       combined_x,
-      combined_topk_weights,
       recv_x,
       recv_topk_weights,
       recv_src_idx,
@@ -84,7 +82,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   hic->addInput(in_topk_idx);
   hic->addInput(in_topk_weights);
   hic->addOutput(combined_x);
-  hic->addOutput(combined_topk_weights);
 
   HostIrEvaluator hie(std::move(hic), communicator_);
 
@@ -112,12 +109,8 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   auto outputs = hie.runWithInput(
       {{in_x, x}, {in_topk_idx, topk_idx}, {in_topk_weights, topk_weights}});
   auto combined = outputs[0].as<at::Tensor>();
-  auto combined_weights = outputs[1].as<at::Tensor>();
-
   EXPECT_TRUE(at::allclose(combined, x))
       << "Dispatch/Combine mismatch on rank " << my_rank;
-  EXPECT_TRUE(at::allclose(combined_weights, topk_weights))
-      << "Dispatch/Combine topk_weights mismatch on rank " << my_rank;
 }
 
 TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
@@ -279,10 +272,8 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
   auto* in_n_tokens_from_rank = makeSymbolicTensor(1, DataType::Int);
 
   auto* combined_x = makeSymbolicTensor(2);
-  auto* combined_topk_weights = makeSymbolicTensor(2);
   auto* combine = IrBuilder::create<MoeCombine>(
       combined_x,
-      combined_topk_weights,
       in_x,
       in_topk_weights,
       in_src_idx,
@@ -300,7 +291,6 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
   hic->addInput(in_n_tokens_to_rank);
   hic->addInput(in_n_tokens_from_rank);
   hic->addOutput(combined_x);
-  hic->addOutput(combined_topk_weights);
 
   HostIrEvaluator hie(std::move(hic), communicator_);
 
@@ -313,12 +303,9 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
        {in_n_tokens_from_rank, dispatch_result.n_tokens_from_rank}});
 
   auto combined = outputs[0].as<at::Tensor>();
-  auto combined_weights = outputs[1].as<at::Tensor>();
 
   EXPECT_TRUE(at::allclose(combined, x))
       << "Combine mismatch on rank " << my_rank;
-  EXPECT_TRUE(at::allclose(combined_weights, topk_weights))
-      << "Combine topk_weights mismatch on rank " << my_rank;
 }
 
 } // namespace hir

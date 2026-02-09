@@ -169,10 +169,18 @@ CombineResult doMoeCombine(
     CommunicatorBackend backend) {
   NVF_CHECK(communicator != nullptr, "Combine requires a valid communicator.");
   NVF_CHECK(x.is_cuda(), "Combine input x must be on CUDA.");
-  NVF_CHECK(topk_weights.is_cuda(), "Combine topk_weights must be on CUDA.");
-  NVF_CHECK(
-      topk_weights.is_floating_point(),
-      "Combine topk_weights must be floating point.");
+  const bool has_topk_weights = topk_weights.numel() > 0;
+  if (has_topk_weights) {
+    NVF_CHECK(topk_weights.is_cuda(), "Combine topk_weights must be on CUDA.");
+    NVF_CHECK(
+        topk_weights.is_floating_point(),
+        "Combine topk_weights must be floating point.");
+    NVF_CHECK(
+        topk_weights.dim() == 2 && topk_weights.size(0) == x.size(0) &&
+            topk_weights.size(1) == 1,
+        "topk_weights must be shape [T, 1], got: ",
+        topk_weights.sizes());
+  }
   NVF_CHECK(src_idx.is_cuda(), "Combine src_idx must be on CUDA.");
   NVF_CHECK(src_rank.is_cuda(), "Combine src_rank must be on CUDA.");
   NVF_CHECK(
@@ -182,11 +190,6 @@ CombineResult doMoeCombine(
   NVF_CHECK_EQ(x.dim(), 2, "Combine expects x to be 2D [tokens, hidden].");
   NVF_CHECK_EQ(src_idx.dim(), 1, "src_idx must be 1D.");
   NVF_CHECK_EQ(src_rank.dim(), 1, "src_rank must be 1D.");
-  NVF_CHECK(
-      topk_weights.dim() == 2 && topk_weights.size(0) == x.size(0) &&
-          topk_weights.size(1) == 1,
-      "topk_weights must be shape [T, 1], got: ",
-      topk_weights.sizes());
   NVF_CHECK_EQ(
       src_idx.size(0), x.size(0), "src_idx size must match x first dimension.");
   NVF_CHECK_EQ(
@@ -205,7 +208,6 @@ CombineResult doMoeCombine(
   // Sort by source rank so alltoall can send contiguous chunks per rank.
   auto sorted_indices = at::argsort(src_rank);
   auto send_x = x.index_select(0, sorted_indices);
-  auto send_topk_weights = topk_weights.index_select(0, sorted_indices);
   auto send_src_idx = src_idx.index_select(0, sorted_indices);
 
   // Split sizes come from dispatch counts.
@@ -227,24 +229,20 @@ CombineResult doMoeCombine(
 
   // Allocate receive buffers and exchange payloads back to source ranks.
   auto recv_x = at::empty({total_recv, hidden}, x.options());
-  auto recv_topk_weights =
-      at::empty({total_recv, topk_weights.size(1)}, topk_weights.options());
   auto recv_src_idx = at::empty({total_recv}, src_idx.options());
 
   waitWork(pg->alltoall_base(recv_x, send_x, output_splits, input_splits));
-  waitWork(pg->alltoall_base(
-      recv_topk_weights, send_topk_weights, output_splits, input_splits));
   waitWork(pg->alltoall_base(
       recv_src_idx, send_src_idx, output_splits, input_splits));
 
   // Scatter by original token index to restore local order.
   auto combined_x = at::empty({total_recv, hidden}, x.options());
   combined_x.index_copy_(0, recv_src_idx, recv_x);
-  auto combined_topk_weights =
-      at::empty({total_recv, topk_weights.size(1)}, topk_weights.options());
-  combined_topk_weights.index_copy_(0, recv_src_idx, recv_topk_weights);
 
-  return CombineResult{combined_x, combined_topk_weights};
+  // topk_weights is reserved for future weighted combine.
+  (void)topk_weights;
+
+  return CombineResult{combined_x};
 }
 
 } // namespace nvfuser

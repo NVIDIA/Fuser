@@ -26,7 +26,6 @@ struct DispatchResult {
 
 struct CombineResult {
   at::Tensor combined_x; // Combined tokens back in original order.
-  at::Tensor combined_topk_weights; // Combined gating weights per token.
 };
 
 // Dispatch MoE tokens to the owning ranks. Only k=1 is supported for now.
@@ -81,7 +80,8 @@ NVF_API DispatchResult doMoeDispatch(
 //
 // Args:
 //   x: Token embeddings after expert compute, shape [T_recv, H].
-//   topk_weights: Gating weights aligned with x, shape [T_recv, K] (K=1).
+//   topk_weights: Optional gating weights aligned with x, shape [T_recv, K]
+//   (K=1). Pass empty to skip weighting in combine.
 //   src_idx: Original token indices for each row of x, shape [T_recv].
 //   src_rank: Original source rank per token, shape [T_recv].
 //   n_tokens_to_rank: Tokens sent to each rank (from dispatch), shape [R].

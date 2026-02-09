@@ -441,7 +441,6 @@ void HostIrEvaluator::handle(MoeCombine* combine) {
       combine->backend());
 
   expr_evaluator_.bind(combine->outX(), result.combined_x);
-  expr_evaluator_.bind(combine->outTopkWeights(), result.combined_topk_weights);
 }
 
 void HostIrEvaluator::handle(Wait* wait) {

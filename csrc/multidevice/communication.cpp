@@ -410,7 +410,6 @@ void MoeDispatch::validate() {
 MoeCombine::MoeCombine(
     IrBuilderPasskey passkey,
     TensorView* out_x,
-    TensorView* out_topk_weights,
     TensorView* in_x,
     TensorView* in_topk_weights,
     TensorView* in_src_idx,
@@ -426,7 +425,6 @@ MoeCombine::MoeCombine(
   addInput(in_n_tokens_to_rank);
   addInput(in_n_tokens_from_rank);
   addOutput(out_x);
-  addOutput(out_topk_weights);
   addDataAttribute(backend);
   validate();
 }
@@ -471,10 +469,6 @@ void MoeCombine::validate() {
       inTokensFromRank()->getDataType().has_value() &&
           isIntegralType(*inTokensFromRank()->getDataType()),
       "in_n_tokens_from_rank must be integral.");
-  NVF_CHECK(
-      outTopkWeights()->getDataType().has_value() &&
-          isFloatingPointType(*outTopkWeights()->getDataType()),
-      "out_topk_weights must be floating point.");
 }
 
 namespace {
