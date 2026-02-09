@@ -87,8 +87,6 @@ TEST_F(ResizeTest, Pad1) {
 
   auto t0 = at::randn(shape, options);
 
-  EnableOptionsGuard enable_options_guard;
-
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
@@ -116,8 +114,6 @@ TEST_F(ResizeTest, Pad2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-
-  EnableOptionsGuard enable_options_guard;
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -164,8 +160,6 @@ TEST_F(ResizeTest, Pad3) {
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
 
-  EnableOptionsGuard enable_options_guard;
-
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
   auto cg_outputs = ke.run({t0, t1});
@@ -191,8 +185,6 @@ TEST_F(ResizeTest, Pad4) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-
-  EnableOptionsGuard enable_options_guard;
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -241,8 +233,6 @@ TEST_F(ResizeTest, Pad5) {
 
   auto t0 = at::randn(shape, options);
 
-  EnableOptionsGuard enable_options_guard;
-
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
@@ -286,8 +276,6 @@ TEST_F(ResizeTest, Pad6) {
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
 
-  EnableOptionsGuard enable_options_guard;
-
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
   auto cg_outputs = ke.run({t0, t1});
@@ -330,8 +318,6 @@ TEST_F(ResizeTest, Pad7) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-
-  EnableOptionsGuard enable_options_guard;
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -403,8 +389,6 @@ TEST_F(ResizeTest, PadScheduler1) {
 
   auto t0 = at::randn(shape, options);
 
-  EnableOptionsGuard enable_options_guard;
-
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
@@ -435,8 +419,6 @@ TEST_F(ResizeTest, PadScheduler2) {
 
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
-
-  EnableOptionsGuard enable_options_guard;
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -511,8 +493,6 @@ TEST_F(ResizeTest, PadScheduler4) {
   auto t0 = at::randn(shape, options);
   std::vector<int64_t> pad_extents{1, 1};
 
-  EnableOptionsGuard enable_options_guard;
-
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, 1, 1});
 
@@ -544,8 +524,6 @@ TEST_F(ResizeTest, PadBroadcastInput) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-
-  EnableOptionsGuard enable_options_guard;
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
@@ -1384,8 +1362,6 @@ TEST_F(ResizeTest, PadReduceScheduler1) {
     inputs.push(pad_extent);
   }
 
-  EnableOptionsGuard enable_options_guard;
-
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
@@ -1673,8 +1649,6 @@ TEST_F(ResizeTest, PadWithValue) {
 
   auto t0 = at::randn(shape, options);
 
-  EnableOptionsGuard enable_options_guard;
-
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
@@ -1706,8 +1680,6 @@ TEST_F(ResizeTest, PadToEmptyTensor) {
 
   auto t0 = at::randn(shape, options);
 
-  EnableOptionsGuard enable_options_guard;
-
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
@@ -1735,8 +1707,6 @@ TEST_F(ResizeTest, PadHalfWithDoubleValue) {
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
 
   auto t0 = at::ones(shape, options);
-
-  EnableOptionsGuard enable_options_guard;
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -2341,8 +2311,6 @@ TEST_F(ResizeTest, ResizePadToBroadcastStatic) {
   auto t0 = at::randn(t0_size, options);
   auto t1 = at::randn(t1_size, options);
 
-  EnableOptionsGuard enable_options_guard;
-
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
@@ -2407,8 +2375,6 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
     inputs.push(pad_width);
   }
 
-  EnableOptionsGuard enable_options_guard;
-
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
@@ -2449,8 +2415,6 @@ TEST_F(ResizeTest, ResizePadToBroadcastIssue596) {
 
   auto t0 = at::randn({2}, options);
   auto t1 = at::randn({3}, options);
-
-  EnableOptionsGuard enable_options_guard;
 
   KernelArgumentHolder args({t0, t1});
   FusionKernelRuntime runtime(std::move(fusion), args);
@@ -3002,8 +2966,6 @@ TEST_F(ResizeTest, ReshapeToPad) {
   auto tv2 = pad(tv1, {fusion.zeroVal(), s0, fusion.zeroVal(), s1});
   fusion.addOutput(tv2);
 
-  EnableOptionsGuard enable_options_guard;
-
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -3173,8 +3135,6 @@ TEST_F(ResizeTest, PadExpandedEmpty) {
 
   auto t0 = at::randn({0}, options).as_strided({2, 0, 3}, {0, 0, 0});
 
-  EnableOptionsGuard enable_options_guard;
-
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
@@ -3198,8 +3158,6 @@ TEST_F(ResizeTest, PadOfBroadcast) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape0, options);
-
-  EnableOptionsGuard enable_options_guard;
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -3228,8 +3186,6 @@ TEST_F(ResizeTest, PadOfExpandedBroadcast) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape0, options);
-
-  EnableOptionsGuard enable_options_guard;
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -3570,8 +3526,6 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   std::vector<int64_t> shape({100});
 
-  EnableOptionsGuard enable_options_guard;
-
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -3617,8 +3571,6 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
 
   std::vector<int64_t> shape({100});
 
-  EnableOptionsGuard enable_options_guard;
-
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -3663,8 +3615,6 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
-
-  EnableOptionsGuard enable_options_guard;
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3714,8 +3664,6 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
-
-  EnableOptionsGuard enable_options_guard;
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3767,8 +3715,6 @@ TEST_F(ResizeTest, SliceThenConcat) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
-
-  EnableOptionsGuard enable_options_guard;
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3827,8 +3773,6 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 
   const int64_t i0 = 128;
   const int64_t rope_size = 32;
-
-  EnableOptionsGuard enable_options_guard;
 
   auto zero = fusion.zeroVal();
 
@@ -3926,8 +3870,6 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputs) {
 
   std::vector<int64_t> shape({-1, 100});
 
-  EnableOptionsGuard enable_options_guard;
-
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
@@ -4013,8 +3955,6 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape1) {
   FusionGuard fg(fusion_ptr.get());
 
   std::vector<int64_t> shape({16, 100});
-
-  EnableOptionsGuard enable_options_guard;
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4104,8 +4044,6 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape2) {
 
   std::vector<int64_t> shape({16, 100});
 
-  EnableOptionsGuard enable_options_guard;
-
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
@@ -4188,8 +4126,6 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs1) {
   FusionGuard fg(fusion_ptr.get());
 
   std::vector<int64_t> shape({-1, 100});
-
-  EnableOptionsGuard enable_options_guard;
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4300,8 +4236,6 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs2) {
 
   std::vector<int64_t> shape({-1, 100});
 
-  EnableOptionsGuard enable_options_guard;
-
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
@@ -4410,8 +4344,6 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs3) {
   FusionGuard fg(fusion_ptr.get());
 
   std::vector<int64_t> shape({-1, 100});
-
-  EnableOptionsGuard enable_options_guard;
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4709,8 +4641,6 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
 
   std::vector<int64_t> shape({-1, 100});
 
-  EnableOptionsGuard enable_options_guard;
-
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
@@ -4840,8 +4770,6 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
   // std::vector<int64_t> shape({16, 100});
   std::vector<int64_t> shape({16, 100});
 
-  EnableOptionsGuard enable_options_guard;
-
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
@@ -4969,8 +4897,6 @@ TEST_F(ResizeSchedulerTest, SliceRotateCatTwice) {
 
   std::vector<int64_t> shape({-1, 100});
 
-  EnableOptionsGuard enable_options_guard;
-
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
@@ -5063,8 +4989,6 @@ TEST_P(ResizeSchedulerTest, PropagatePadToInputs) {
 
   std::vector<int64_t> shape({-1, 100});
 
-  EnableOptionsGuard enable_options_guard;
-
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
@@ -5152,8 +5076,6 @@ TEST_P(ResizeSchedulerTest, PropagateCatToInputs) {
   FusionGuard fg(fusion_ptr.get());
 
   std::vector<int64_t> shape({-1, 100});
-
-  EnableOptionsGuard enable_options_guard;
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -6084,8 +6006,6 @@ TEST_F(ResizeTest, ReshapeAfterRef) {
   FusionGuard fg(fusion_ptr.get());
 
   std::vector<int64_t> shape({2, 16, 100});
-
-  EnableOptionsGuard enable_options_guard;
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
