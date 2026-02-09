@@ -98,8 +98,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       static_cast<double>(my_rank) * 1000.0;
   auto topk_idx = at::zeros({kNumTokens, 1}, int_options);
   auto topk_weights =
-      at::arange(kNumTokens, float_options)
-          .reshape({kNumTokens, 1}) +
+      at::arange(kNumTokens, float_options).reshape({kNumTokens, 1}) +
       static_cast<double>(my_rank);
 
   // Asymmetric example:
@@ -111,9 +110,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   topk_idx.index_put_({3, 0}, kNumExpertsPerRank);
 
   auto outputs = hie.runWithInput(
-      {{in_x, x},
-       {in_topk_idx, topk_idx},
-       {in_topk_weights, topk_weights}});
+      {{in_x, x}, {in_topk_idx, topk_idx}, {in_topk_weights, topk_weights}});
   auto combined = outputs[0].as<at::Tensor>();
   auto combined_weights = outputs[1].as<at::Tensor>();
 
@@ -189,8 +186,7 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
       static_cast<double>(my_rank) * 1000.0;
   auto topk_idx = at::zeros({kNumTokens, 1}, int_options);
   auto topk_weights =
-      at::arange(kNumTokens, float_options)
-          .reshape({kNumTokens, 1}) +
+      at::arange(kNumTokens, float_options).reshape({kNumTokens, 1}) +
       static_cast<double>(my_rank);
 
   // Asymmetric example:
@@ -202,9 +198,7 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
   topk_idx.index_put_({3, 0}, kNumExpertsPerRank);
 
   auto outputs = hie.runWithInput(
-      {{in_x, x},
-       {in_topk_idx, topk_idx},
-       {in_topk_weights, topk_weights}});
+      {{in_x, x}, {in_topk_idx, topk_idx}, {in_topk_weights, topk_weights}});
 
   auto expected = doMoeDispatch(
       x,
@@ -216,17 +210,14 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
 
   EXPECT_TRUE(at::allclose(outputs[0].as<at::Tensor>(), expected.recv_x))
       << "Dispatch recv_x mismatch on rank " << my_rank;
-  EXPECT_TRUE(
-      at::allclose(outputs[1].as<at::Tensor>(), expected.recv_topk_idx))
+  EXPECT_TRUE(at::allclose(outputs[1].as<at::Tensor>(), expected.recv_topk_idx))
       << "Dispatch recv_topk_idx mismatch on rank " << my_rank;
   EXPECT_TRUE(
       at::allclose(outputs[2].as<at::Tensor>(), expected.recv_topk_weights))
       << "Dispatch recv_topk_weights mismatch on rank " << my_rank;
-  EXPECT_TRUE(
-      at::allclose(outputs[3].as<at::Tensor>(), expected.recv_src_idx))
+  EXPECT_TRUE(at::allclose(outputs[3].as<at::Tensor>(), expected.recv_src_idx))
       << "Dispatch recv_src_idx mismatch on rank " << my_rank;
-  EXPECT_TRUE(
-      at::allclose(outputs[4].as<at::Tensor>(), expected.recv_src_rank))
+  EXPECT_TRUE(at::allclose(outputs[4].as<at::Tensor>(), expected.recv_src_rank))
       << "Dispatch recv_src_rank mismatch on rank " << my_rank;
   EXPECT_TRUE(
       at::allclose(outputs[5].as<at::Tensor>(), expected.n_tokens_to_rank))
@@ -258,8 +249,7 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
       static_cast<double>(my_rank) * 1000.0;
   auto topk_idx = at::zeros({kNumTokens, 1}, int_options);
   auto topk_weights =
-      at::arange(kNumTokens, float_options)
-          .reshape({kNumTokens, 1}) +
+      at::arange(kNumTokens, float_options).reshape({kNumTokens, 1}) +
       static_cast<double>(my_rank);
 
   // Asymmetric example:

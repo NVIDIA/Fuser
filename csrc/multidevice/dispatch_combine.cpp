@@ -68,12 +68,14 @@ DispatchResult doMoeDispatch(
   const int64_t experts_per_rank = num_experts / world_size;
 
   NVF_CHECK(
-      topk_idx.dim() == 2 && topk_idx.size(0) == num_tokens && topk_idx.size(1) == 1,
+      topk_idx.dim() == 2 && topk_idx.size(0) == num_tokens &&
+          topk_idx.size(1) == 1,
       "Only topk=1 supported. topk_idx must be shape [T, 1], got: ",
       topk_idx.sizes());
   auto topk_idx_flat = topk_idx.reshape({num_tokens});
   NVF_CHECK(
-      topk_weights.dim() == 2 && topk_weights.size(0) == num_tokens && topk_weights.size(1) == 1,
+      topk_weights.dim() == 2 && topk_weights.size(0) == num_tokens &&
+          topk_weights.size(1) == 1,
       "Only topk=1 supported. topk_weights must be shape [T, 1], got: ",
       topk_weights.sizes());
 
@@ -128,10 +130,10 @@ DispatchResult doMoeDispatch(
   // Allocate receive buffers for payloads and metadata.
   // TODO: support preallocated buffers.
   auto recv_x = at::empty({total_recv, hidden}, x.options());
-  auto recv_topk_idx = at::empty(
-      {total_recv, topk_idx.size(1)}, topk_idx.options());
-  auto recv_topk_weights = at::empty(
-      {total_recv, topk_weights.size(1)}, topk_weights.options());
+  auto recv_topk_idx =
+      at::empty({total_recv, topk_idx.size(1)}, topk_idx.options());
+  auto recv_topk_weights =
+      at::empty({total_recv, topk_weights.size(1)}, topk_weights.options());
   auto recv_src_idx = at::empty({total_recv}, send_src_idx.options());
   auto recv_src_rank = at::empty({total_recv}, send_src_rank.options());
 
@@ -181,7 +183,8 @@ CombineResult doMoeCombine(
   NVF_CHECK_EQ(src_idx.dim(), 1, "src_idx must be 1D.");
   NVF_CHECK_EQ(src_rank.dim(), 1, "src_rank must be 1D.");
   NVF_CHECK(
-      topk_weights.dim() == 2 && topk_weights.size(0) == x.size(0) && topk_weights.size(1) == 1,
+      topk_weights.dim() == 2 && topk_weights.size(0) == x.size(0) &&
+          topk_weights.size(1) == 1,
       "topk_weights must be shape [T, 1], got: ",
       topk_weights.sizes());
   NVF_CHECK_EQ(
@@ -224,8 +227,8 @@ CombineResult doMoeCombine(
 
   // Allocate receive buffers and exchange payloads back to source ranks.
   auto recv_x = at::empty({total_recv, hidden}, x.options());
-  auto recv_topk_weights = at::empty(
-      {total_recv, topk_weights.size(1)}, topk_weights.options());
+  auto recv_topk_weights =
+      at::empty({total_recv, topk_weights.size(1)}, topk_weights.options());
   auto recv_src_idx = at::empty({total_recv}, src_idx.options());
 
   waitWork(pg->alltoall_base(recv_x, send_x, output_splits, input_splits));
@@ -237,8 +240,8 @@ CombineResult doMoeCombine(
   // Scatter by original token index to restore local order.
   auto combined_x = at::empty({total_recv, hidden}, x.options());
   combined_x.index_copy_(0, recv_src_idx, recv_x);
-  auto combined_topk_weights = at::empty(
-      {total_recv, topk_weights.size(1)}, topk_weights.options());
+  auto combined_topk_weights =
+      at::empty({total_recv, topk_weights.size(1)}, topk_weights.options());
   combined_topk_weights.index_copy_(0, recv_src_idx, recv_topk_weights);
 
   return CombineResult{combined_x, combined_topk_weights};
