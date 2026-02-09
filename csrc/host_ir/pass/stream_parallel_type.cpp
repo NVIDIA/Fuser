@@ -217,9 +217,14 @@ std::list<Expr*> groupStreamParallelRegions(
     IterDomain* stream_axis = getStreamAxis(tv->getLoopDomain());
     bool is_input = false;
 
-    // If no stream axis found, check the input tensor for a stream axis
-    // If found, use that. If not, keep the expression as is
     if (stream_axis == nullptr) {
+      if (!expr->isA<ReductionOp>()) {
+        new_top_level_exprs.push_back(expr);
+        continue;
+      }
+      // For reduction ops, check the input tensor for a stream axis for handling the reduce-collective-based algorithm
+      NVF_ERROR(expr->inputs().size() == 1, "expected one input but got ", expr);
+      NVF_ERROR(expr->input(0)->isA<TensorView>(), "expected a tensor input but got ", expr);
       auto* input = expr->input(0)->as<TensorView>();
       IterDomain* input_stream_axis = getStreamAxis(input->getLoopDomain());
       int64_t input_stream_axis_index = -1;
@@ -241,7 +246,7 @@ std::list<Expr*> groupStreamParallelRegions(
         new_top_level_exprs.push_back(expr);
         continue;
       } else {
-        // Special handling to allow reduction ops to have the stream axis on the input for the MM+RS reduce-collective-based algorithm
+        // It's the MM+RS reduce-collective-based algorithm, so continue with grouping with the previous for-loop
         tv = input;
         stream_axis = input_stream_axis;
         is_input = true;
