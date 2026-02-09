@@ -178,8 +178,9 @@ class P2PCommunication : public Expr {
 // the local rank to destination ranks based on explicit routing.
 //
 // Example shapes (topk=1):
-//   in_x: [T, H], in_topk_idx: [T] or [T, 1],
-//   in_topk_weights: [T] or [T, 1], num_experts = R * experts_per_rank.
+//   in_x: [T, H], in_topk_idx: [T, 1],
+//   in_topk_weights: [T, 1], num_experts = R * experts_per_rank.
+//   For topk>1, use [T, K] for both topk inputs.
 //   Experts are assumed to be placed contiguously by rank.
 //   out_src_idx/out_src_rank are returned for the combine step to restore the
 //   original token order.

@@ -39,12 +39,12 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   FusionGuard fg(hic.get());
 
   auto* in_x = makeSymbolicTensor(2);
-  auto* in_topk_idx = makeSymbolicTensor(1, DataType::Int);
-  auto* in_topk_weights = makeSymbolicTensor(1);
+  auto* in_topk_idx = makeSymbolicTensor(2, DataType::Int);
+  auto* in_topk_weights = makeSymbolicTensor(2);
 
   auto* recv_x = makeSymbolicTensor(2);
-  auto* recv_topk_idx = makeSymbolicTensor(1, DataType::Int);
-  auto* recv_topk_weights = makeSymbolicTensor(1);
+  auto* recv_topk_idx = makeSymbolicTensor(2, DataType::Int);
+  auto* recv_topk_weights = makeSymbolicTensor(2);
   auto* recv_src_idx = makeSymbolicTensor(1, DataType::Int);
   auto* recv_src_rank = makeSymbolicTensor(1, DataType::Int);
   auto* n_tokens_to_rank = makeSymbolicTensor(1, DataType::Int);
@@ -65,7 +65,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       CommunicatorBackend::kNccl);
 
   auto* combined_x = makeSymbolicTensor(2);
-  auto* combined_topk_weights = makeSymbolicTensor(1);
+  auto* combined_topk_weights = makeSymbolicTensor(2);
   auto* combine = IrBuilder::create<MoeCombine>(
       combined_x,
       combined_topk_weights,
@@ -96,17 +96,19 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   auto x = at::arange(kNumTokens * kHidden, float_options)
                .reshape({kNumTokens, kHidden}) +
       static_cast<double>(my_rank) * 1000.0;
-  auto topk_idx = at::zeros({kNumTokens}, int_options);
+  auto topk_idx = at::zeros({kNumTokens, 1}, int_options);
   auto topk_weights =
-      at::arange(kNumTokens, float_options) + static_cast<double>(my_rank);
+      at::arange(kNumTokens, float_options)
+          .reshape({kNumTokens, 1}) +
+      static_cast<double>(my_rank);
 
   // Asymmetric example:
   // token->rank: [0, 1, 1, 1] so rank0 gets 1 token, rank1 gets 3 tokens.
   // Experts are partitioned by rank. Use rank0 expert0, rank1 experts0/1.
-  topk_idx.index_put_({0}, 0);
-  topk_idx.index_put_({1}, kNumExpertsPerRank);
-  topk_idx.index_put_({2}, kNumExpertsPerRank + 1);
-  topk_idx.index_put_({3}, kNumExpertsPerRank);
+  topk_idx.index_put_({0, 0}, 0);
+  topk_idx.index_put_({1, 0}, kNumExpertsPerRank);
+  topk_idx.index_put_({2, 0}, kNumExpertsPerRank + 1);
+  topk_idx.index_put_({3, 0}, kNumExpertsPerRank);
 
   auto outputs = hie.runWithInput(
       {{in_x, x},
@@ -137,12 +139,12 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
   FusionGuard fg(hic.get());
 
   auto* in_x = makeSymbolicTensor(2);
-  auto* in_topk_idx = makeSymbolicTensor(1, DataType::Int);
-  auto* in_topk_weights = makeSymbolicTensor(1);
+  auto* in_topk_idx = makeSymbolicTensor(2, DataType::Int);
+  auto* in_topk_weights = makeSymbolicTensor(2);
 
   auto* recv_x = makeSymbolicTensor(2);
-  auto* recv_topk_idx = makeSymbolicTensor(1, DataType::Int);
-  auto* recv_topk_weights = makeSymbolicTensor(1);
+  auto* recv_topk_idx = makeSymbolicTensor(2, DataType::Int);
+  auto* recv_topk_weights = makeSymbolicTensor(2);
   auto* recv_src_idx = makeSymbolicTensor(1, DataType::Int);
   auto* recv_src_rank = makeSymbolicTensor(1, DataType::Int);
   auto* n_tokens_to_rank = makeSymbolicTensor(1, DataType::Int);
@@ -185,17 +187,19 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
   auto x = at::arange(kNumTokens * kHidden, float_options)
                .reshape({kNumTokens, kHidden}) +
       static_cast<double>(my_rank) * 1000.0;
-  auto topk_idx = at::zeros({kNumTokens}, int_options);
+  auto topk_idx = at::zeros({kNumTokens, 1}, int_options);
   auto topk_weights =
-      at::arange(kNumTokens, float_options) + static_cast<double>(my_rank);
+      at::arange(kNumTokens, float_options)
+          .reshape({kNumTokens, 1}) +
+      static_cast<double>(my_rank);
 
   // Asymmetric example:
   // token->rank: [0, 1, 1, 1] so rank0 gets 1 token, rank1 gets 3 tokens.
   // Experts are partitioned by rank. Use rank0 expert0, rank1 experts0/1.
-  topk_idx.index_put_({0}, 0);
-  topk_idx.index_put_({1}, kNumExpertsPerRank);
-  topk_idx.index_put_({2}, kNumExpertsPerRank + 1);
-  topk_idx.index_put_({3}, kNumExpertsPerRank);
+  topk_idx.index_put_({0, 0}, 0);
+  topk_idx.index_put_({1, 0}, kNumExpertsPerRank);
+  topk_idx.index_put_({2, 0}, kNumExpertsPerRank + 1);
+  topk_idx.index_put_({3, 0}, kNumExpertsPerRank);
 
   auto outputs = hie.runWithInput(
       {{in_x, x},
@@ -252,17 +256,19 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
   auto x = at::arange(kNumTokens * kHidden, float_options)
                .reshape({kNumTokens, kHidden}) +
       static_cast<double>(my_rank) * 1000.0;
-  auto topk_idx = at::zeros({kNumTokens}, int_options);
+  auto topk_idx = at::zeros({kNumTokens, 1}, int_options);
   auto topk_weights =
-      at::arange(kNumTokens, float_options) + static_cast<double>(my_rank);
+      at::arange(kNumTokens, float_options)
+          .reshape({kNumTokens, 1}) +
+      static_cast<double>(my_rank);
 
   // Asymmetric example:
   // token->rank: [0, 1, 1, 1] so rank0 gets 1 token, rank1 gets 3 tokens.
   // Experts are partitioned by rank. Use rank0 expert0, rank1 experts0/1.
-  topk_idx.index_put_({0}, 0);
-  topk_idx.index_put_({1}, kNumExpertsPerRank);
-  topk_idx.index_put_({2}, kNumExpertsPerRank + 1);
-  topk_idx.index_put_({3}, kNumExpertsPerRank);
+  topk_idx.index_put_({0, 0}, 0);
+  topk_idx.index_put_({1, 0}, kNumExpertsPerRank);
+  topk_idx.index_put_({2, 0}, kNumExpertsPerRank + 1);
+  topk_idx.index_put_({3, 0}, kNumExpertsPerRank);
 
   auto dispatch_result = doMoeDispatch(
       x,
@@ -276,14 +282,14 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
   FusionGuard fg(hic.get());
 
   auto* in_x = makeSymbolicTensor(2);
-  auto* in_topk_weights = makeSymbolicTensor(1);
+  auto* in_topk_weights = makeSymbolicTensor(2);
   auto* in_src_idx = makeSymbolicTensor(1, DataType::Int);
   auto* in_src_rank = makeSymbolicTensor(1, DataType::Int);
   auto* in_n_tokens_to_rank = makeSymbolicTensor(1, DataType::Int);
   auto* in_n_tokens_from_rank = makeSymbolicTensor(1, DataType::Int);
 
   auto* combined_x = makeSymbolicTensor(2);
-  auto* combined_topk_weights = makeSymbolicTensor(1);
+  auto* combined_topk_weights = makeSymbolicTensor(2);
   auto* combine = IrBuilder::create<MoeCombine>(
       combined_x,
       combined_topk_weights,

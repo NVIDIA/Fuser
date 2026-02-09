@@ -33,8 +33,8 @@ struct CombineResult {
 //
 // Args:
 //   x: Token embeddings on this rank, shape [T, H].
-//   topk_idx: Global expert ids per token (topk=1), shape [T] or [T, 1].
-//   topk_weights: Gating weights per token (topk=1), shape [T] or [T, 1].
+//   topk_idx: Global expert ids per token, shape [T, K] (K=1 supported).
+//   topk_weights: Gating weights per token, shape [T, K] (K=1 supported).
 //   Experts are assumed to be placed contiguously by rank so
 //   rank = topk_idx / experts_per_rank.
 //   num_experts: Total experts across all ranks (must be divisible by R).
@@ -51,7 +51,7 @@ struct CombineResult {
 //   Rank0 holds tokens 0,1 and rank1 holds tokens 2,3 in x:
 //     rank0 x = [x0, x1], rank1 x = [x2, x3]
 //   token->rank: [0, 1, 1, 1]  (via expert ids below)
-//   topk_idx = [0, 2, 3, 2]  (global expert ids, contiguous per rank)
+//   topk_idx = [[0], [2], [3], [2]]  (global expert ids, contiguous per rank)
 //   After dispatch on rank0:
 //     recv_x has token {0}
 //     recv_topk_idx aligned with recv_x (e.g., [0])
@@ -81,7 +81,7 @@ NVF_API DispatchResult doMoeDispatch(
 //
 // Args:
 //   x: Token embeddings after expert compute, shape [T_recv, H].
-//   topk_weights: Gating weights aligned with x, shape [T_recv] or [T_recv, 1].
+//   topk_weights: Gating weights aligned with x, shape [T_recv, K] (K=1).
 //   src_idx: Original token indices for each row of x, shape [T_recv].
 //   src_rank: Original source rank per token, shape [T_recv].
 //   n_tokens_to_rank: Tokens sent to each rank (from dispatch), shape [R].
