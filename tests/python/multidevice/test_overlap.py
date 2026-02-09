@@ -417,7 +417,6 @@ def test_column_parallel_linear_forward_reference_benchmark(
     benchmark.pedantic(benchmark_fn, rounds=5)
 
 
-@pytest.mark.mpi
 def column_parallel_linear_forward(h: int, d: int):
     with FusionDefinition() as fd:
         inp_tv = fd.define_tensor((-1, h), contiguity=True, dtype=DataType.BFloat16)
