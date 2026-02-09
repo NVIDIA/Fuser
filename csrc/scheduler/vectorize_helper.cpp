@@ -830,7 +830,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     product_of_inner_extents =
         SimplifyingIrBuilder::mulExpr(product_of_inner_extents, sharded_extent);
   }
-  return simplifyExpr(product_of_inner_extents);
+  return product_of_inner_extents;
 }
 
 std::unordered_map<TensorView*, Val*> ContiguousInnerDimensionsMapper::
