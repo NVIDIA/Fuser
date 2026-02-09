@@ -424,10 +424,14 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
         // by the presence of a swizzle in the stream id definition.
         // TODO: Lower to SendRecv if swizzle is present.
         if (c_stream_id != nullptr) {
+          IterDomain* c_stream_logical_id =
+              getLogicalFromLoopId(consumer, c_stream_id);
+          if (c_stream_logical_id == p2c_map.at(p_logical_id)) {
             NVF_CHECK(
                 same_mesh,
                 "Broadcast based allgather in stream parallel requires same "
                 "mesh.");
+            fill_communication_info(
                 CommunicationType::StreamBroadcast,
                 p_logical_id,
                 c_stream_logical_id);
