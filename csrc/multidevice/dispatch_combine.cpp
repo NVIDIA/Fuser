@@ -109,12 +109,11 @@ DispatchResult doMoeDispatch(
       backend,
       CommunicatorBackend::kNccl,
       "Only NCCL backend is supported for MoeDispatch.");
-  CommunicatorBackend actual_backend = backend;
   NVF_CHECK(
-      communicator->isBackendAvailable(actual_backend),
+      communicator->isBackendAvailable(backend),
       "Backend not available for dispatch: ",
-      actual_backend);
-  auto* pg = communicator->getWorld(actual_backend);
+      backend);
+  auto* pg = communicator->getWorld(backend);
   NVF_CHECK(pg != nullptr, "Dispatch backend is null.");
 
   // Exchange per-rank token counts to build split sizes for alltoall.
@@ -219,12 +218,11 @@ CombineResult doMoeCombine(
   NVF_CHECK(
       backend == CommunicatorBackend::kNccl,
       "Only NCCL backend is supported for MoeCombine.");
-  CommunicatorBackend actual_backend = backend;
   NVF_CHECK(
-      communicator->isBackendAvailable(actual_backend),
+      communicator->isBackendAvailable(backend),
       "Backend not available for combine: ",
-      actual_backend);
-  auto* pg = communicator->getWorld(actual_backend);
+      backend);
+  auto* pg = communicator->getWorld(backend);
   NVF_CHECK(pg != nullptr, "Combine backend is null.");
 
   // Allocate receive buffers and exchange payloads back to source ranks.
