@@ -46,7 +46,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   auto* recv_topk_idx = makeSymbolicTensor(2, DataType::Int);
   auto* recv_topk_weights = makeSymbolicTensor(2);
   auto* recv_src_idx = makeSymbolicTensor(1, DataType::Int);
-  auto* recv_src_rank = makeSymbolicTensor(1, DataType::Int);
   auto* n_tokens_to_rank = makeSymbolicTensor(1, DataType::Int);
   auto* n_tokens_from_rank = makeSymbolicTensor(1, DataType::Int);
 
@@ -55,7 +54,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       recv_topk_idx,
       recv_topk_weights,
       recv_src_idx,
-      recv_src_rank,
       n_tokens_to_rank,
       n_tokens_from_rank,
       in_x,
@@ -70,7 +68,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       recv_x,
       recv_topk_weights,
       recv_src_idx,
-      recv_src_rank,
       n_tokens_to_rank,
       n_tokens_from_rank,
       CommunicatorBackend::kNccl);
@@ -136,7 +133,6 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
   auto* recv_topk_idx = makeSymbolicTensor(2, DataType::Int);
   auto* recv_topk_weights = makeSymbolicTensor(2);
   auto* recv_src_idx = makeSymbolicTensor(1, DataType::Int);
-  auto* recv_src_rank = makeSymbolicTensor(1, DataType::Int);
   auto* n_tokens_to_rank = makeSymbolicTensor(1, DataType::Int);
   auto* n_tokens_from_rank = makeSymbolicTensor(1, DataType::Int);
 
@@ -145,7 +141,6 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
       recv_topk_idx,
       recv_topk_weights,
       recv_src_idx,
-      recv_src_rank,
       n_tokens_to_rank,
       n_tokens_from_rank,
       in_x,
@@ -163,7 +158,6 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
   hic->addOutput(recv_topk_idx);
   hic->addOutput(recv_topk_weights);
   hic->addOutput(recv_src_idx);
-  hic->addOutput(recv_src_rank);
   hic->addOutput(n_tokens_to_rank);
   hic->addOutput(n_tokens_from_rank);
 
@@ -210,13 +204,11 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
       << "Dispatch recv_topk_weights mismatch on rank " << my_rank;
   EXPECT_TRUE(at::allclose(outputs[3].as<at::Tensor>(), expected.recv_src_idx))
       << "Dispatch recv_src_idx mismatch on rank " << my_rank;
-  EXPECT_TRUE(at::allclose(outputs[4].as<at::Tensor>(), expected.recv_src_rank))
-      << "Dispatch recv_src_rank mismatch on rank " << my_rank;
   EXPECT_TRUE(
-      at::allclose(outputs[5].as<at::Tensor>(), expected.n_tokens_to_rank))
+      at::allclose(outputs[4].as<at::Tensor>(), expected.n_tokens_to_rank))
       << "Dispatch n_tokens_to_rank mismatch on rank " << my_rank;
   EXPECT_TRUE(
-      at::allclose(outputs[6].as<at::Tensor>(), expected.n_tokens_from_rank))
+      at::allclose(outputs[5].as<at::Tensor>(), expected.n_tokens_from_rank))
       << "Dispatch n_tokens_from_rank mismatch on rank " << my_rank;
 }
 
@@ -267,7 +259,6 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
   auto* in_x = makeSymbolicTensor(2);
   auto* in_topk_weights = makeSymbolicTensor(2);
   auto* in_src_idx = makeSymbolicTensor(1, DataType::Int);
-  auto* in_src_rank = makeSymbolicTensor(1, DataType::Int);
   auto* in_n_tokens_to_rank = makeSymbolicTensor(1, DataType::Int);
   auto* in_n_tokens_from_rank = makeSymbolicTensor(1, DataType::Int);
 
@@ -277,7 +268,6 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
       in_x,
       in_topk_weights,
       in_src_idx,
-      in_src_rank,
       in_n_tokens_to_rank,
       in_n_tokens_from_rank,
       CommunicatorBackend::kNccl);
@@ -287,7 +277,6 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
   hic->addInput(in_x);
   hic->addInput(in_topk_weights);
   hic->addInput(in_src_idx);
-  hic->addInput(in_src_rank);
   hic->addInput(in_n_tokens_to_rank);
   hic->addInput(in_n_tokens_from_rank);
   hic->addOutput(combined_x);
@@ -298,7 +287,6 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
       {{in_x, dispatch_result.recv_x},
        {in_topk_weights, dispatch_result.recv_topk_weights},
        {in_src_idx, dispatch_result.recv_src_idx},
-       {in_src_rank, dispatch_result.recv_src_rank},
        {in_n_tokens_to_rank, dispatch_result.n_tokens_to_rank},
        {in_n_tokens_from_rank, dispatch_result.n_tokens_from_rank}});
 

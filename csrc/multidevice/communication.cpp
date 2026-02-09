@@ -327,7 +327,6 @@ MoeDispatch::MoeDispatch(
     TensorView* out_topk_idx,
     TensorView* out_topk_weights,
     TensorView* out_src_idx,
-    TensorView* out_src_rank,
     TensorView* out_n_tokens_to_rank,
     TensorView* out_n_tokens_from_rank,
     TensorView* in_x,
@@ -343,7 +342,6 @@ MoeDispatch::MoeDispatch(
   addOutput(out_topk_idx);
   addOutput(out_topk_weights);
   addOutput(out_src_idx);
-  addOutput(out_src_rank);
   addOutput(out_n_tokens_to_rank);
   addOutput(out_n_tokens_from_rank);
   addDataAttribute(num_experts);
@@ -394,10 +392,6 @@ void MoeDispatch::validate() {
           isIntegralType(*outSrcIdx()->getDataType()),
       "out_src_idx must be integral.");
   NVF_CHECK(
-      outSrcRank()->getDataType().has_value() &&
-          isIntegralType(*outSrcRank()->getDataType()),
-      "out_src_rank must be integral.");
-  NVF_CHECK(
       outTokensToRank()->getDataType().has_value() &&
           isIntegralType(*outTokensToRank()->getDataType()),
       "out_n_tokens_to_rank must be integral.");
@@ -413,7 +407,6 @@ MoeCombine::MoeCombine(
     TensorView* in_x,
     TensorView* in_topk_weights,
     TensorView* in_src_idx,
-    TensorView* in_src_rank,
     TensorView* in_n_tokens_to_rank,
     TensorView* in_n_tokens_from_rank,
     CommunicatorBackend backend)
@@ -421,7 +414,6 @@ MoeCombine::MoeCombine(
   addInput(in_x);
   addInput(in_topk_weights);
   addInput(in_src_idx);
-  addInput(in_src_rank);
   addInput(in_n_tokens_to_rank);
   addInput(in_n_tokens_from_rank);
   addOutput(out_x);
@@ -438,7 +430,6 @@ std::string MoeCombine::toInlineString(int indent_size) const {
                           << "in=" << inX() << ", "
                           << "topk_weights=" << inTopkWeights() << ", "
                           << "src_idx=" << inSrcIdx() << ", "
-                          << "src_rank=" << inSrcRank() << ", "
                           << "out=" << outX() << ")";
   return ss.str();
 }
@@ -457,10 +448,6 @@ void MoeCombine::validate() {
       inSrcIdx()->getDataType().has_value() &&
           isIntegralType(*inSrcIdx()->getDataType()),
       "in_src_idx must be integral.");
-  NVF_CHECK(
-      inSrcRank()->getDataType().has_value() &&
-          isIntegralType(*inSrcRank()->getDataType()),
-      "in_src_rank must be integral.");
   NVF_CHECK(
       inTokensToRank()->getDataType().has_value() &&
           isIntegralType(*inTokensToRank()->getDataType()),

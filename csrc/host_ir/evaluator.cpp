@@ -409,7 +409,6 @@ void HostIrEvaluator::handle(MoeDispatch* dispatch) {
   expr_evaluator_.bind(dispatch->outTopkIdx(), result.recv_topk_idx);
   expr_evaluator_.bind(dispatch->outTopkWeights(), result.recv_topk_weights);
   expr_evaluator_.bind(dispatch->outSrcIdx(), result.recv_src_idx);
-  expr_evaluator_.bind(dispatch->outSrcRank(), result.recv_src_rank);
   expr_evaluator_.bind(dispatch->outTokensToRank(), result.n_tokens_to_rank);
   expr_evaluator_.bind(
       dispatch->outTokensFromRank(), result.n_tokens_from_rank);
@@ -424,7 +423,6 @@ void HostIrEvaluator::handle(MoeCombine* combine) {
   auto topk_weights =
       getKnownConcreteValue(combine->inTopkWeights()).as<at::Tensor>();
   auto src_idx = getKnownConcreteValue(combine->inSrcIdx()).as<at::Tensor>();
-  auto src_rank = getKnownConcreteValue(combine->inSrcRank()).as<at::Tensor>();
   auto n_tokens_to_rank =
       getKnownConcreteValue(combine->inTokensToRank()).as<at::Tensor>();
   auto n_tokens_from_rank =
@@ -434,7 +432,6 @@ void HostIrEvaluator::handle(MoeCombine* combine) {
       x,
       topk_weights,
       src_idx,
-      src_rank,
       n_tokens_to_rank,
       n_tokens_from_rank,
       communicator_,

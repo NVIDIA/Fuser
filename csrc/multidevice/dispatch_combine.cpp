@@ -63,7 +63,6 @@ DispatchResult doMoeDispatch(
   const int64_t num_tokens = x.size(0);
   const int64_t hidden = x.size(1);
   const int64_t world_size = communicator->size();
-  const int64_t my_rank = communicator->deviceId();
   NVF_CHECK_EQ(num_experts % world_size, 0, "num_experts must be divisible.");
   const int64_t experts_per_rank = num_experts / world_size;
 
@@ -89,13 +88,8 @@ DispatchResult doMoeDispatch(
   auto send_x = x.index_select(0, sorted_indices);
   auto send_topk_idx = topk_idx.index_select(0, sorted_indices);
   auto send_topk_weights = topk_weights.index_select(0, sorted_indices);
-  // Track original token indices and source rank for the combine step.
+  // Track original token indices for the combine step.
   auto send_src_idx = sorted_indices.to(at::kLong);
-  // All entries are identical, so no relayout is needed.
-  auto send_src_rank = at::full(
-      {num_tokens},
-      my_rank,
-      at::TensorOptions().dtype(at::kLong).device(x.device()));
 
   // For CPU-initiated comms (e.g. NCCL), split metadata must live on CPU, so we
   // sync/copy here. GPU-initiated comms can avoid this extra sync.
@@ -134,7 +128,6 @@ DispatchResult doMoeDispatch(
   auto recv_topk_weights =
       at::empty({total_recv, topk_weights.size(1)}, topk_weights.options());
   auto recv_src_idx = at::empty({total_recv}, send_src_idx.options());
-  auto recv_src_rank = at::empty({total_recv}, send_src_rank.options());
 
   // Alltoall exchange payloads with per-rank splits.
   waitWork(pg->alltoall_base(recv_x, send_x, output_splits, input_splits));
@@ -144,15 +137,12 @@ DispatchResult doMoeDispatch(
       recv_topk_weights, send_topk_weights, output_splits, input_splits));
   waitWork(pg->alltoall_base(
       recv_src_idx, send_src_idx, output_splits, input_splits));
-  waitWork(pg->alltoall_base(
-      recv_src_rank, send_src_rank, output_splits, input_splits));
 
   return DispatchResult{
       recv_x,
       recv_topk_idx,
       recv_topk_weights,
       recv_src_idx,
-      recv_src_rank,
       n_tokens_to_rank,
       n_tokens_from_rank};
 }
@@ -161,7 +151,6 @@ CombineResult doMoeCombine(
     const at::Tensor& x,
     const at::Tensor& topk_weights,
     const at::Tensor& src_idx,
-    const at::Tensor& src_rank,
     const at::Tensor& n_tokens_to_rank,
     const at::Tensor& n_tokens_from_rank,
     Communicator* communicator,
@@ -181,20 +170,14 @@ CombineResult doMoeCombine(
         topk_weights.sizes());
   }
   NVF_CHECK(src_idx.is_cuda(), "Combine src_idx must be on CUDA.");
-  NVF_CHECK(src_rank.is_cuda(), "Combine src_rank must be on CUDA.");
   NVF_CHECK(
       n_tokens_to_rank.is_cuda(), "Combine n_tokens_to_rank must be CUDA.");
   NVF_CHECK(
       n_tokens_from_rank.is_cuda(), "Combine n_tokens_from_rank must be CUDA.");
   NVF_CHECK_EQ(x.dim(), 2, "Combine expects x to be 2D [tokens, hidden].");
   NVF_CHECK_EQ(src_idx.dim(), 1, "src_idx must be 1D.");
-  NVF_CHECK_EQ(src_rank.dim(), 1, "src_rank must be 1D.");
   NVF_CHECK_EQ(
       src_idx.size(0), x.size(0), "src_idx size must match x first dimension.");
-  NVF_CHECK_EQ(
-      src_rank.size(0),
-      x.size(0),
-      "src_rank size must match x first dimension.");
   NVF_CHECK_EQ(
       n_tokens_to_rank.numel(),
       communicator->size(),
@@ -204,6 +187,16 @@ CombineResult doMoeCombine(
       communicator->size(),
       "n_tokens_from_rank must match world size.");
 
+  // Reconstruct source ranks from per-rank counts. alltoall_base concatenates
+  // received chunks in rank order, so this matches the receive layout.
+  auto src_rank = at::arange(
+                      n_tokens_from_rank.numel(),
+                      at::TensorOptions().dtype(at::kLong).device(x.device()))
+                      .repeat_interleave(n_tokens_from_rank.to(at::kLong));
+  NVF_CHECK_EQ(
+      src_rank.size(0),
+      x.size(0),
+      "Reconstructed src_rank must match x first dimension.");
   // Sort by source rank so alltoall can send contiguous chunks per rank.
   auto sorted_indices = at::argsort(src_rank);
   auto send_x = x.index_select(0, sorted_indices);

@@ -182,8 +182,8 @@ class P2PCommunication : public Expr {
 //   in_topk_weights: [T, 1], num_experts = R * experts_per_rank.
 //   For topk>1, use [T, K] for both topk inputs.
 //   Experts are assumed to be placed contiguously by rank.
-//   out_src_idx/out_src_rank are returned for the combine step to restore the
-//   original token order.
+//   out_src_idx is returned for the combine step to restore the original token
+//   order.
 //   Outputs are recv-aligned tensors: out_x/out_topk_idx/out_topk_weights/
 //   out_src_* with [T_recv, ...] and
 //   out_n_tokens_to_rank/out_n_tokens_from_rank with shape [R].
@@ -197,7 +197,6 @@ class MoeDispatch : public Expr {
       TensorView* out_topk_idx,
       TensorView* out_topk_weights,
       TensorView* out_src_idx,
-      TensorView* out_src_rank,
       TensorView* out_n_tokens_to_rank,
       TensorView* out_n_tokens_from_rank,
       TensorView* in_x,
@@ -235,16 +234,12 @@ class MoeDispatch : public Expr {
     return output(3)->as<TensorView>();
   }
 
-  TensorView* outSrcRank() const {
+  TensorView* outTokensToRank() const {
     return output(4)->as<TensorView>();
   }
 
-  TensorView* outTokensToRank() const {
-    return output(5)->as<TensorView>();
-  }
-
   TensorView* outTokensFromRank() const {
-    return output(6)->as<TensorView>();
+    return output(5)->as<TensorView>();
   }
 
   TensorView* inX() const {
@@ -272,11 +267,11 @@ class MoeDispatch : public Expr {
 };
 
 // Combine represents intra-node MoE token combine. It shuffles tokens back to
-// their source ranks using `in_src_rank` and `in_src_idx`.
+// their source ranks using `in_src_idx`.
 //
 // Example shapes (topk=1):
 //   in_x: [T_recv, H], in_topk_weights: [T_recv, 1], in_src_idx: [T_recv],
-//   in_src_rank: [T_recv], in_n_tokens_to_rank: [R], in_n_tokens_from_rank:
+//   in_n_tokens_to_rank: [R], in_n_tokens_from_rank:
 //   [R]. Output out_x is source-aligned with shape [T_src, ...].
 class MoeCombine : public Expr {
  public:
@@ -288,7 +283,6 @@ class MoeCombine : public Expr {
       TensorView* in_x,
       TensorView* in_topk_weights,
       TensorView* in_src_idx,
-      TensorView* in_src_rank,
       TensorView* in_n_tokens_to_rank,
       TensorView* in_n_tokens_from_rank,
       CommunicatorBackend backend = CommunicatorBackend::kNccl);
@@ -322,16 +316,12 @@ class MoeCombine : public Expr {
     return input(2)->as<TensorView>();
   }
 
-  TensorView* inSrcRank() const {
+  TensorView* inTokensToRank() const {
     return input(3)->as<TensorView>();
   }
 
-  TensorView* inTokensToRank() const {
-    return input(4)->as<TensorView>();
-  }
-
   TensorView* inTokensFromRank() const {
-    return input(5)->as<TensorView>();
+    return input(4)->as<TensorView>();
   }
 
   CommunicatorBackend backend() const {

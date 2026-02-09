@@ -19,7 +19,6 @@ struct DispatchResult {
   at::Tensor recv_topk_idx; // Expert ids aligned with recv_x.
   at::Tensor recv_topk_weights; // Gating weights aligned with recv_x.
   at::Tensor recv_src_idx; // Source token indices for combine.
-  at::Tensor recv_src_rank; // Source ranks for combine.
   at::Tensor n_tokens_to_rank; // Tokens sent to each rank (this rank's view).
   at::Tensor n_tokens_from_rank; // Tokens received from each rank.
 };
@@ -83,7 +82,6 @@ NVF_API DispatchResult doMoeDispatch(
 //   topk_weights: Optional gating weights aligned with x, shape [T_recv, K]
 //   (K=1). Pass empty to skip weighting in combine.
 //   src_idx: Original token indices for each row of x, shape [T_recv].
-//   src_rank: Original source rank per token, shape [T_recv].
 //   n_tokens_to_rank: Tokens sent to each rank (from dispatch), shape [R].
 //   n_tokens_from_rank: Tokens received from each rank (from dispatch), shape
 //   [R].
@@ -97,19 +95,17 @@ NVF_API DispatchResult doMoeDispatch(
 //   // Continuing the dispatch example (experts partitioned by rank):
 //   // rank0 owns experts {0, 1}, rank1 owns experts {2, 3}
 //   // After expert compute:
-//   //   rank0 recv_x has token {0} with src_idx = [0], src_rank = [0]
+//   //   rank0 recv_x has token {0} with src_idx = [0]
 //   //   rank1 recv_x has tokens {1, 2, 3} with src_idx = [1, 2, 3],
-//   //   src_rank = [0, 1, 1]
 //   // n_tokens_to_rank and n_tokens_from_rank are [R] counts per rank.
 //   // Combine scatters results back to original token order per rank.
 //   auto combined = doMoeCombine(
-//       x, topk_weights, src_idx, src_rank, n_tokens_to_rank,
+//       x, topk_weights, src_idx, n_tokens_to_rank,
 //       n_tokens_from_rank, comm, CommunicatorBackend::kNccl);
 NVF_API CombineResult doMoeCombine(
     const at::Tensor& x,
     const at::Tensor& topk_weights,
     const at::Tensor& src_idx,
-    const at::Tensor& src_rank,
     const at::Tensor& n_tokens_to_rank,
     const at::Tensor& n_tokens_from_rank,
     Communicator* communicator,
