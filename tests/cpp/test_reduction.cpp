@@ -2999,13 +2999,13 @@ TEST_P(TmaOuterReductionManualTest, Basic) {
   tv0smem->axis(4)->parallelize(ParallelType::Bulk); // iteration tile
 
   // ========== Phase 5: Sub-split TMA tiles into thread dims ==========
-  // Split tma_tile_i into [iter_unroll, bdimx]
-  redu_tv->split(4, bdimx);
+  // Split tma_tile_i into [bdimx, iter_unroll]
+  redu_tv->split(4, iter_unroll_factor);
 
   // Split tma_tile_r into [redu_unroll, bdimy]
   redu_tv->split(2, bdimy);
-  // Now: [grdim, R', redu_unroll, bdimy, I/tma_tile_i, iter_unroll, bdimx]
-  //       0      1   2            3      4              5            6
+  // Now: [grdim, R', redu_unroll, bdimy, I/tma_tile_i, bdimx, iter_unroll]
+  //       0      1   2            3      4              5      6
 
   // ========== Phase 6: Parallelize reduction tensor ==========
   redu_tv->axis(0)->parallelize(ParallelType::BIDy);
@@ -3013,9 +3013,9 @@ TEST_P(TmaOuterReductionManualTest, Basic) {
   redu_tv->axis(2)->parallelize(ParallelType::Unroll); // redu_unroll
   redu_tv->axis(3)->parallelize(ParallelType::TIDy); // bdimy
   redu_tv->axis(4)->parallelize(ParallelType::BIDx);
+  redu_tv->axis(5)->parallelize(ParallelType::TIDx); // bdimx
   // Use Vectorize so it gets converted to Group for iterGroupedGridReduce
-  redu_tv->axis(5)->parallelize(ParallelType::Vectorize);
-  redu_tv->axis(6)->parallelize(ParallelType::TIDx); // bdimx
+  redu_tv->axis(6)->parallelize(ParallelType::Vectorize); // iter_unroll
 
   // ========== Phase 7: rFactor for grid reduction ==========
   // The reduction axes that are not thread-parallelized need rFactor
@@ -3057,7 +3057,7 @@ TEST_P(TmaOuterReductionManualTest, Basic) {
       /*is_unroll_or_vectorization=*/true,
       use_iter_grouped_reduction,
       reduction_tvs,
-      /*unroll_vectorizable_cached_tvs=*/{},
+      /*unroll_vectorizable_cached_tvs=*/{tv1},
       /*selected_tvs=*/non_tma_tvs);
 
   // ========== Phase 10: Inline ==========
