@@ -947,6 +947,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   std::unordered_set<TensorView*> group2_and_cached_inputs(
       grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end());
   std::vector<TensorView*> smem_cached_input_tvs;
+  bool use_tma_load = false;
   for (auto tv : grouped_inputs_outputs[1]) {
     if (tv->isFusionInput()) {
       auto existing_cache = ir_utils::consumerTvsOf(tv)[0];
@@ -955,10 +956,20 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
         new_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(new_cache);
         smem_cached_input_tvs.push_back(new_cache);
+        if (use_tma_load) {
+          new_cache->definition()->as<LoadStoreOp>()->setOpType(
+              LoadStoreOpType::CpAsyncBulkTensorTile);
+        }
       } else {
         existing_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(existing_cache);
         smem_cached_input_tvs.push_back(existing_cache);
+        if (use_tma_load) {
+          existing_cache->definition()->as<LoadStoreOp>()->setOpType(
+              LoadStoreOpType::CpAsyncBulkTensorTile);
+          // create a register cache
+          existing_cache->cacheAfter();
+        }
       }
     }
   }
@@ -1358,18 +1369,31 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
       bool is_group2 = group2_and_cached_inputs.count(tv) > 0;
       int64_t tile2_factor =
           is_group2 ? tparams->vectorize_factor2 : tparams->vectorize_factor1;
-      int64_t tile1_factor =
-          tparams->tile_size1 * tile2_factor / tparams->tile_size2;
-      // [BIDx, UnSwitch, tile1, tile2]
       tv->split(pos + 1, tile2_factor);
-      tv->split(pos, tile1_factor);
-      tv->swizzle(SwizzleType::XOR, pos, pos + 2);
-      tv->merge(pos);
-      tv->merge(pos);
-      tv->split(pos, tparams->getThreadsPerBlock());
-      tv->axis(pos)->parallelize(ParallelType::Unroll);
-      tv->axis(pos + 1)->parallelize(ParallelType::TIDx);
-      tv->axis(pos + 2)->parallelize(ParallelType::Vectorize);
+
+      // [BIDx, UnSwitch, tile1/factor1, factor1, tile2/factor2, factor2]
+      if (use_tma_load) {
+        int64_t tile1_factor = tparams->tile_size2 / tile2_factor;
+        // [BIDx, UnSwitch, tile1, tile2]
+        tv->split(pos, tile1_factor);
+        tv->swizzle(SwizzleType::XOR, pos + 1, pos + 2);
+        tv->axis(pos)->parallelize(ParallelType::Bulk);
+        tv->axis(pos + 1)->parallelize(ParallelType::Bulk);
+        tv->axis(pos + 2)->parallelize(ParallelType::Bulk);
+        tv->axis(pos + 3)->parallelize(ParallelType::Bulk);
+        tv->setAllocationDomain(tv->getLoopDomain(), true);
+      } else {
+        int64_t tile1_factor =
+            tparams->tile_size1 * tile2_factor / tparams->tile_size2;
+        tv->split(pos, tile1_factor);
+        tv->swizzle(SwizzleType::XOR, pos, pos + 2);
+        tv->merge(pos);
+        tv->merge(pos);
+        tv->split(pos, tparams->getThreadsPerBlock());
+        tv->axis(pos)->parallelize(ParallelType::Unroll);
+        tv->axis(pos + 1)->parallelize(ParallelType::TIDx);
+        tv->axis(pos + 2)->parallelize(ParallelType::Vectorize);
+      }
       std::cout << "scheduled smem_cached_tv: " << tv->toString() << std::endl;
     }
   }
