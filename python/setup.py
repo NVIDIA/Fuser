@@ -100,7 +100,7 @@ def main():
         # only disables BUILD_SETUP, but keep the argument for setuptools
         config.build_setup = False
 
-    if config.cpp_standard < 20:
+    if config.cpp_standard is not None and config.cpp_standard < 20:
         raise ValueError("nvfuser requires C++20 standard or higher")
 
     run(config, version_tag(config), relative_path="..")
