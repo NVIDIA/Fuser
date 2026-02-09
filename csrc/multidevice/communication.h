@@ -192,8 +192,8 @@ class P2PCommunication : public Expr {
 //   - all buffers have the same size
 // (*) StreamBroadcast
 // Shares the same postBroadcast logic with Broadcast. The difference is the
-// root is the for-loop index. I kept it separate from Broadcast I do not need
-// to inspect the tensorviews later if we have to distinguish the two.
+// root is the for-loop index. I kept it separate from Broadcast so I don't need
+// to inspect the tensorviews later to distinguish the two.
 // (*) Gather
 // Copies each device's source buffer to the root's respective src
 // buffer. The order of the sender devices matches the order of the
