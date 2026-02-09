@@ -5,15 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ops/arith.h>
-#include <options.h>
-#include <scheduler/normalization_inner_outer_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/inlining.h>
-#include "base.h"
-
 #include <ATen/cuda/CUDAContext.h>
+
+#include "base.h"
+#include "ops/arith.h"
+#include "options.h"
+#include "scheduler/normalization_inner_outer_utils.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/inlining.h"
 namespace nvfuser {
 namespace inner_outer_tma_warp_specialized {
 void getHeuristics(

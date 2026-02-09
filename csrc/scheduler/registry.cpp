@@ -5,19 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "scheduler/registry.h"
+
 #include <ATen/cuda/CUDAContext.h>
-#include <instrumentation.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/greedy.h>
-#include <scheduler/heuristic.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/resize.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
-#include <visibility.h>
+
+#include "instrumentation.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/greedy.h"
+#include "scheduler/heuristic.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/resize.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -61,6 +63,16 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
+    return false;
+  }
+
+  // Support of non-exact gather was dropped when the legacy indexer was
+  // deprecated
+  if (std::ranges::any_of(
+          ir_utils::getOpsOfType<GatherOp>(fusion),
+          [](GatherOp* gather) { return !gather->exactSizes(); })) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Non-exact gather ops");
     return false;
   }
 

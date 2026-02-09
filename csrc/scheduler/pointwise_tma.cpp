@@ -6,18 +6,20 @@
  */
 // clang-format on
 
+#include "scheduler/pointwise_tma.h"
+
 #include <ATen/cuda/CUDAContext.h>
-#include <ir/utils.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/pointwise_tma.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
-#include <transform_iter.h>
-#include <transform_replay.h>
+
 #include "exceptions.h"
+#include "ir/utils.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/pointwise_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "scheduler/vectorize_helper.h"
+#include "transform_iter.h"
+#include "transform_replay.h"
 
 namespace nvfuser {
 namespace pointwise {
