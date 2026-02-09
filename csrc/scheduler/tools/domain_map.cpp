@@ -675,7 +675,7 @@ std::vector<std::vector<TensorView*>> TransposeDomainMap::
       groups.begin(),
       groups.end(),
       [](const std::vector<TensorView*>& v1,
-         const std::vector<TensorView*>& v2) { return v1.size() > v2.size(); });
+         const std::vector<TensorView*>& v2) { return v1.size() < v2.size(); });
   return groups;
 }
 

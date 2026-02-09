@@ -735,8 +735,10 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   const int64_t max_blocks_per_sm = dev_prop->maxThreadsPerMultiProcessor /
       TransposeParams::getMaxThreadsPerBlock();
   const int64_t num_elems_per_tile = tparams->tile_size1 * tparams->tile_size2;
-  const int64_t required_bits_per_sm =
-      scheduler_utils::getRequiredBitsInFlight();
+  constexpr int64_t empirical_required_bits_per_sm = 2 * 64 * 1024 * 8; // 64KB
+  const int64_t required_bits_per_sm = std::min(
+      scheduler_utils::getRequiredBitsInFlight(),
+      empirical_required_bits_per_sm);
   int64_t total_input_bits_per_elem = 0;
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     total_input_bits_per_elem +=
