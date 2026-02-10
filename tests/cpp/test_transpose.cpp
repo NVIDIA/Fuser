@@ -18,6 +18,7 @@
 #include "scheduler/all_schedulers.h"
 #include "scheduler/tools/inlining.h"
 #include "scheduler/transpose.h"
+#include "scheduler/transpose_heuristic.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
 #include "type.h"
@@ -1475,4 +1476,51 @@ TEST_F(TransposeTest, NoTransposeMaverick17B) {
       executor_cache.fusion(), outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
+TEST_F(TransposeTest, TmaTransposeSimple) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto input = makeContigTensor(2);
+  fusion.addInput(input);
+  auto output = transpose(input, 0, 1);
+  fusion.addOutput(output);
+
+  // Use the TMA transpose scheduler directly
+  TransposeParams tparams;
+  tparams.tma_enabled = true;
+  scheduleTransposeTMA(&fusion, &tparams);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t = at::randn({10000, 10000}, options);
+  KernelExecutor ke;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  ke.compile(&fusion, {t}, {}, index32bit);
+  auto outputs = ke.run({t});
+  ASSERT_TRUE(at::equal(t.t(), outputs[0].as<at::Tensor>()));
+}
+
+TEST_F(TransposeTest, Tma) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto dtype = DataType::BFloat16;
+  auto tv0 = makeContigConcreteTensor({262144, 5120}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = transpose(tv2, 0, 1);
+  auto tv4 = mul(tv3, tv3);
+  auto tv5 = castOp(dtype, tv4);
+  fusion.addOutput(tv5);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({262144, 5120}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input0});
+  testValidate(executor_cache.fusion(), outputs, {input0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

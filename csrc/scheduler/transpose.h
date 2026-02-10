@@ -86,10 +86,17 @@ namespace nvfuser {
 
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
+class TransposeParams;
 
 //! Utility for canSchedule interface to check if this fusion has at least two
 //! groups, each with a fully broadcasted reference tensor.
 NVF_API bool hasAtLeastTwoValidGroups(Fusion* fusion);
+
+//! Schedule transpose fusion with TMA (Tensor Memory Accelerator) support.
+//! This enables bank-conflict-free shared memory access patterns.
+NVF_API void scheduleTransposeTMA(
+    Fusion* fusion,
+    const TransposeParams* tparams);
 
 class TransposeScheduler : public SchedulerEntry {
  public:

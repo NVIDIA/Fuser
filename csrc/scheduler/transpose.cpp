@@ -879,9 +879,221 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   return tparams;
 }
 
+void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
+  FusionGuard fg(fusion);
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);
+
+  // maybe has_reduction for scheduling should be done on a per output tensor
+  // basis.
+  NVF_ERROR(
+      !ir_utils::hasAnyReductionOps(fusion),
+      "This scheduler only handles pointwise ops.");
+
+  // Cache inputs
+  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+
+  // Cache and fork outputs
+  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
+
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  std::vector<TensorView*> input_tvs;
+  {
+    auto filtered_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+    // Remove hanging tensor views
+    for (auto tv : filtered_tvs) {
+      if (tv->uses().empty()) {
+        continue;
+      }
+      input_tvs.push_back(tv);
+    }
+  }
+  auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+
+  int64_t max_dims = 0;
+  for (auto inp : input_tvs) {
+    max_dims = std::max(scheduler_utils::nLogicalDims(inp), max_dims);
+  }
+
+  for (auto out : output_tvs) {
+    max_dims = std::max(scheduler_utils::nLogicalDims(out), max_dims);
+  }
+
+  // If everything is zero dim tensors, just return.
+  if (max_dims == 0) {
+    return;
+  }
+
+  scheduler_tools::TransposeDomainMap domain_map(fusion);
+  auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
+  NVF_ERROR(grouped_inputs_outputs.size() >= 2);
+
+  /*
+   * We need something similar to `cacheFork` for input tensors in group 2. We
+   * need this because we will want to propagate to the entire DAG except group
+   * 2 and its cached inputs, so we need to make sure the DAG is still connected
+   * if we remove group and its cached inputs. For example
+   *    t0
+   *    |
+   *   cache
+   *   /  \
+   *  t1  t2
+   * if groups = {{t1, t2}, {t0}}, then removing {t0, cache} from the DAG will
+   * make it disconnected.
+   */
+  std::vector<TensorView*> input_smem_tvs;
+  std::vector<TensorView*> output_smem_tvs;
+  TensorView* input_reference = nullptr;
+  std::unordered_set<TensorView*> group2_and_cached_inputs(
+      grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end());
+  for (auto tv : grouped_inputs_outputs[1]) {
+    if (tv->isFusionInput()) {
+      input_reference = tv;
+      auto existing_cache = ir_utils::consumerTvsOf(tv)[0];
+      if (ir_utils::consumerTvsOf(existing_cache).size() > 1) {
+        auto new_cache = tv->cacheAfter();
+        new_cache->setMemoryType(MemoryType::Shared);
+        input_smem_tvs.push_back(new_cache);
+        std::cout << "input_smem_tvs: " << new_cache->toString() << std::endl;
+        group2_and_cached_inputs.emplace(new_cache);
+      } else {
+        existing_cache->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulkTensorTile);
+        existing_cache->setMemoryType(MemoryType::Shared);
+        input_smem_tvs.push_back(existing_cache);
+        std::cout << "input_smem_tvs: " << existing_cache->toString()
+                  << std::endl;
+        group2_and_cached_inputs.emplace(existing_cache);
+      }
+    }
+  }
+  // set cached outputs of group 2 to shared memory
+  TensorView* output_reference = nullptr;
+  TensorView* output_reg_cache = nullptr;
+  for (const auto& [cached_output, output_idx] : cached_outputs) {
+    auto output = fusion->outputs()[output_idx]->as<TensorView>();
+    output_reference = output;
+    if (true || group2_and_cached_inputs.count(output) > 0) {
+      output->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::CpAsyncBulkTensorTile);
+      cached_output->setMemoryType(MemoryType::Shared);
+      output_smem_tvs.push_back(cached_output);
+      std::cout << "output_smem_tvs: " << cached_output->toString()
+                << std::endl;
+      output_reg_cache = cached_output->cacheBefore();
+    }
+  }
+
+  TensorView* reference1 =
+      domain_map.findReferenceFor(grouped_inputs_outputs[0]);
+  TensorView* reference2 =
+      domain_map.findReferenceFor(grouped_inputs_outputs[1]);
+
+  std::cout << "reference1: " << reference1->toString() << std::endl;
+  std::cout << "reference2: " << reference2->toString() << std::endl;
+
+  // output: [I0, I1] -> [I0/tile_0 * I1/tile_1, tile_0, tile_1]
+  // smem -> register is vectorized
+  // register -> smem is unrolled
+  int64_t tile_0 = 32, tile_1 = 32, unroll_vect = 4;
+  output_reference->split(1, tile_1);
+  output_reference->split(0, tile_0);
+  output_reference->reorder({{-2, 0}});
+  output_reference->merge(0);
+  // [I0/tile_0 * I1/tile_1, tile_0, tile_1]
+  output_reference->axis(0)->parallelize(ParallelType::BIDx);
+  using Options =
+      scheduler_utils::BoundedDirectionalTransformPropagator::Options;
+  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+      output_reference,
+      -1,
+      {input_reference},
+      Options{}.propagateParallelType());
+  // For fusion output, we just use TMA to store the entire tile back to global
+  // memory. There is no need to further schedule the output tensor.
+  output_reference->axis(1)->parallelize(ParallelType::Bulk);
+  output_reference->axis(2)->parallelize(ParallelType::Bulk);
+
+  fusion->printMath();
+
+  for (auto output_smem_cache : output_smem_tvs) {
+    // Match the tutorial's structure exactly:
+    // [BIDx, 32', 32]
+    output_smem_cache->setAllocationDomain(
+        output_smem_cache->getLoopDomain(), true);
+    // Split tile_0 (32) by unroll_vect (4) -> [8', 4']
+    // [BIDx, tile_0, tile_1] -> [BIDx, 8', 4', 32]
+    output_smem_cache->split(1, unroll_vect);
+    // [BIDx, 8', 4', 32]
+
+    // IMPORTANT: First propagation happens BEFORE the merge.
+    // This gives input_smem_cache the [BIDx, 8', 4', 32] structure.
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        output_smem_cache, -1, {input_reference});
+
+    // Merge 8' with 32 to get 256 TIDx threads
+    output_smem_cache->merge(1, 3);
+    // [BIDx, 256, 4']
+    output_smem_cache->axis(1)->parallelize(ParallelType::TIDx);
+
+    // Second propagation only propagates parallel types, not transforms.
+    // input_smem_cache already has the [BIDx, 8', 4', 32] structure from above.
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        output_smem_cache,
+        -1,
+        {input_smem_tvs.at(0)},
+        Options{}.propagateParallelType());
+    output_smem_cache->axis(2)->parallelize(ParallelType::Unroll);
+    output_reg_cache->axis(2)->parallelize(ParallelType::Vectorize);
+    output_reg_cache->setAllocationDomain(
+        output_reg_cache->getLoopDomain(), true);
+  }
+  for (auto input_smem_cache : input_smem_tvs) {
+    // Schedule the memory format for 128 byte swizzle
+    // After backward propagation, structure is:
+    // [BIDx, 8', 4', 32]
+    input_smem_cache->reorder({{-1, 1}});
+    // [BIDx, 32, 8', 4']
+
+    std::cout << "input_smem_cache after reorder: "
+              << input_smem_cache->toString() << std::endl;
+
+    // Split 32 by 8 to create [4, 8]
+    // [BIDx, 32, 8', 4'] -> [BIDx, 4, 8, 8', 4']
+    input_smem_cache->split(1, 8);
+
+    std::cout << "input_smem_cache before swizzle: "
+              << input_smem_cache->toString() << std::endl;
+
+    // Swizzle the two 8's at positions 2 and 3
+    // Both 8's come from splits (not merges), which is required
+    input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
+    // [BIDx, 4, 8, 8', 4']
+
+    // Set allocation domain to match the swizzled layout
+    input_smem_cache->setAllocationDomain(
+        input_smem_cache->getLoopDomain(), true);
+
+    // Parallelize all dimensions as Bulk for TMA
+    input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
+    // [BIDx, Bulk, Bulk, Bulk, Bulk]
+  }
+
+  fusion->print();
+}
+
 void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   FusionGuard fg(fusion);
 
+  if (std::getenv("USE_TMA") != nullptr) {
+    scheduleTransposeTMA(fusion, tparams);
+  }
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
@@ -947,7 +1159,11 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   std::unordered_set<TensorView*> group2_and_cached_inputs(
       grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end());
   std::vector<TensorView*> smem_cached_input_tvs;
+  std::vector<TensorView*> regs_cached_input_tvs;
   bool use_tma_load = false;
+  if (std::getenv("USE_TMA") != nullptr) {
+    use_tma_load = true;
+  }
   for (auto tv : grouped_inputs_outputs[1]) {
     if (tv->isFusionInput()) {
       auto existing_cache = ir_utils::consumerTvsOf(tv)[0];
@@ -968,7 +1184,8 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
           existing_cache->definition()->as<LoadStoreOp>()->setOpType(
               LoadStoreOpType::CpAsyncBulkTensorTile);
           // create a register cache
-          existing_cache->cacheAfter();
+          // auto regs_cache = existing_cache->cacheAfter();
+          // regs_cached_input_tvs.push_back(regs_cache);
         }
       }
     }
@@ -1238,6 +1455,10 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
         vectorized_group2_cached_inputs.push_back(gin);
       }
     }
+    vectorized_group2_cached_inputs.insert(
+        vectorized_group2_cached_inputs.end(),
+        regs_cached_input_tvs.begin(),
+        regs_cached_input_tvs.end());
     if (!vectorized_group2_cached_inputs.empty()) {
       scheduler_utils::parallelizeAllLike(
           reference2,
@@ -1377,6 +1598,10 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
         // [BIDx, UnSwitch, tile1, tile2]
         tv->split(pos, tile1_factor);
         tv->swizzle(SwizzleType::XOR, pos + 1, pos + 2);
+        // int64_t tile1_factor =
+        //     tparams->tile_size1 * tile2_factor / tparams->tile_size2;
+        // tv->split(pos, tile1_factor);
+        // tv->swizzle(SwizzleType::XOR, pos, pos + 2);
         tv->axis(pos)->parallelize(ParallelType::Bulk);
         tv->axis(pos + 1)->parallelize(ParallelType::Bulk);
         tv->axis(pos + 2)->parallelize(ParallelType::Bulk);
