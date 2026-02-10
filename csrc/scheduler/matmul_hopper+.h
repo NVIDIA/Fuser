@@ -8,8 +8,9 @@
 #pragma once
 
 #include <ATen/cuda/CUDAContext.h>
-#include <scheduler/matmul.h>
-#include <type.h>
+
+#include "scheduler/matmul.h"
+#include "type.h"
 
 namespace nvfuser {
 

@@ -87,7 +87,7 @@
 #include "runtime/executor_utils.h"
 #include "runtime/fusion_executor_cache.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 // This test requires CUDA 13.0+ for CUctxCreateParams
 

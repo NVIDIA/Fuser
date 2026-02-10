@@ -5,34 +5,29 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/mma_utils.h>
-
-#include <ranges>
-#include <variant>
-
-#include <scheduler/mma_utils.h>
+#include "scheduler/mma_utils.h"
 
 #include <ranges>
 #include <variant>
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <compute_at_map.h>
-#include <device_lower/utils.h>
-#include <disjoint_set.h>
-#include <id_model/id_model.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <options.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <scheduler/utils.h>
-#include <type.h>
-#include <utils.h>
-#include <val_graph.h>
+#include "base.h"
+#include "compute_at_map.h"
+#include "device_lower/utils.h"
+#include "disjoint_set.h"
+#include "id_model/id_model.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "mma_type.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "options.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "scheduler/utils.h"
+#include "type.h"
+#include "val_graph.h"
 
 namespace nvfuser {
 

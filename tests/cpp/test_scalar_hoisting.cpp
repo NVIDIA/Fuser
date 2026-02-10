@@ -12,11 +12,11 @@
 #include "runtime/executor.h"
 #include "scheduler/tools/inlining.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class ScalarHoistTest : public NVFuserTest {};
+using ScalarHoistTest = NVFuserTest;
 
 TEST_F(ScalarHoistTest, IndexHoist1) {
   if (isOptionDisabled(DisableOption::IndexHoist)) {

@@ -5,32 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/matmul_heuristic.h>
-#include <scheduler/matmul_heuristic_plugin.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
-
-// NOTE: included to avoid compilation error caused by missing destructor in
-// 'SchedulerRuntimeInfo'
-#include <cuda_utils.h>
-#include <debug.h>
-#include <id_model/id_model.h>
-#include <ir/base_nodes.h>
-#include <ir/composite_nodes.h>
-#include <ir/interface_nodes.h>
-#include <ir/internal_nodes.h>
-#include <ir/utils.h>
-#include <mma_type.h>
-#include <options.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/matmul_heuristic.h>
-#include <scheduler/mma_utils.h>
-#include <type.h>
-#include <utils.h>
-#include <val_graph.h>
+#include "scheduler/matmul_utils.h"
 
 #include <algorithm>
 #include <limits>
@@ -39,6 +14,27 @@
 #include <utility>
 
 #include <ATen/cuda/CUDAContext.h>
+
+#include "base.h"
+#include "cuda_utils.h"
+#include "debug.h"
+#include "id_model/id_model.h"
+#include "ir/base_nodes.h"
+#include "ir/composite_nodes.h"
+#include "ir/interface_nodes.h"
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
+#include "mma_type.h"
+#include "options.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/matmul_heuristic.h"
+#include "scheduler/matmul_heuristic_plugin.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/registry.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
+#include "type.h"
+#include "val_graph.h"
 
 namespace nvfuser {
 namespace matmul_utils {

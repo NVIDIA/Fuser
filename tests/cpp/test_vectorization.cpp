@@ -15,7 +15,7 @@
 #include "ops/all_ops.h"
 #include "scheduler/vectorize_helper.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -34,12 +34,7 @@ void checkMappedVal(
 
 } // namespace
 
-class VectorizationAnalysisTest : public NVFuserTest {
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using VectorizationAnalysisTest = NVFuserTest;
 
 // Simple pad test
 TEST_F(
@@ -697,7 +692,6 @@ class VectorizationCastTest
   void SetUp() override {
     NVFuserTest::SetUp();
     std::tie(dtype_from, dtype_to, vectorization_factor) = GetParam();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
  protected:
@@ -854,7 +848,6 @@ class Vect256Test : public NVFuserFixtureParamTest<Vect256TestParams> {
     NVFuserFixtureParamTest<Vect256TestParams>::SetUp();
     NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
     std::tie(dtype, cache_op) = GetParam();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
  protected:

@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <scheduler/heuristic.h>
-#include <scheduler/registry.h>
+#include "scheduler/heuristic.h"
+#include "scheduler/registry.h"
 
 namespace nvfuser {
 

@@ -20,8 +20,8 @@
 #include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/scheduler_types.h>
-#include <utils.h>
 #include <validator_utils.h>
+#include "base.h"
 
 // Require namespace for perf scope instrumentation
 using namespace nvfuser::inst;

@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "ir/internal_nodes.h"
+
 #include <algorithm>
 #include <complex>
 #include <iterator>
@@ -20,21 +22,20 @@
 #include <ATen/core/Tensor.h>
 #include <c10/core/SymInt.h>
 
-#include <device_lower/utils.h>
-#include <expr_evaluator.h>
-#include <ir/allocation_utils.h>
-#include <ir/base_nodes.h>
-#include <ir/cloner.h>
-#include <ir/internal_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <kernel.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <multidevice/utils.h>
-#include <ops/arith.h>
-#include <runtime/allocations.h>
-#include <type.h>
+#include "device_lower/utils.h"
+#include "expr_evaluator.h"
+#include "ir/allocation_utils.h"
+#include "ir/base_nodes.h"
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "kernel.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "multidevice/utils.h"
+#include "ops/arith.h"
+#include "runtime/allocations.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -2770,42 +2771,31 @@ std::string Swizzle::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle)
 
-Swizzle2D::Swizzle2D(
+Swizzle1D::Swizzle1D(
     IrBuilderPasskey passkey,
-    IterDomain* out_x,
-    IterDomain* out_y,
-    IterDomain* in_x,
-    IterDomain* in_y,
-    Swizzle2DType swizzle_type,
-    SwizzleMode swizzle_mode)
+    IterDomain* out,
+    IterDomain* in,
+    ParallelType pt)
     : Expr(passkey) {
-  addOutput(out_x);
-  addOutput(out_y);
-  addInput(in_x);
-  addInput(in_y);
-  addDataAttribute(swizzle_type);
-  addDataAttribute(swizzle_mode);
+  addOutput(out);
+  addInput(in);
+  addDataAttribute(pt);
 }
 
-std::string Swizzle2D::toString(int indent_size) const {
+NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle1D)
+
+std::string Swizzle1D::toString(int indent_size) const {
   std::stringstream ss;
-  ss << swizzleType() << "(2D): ";
-  ss << inX()->toString();
-  ss << " , ";
-  ss << inY()->toString();
-  ss << " -> ";
-  ss << outX()->toString();
-  ss << " , ";
-  ss << outY()->toString();
-  ss << "\n";
+  indent(ss, indent_size) << out()->toString() << " = Swizzle1D("
+                          << in()->toString()
+                          << ", parallelType=" << parallelType() << ")"
+                          << std::endl;
   return ss.str();
 }
 
-std::string Swizzle2D::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+std::string Swizzle1D::toInlineString(int indent_size) const {
+  NVF_THROW("Swizzle1D can not be printed inline");
 }
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle2D)
 
 Resize::Resize(
     IrBuilderPasskey passkey,

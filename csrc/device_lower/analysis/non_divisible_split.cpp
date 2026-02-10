@@ -380,19 +380,6 @@ class IndexingPathAnalysis : public OptInDispatch {
   }
 
   // Should be uncommon. Just predicate if unsafe
-  void handle(Swizzle2D* swizzle) {
-    const auto expr_g = graph_.toGroup(swizzle);
-    const auto inputs =
-        getInputsOfExprGroup(graph_, expr_g, currentDirection());
-    const auto outputs =
-        getOutputsOfExprGroup(graph_, expr_g, currentDirection());
-
-    for (const auto& inp : inputs) {
-      if (unsafe_groups_.contains(inp)) {
-        groups_to_predicate_.emplace_back(inp);
-      }
-    }
-  }
 
   const std::vector<ValGroup>& groupsToPredicate() const {
     return groups_to_predicate_;

@@ -18,7 +18,7 @@
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/mma_utils.h>
 #include <tests/cpp/utils.h>
-#include <utils.h>
+#include "base.h"
 
 #include <benchmark/benchmark.h>
 
@@ -399,7 +399,7 @@ static void NvFuserScheduler_Matmul(
   }
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
-      8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
+      9, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
 
   if (cudaArchGuardShouldSkip(8, 0, 9, 0)) {
     benchmark_state.SkipWithError(

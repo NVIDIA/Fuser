@@ -15,8 +15,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 #include <deque>
 #include <functional>

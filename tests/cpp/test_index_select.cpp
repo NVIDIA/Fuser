@@ -7,11 +7,11 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "ops/all_ops.h"
 #include "runtime/fusion_executor_cache.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -71,13 +71,7 @@ void checkIndexSelectVectorization(
 
 } // namespace
 
-class IndexSelectTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-    NVFuserTest::SetUp();
-  }
-};
+using IndexSelectTest = NVFuserTest;
 
 TEST_F(IndexSelectTest, Simple1) {
   for (int i = 0; i < 5; ++i) {

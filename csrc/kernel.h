@@ -18,9 +18,9 @@
 #include <ir/builder.h>
 #include <parallel_dimension_map.h>
 #include <type.h>
-#include <utils.h>
 #include <vectorization_info.h>
 #include <visibility.h>
+#include "base.h"
 
 #include <memory>
 #include <unordered_map>
@@ -280,9 +280,6 @@ class NVF_API Kernel final : public Fusion {
   }
 
  protected:
-  using IrContainer::registerExpr;
-  using IrContainer::registerVal;
-
   //! Register the Val with this fusion
   void registerVal(Val* val) override;
 

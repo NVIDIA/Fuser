@@ -26,7 +26,6 @@ class ContigIDGroupsTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
   // Helper to construct a simple backward path for testing

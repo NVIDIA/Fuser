@@ -16,21 +16,21 @@
 #define TEST_ASSIGN_OP(op, assign_op, name)                                \
   TEST_F(DynamicTypeTest, name) {                                          \
     IntSomeType x(299792458);                                              \
-    auto& y = (x += 2);                                                    \
-    EXPECT_EQ(x.as<int>(), 299792458 + 2);                                 \
-    EXPECT_EQ(y.as<int>(), 299792458 + 2);                                 \
+    auto& y = (x assign_op 2);                                             \
+    EXPECT_EQ(x.as<int>(), 299792458 op 2);                                \
+    EXPECT_EQ(y.as<int>(), 299792458 op 2);                                \
     EXPECT_EQ(&x, &y);                                                     \
     EXPECT_THAT(                                                           \
         []() {                                                             \
           IntSomeType x;                                                   \
-          x += 1;                                                          \
+          x assign_op 1;                                                   \
         },                                                                 \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr( \
             "Result is dynamic but not convertible to result type")));     \
     EXPECT_THAT(                                                           \
         []() {                                                             \
           IntSomeType x(SomeType{});                                       \
-          x += 1;                                                          \
+          x assign_op 1;                                                   \
         },                                                                 \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr( \
             "Result is dynamic but not convertible to result type")));     \

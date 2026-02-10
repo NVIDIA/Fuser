@@ -6,27 +6,27 @@
  */
 // clang-format on
 
-#include <runtime/allocations.h>
+#include "runtime/allocations.h"
 
-#include <expr_evaluator.h>
-#include <instrumentation.h>
-#include <ir/iostream.h>
-#include <multidevice/execution_utils.h>
-#include <multidevice/utils.h>
-#include <polymorphic_value.h>
-#include <runtime/executor.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/executor_utils.h>
-#include <tensor_metadata.h>
+#include "expr_evaluator.h"
+#include "instrumentation.h"
+#include "ir/iostream.h"
+#include "multidevice/execution_utils.h"
+#include "multidevice/utils.h"
+#include "polymorphic_value.h"
+#include "runtime/executor.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/executor_utils.h"
+#include "tensor_metadata.h"
 
 namespace nvfuser {
 
-KernelArgumentHolder inferOutputShapeAndContiguousStrides(
+KernelArgumentHolder inferContiguousOutputMetaTensor(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values) {
   FUSER_PERF_SCOPE(
-      "fusion_executor::allocations::inferOutputShapeAndContiguousStrides");
+      "fusion_executor::allocations::inferContiguousOutputMetaTensor");
   ExpressionEvaluator expr_eval;
 
   std::unique_ptr<PrecomputedValues> evaluator_precomputed_values_up = nullptr;

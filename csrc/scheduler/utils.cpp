@@ -5,8 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include "utils.h"
-#include <scheduler/utils.h>
+#include "scheduler/utils.h"
 
 #include <algorithm>
 #include <queue>
@@ -14,34 +13,51 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <bfs.h>
-#include <contiguity.h>
-#include <cuda_utils.h>
-#include <expr_evaluator.h>
-#include <id_model/id_model.h>
-#include <id_model/schedule.h>
-#include <instrumentation.h>
-#include <ir/allocation_utils.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <multidevice/allocation_utils.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <scheduler/vectorize_helper.h>
-#include <transform_iter.h>
-#include <transform_replay.h>
-#include <type.h>
-#include <val_graph_visitor.h>
+#include "base.h"
+#include "bfs.h"
+#include "contiguity.h"
+#include "cuda_utils.h"
+#include "expr_evaluator.h"
+#include "id_model/id_model.h"
+#include "id_model/schedule.h"
+#include "instrumentation.h"
+#include "ir/allocation_utils.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "multidevice/allocation_utils.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/registry.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "scheduler/vectorize_helper.h"
+#include "transform_iter.h"
+#include "transform_replay.h"
+#include "type.h"
+#include "val_graph_visitor.h"
+
+namespace nvfuser {
+
+std::ostream& operator<<(std::ostream& os, PropagateDirection direction) {
+  switch (direction) {
+    case PropagateDirection::kForward:
+      os << "Forward";
+      break;
+    case PropagateDirection::kBackward:
+      os << "Backward";
+      break;
+  }
+  return os;
+}
+
+} // namespace nvfuser
 
 namespace nvfuser::scheduler_utils {
 
@@ -1284,6 +1300,167 @@ void clearMemorySpace(Fusion* fusion) {
     } else {
       tv->setMemoryType(MemoryType::Local);
     }
+  }
+}
+
+namespace {
+
+// Find first TensorView fusion input based on topologically sorted expressions.
+TensorView* findFirstInput(Fusion* fusion, const std::vector<Expr*>& exprs) {
+  // short-circuit
+  if (fusion->inputs().size() == 1) {
+    Val* v = fusion->inputs().front();
+    return (v->isA<TensorView>()) ? v->as<TensorView>() : nullptr;
+  }
+
+  // Get TensorView fusion inputs
+  std::unordered_set<Val*> tv_inputs;
+  std::copy_if(
+      fusion->inputs().begin(),
+      fusion->inputs().end(),
+      std::inserter(tv_inputs, tv_inputs.end()),
+      [](Val* v) { return v->isA<TensorView>(); });
+
+  // Find first expression that contains any TensorView Fusion Inputs
+  for (Expr* e : exprs) {
+    auto iter =
+        std::find_if(e->inputs().begin(), e->inputs().end(), [&](Val* v) {
+          return tv_inputs.count(v) > 0;
+        });
+    if (iter == e->inputs().end()) {
+      continue;
+    }
+    return (*iter)->as<TensorView>();
+  }
+  return nullptr;
+}
+
+// Find last TensorView fusion output based on topologically sorted expressions.
+TensorView* findLastOutput(Fusion* fusion, const std::vector<Expr*>& exprs) {
+  // short-circuit
+  if (fusion->outputs().size() == 1) {
+    Val* v = fusion->outputs().front();
+    return (v->isA<TensorView>()) ? v->as<TensorView>() : nullptr;
+  }
+
+  // Get terminating TensorView fusion outputs
+  std::vector<Val*> terminating_outputs = fusion->getTerminatingOutputs();
+  std::unordered_set<Val*> tv_outputs;
+  std::copy_if(
+      terminating_outputs.begin(),
+      terminating_outputs.end(),
+      std::inserter(tv_outputs, tv_outputs.end()),
+      [](Val* v) { return v->isA<TensorView>(); });
+
+  // Find last expression that contains any terminating TensorView fusion output
+  for (Expr* e : exprs | std::views::reverse) {
+    auto iter =
+        std::find_if(e->outputs().begin(), e->outputs().end(), [&](Val* v) {
+          return tv_outputs.count(v) > 0;
+        });
+    if (iter == e->outputs().end()) {
+      continue;
+    }
+    return (*iter)->as<TensorView>();
+  }
+  return nullptr;
+}
+
+// Find first input and last output based on topologically sorted expressions.
+std::pair<TensorView*, TensorView*> findFirstInputAndLastOutput(
+    Fusion* fusion) {
+  // short-circuit: only one input and output
+  if (fusion->inputs().size() == 1 && fusion->outputs().size() == 1) {
+    Val* input = fusion->inputs().front();
+    TensorView* tv_input = nullptr;
+    if (input->isA<TensorView>()) {
+      tv_input = input->as<TensorView>();
+    }
+    Val* output = fusion->outputs().front();
+    TensorView* tv_output = nullptr;
+    if (output->isA<TensorView>()) {
+      tv_output = output->as<TensorView>();
+    }
+    return std::pair(tv_input, tv_output);
+  }
+  // exprs returns StmtSort::getExprs, which returns a topologically sorted list
+  // of expressions.
+  auto toposorted_exprs = fusion->exprs();
+  return std::make_pair(
+      findFirstInput(fusion, toposorted_exprs),
+      findLastOutput(fusion, toposorted_exprs));
+}
+
+// Place wait_for_prior_grid between original_input and cached_input in fusion.
+void addPdlGridWait(TensorView* original_input, TensorView* cached_input) {
+  // PDL is only supported for Hopper+ Devices.
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return;
+  }
+
+  if (original_input == nullptr) {
+    return;
+  }
+
+  if (cached_input == nullptr) {
+    return;
+  }
+
+  // Add grid wait before loading any inputs to cache memory.
+  TensorView* grid_wait = wait_for_prior_grid({original_input});
+  cached_input->addDependency(grid_wait);
+}
+
+// Place launch_dependent_grid between cached_output and original_output in
+// fusion.
+void addPdlGridLaunch(TensorView* original_output, TensorView* cached_output) {
+  // PDL is only supported for Hopper+ Devices.
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return;
+  }
+
+  if (original_output == nullptr) {
+    return;
+  }
+
+  if (cached_output == nullptr) {
+    return;
+  }
+
+  // Add grid launch before storing the cached outputs to global memory.
+  TensorView* grid_launch = launch_dependent_grid({cached_output});
+  original_output->addDependency(grid_launch);
+}
+
+} // namespace
+
+void applyPDL(
+    Fusion* fusion,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
+  // Get first fusion input and last fusion output based on toposort order.
+  auto&& [first_input, last_output] = findFirstInputAndLastOutput(fusion);
+
+  // Find the cached_input that corresponds with the first input.
+  auto input_iter = std::find_if(
+      cached_inputs.begin(), cached_inputs.end(), [&](auto cache_input) {
+        return ir_utils::getSoleProducerTv(cache_input.first) == first_input;
+      });
+  if (input_iter != cached_inputs.end()) {
+    addPdlGridWait(first_input, (*input_iter).first);
+  }
+
+  // Find the cached_output that corresponds with the last output.
+  auto output_iter = std::find_if(
+      cached_outputs.begin(), cached_outputs.end(), [&](auto cache_output) {
+        auto consumers = ir_utils::consumerTvsOf(cache_output.first);
+        NVF_ERROR(
+            consumers.size() == 1,
+            "Expected cached_output to map to a single fusion output.");
+        return consumers.front() == last_output;
+      });
+  if (output_iter != cached_outputs.end()) {
+    addPdlGridLaunch(last_output, (*output_iter).first);
   }
 }
 

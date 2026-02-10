@@ -17,17 +17,12 @@
 #include "scheduler/tools/domain_map.h"
 #include "scheduler/tools/inlining.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "type.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class PointwiseTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using PointwiseTest = NVFuserTest;
 
 // Base class for parameterized pointwise tests using TEST_P
 // Sets up IdModel configuration for parameterized tests
@@ -36,7 +31,6 @@ class PointwiseTestP : public NVFuserFixtureParamTest<ParamType> {
  protected:
   void SetUp() override {
     NVFuserFixtureParamTest<ParamType>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2112,6 +2106,143 @@ TEST_F(TmaPointwiseTestF, MixedPrecisionIllegalTma) {
   EXPECT_FALSE(tma_check::hasTmaLoad(executor_cache));
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
+// input tvs have broadcast dimension, they are not suitable for TMA load.
+// outer dimension is the broadcast dimension.
+TEST_F(TmaPointwiseTestF, OuterDimOne) {
+  int64_t dim1 = 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({1, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({1, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, dim1}, options);
+  auto t1 = at::randn({1, dim1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_FALSE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// input tvs have broadcast dimension, they are not suitable for TMA load.
+// inner dimension is the broadcast dimension.
+TEST_F(TmaPointwiseTestF, InnerDimOne) {
+  int64_t dim0 = 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, 1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, 1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, 1}, options);
+  auto t1 = at::randn({dim0, 1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_FALSE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// input tvs have broadcast dimension, they are not suitable for TMA load.
+// midddle dimension is the broadcast dimension.
+TEST_F(TmaPointwiseTestF, MiddleDimOne) {
+  int64_t dim0 = 8192;
+  int64_t dim2 = 1024;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, 1, dim2}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, 1, dim2}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, 1, dim2}, options);
+  auto t1 = at::randn({dim0, 1, dim2}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_FALSE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// tv0 has broadcast dimension, not suitable for TMA load
+// tv1 doesn't have broadcast dimension, it is suitable for TMA load.
+TEST_F(TmaPointwiseTestF, OneBcastOneNonBcast) {
+  int64_t dim0 = 8192;
+  int64_t dim2 = 1024;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, 1, dim2}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, 2, dim2}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, 1, dim2}, options);
+  auto t1 = at::randn({dim0, 2, dim2}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_TRUE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(TmaPointwiseTestF, MultipleInputs) {
+  int64_t dim0 = 8192;
+  int64_t dim1 = 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv2 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv3 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addInput(tv3);
+  auto tv4 = add(tv0, tv1);
+  auto tv5 = add(tv2, tv3);
+  auto tv6 = add(tv4, tv5);
+  fusion->addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+  auto t2 = at::randn({dim0, dim1}, options);
+  auto t3 = at::randn({dim0, dim1}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {t0, t1, t2, t3},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser

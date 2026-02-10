@@ -28,13 +28,7 @@ namespace nvfuser {
 using testing::Contains;
 using testing::UnorderedElementsAre;
 
-class PersistentBufferTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using PersistentBufferTest = NVFuserTest;
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   Fusion fusion;
@@ -1947,7 +1941,9 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   auto tv2 = sum(tv1, {1});
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 = broadcast(index_tv, {false, true});
-  auto tv5 = gather(tv0, 1, tv4);
+  // Use takeAlongAxis rather than gather as codegen does not support
+  // the latter
+  auto tv5 = takeAlongAxis(tv0, tv4, 1);
   auto tv6 = maybeCastOp(DataType::BFloat16, tv5);
   auto tv7 = add(tv3, tv6);
   auto tv8 = add(tv1, tv7);
@@ -1976,11 +1972,22 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   // register So, we should expect two uses of tv0, one is a gather op, the
   // other is a load op
   const auto& tv0_uses = tv0->uses();
-  EXPECT_THAT(
-      tv0_uses,
-      testing::UnorderedElementsAre(
-          testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
-          testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    EXPECT_THAT(
+        tv0_uses,
+        testing::UnorderedElementsAre(
+            testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
+            testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+  } else {
+    // Expect Programmatic Dependent Launch for Hopper+ devices
+    EXPECT_THAT(
+        tv0_uses,
+        testing::UnorderedElementsAre(
+            testing::Truly(
+                [](Expr* e) { return e->isA<WaitForPriorGridOp>(); }),
+            testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
+            testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+  }
 
   // index_tv is a indicies tv, should be cached in register
   // Gather op will use the cached version
@@ -2182,7 +2189,6 @@ class TmaPersistentTestP
   void SetUp() override {
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
     NVFuserFixtureParamTest<ParamType>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
   }
 };
@@ -2300,7 +2306,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(
             deviceSMCount() / 2, // small batch, can't do grid stride loop
             2048), // batch size, less or larger than sm count
-        testing::ValuesIn(Pow2Vals1to1Million)), // hidden size
+        testing::ValuesIn(LLM_EMBEDDING_SIZES)), // hidden size
     [](const testing::TestParamInfo<TmaPersistentTestParams>& info) {
       auto dtype = std::get<0>(info.param);
       auto x = std::get<1>(info.param);
@@ -2385,4 +2391,31 @@ TEST_F(TmaPersistentTestF, KernelReuse) {
   EXPECT_EQ(numRuntimes(), 3);
 }
 
+// can't use warp specialized version due to irregular iter size
+TEST_F(TmaPersistentTestF, TmaInnerPersistentIrregularIterSize) {
+  DataType dtype = DataType::BFloat16;
+  int x = 2049;
+  int y = 10240;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = maybeCastOp(DataType::Float, tv0); // tv1 is the persistent buffer
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

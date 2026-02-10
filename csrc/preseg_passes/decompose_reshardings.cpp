@@ -5,24 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/decompose_reshardings.h>
+#include "preseg_passes/decompose_reshardings.h"
 
-#include <device_lower/utils.h>
-#include <fusion.h>
-#include <host_ir/lower_to_communication.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <linked_hash_map.h>
-#include <multidevice/propagation.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/composite.h>
-#include <ops/utils.h>
-#include <transform_replay.h>
+#include "fusion.h"
+#include "host_ir/lower_to_communication.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "linked_hash_map.h"
+#include "multidevice/propagation.h"
+#include "multidevice/resharding.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "ops/composite.h"
+#include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {
 namespace {
@@ -186,6 +183,10 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       TensorView* new_input = set(input);
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
       new_input->setDeviceMesh(output->getDeviceMesh());
+      if (output->getMemoryType() == MemoryType::Symmetric) {
+        new_input->setMemoryType(output->getMemoryType());
+        output->setMemoryType(MemoryType::Global);
+      }
       shardLoopLike(
           /*ref=*/output,
           /*target=*/new_input,

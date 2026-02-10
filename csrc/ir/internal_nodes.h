@@ -9,13 +9,13 @@
 
 #include <list>
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <mma_type.h>
-#include <parallel_type_bitmap.h>
-#include <visibility.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "mma_type.h"
+#include "parallel_type_bitmap.h"
+#include "visibility.h"
 
 //! Nodes in here should generally not be used by users. They should be behind
 //! the scenes and users shouldn't have to be aware of what they do to use the
@@ -1995,97 +1995,39 @@ class Swizzle : public Expr {
   }
 };
 
-//! Applies 2D swizzles on a rectangular tile defined by 2 iterdomains.
-class Swizzle2D : public Expr {
+// Swizzle1D is currently only used and handled in HostIr.
+// The main use case is to compute the indexing for ring-based overlap, where
+// `out` is stream-parallel and `in` is a function of the device id and stream
+// index. See `HostIrEvaluator::handle(ShardByStream)` for usage.
+class Swizzle1D : public Expr {
  public:
   using Expr::Expr;
 
-  Swizzle2D(
-      IrBuilderPasskey,
-      IterDomain* out_x,
-      IterDomain* out_y,
-      IterDomain* in_x,
-      IterDomain* in_y,
-      Swizzle2DType swizzle_type = Swizzle2DType::NoSwizzle,
-      SwizzleMode swizzle_mode = SwizzleMode::Data);
+  Swizzle1D(
+      IrBuilderPasskey passkey,
+      IterDomain* out,
+      IterDomain* in,
+      ParallelType pt);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "Swizzle2D";
+    return "Swizzle1D";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  // Output iterdomain pair corresponding
-  //  to the original input iterdomain pair.
-  IterDomain* outX() const {
-    return output(0)->as<IterDomain>();
+  IterDomain* in() const {
+    return inputs().at(0)->as<IterDomain>();
   }
 
-  IterDomain* outY() const {
-    return output(1)->as<IterDomain>();
+  IterDomain* out() const {
+    return outputs().at(0)->as<IterDomain>();
   }
 
-  // Input iterdomain pair.
-  IterDomain* inX() const {
-    return input(0)->as<IterDomain>();
-  }
-
-  IterDomain* inY() const {
-    return input(1)->as<IterDomain>();
-  }
-
-  // The type of predefined 1-to-1 functions
-  //  used for swizzling math.
-  auto swizzleType() const {
-    return attribute<Swizzle2DType>(0);
-  }
-
-  // Swizzle mode of this swizzle instance.
-  // [Note on swizzle mode]
-  // On the current implementations we support two modes of
-  //  swizzle math, namely, data mode and loop mode.
-  // `Data` mode swizzling is a swizzle that will change the
-  //  data layout in shared memory, likely in global memory buffers
-  //  as well in the future. see also IndexSwizzle in index_compute.cpp.
-  //
-  //  Most important use cases are transpose bank conflict removal, and mma
-  //  swizzled shared memory layout. Example illustrated in 1D case:
-  //
-  // for (int i = 0; i<I; i++){
-  //   # This is a `Data` mode swizzle.
-  //  Tshared [swizzled(i)] = Tin[i];
-  // }
-  // # Now Tshared holds swizzled data, i.e. the data layout of
-  //    Tshared does not map to Tin with affine relationships.
-  //
-  // for(int i=0;i<I;i++){
-  //   Tout = Tshared[swizzled(i)];
-  // }
-  //
-  // `Loop` mode swizzling does not affect the data layout of any buffer
-  //   but only permutes the iteration order of serial or parallel loop.
-  // This is useful when we want to designate non-affine mapping of thread
-  //   to data or we want to generate non-affine loops.
-  // Exampe illustrated in 1D case:
-  //   for (int i = 0; i<I; i++){
-  //     # This is a `Loop` mode swizzle
-  //    Tshared [swizzled(i)] = Tin[swizzled(i)];
-  //   }
-  // # Now Tshared holds normal data, i.e. it still has
-  //   the same data layout as if the swizzle wasn't there.
-  //
-  // # Consumers of Tshared does not need to know about the
-  //   loop swizzle at previous op if not inlined.
-  // for(int i=0;i<I;i++){
-  //   Tout = Tshared[i];
-  // }
-  //  TODO: Loop swizzles eventually will be piped through in all mappings
-  //  and replay of the fusion IR infrastructure.
-  auto swizzleMode() const {
-    return attribute<SwizzleMode>(1);
+  ParallelType parallelType() const {
+    return attribute<ParallelType>(0);
   }
 };
 

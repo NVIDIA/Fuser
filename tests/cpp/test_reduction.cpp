@@ -17,9 +17,9 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include "codegen.h"
-#include "csrc/exceptions.h"
 #include "device_lower/lower2device.h"
 #include "disjoint_set.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "fusion_segmenter.h"
@@ -42,9 +42,9 @@
 #include "scheduler/tools/inlining.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_replay.h"
 #include "transform_rfactor.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -74,13 +74,7 @@ void validateNoParallelBroadcastExist(kir::Kernel* kernel) {
 
 } // namespace
 
-class ReductionTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using ReductionTest = NVFuserTest;
 
 TEST_F(ReductionTest, GridAllreduce1) {
   const int nx = 999;
@@ -2569,7 +2563,7 @@ TEST_F(ReductionTest, CrossEntropyGatherPattern) {
   fusion.addInput(labels);
 
   auto tv2 = broadcast(labels, {false, true});
-  auto tv3 = gather(log_probs, 1, tv2);
+  auto tv3 = takeAlongAxis(log_probs, tv2, 1);
   auto tv4 = squeeze(tv3, std::vector<bool>({false, true}));
 
   fusion.addOutput(tv4);
@@ -2815,16 +2809,20 @@ class TmaInnerReductionTest
 
   // Check if we expect TMA to be used based on mayUseTma() conditions
   bool expectTmaUsed(DataType dtype, int64_t reduction_size) {
-    // Skip TMA for small reductions
-    if (reduction_size < 128) {
-      return false;
-    }
-
     // TMA requires 16-byte alignment (vectorize_factor > 1)
     int64_t dtype_size_bit = dataTypeSizeBit(dtype);
     int64_t dtype_bytes = dtype_size_bit / 8;
     int64_t min_elems_for_alignment = 16 / dtype_bytes;
     if (reduction_size % min_elems_for_alignment != 0) {
+      return false;
+    }
+
+    uint64_t total_reduction_bytes = reduction_size * dtype_bytes;
+
+    // Minimum TMA transfer size, below which it seems much slower than non-TMA.
+    uint64_t min_tma_bytes = 16384;
+
+    if (total_reduction_bytes < min_tma_bytes) {
       return false;
     }
 

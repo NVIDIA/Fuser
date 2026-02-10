@@ -475,7 +475,6 @@ class BlackwellBase : public NVFuserTest {
                       "sm_100/sm_104, not sm_110+)";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -487,7 +486,6 @@ class TmaBase : public NVFuserTest {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -778,6 +776,23 @@ std::string sanitizeTestName(const std::string& name);
 constexpr std::array<int64_t, 21> Pow2Vals1to1Million = {
     1,    2,    4,    8,     16,    32,    64,     128,    256,    512,    1024,
     2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576};
+
+// values frequently used in LLM
+constexpr std::array<int64_t, 13> LLM_EMBEDDING_SIZES = {
+    768, // GPT-2 (124M), GPT-3 (125M)
+    1024, // GPT-2 (350M), GPT-3 (350M)
+    1280, // GPT-2 (774M)
+    1536, // GPT-3 (760M)
+    1600, // GPT-2 (1558M)
+    2048, // GPT-3 (1.3B)
+    2560, // GPT-3 (2.7B)
+    4096, // PaLM (8B), LLaMA (7B), GPT-3 (6.7B)
+    5120, // LLaMA (13B), GPT-3 (13B)
+    6656, // LLaMA (30B)
+    8192, // PaLM (63B), LLaMA (65B)
+    12288, // GPT-3 (175B)
+    18432, // PaLM (540B)
+};
 
 bool isVectorized(TensorView* tv);
 

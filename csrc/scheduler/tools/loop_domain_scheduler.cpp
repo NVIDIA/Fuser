@@ -6,16 +6,17 @@
  */
 // clang-format on
 
-#include <dispatch.h>
-#include <id_model/id_model.h>
-#include <id_model/schedule.h>
-#include <ir/internal_nodes.h>
-#include <ir/utils.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <val_graph_visitor.h>
+#include "scheduler/tools/loop_domain_scheduler.h"
 
 #include <ranges>
 #include <unordered_set>
+
+#include "dispatch.h"
+#include "id_model/id_model.h"
+#include "id_model/schedule.h"
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 namespace scheduler_tools {
@@ -84,10 +85,6 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
         input_ids_[0],
         resize->leftExpand(),
         resize->rightExpand());
-  }
-
-  void handle(const Swizzle2D* swizzle_2d) final {
-    NVF_THROW("Unsupported");
   }
 
   void handle(const Swizzle* swizzle) final {
@@ -165,10 +162,6 @@ class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
         resize->rightExpand(),
         resize->out()->getIterType());
     replayed_expr_ = tv_->axis(loop_id_pos)->definition();
-  }
-
-  void handle(const Swizzle2D* swizzle_2d) final {
-    NVF_THROW("Unsupported");
   }
 
   void handle(const Swizzle* swizzle) final {

@@ -7,11 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <debug.h>
-#include <options.h>
-#include <utils.h>
-
 #include <ostream>
+
+#include "base.h"
+#include "debug.h"
+#include "options.h"
 
 namespace nvfuser {
 

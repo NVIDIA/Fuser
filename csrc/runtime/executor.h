@@ -8,20 +8,20 @@
 #pragma once
 #include <functional>
 
-#include <exceptions.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/cloner.h>
-#include <ir/printer.h>
-#include <runtime/allocations.h>
-#include <runtime/compiled_kernel.h>
-#include <runtime/executor_abstract.h>
-#include <runtime/executor_params.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/scheduler_types.h>
-#include <serde/fusion_cache_generated.h>
-#include <utils.h>
+#include "base.h"
+#include "exceptions.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/cloner.h"
+#include "ir/printer.h"
+#include "runtime/allocations.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor_abstract.h"
+#include "runtime/executor_params.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/scheduler_types.h"
+#include "serde/fusion_cache_generated.h"
 
 namespace nvfuser {
 

@@ -7,11 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <ir/all_nodes.h>
-
-#include <evaluator_common.h>
-
 #include <c10/core/ScalarType.h>
+
+#include "evaluator_common.h"
+#include "ir/all_nodes.h"
 
 namespace nvfuser {
 
@@ -46,7 +45,7 @@ struct GlobalBufferInfo {
 //! pushing scalar int 0 as a place-holder.
 //! 2. This API does not allocate output in memory, but only returns the
 //! inferred output sizes. Used in runtime/fusion_executor_cache.cpp.
-KernelArgumentHolder inferOutputShapeAndContiguousStrides(
+KernelArgumentHolder inferContiguousOutputMetaTensor(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values = nullptr);

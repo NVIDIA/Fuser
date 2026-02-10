@@ -12,19 +12,19 @@
 
 #include <c10/core/DeviceType.h>
 
-#include <exceptions.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <ir/cloner.h>
-#include <ir/graphviz.h>
-#include <ir/interface_nodes.h>
-#include <ir/printer.h>
-#include <multidevice/communicator.h>
-#include <runtime/allocations.h>
-#include <runtime/executor_params.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/scheduler_types.h>
-#include <utils.h>
+#include "base.h"
+#include "exceptions.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "ir/cloner.h"
+#include "ir/graphviz.h"
+#include "ir/interface_nodes.h"
+#include "ir/printer.h"
+#include "multidevice/communicator.h"
+#include "runtime/allocations.h"
+#include "runtime/executor_params.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/scheduler_types.h"
 
 namespace nvfuser {
 
@@ -235,7 +235,7 @@ class CompiledKernel : public CompiledKernelBase {
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
-  kir::Kernel* kernel() const;
+  NVF_API kir::Kernel* kernel() const;
 
   std::unique_ptr<GpuLower>& lowered() {
     return lowered_;

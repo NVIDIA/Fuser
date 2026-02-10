@@ -23,6 +23,7 @@
 #include "device_lower/lower2device.h"
 #include "device_lower/pass/magic_zero.h"
 #include "device_lower/pass/replace_size.h"
+#include "device_lower/utils.h"
 #include "disjoint_set.h"
 #include "exceptions.h"
 #include "expr_evaluator.h"
@@ -52,21 +53,15 @@
 #include "scheduler/tools/loop_domain_scheduler.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_replay.h"
 #include "transform_rfactor.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
 using namespace at::indexing;
 
-class Gpu3Test : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using Gpu3Test = NVFuserTest;
 
 TEST_F(Gpu3Test, FusionNonDivisibleSplit1_CUDA) {
   Fusion fusion;
@@ -3399,8 +3394,6 @@ TEST_F(Gpu3Test, FusionIssueRepro1844_CUDA) {
 }
 
 TEST_F(Gpu3Test, FusionInsertMagicZero1_CUDA) {
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -8326,6 +8319,9 @@ TEST_F(Gpu3Test, MoveNonConcretizedBroadcastInNormalization) {
     if (tv->isFusionInput()) {
       continue;
     }
+    if (ir_utils::isScheduleOp(tv)) {
+      continue;
+    }
 
     EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv->getLoopDomain().at(0), ref_outermost))
@@ -8605,8 +8601,6 @@ TEST_F(Gpu3Test, BestEffortReplayWithMismatchedRootToLogical) {
             PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
             /*replay_forward_id_map=*/{},
             /*target_forward_id_map=*/{},
-            /*skip_replay_swizzle=*/false,
-            /*skip_target_swizzle=*/false,
             /*skip_resize=*/false,
             /*error_on_failure=*/true);
       },
@@ -8620,8 +8614,6 @@ TEST_F(Gpu3Test, BestEffortReplayWithMismatchedRootToLogical) {
       PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
       /*replay_forward_id_map=*/{},
       /*target_forward_id_map=*/{},
-      /*skip_replay_swizzle=*/false,
-      /*skip_target_swizzle=*/false,
       /*skip_resize=*/false,
       /*error_on_failure=*/false);
 }

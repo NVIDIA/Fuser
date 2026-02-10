@@ -134,7 +134,6 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       memory_type_(src->memory_type_),
       circular_buffer_options_(src->circular_buffer_options_),
       cpu_scalar_(src->cpu_scalar_),
-      has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_),
       promote_reuse_(src->promote_reuse_),
@@ -766,6 +765,15 @@ TensorView* TensorView::swizzle(
 
   domain()->swizzle(swizzle_type, x, y);
 
+  return this;
+}
+
+TensorView* TensorView::swizzle1d(int64_t x, ParallelType pt) {
+  NVF_CHECK(
+      deviceParallelTypes().contains(pt),
+      "Swizzle1D only supports device parallel types, given: ",
+      pt);
+  domain()->swizzle1d(x, pt);
   return this;
 }
 

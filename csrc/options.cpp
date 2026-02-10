@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 
@@ -162,7 +162,6 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"cutlass_scheduler", EnableOption::CutlassScheduler},
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
-          {"id_model", EnableOption::IdModel},
           {"id_model_extra_validation", EnableOption::IdModelExtraValidation},
           {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
           {"kernel_db", EnableOption::KernelDb},
@@ -231,7 +230,8 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"resize_scheduler", DisableOption::ResizeScheduler},
           {"reuse_mismatched_type_registers",
            DisableOption::ReuseMismatchedTypeRegisters},
-          {"multidevice", DisableOption::Multidevice}};
+          {"multidevice", DisableOption::Multidevice},
+          {"infer_contiguity", DisableOption::InferContiguity}};
   return available_options;
 }
 

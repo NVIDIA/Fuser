@@ -259,6 +259,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/add_axioms.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/fmin_fmax_promotion.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
@@ -302,7 +303,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/greedy.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/matmul_ampere-.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_hopper+.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
@@ -501,7 +501,7 @@ target_link_libraries(nvfuser_codegen PRIVATE
 )
 
 if(NVFUSER_BUILD_WITH_ASAN)
-  target_compile_options(codegen_internal PRIVATE -fsanitize=address)
+  target_compile_options(codegen_internal PUBLIC -fsanitize=address)
   target_link_options(codegen_internal PUBLIC -fsanitize=address)
   target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
 endif()
@@ -928,7 +928,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_runtime.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scatter.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_sdpa.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp

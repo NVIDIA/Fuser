@@ -5,15 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "preseg_passes/segment_inplace_update.h"
+
 #include <deque>
 #include <vector>
 
-#include <fusion.h>
-#include <id_model/id_model.h>
-#include <id_model/to_string.h>
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <preseg_passes/segment_inplace_update.h>
+#include "fusion.h"
+#include "id_model/id_model.h"
+#include "id_model/to_string.h"
+#include "ir/utils.h"
+#include "ops/alias.h"
 
 namespace nvfuser::preseg_passes {
 // When an intermediate tensorview is aliased to a fusion input,

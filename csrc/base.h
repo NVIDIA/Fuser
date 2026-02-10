@@ -207,8 +207,8 @@ class PolymorphicBase {
   }
 };
 
-template <class T, std::enable_if_t<std::is_enum<T>::value, bool> = true>
-constexpr unsigned int switch_pair(T t1, T t2) {
+template <class T>
+requires std::is_enum_v<T> constexpr unsigned int switch_pair(T t1, T t2) {
   constexpr unsigned int _WORD_SHIFT = 16;
   return ((unsigned int)t1 << _WORD_SHIFT) + (unsigned int)t2;
 }
@@ -281,25 +281,26 @@ SPECIALIZE_PRINTER(VoidStar);
 SPECIALIZE_PRINTER(uint32_t);
 SPECIALIZE_PRINTER(int64_t);
 SPECIALIZE_PRINTER(uint64_t);
-SPECIALIZE_PRINTER(DataType);
-SPECIALIZE_PRINTER(MemoryType);
-SPECIALIZE_PRINTER(UnaryOpType);
+
 SPECIALIZE_PRINTER(BinaryOpType);
-SPECIALIZE_PRINTER(TernaryOpType);
-SPECIALIZE_PRINTER(LoadStoreOpType);
 SPECIALIZE_PRINTER(CircularBufferLoopStage);
-SPECIALIZE_PRINTER(tma::TensorMapInterleave);
-SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
-SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);
+SPECIALIZE_PRINTER(DataType);
+SPECIALIZE_PRINTER(LoadStoreOpType);
+SPECIALIZE_PRINTER(MemoryType);
 SPECIALIZE_PRINTER(MmaInputSmemSwizzle);
-SPECIALIZE_PRINTER(SwizzleType);
-SPECIALIZE_PRINTER(Swizzle2DType);
+SPECIALIZE_PRINTER(ParallelType);
 SPECIALIZE_PRINTER(SwizzleMode);
+SPECIALIZE_PRINTER(SwizzleType);
+SPECIALIZE_PRINTER(TernaryOpType);
+SPECIALIZE_PRINTER(UnaryOpType);
+SPECIALIZE_PRINTER(std::optional<bool>);
+SPECIALIZE_PRINTER(std::vector<int64_t>);
 SPECIALIZE_PRINTER(std::vector<int>);
 SPECIALIZE_PRINTER(std::vector<uint32_t>);
-SPECIALIZE_PRINTER(std::vector<int64_t>);
 SPECIALIZE_PRINTER(std::vector<uint64_t>);
-SPECIALIZE_PRINTER(std::optional<bool>);
+SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);
+SPECIALIZE_PRINTER(tma::TensorMapInterleave);
+SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
 
 #undef SPECIALIZE_PRINTER
 
@@ -538,12 +539,8 @@ NVF_API const char* getNvFuserEnv(
     const char* default_value = nullptr);
 
 // Returns the mapped value or the default.
-template <
-    typename MapKey,
-    typename Value,
-    typename Key,
-    typename = std::enable_if_t<std::is_convertible_v<Key, MapKey>>>
-Value getOrDefault(
+template <typename MapKey, typename Value, typename Key>
+requires std::is_convertible_v<Key, MapKey> Value getOrDefault(
     const std::unordered_map<MapKey, Value>& map,
     const Key& key,
     const Value& default_value = Value()) {

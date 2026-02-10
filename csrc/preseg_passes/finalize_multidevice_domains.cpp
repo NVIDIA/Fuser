@@ -5,19 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/finalize_multidevice_domains.h>
+#include "preseg_passes/finalize_multidevice_domains.h"
 
-#include <fusion.h>
-#include <ir/allocation_utils.h>
-#include <ir/interface_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <linked_hash_map.h>
-#include <multidevice/allocation_utils.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <scheduler/utils.h>
-#include <type.h>
+#include "fusion.h"
+#include "ir/allocation_utils.h"
+#include "ir/interface_nodes.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "linked_hash_map.h"
+#include "multidevice/allocation_utils.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "scheduler/utils.h"
+#include "type.h"
 
 namespace nvfuser::preseg_passes {
 

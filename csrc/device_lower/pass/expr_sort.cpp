@@ -15,7 +15,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 #include <deque>
 #include <list>

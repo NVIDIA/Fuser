@@ -103,7 +103,6 @@ enum class EnableOption {
   CutlassScheduler, //! Enable the CUTLASS scheduler and executor
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
-  IdModel, //! Enable IdModel
   IdModelExtraValidation, //! Enable extra error checking when building IdModel
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
                       //! why we disabled it by default.
@@ -169,6 +168,7 @@ enum class DisableOption {
                //! between nvFuser communicator and the framework also setting
                //! up `c10d::ProcessGroup`
   ResizeScheduler, //! Disable the resize scheduler
+  InferContiguity, //! Disable contiguity inference
   EndOfOption //! Placeholder for counting the number of elements
 };
 
