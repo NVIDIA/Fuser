@@ -10,6 +10,11 @@
 
 #include <vector>
 
+#include <ATen/ops/arange.h>
+#include <ATen/ops/argsort.h>
+#include <ATen/ops/bincount.h>
+#include <ATen/ops/empty.h>
+#include <ATen/ops/empty_like.h>
 #include <ATen/ops/floor_divide.h>
 
 #include "exceptions.h"
