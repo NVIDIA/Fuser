@@ -540,9 +540,11 @@ TEST_F(MultiDeviceTest, BiasAddRelu) {
   fusion->addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(d);
-  in->setDeviceMesh(mesh);
-  in->outer_split(-1, d);
-  in->axis(-2)->parallelize(ParallelType::DIDx);
+  for (auto* tv : {in, bias}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(-1, d);
+    tv->axis(-2)->parallelize(ParallelType::DIDx);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({b, s, h / d}, tensor_options_);
