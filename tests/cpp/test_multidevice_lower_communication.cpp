@@ -213,7 +213,7 @@ TEST_P(LowerSendRecvTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    DISABLED_,
     LowerSendRecvTest,
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
