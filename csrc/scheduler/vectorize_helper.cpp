@@ -9,6 +9,7 @@
 
 #include <unordered_set>
 
+#include "base.h"
 #include "compute_at_map.h"
 #include "expr_evaluator.h"
 #include "id_model/id_model.h"
@@ -96,10 +97,14 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // Ordering of dimensions is important in this analysis, if an ordering is
   // contiguous in the reference, but not the target tensor views, then we
   // cannot consider that a contiguous merge dimension for vectorization.
-  auto projected_logical = projectId(filtered_ids, logical_domain);
+  auto projected_logical =
+      projectId(filtered_ids, logical_domain, reference->getLoopDomain());
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
-      projectId(projected_logical, reference->getMaybeRootDomain()),
+      projectId(
+          projected_logical,
+          reference->getMaybeRootDomain(),
+          reference->getLoopDomain()),
       projected_logical,
       reference->hasRoot() /*shouldn't matter how we initialize this*/);
 
@@ -205,7 +210,8 @@ void ContiguousInnerDimensionsMapper::distributePE(
 
 std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     const std::vector<IterDomain*>& from,
-    const std::vector<IterDomain*>& to) {
+    const std::vector<IterDomain*>& to,
+    const std::vector<IterDomain*>& loop) {
   std::vector<IterDomain*> frontier = from;
 
   // Process `merge_or_split` and update `frontier`, where `merge_or_split` must
@@ -427,11 +433,26 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
 
   auto backward_exprs = StmtSort::getExprsBetween(
       {to.begin(), to.end()}, {frontier.begin(), frontier.end()});
+  if (!backward_exprs.empty()) {
+    for (auto* expr : StmtSort::getExprsBetween(
+             {frontier.begin(), frontier.end()}, {loop.begin(), loop.end()})) {
+      if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+        propagateCombine(merge);
+      } else if (Split* split = dynamic_cast<Split*>(expr)) {
+        propagateDistribute(split);
+      } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
+        propagateResize(resize, true);
+      } else {
+        // TODO: I wonder if we should just remove all inputs instead of
+        // erroring. Seems that would be safe.
+        NVF_THROW(
+            "ProjectDimensions does not support expr type: ", expr->toString());
+      }
+    }
+    frontier = from;
+  }
 
-  // Mapping from logical to root, reverse expressions
-  std::reverse(backward_exprs.begin(), backward_exprs.end());
-
-  for (auto* expr : backward_exprs) {
+  for (auto* expr : backward_exprs | std::views::reverse) {
     if (Split* split = dynamic_cast<Split*>(expr)) {
       propagateCombine(split);
     } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
@@ -465,7 +486,27 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } // switch on expr type
   } // For loop on the transform expressions
 
-  return frontier;
+  std::vector<IterDomain*> result = frontier;
+
+  if (backward_exprs.empty()) {
+    for (auto* expr : StmtSort::getExprsBetween(
+             {frontier.begin(), frontier.end()}, {loop.begin(), loop.end()})) {
+      if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+        propagateCombine(merge);
+      } else if (Split* split = dynamic_cast<Split*>(expr)) {
+        propagateDistribute(split);
+      } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
+        propagateResize(resize, true);
+      } else {
+        // TODO: I wonder if we should just remove all inputs instead of
+        // erroring. Seems that would be safe.
+        NVF_THROW(
+            "ProjectDimensions does not support expr type: ", expr->toString());
+      } // switch on expr type
+    } // For loop on the transform expressions
+  }
+
+  return result;
 }
 
 std::shared_ptr<MaxInfoSpanningTree::Information>
@@ -539,7 +580,8 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     }
   }
   return MappedDomain::build(
-      projectId(producer_logical_ids, to->getMaybeRootDomain()),
+      projectId(
+          producer_logical_ids, to->getMaybeRootDomain(), to->getLoopDomain()),
       producer_logical_ids,
       true);
 }
@@ -605,7 +647,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   }
   return MappedDomain::build(
       consumer_root_ids,
-      projectId(consumer_root_ids, to->getLogicalDomain()),
+      projectId(consumer_root_ids, to->getLogicalDomain(), to->getLoopDomain()),
       false);
 }
 

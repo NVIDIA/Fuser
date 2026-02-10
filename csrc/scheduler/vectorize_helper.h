@@ -237,15 +237,6 @@ class NVF_API ContiguousInnerDimensionsMapper
       return;
     }
 
-    NVF_ERROR(
-        projected_extent_.count(id) == 0,
-        "Already registered: ",
-        id->toString(),
-        ", existing: ",
-        projected_extent_.at(id)->toInlineString(),
-        ", new: ",
-        pe->toInlineString());
-
     projected_extent_[id] = pe;
   }
 
@@ -281,7 +272,8 @@ class NVF_API ContiguousInnerDimensionsMapper
   // Projection from root<->logical domains
   std::vector<IterDomain*> projectId(
       const std::vector<IterDomain*>& from,
-      const std::vector<IterDomain*>& to);
+      const std::vector<IterDomain*>& to,
+      const std::vector<IterDomain*>& loop);
 
   // Propagator functions
   void propagateC2P(TensorView* from, TensorView* to) final;
