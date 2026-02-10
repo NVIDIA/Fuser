@@ -686,9 +686,9 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
 
 TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
   CommunicatorBackend communicator_backend = GetParam();
-  constexpr int64_t M = 32;
-  constexpr int64_t K = 8;
-  constexpr int64_t N = 2;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 64;
+  constexpr int64_t N = 64;
   constexpr int64_t S = 4;
   const int64_t D = communicator_->size();
   if (M % (S * D) != 0) {
@@ -710,7 +710,7 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
   TensorView* A = makeContigTensor(4); // [DIDx(D), Stream(D), M/D, K/D]
   TensorView* B = makeContigTensor(4); // [DIDx(D), 1, K/D, N]
   TensorView* C_unreduced = matmul(A, B); // [DIDx(D), Stream(D), M/D, N]
-  TensorView* C = sum(C_unreduced, {0}); // [r(D), DIDx(D), M/D, N]
+  TensorView* C = sum(C_unreduced, {0}); // [Stream(r(D)), DIDx(D), M/D, N]
 
   fusion->addInput(A);
   fusion->addInput(B);
@@ -728,6 +728,7 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
   C_unreduced->axis(1)->parallelize(ParallelType::Stream);
   C_unreduced->axis(0)->parallelize(ParallelType::DIDx);
   C->axis(1)->parallelize(ParallelType::DIDx);
+  C->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutorParams params;
   params.lower.communicator_backend = communicator_backend;
