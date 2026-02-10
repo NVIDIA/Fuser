@@ -11,6 +11,12 @@
 #include <vector>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <ATen/ops/arange.h>
+#include <ATen/ops/argsort.h>
+#include <ATen/ops/bincount.h>
+#include <ATen/ops/empty.h>
+#include <ATen/ops/empty_like.h>
+#include <ATen/ops/floor_divide.h>
 #include <c10/cuda/CUDAGuard.h>
 
 #include "exceptions.h"
