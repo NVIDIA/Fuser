@@ -51,10 +51,15 @@ Layout getCommunicationLayout(
     const CommunicationType type,
     IterDomain* sharded_id);
 
+// Creates a communication expr corresponding to the given
+// resharding expr. In most cases, `root` is inferred based
+// on communication type. However, in some cases, for e.g.
+// decomposing allgather as broadcast in a host for-loop, `root`
+// may be passed in through lowering.
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* c,
     DeviceIdxType my_device_idx,
-    Val* host_loop_index = nullptr,
+    Val* root = nullptr,
     const CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
 } // namespace nvfuser

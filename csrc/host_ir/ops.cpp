@@ -89,7 +89,9 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
           destination, ParallelType::Stream, DomainType::kAllocation) !=
           nullptr,
       "Destination allocation should be sharded on stream after "
-      "shardAllocationAsLoop: ",
+      "shardAllocationAsLoop. ",
+      destination->name(),
+      ":",
       destination->domain()->toString(0, /*loop_only=*/false));
 
   // Refine the contiguity flags so `out` aliases `in`. This is done similar

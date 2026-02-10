@@ -396,9 +396,9 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
   const auto c2p_map = pairwise_map.mapConsumerToProducer();
 
   // This ignores device dimensions on reduction axis.
-  auto producer_pt_to_id =
+  const std::unordered_map<ParallelType, IterDomain*>& producer_pt_to_id =
       mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
-  auto consumer_pt_to_id =
+  const std::unordered_map<ParallelType, IterDomain*>& consumer_pt_to_id =
       mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
 
   for (ParallelType pt : kParallelTypeDIDs) {
@@ -584,7 +584,7 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* e,
     DeviceIdxType my_device_idx,
-    Val* host_loop_index,
+    Val* root,
     const CommunicatorBackend backend) {
   FusionGuard fg(e->fusion());
 
@@ -656,10 +656,9 @@ std::vector<Expr*> convertSingleOpToCommunication(
       break;
     case CommunicationType::StreamBroadcast:
       NVF_ERROR(
-          host_loop_index != nullptr,
-          "StreamBroadcast requires a host loop index");
-      lowerToStreamBroadcast(
-          input_tv, output_tv, backend, comms, /*root=*/host_loop_index);
+          root != nullptr,
+          "StreamBroadcast requires a root value passed in through lowering");
+      lowerToStreamBroadcast(input_tv, output_tv, backend, comms, root);
       break;
   }
 
