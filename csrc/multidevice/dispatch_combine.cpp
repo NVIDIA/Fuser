@@ -10,6 +10,8 @@
 
 #include <vector>
 
+#include <ATen/ops/floor_divide.h>
+
 #include "exceptions.h"
 #include "multidevice/communicator.h"
 
