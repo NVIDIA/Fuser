@@ -364,7 +364,6 @@ std::list<Expr*> processForLoopBodies(
       // Lower to MM + RS p2p based algorithm
       if (did_to_stream && stream_to_did) {
         if (params.offset_stream_indexing_by_rank) {
-          std::cout << "Lowering to MM + RS p2p based algorithm" << std::endl;
           NVF_ERROR(
               body_expr->isA<LoadStoreOp>() &&
                   body_expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set,
@@ -464,7 +463,6 @@ std::list<Expr*> processForLoopBodies(
           new_loop_body.push_back(if_sending_to_self);
         } else {
           // Lower to the MM+RS reduce-collective-based algorithm
-          std::cout << "Lowering to MM + RS reduce-collective-based algorithm" << std::endl;
           NVF_ERROR(
               body_expr->isA<ReductionOp>(),
               "expected a reduction operation but got ",
