@@ -744,7 +744,13 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
 
   dest_container->registerStmt(IrBuilderPasskey(dest_container), dest_stmt);
 
-  if (src_container != dest_container) {
+  // Phase 2 Task 10: For same-container cloning (shared IrContainer),
+  // per-Fusion name counters produce matching names naturally (both start
+  // at 0), so the name override below is NOT needed and is skipped.
+  // For cross-container cloning (different IrContainers), we still need
+  // to force the source name since the destination's global counter may
+  // have diverged.
+  if (src_container->ir_container() != dest_container->ir_container()) {
     dest_stmt->setName(IrBuilderPasskey(dest_container), src_stmt->name());
   }
 

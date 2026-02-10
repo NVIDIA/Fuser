@@ -268,6 +268,24 @@ void IrContainer::transferStatementOwnership(Fusion* from, Fusion* to) {
     to_exprs.insert(exprs_it->second.begin(), exprs_it->second.end());
     per_fusion_exprs_.erase(exprs_it);
   }
+
+  // Transfer per-Fusion name counters (Phase 2 Task 10)
+  auto val_names_it = per_fusion_val_name_map_.find(from);
+  if (val_names_it != per_fusion_val_name_map_.end()) {
+    // Merge counter maps: take max of each ValType counter
+    auto& to_map = per_fusion_val_name_map_[to];
+    for (auto& [vtype, counter] : val_names_it->second) {
+      to_map[vtype] = std::max(to_map[vtype], counter);
+    }
+    per_fusion_val_name_map_.erase(val_names_it);
+  }
+
+  auto expr_names_it = per_fusion_expr_name_counter_.find(from);
+  if (expr_names_it != per_fusion_expr_name_counter_.end()) {
+    auto& to_counter = per_fusion_expr_name_counter_[to];
+    to_counter = std::max(to_counter, expr_names_it->second);
+    per_fusion_expr_name_counter_.erase(expr_names_it);
+  }
 }
 
 void IrContainer::removeStatementsOwnedBy(Fusion* fusion) {
@@ -303,6 +321,10 @@ void IrContainer::removeStatementsOwnedByUnlocked(Fusion* fusion) {
   // Clean up per-Fusion tracking (Phase 2 Task 4)
   per_fusion_vals_.erase(fusion);
   per_fusion_exprs_.erase(fusion);
+
+  // Clean up per-Fusion name counters (Phase 2 Task 10)
+  per_fusion_val_name_map_.erase(fusion);
+  per_fusion_expr_name_counter_.erase(fusion);
 }
 
 void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
@@ -334,6 +356,10 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   std::swap(a.sharing_fusions_, b.sharing_fusions_);
   std::swap(a.per_fusion_vals_, b.per_fusion_vals_);
   std::swap(a.per_fusion_exprs_, b.per_fusion_exprs_);
+
+  // Swap per-Fusion name counters (Phase 2 Task 10)
+  std::swap(a.per_fusion_val_name_map_, b.per_fusion_val_name_map_);
+  std::swap(a.per_fusion_expr_name_counter_, b.per_fusion_expr_name_counter_);
 }
 
 IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
@@ -354,6 +380,8 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->expr_name_counter_ = 0;
   to->per_fusion_vals_.clear();
   to->per_fusion_exprs_.clear();
+  to->per_fusion_val_name_map_.clear();
+  to->per_fusion_expr_name_counter_.clear();
 
   // NOTE: In Phase 2, we can't use to->parent() here because parent_ might
   // not be set correctly for shared containers. Fusion::copy handles this.
@@ -468,12 +496,16 @@ void IrContainer::registerVal(Val* val) {
   // Otherwise handle registration locally
   vals_up_.emplace_back(val);
   vals_.insert(val);
-  val->setName(IrContainerPasskey(), getValName(val->vtype()));
+
+  // Phase 2 Task 10: Use per-Fusion counter if val has an owning Fusion.
+  // This ensures cloned Fusions get matching names (T0=T0, T1=T1)
+  // instead of incrementing global names (T0=T10, T1=T11).
+  Fusion* owning_fusion = val->container();
+  val->setName(IrContainerPasskey(), getValName(owning_fusion, val->vtype()));
 
   // Track per-Fusion ownership (Phase 2 Task 4)
-  // val->container() returns the owning Fusion
-  if (val->container() != nullptr) {
-    per_fusion_vals_[val->container()].insert(val);
+  if (owning_fusion != nullptr) {
+    per_fusion_vals_[owning_fusion].insert(val);
   }
 }
 
@@ -486,12 +518,14 @@ void IrContainer::registerExpr(Expr* expr) {
   // Otherwise handle registration locally
   exprs_up_.emplace_back(expr);
   exprs_.insert(expr);
-  expr->setName(IrContainerPasskey(), getExprName());
+
+  // Phase 2 Task 10: Use per-Fusion counter if expr has an owning Fusion.
+  Fusion* owning_fusion = expr->container();
+  expr->setName(IrContainerPasskey(), getExprName(owning_fusion));
 
   // Track per-Fusion ownership (Phase 2 Task 4)
-  // expr->container() returns the owning Fusion
-  if (expr->container() != nullptr) {
-    per_fusion_exprs_[expr->container()].insert(expr);
+  if (owning_fusion != nullptr) {
+    per_fusion_exprs_[owning_fusion].insert(expr);
   }
 }
 
@@ -507,6 +541,10 @@ void IrContainer::clear() noexcept {
   // Clear per-Fusion tracking (Phase 2 Task 4)
   per_fusion_vals_.clear();
   per_fusion_exprs_.clear();
+
+  // Clear per-Fusion name counters (Phase 2 Task 10)
+  per_fusion_val_name_map_.clear();
+  per_fusion_expr_name_counter_.clear();
 }
 
 bool IrContainer::inContainer(const Statement* const_stmt) const {

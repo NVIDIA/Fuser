@@ -218,13 +218,16 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   IrCloner ir_cloner(to);
 
   // Phase 2: Clone only 'from's owned vals (not all vals in shared container)
-  // Use ownedVals() to get only vals belonging to 'from'
-  for (auto val : from->ownedVals()) {
+  // CRITICAL: Use deterministic_vals() to get vals in insertion order.
+  // Using ownedVals() (unordered_set) causes non-deterministic clone order,
+  // which assigns different name() values to cloned vals between runs.
+  // This breaks code that uses tv->name() as map keys (e.g., GreedyParams).
+  for (auto val : from->deterministic_vals()) {
     ir_cloner.clone(val);
   }
 
   // Update definition_ and uses_ on cloned vals
-  for (auto val : from->ownedVals()) {
+  for (auto val : from->deterministic_vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }

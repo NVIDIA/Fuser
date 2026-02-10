@@ -192,14 +192,43 @@ class IrContainer {
   //! Register expr with this container.
   NVF_API void registerExpr(Expr* expr);
 
-  StmtNameType getValName(ValType vtype) {
+  //! Get next val name, using per-Fusion counter if fusion is non-null,
+  //! falling back to global counter otherwise.
+  //! Per-Fusion counters ensure cloned Fusions produce matching names.
+  StmtNameType getValName(Fusion* fusion, ValType vtype) {
+    if (fusion != nullptr) {
+      auto& name_map = per_fusion_val_name_map_[fusion];
+      if (name_map.find(vtype) == name_map.end()) {
+        name_map[vtype] = 0;
+      }
+      // Also advance global counter to keep it >= all per-Fusion counters
+      // This prevents conflicts if global counter is used later
+      auto& global = val_type_name_map_[vtype];
+      auto per_fusion_name = name_map[vtype]++;
+      if (global <= per_fusion_name) {
+        global = per_fusion_name + 1;
+      }
+      return per_fusion_name;
+    }
+    // Global fallback for non-Fusion contexts
     if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
       val_type_name_map_[vtype] = 0;
     }
     return val_type_name_map_[vtype]++;
   }
 
-  StmtNameType getExprName() {
+  //! Get next expr name, using per-Fusion counter if fusion is non-null,
+  //! falling back to global counter otherwise.
+  StmtNameType getExprName(Fusion* fusion) {
+    if (fusion != nullptr) {
+      auto& counter = per_fusion_expr_name_counter_[fusion];
+      auto per_fusion_name = counter++;
+      // Also advance global counter
+      if (expr_name_counter_ <= per_fusion_name) {
+        expr_name_counter_ = per_fusion_name + 1;
+      }
+      return per_fusion_name;
+    }
     return expr_name_counter_++;
   }
 
@@ -237,11 +266,20 @@ class IrContainer {
   // something like check if an Expr is in this container
   std::unordered_set<Expr*> exprs_;
 
-  // Values names counters
+  // Values names counters (global fallback for non-Fusion contexts)
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;
 
-  // Expression names counter
+  // Expression names counter (global fallback for non-Fusion contexts)
   StmtNameType expr_name_counter_ = 0;
+
+  // Per-Fusion name counters (Phase 2 Task 10)
+  // Each Fusion gets its own counter starting at 0, so cloned Fusions
+  // produce matching names (T0=T0, T1=T1) instead of incrementing names.
+  // This is critical for GreedyParams and normalization_utils which use
+  // tv->name() as map keys across cloned Fusions.
+  std::unordered_map<Fusion*, std::unordered_map<ValType, StmtNameType>>
+      per_fusion_val_name_map_;
+  std::unordered_map<Fusion*, StmtNameType> per_fusion_expr_name_counter_;
 
   // Note: Special values (zero_val_, one_val_, true_val_, false_val_,
   // magic_zero_val_) are now per-Fusion, stored in Fusion class.

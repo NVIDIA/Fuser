@@ -1583,4 +1583,237 @@ TEST_F(Phase2ContainerTest, StatementGuardDoesNotAffectOtherFusion) {
   EXPECT_EQ(b_vals_after, b_vals_at_guard_start);
 }
 
+// =============================================================================
+// Task 10 Tests: Per-Fusion Name Counters
+// =============================================================================
+
+TEST_F(Phase2ContainerTest, PerFusionNameCountersBasic) {
+  // Each Fusion gets its own name counters starting at 0
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  // First TensorView in Fusion a should have name 0
+  EXPECT_EQ(tv0->name(), 0);
+}
+
+TEST_F(Phase2ContainerTest, IndependentFusionsHaveOwnCounters) {
+  // Two independent Fusions both start name counters at 0
+  Fusion a;
+  {
+    FusionGuard fg_a(&a);
+    auto* tv0_a = makeSymbolicTensor(2);
+    a.addInput(tv0_a);
+    auto* tv1_a = add(tv0_a, tv0_a);
+    a.addOutput(tv1_a);
+    // a's TensorViews should have names 0, 1
+    EXPECT_EQ(tv0_a->name(), 0);
+    EXPECT_EQ(tv1_a->name(), 1);
+  }
+
+  Fusion b;
+  {
+    FusionGuard fg_b(&b);
+    auto* tv0_b = makeSymbolicTensor(2);
+    b.addInput(tv0_b);
+    auto* tv1_b = add(tv0_b, tv0_b);
+    b.addOutput(tv1_b);
+    // b's TensorViews should ALSO have names 0, 1 (independent counter)
+    EXPECT_EQ(tv0_b->name(), 0);
+    EXPECT_EQ(tv1_b->name(), 1);
+  }
+}
+
+TEST_F(Phase2ContainerTest, CopyNameCorrespondence) {
+  // CRITICAL: After Fusion::copy into shared container, cloned vals have
+  // matching names. This is required by GreedyParams and normalization_utils.
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  auto* tv2 = mul(tv1, tv1);
+  a.addOutput(tv2);
+
+  // Record a's val names
+  std::vector<std::pair<Val*, StmtNameType>> a_val_names;
+  for (auto* val : a.deterministic_vals()) {
+    a_val_names.push_back({val, val->name()});
+  }
+
+  // Copy a -> b (shared container)
+  Fusion b(a);
+
+  // b's vals should have MATCHING names (not incremented)
+  auto b_vals = b.deterministic_vals();
+  EXPECT_EQ(b_vals.size(), a_val_names.size());
+
+  // Check TensorViews specifically - these are what GreedyParams uses
+  std::vector<Val*> a_tvs, b_tvs;
+  for (auto* val : a.deterministic_vals()) {
+    if (val->isA<TensorView>()) {
+      a_tvs.push_back(val);
+    }
+  }
+  for (auto* val : b.deterministic_vals()) {
+    if (val->isA<TensorView>()) {
+      b_tvs.push_back(val);
+    }
+  }
+
+  EXPECT_EQ(a_tvs.size(), b_tvs.size());
+  for (size_t i = 0; i < a_tvs.size(); ++i) {
+    // Names should match across original and clone
+    EXPECT_EQ(a_tvs[i]->name(), b_tvs[i]->name())
+        << "TV name mismatch at index " << i << ": a=" << a_tvs[i]->name()
+        << " b=" << b_tvs[i]->name();
+  }
+}
+
+TEST_F(Phase2ContainerTest, CopyExprNameCorrespondence) {
+  // After copy, cloned expressions should also have matching names
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  auto* tv2 = mul(tv1, tv1);
+  a.addOutput(tv2);
+
+  // Record a's expr names
+  auto a_exprs = a.deterministic_exprs();
+  std::vector<StmtNameType> a_expr_names;
+  for (auto* expr : a_exprs) {
+    a_expr_names.push_back(expr->name());
+  }
+
+  // Copy
+  Fusion b(a);
+
+  auto b_exprs = b.deterministic_exprs();
+  EXPECT_EQ(b_exprs.size(), a_expr_names.size());
+
+  for (size_t i = 0; i < a_expr_names.size(); ++i) {
+    EXPECT_EQ(b_exprs[i]->name(), a_expr_names[i])
+        << "Expr name mismatch at index " << i;
+  }
+}
+
+TEST_F(Phase2ContainerTest, MultipleCopiesHaveMatchingNames) {
+  // Multiple copies from the same source should all have matching names
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a);
+  Fusion c(a);
+
+  // b and c should both have matching TV names
+  auto a_tvs_det = a.deterministic_vals();
+  auto b_tvs_det = b.deterministic_vals();
+  auto c_tvs_det = c.deterministic_vals();
+
+  EXPECT_EQ(a_tvs_det.size(), b_tvs_det.size());
+  EXPECT_EQ(a_tvs_det.size(), c_tvs_det.size());
+
+  for (size_t i = 0; i < a_tvs_det.size(); ++i) {
+    EXPECT_EQ(a_tvs_det[i]->name(), b_tvs_det[i]->name());
+    EXPECT_EQ(a_tvs_det[i]->name(), c_tvs_det[i]->name());
+  }
+}
+
+TEST_F(Phase2ContainerTest, NameCountersCleanedUpOnDestroy) {
+  // When a Fusion is destroyed, its per-Fusion counters should be cleaned up
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  auto container_ptr = a.ir_container_ptr();
+
+  {
+    Fusion b(a); // Copy - shares container, creates per-Fusion counters
+    EXPECT_EQ(container_ptr->sharingCount(), 2);
+  }
+  // b destroyed: per-Fusion counters for b should be cleaned up
+
+  EXPECT_EQ(container_ptr->sharingCount(), 1);
+  // a should still work fine
+  EXPECT_GT(a.ownedVals().size(), 0);
+}
+
+TEST_F(Phase2ContainerTest, NameCountersSurviveSwap) {
+  // After swap, name counters should follow the data
+  Fusion a;
+  {
+    FusionGuard fg_a(&a);
+    auto* tv0 = makeSymbolicTensor(2);
+    a.addInput(tv0);
+    auto* tv1 = add(tv0, tv0);
+    a.addOutput(tv1);
+  }
+
+  Fusion b;
+  {
+    FusionGuard fg_b(&b);
+    auto* tv0 = makeSymbolicTensor(3);
+    b.addInput(tv0);
+    auto* tv1 = mul(tv0, tv0);
+    b.addOutput(tv1);
+  }
+
+  // Get TV names before swap
+  auto a_tv0_name = a.inputs()[0]->name();
+  auto b_tv0_name = b.inputs()[0]->name();
+
+  Fusion::swap(a, b);
+
+  // After swap, a has b's old data and vice versa
+  EXPECT_EQ(a.inputs()[0]->name(), b_tv0_name);
+  EXPECT_EQ(b.inputs()[0]->name(), a_tv0_name);
+
+  // Adding new TVs after swap should work with correct counters
+  {
+    FusionGuard fg_a(&a);
+    auto* new_tv =
+        add(a.inputs()[0]->as<TensorView>(), a.inputs()[0]->as<TensorView>());
+    // New TV should get a valid name (not crash)
+    EXPECT_GE(new_tv->name(), 0);
+  }
+}
+
+TEST_F(Phase2ContainerTest, NameCountersAfterClearAndRebuild) {
+  // After Fusion::clear(), name counters should reset so new vals start at 0
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  EXPECT_EQ(tv0->name(), 0);
+  EXPECT_EQ(tv1->name(), 1);
+
+  a.clear();
+
+  // After clear, new vals should start at 0 again
+  auto* tv0_new = makeSymbolicTensor(2);
+  a.addInput(tv0_new);
+  EXPECT_EQ(tv0_new->name(), 0);
+}
+
 } // namespace nvfuser
