@@ -1477,28 +1477,20 @@ TEST_F(TransposeTest, NoTransposeMaverick17B) {
 }
 
 TEST_F(TransposeTest, TmaTransposeSimple) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
 
   auto input = makeContigTensor(2);
   fusion.addInput(input);
   auto output = transpose(input, 0, 1);
   fusion.addOutput(output);
 
-  // Use the TMA transpose scheduler directly
-  TransposeParams tparams;
-  tparams.tma_enabled = true;
-  scheduleTransposeTMA(&fusion, &tparams);
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t = at::randn({10000, 10000}, options);
-  KernelExecutor ke;
-  CompileParams index32bit{DataType::Int32, 255, false};
-  ke.compile(&fusion, {t}, {}, index32bit);
-  auto outputs = ke.run({t});
-  ASSERT_TRUE(at::equal(t.t(), outputs[0].as<at::Tensor>()));
+  auto input0 = at::randn({16384, 32768}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input0});
+  testValidate(executor_cache.fusion(), outputs, {input0}, __LINE__, __FILE__);
 }
 
 TEST_F(TransposeTest, Tma) {

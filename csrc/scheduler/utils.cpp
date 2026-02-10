@@ -1691,7 +1691,11 @@ IterDomain* projectIdToAllocation(
         projected_id = resize->out();
       }
     } else {
-      NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
+      NVF_THROW(
+          "Didn't recognize the iterdomain expression: ",
+          expr->toString(),
+          " for tensor ",
+          tv->toString());
     }
     if (projected_id == nullptr) {
       break;

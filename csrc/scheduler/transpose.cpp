@@ -848,7 +848,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
             max_unroll_factor);
   }
 
-  tparams->lparams.bind(tparams->getThreadsPerBlock(), ParallelType::TIDx);
+  // tparams->lparams.bind(tparams->getThreadsPerBlock(), ParallelType::TIDx);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Transpose Stats ========\n"
@@ -1022,6 +1022,8 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   for (auto output_smem_cache : output_smem_tvs) {
     // Match the tutorial's structure exactly:
     // [BIDx, 32', 32]
+    std::cout << "output_smem_cache: " << output_smem_cache->toString()
+              << std::endl;
     output_smem_cache->setAllocationDomain(
         output_smem_cache->getLoopDomain(), true);
     // Split tile_0 (32) by unroll_vect (4) -> [8', 4']
@@ -1048,6 +1050,9 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
         Options{}.propagateParallelType());
     output_smem_cache->axis(2)->parallelize(ParallelType::Unroll);
     output_reg_cache->axis(2)->parallelize(ParallelType::Vectorize);
+
+    std::cout << "output_reg_cache: " << output_reg_cache->toString()
+              << std::endl;
     output_reg_cache->setAllocationDomain(
         output_reg_cache->getLoopDomain(), true);
   }
@@ -1074,6 +1079,8 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
     // [BIDx, 4, 8, 8', 4']
 
     // Set allocation domain to match the swizzled layout
+    std::cout << "input_smem_cache: " << input_smem_cache->toString()
+              << std::endl;
     input_smem_cache->setAllocationDomain(
         input_smem_cache->getLoopDomain(), true);
 
@@ -1085,14 +1092,14 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
     // [BIDx, Bulk, Bulk, Bulk, Bulk]
   }
 
-  fusion->print();
+  // fusion->print();
 }
 
 void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   FusionGuard fg(fusion);
 
   if (std::getenv("USE_TMA") != nullptr) {
-    scheduleTransposeTMA(fusion, tparams);
+    return scheduleTransposeTMA(fusion, tparams);
   }
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
