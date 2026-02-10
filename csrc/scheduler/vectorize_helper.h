@@ -232,13 +232,7 @@ class NVF_API ContiguousInnerDimensionsMapper
   };
 
   // TODO: make pe a lanmda function so it is not evaluated if not needed
-  void addProjectedExtent(IterDomain* id, Val* pe) {
-    if (!recording_) {
-      return;
-    }
-
-    projected_extent_[id] = pe;
-  }
+  void addProjectedExtent(IterDomain* id, Val* pe);
 
   // Return a boolean predicate indicating if the given ID is fully projected.
   Val* isFullyProjected(IterDomain* id);

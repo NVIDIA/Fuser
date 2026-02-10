@@ -15,6 +15,7 @@
 #include "id_model/id_model.h"
 #include "instrumentation.h"
 #include "ir/builder.h"
+#include "ir/internal_base_nodes.h"
 #include "ir/iostream.h"
 #include "ir/printer.h"
 #include "iter_visitor.h"
@@ -54,6 +55,25 @@ Val* commonOrConstExtent(
 Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
   return SimplifyingIrBuilder::eqExpr(
       getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
+}
+
+void ContiguousInnerDimensionsMapper::addProjectedExtent(
+    IterDomain* id,
+    Val* pe) {
+  if (!recording_) {
+    return;
+  }
+
+  NVF_ERROR(
+      projected_extent_.count(id) == 0,
+      "Already registered: ",
+      id->toString(),
+      ", existing: ",
+      projected_extent_.at(id)->toInlineString(),
+      ", new: ",
+      pe->toInlineString());
+
+  projected_extent_[id] = pe;
 }
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
@@ -98,7 +118,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // contiguous in the reference, but not the target tensor views, then we
   // cannot consider that a contiguous merge dimension for vectorization.
   auto projected_logical =
-      projectId(filtered_ids, logical_domain, reference->getLoopDomain());
+      projectId(filtered_ids, logical_domain, logical_domain);
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
       projectId(
@@ -431,11 +451,29 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   // merge(I3, I4)}. If from is on the forward side only, then we will have
   // empty backward exprs, vice versa.
 
-  auto backward_exprs = StmtSort::getExprsBetween(
-      {to.begin(), to.end()}, {frontier.begin(), frontier.end()});
-  if (!backward_exprs.empty()) {
-    for (auto* expr : StmtSort::getExprsBetween(
-             {frontier.begin(), frontier.end()}, {loop.begin(), loop.end()})) {
+  auto backward_project = [&](const std::vector<IterDomain*>& to) {
+    auto backward_exprs = StmtSort::getExprsBetween(
+        {to.begin(), to.end()}, {frontier.begin(), frontier.end()});
+    for (auto* expr : backward_exprs | std::views::reverse) {
+      if (Split* split = dynamic_cast<Split*>(expr)) {
+        propagateCombine(split);
+      } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+        propagateDistribute(merge);
+      } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
+        propagateResize(resize, false);
+      } else {
+        // TODO: I wonder if we should just remove all inputs instead of
+        // erroring. Seems that would be safe.
+        NVF_THROW(
+            "ProjectDimensions does not support expr type: ", expr->toString());
+      }
+    }
+  };
+
+  auto forward_project = [&](const std::vector<IterDomain*>& to) {
+    auto forward_exprs = StmtSort::getExprsBetween(
+        {frontier.begin(), frontier.end()}, {to.begin(), to.end()});
+    for (auto* expr : forward_exprs) {
       if (Merge* merge = dynamic_cast<Merge*>(expr)) {
         propagateCombine(merge);
       } else if (Split* split = dynamic_cast<Split*>(expr)) {
@@ -449,64 +487,18 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
             "ProjectDimensions does not support expr type: ", expr->toString());
       }
     }
-    frontier = from;
-  }
+  };
 
-  for (auto* expr : backward_exprs | std::views::reverse) {
-    if (Split* split = dynamic_cast<Split*>(expr)) {
-      propagateCombine(split);
-    } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
-      propagateDistribute(merge);
-    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      propagateResize(resize, false);
-    } else {
-      // TODO: I wonder if we should just remove all inputs instead of erroring.
-      // Seems that would be safe.
-      NVF_THROW(
-          "ProjectDimensions does not support expr type: ", expr->toString());
-    } // switch on expr type
-  } // For loop on the transform expressions
+  forward_project(to);
 
-  auto forward_exprs = StmtSort::getExprsBetween(
-      {frontier.begin(), frontier.end()}, {to.begin(), to.end()});
+  std::vector<IterDomain*> frontier_saved = frontier;
+  // FIXME: allocation instead
+  forward_project(loop);
+  frontier = frontier_saved;
 
-  // Map forward through transforms since we're going from root to logical
-  for (auto* expr : forward_exprs) {
-    if (Merge* merge = dynamic_cast<Merge*>(expr)) {
-      propagateCombine(merge);
-    } else if (Split* split = dynamic_cast<Split*>(expr)) {
-      propagateDistribute(split);
-    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      propagateResize(resize, true);
-    } else {
-      // TODO: I wonder if we should just remove all inputs instead of erroring.
-      // Seems that would be safe.
-      NVF_THROW(
-          "ProjectDimensions does not support expr type: ", expr->toString());
-    } // switch on expr type
-  } // For loop on the transform expressions
+  backward_project(to);
 
-  std::vector<IterDomain*> result = frontier;
-
-  if (backward_exprs.empty()) {
-    for (auto* expr : StmtSort::getExprsBetween(
-             {frontier.begin(), frontier.end()}, {loop.begin(), loop.end()})) {
-      if (Merge* merge = dynamic_cast<Merge*>(expr)) {
-        propagateCombine(merge);
-      } else if (Split* split = dynamic_cast<Split*>(expr)) {
-        propagateDistribute(split);
-      } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-        propagateResize(resize, true);
-      } else {
-        // TODO: I wonder if we should just remove all inputs instead of
-        // erroring. Seems that would be safe.
-        NVF_THROW(
-            "ProjectDimensions does not support expr type: ", expr->toString());
-      } // switch on expr type
-    } // For loop on the transform expressions
-  }
-
-  return result;
+  return frontier;
 }
 
 std::shared_ptr<MaxInfoSpanningTree::Information>
