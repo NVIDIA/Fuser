@@ -361,12 +361,14 @@ std::list<Expr*> processForLoopBodies(
 
       const auto& communicator_backend = params.communicator_backend;
 
-      // Lower to MM + RS p2p based algorithm
+      // Lower to MM + RS algorithm
       if (did_to_stream && stream_to_did) {
         if (params.offset_stream_indexing_by_rank) {
+          // Lower to MM + RS p2p based algorithm
           NVF_ERROR(
               body_expr->isA<LoadStoreOp>() &&
-                  body_expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set,
+                  body_expr->as<LoadStoreOp>()->opType() ==
+                      LoadStoreOpType::Set,
               "expected a set operation but got ",
               body_expr);
           NVF_ERROR(
@@ -382,11 +384,13 @@ std::list<Expr*> processForLoopBodies(
               input_tv);
           NVF_ERROR(
               output_tv->axis(0)->getParallelType() == ParallelType::Stream,
-              "expected a stream parallelized first axis on the output but got ",
+              "expected a stream parallelized first axis on the output but "
+              "got ",
               output_tv);
           NVF_ERROR(
               input_tv->axis(1)->getParallelType() == ParallelType::Stream,
-              "expected a stream parallelized second axis on the input but got ",
+              "expected a stream parallelized second axis on the input but "
+              "got ",
               input_tv);
           NVF_ERROR(
               output_tv->axis(1)->isDeviceDim(),
@@ -401,10 +405,12 @@ std::list<Expr*> processForLoopBodies(
               /*dim*/
               findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model),
               /*index=*/tensor_index);
-          auto [slicing_output, is_new_] =
-              tensor_slicing_cache.get(output_tv, /*dim*/ 0, /*index=*/recv_peer);
+          auto [slicing_output, is_new_] = tensor_slicing_cache.get(
+              output_tv, /*dim*/ 0, /*index=*/recv_peer);
           auto* local_copy = IrBuilder::create<LoadStoreOp>(
-              LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
+              LoadStoreOpType::Set,
+              slicing_output->out(),
+              slicing_input->out());
           if_sending_to_self->thenBody().pushBack(local_copy);
           auto recv = IrBuilder::create<P2PCommunication>(
               P2PCommunicationType::RECV,
@@ -468,7 +474,8 @@ std::list<Expr*> processForLoopBodies(
               "expected a reduction operation but got ",
               body_expr);
           NVF_ERROR(
-              body_expr->as<ReductionOp>()->getReductionOpType() == BinaryOpType::Add,
+              body_expr->as<ReductionOp>()->getReductionOpType() ==
+                  BinaryOpType::Add,
               "expected a reduce operation but got ",
               body_expr);
           auto* reduction_op = body_expr->as<ReductionOp>();
