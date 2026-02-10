@@ -33,7 +33,8 @@ TEST_P(DispatchCombineTest, DispatchCombineTop1) {
   const int64_t world_size = communicator_->size();
   const int64_t my_rank = communicator_->deviceId();
   const auto backend = GetParam();
-  if (backend != CommunicatorBackend::kCuda && !communicator_->isBackendAvailable(backend)) {
+  if (backend != CommunicatorBackend::kCuda &&
+      !communicator_->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend " << backend << " not available.";
   }
   constexpr int64_t kNumExpertsPerRank = 2;
@@ -124,7 +125,8 @@ TEST_P(DispatchCombineTest, DispatchOnlyTop1) {
   const int64_t world_size = communicator_->size();
   const int64_t my_rank = communicator_->deviceId();
   const auto backend = GetParam();
-  if (backend != CommunicatorBackend::kCuda && !communicator_->isBackendAvailable(backend)) {
+  if (backend != CommunicatorBackend::kCuda &&
+      !communicator_->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend " << backend << " not available.";
   }
   constexpr int64_t kNumExpertsPerRank = 2;
@@ -198,12 +200,7 @@ TEST_P(DispatchCombineTest, DispatchOnlyTop1) {
       {{in_x, x}, {in_topk_idx, topk_idx}, {in_topk_weights, topk_weights}});
 
   auto expected = doMoeDispatch(
-      x,
-      topk_idx,
-      topk_weights,
-      num_experts,
-      communicator_,
-      backend);
+      x, topk_idx, topk_weights, num_experts, communicator_, backend);
 
   EXPECT_TRUE(at::allclose(outputs[0].as<at::Tensor>(), expected.recv_x))
       << "Dispatch recv_x mismatch on rank " << my_rank;
@@ -230,7 +227,8 @@ TEST_P(DispatchCombineTest, CombineOnlyTop1) {
   const int64_t world_size = communicator_->size();
   const int64_t my_rank = communicator_->deviceId();
   const auto backend = GetParam();
-  if (backend != CommunicatorBackend::kCuda && !communicator_->isBackendAvailable(backend)) {
+  if (backend != CommunicatorBackend::kCuda &&
+      !communicator_->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend " << backend << " not available.";
   }
   constexpr int64_t kNumExpertsPerRank = 2;
@@ -260,12 +258,7 @@ TEST_P(DispatchCombineTest, CombineOnlyTop1) {
   topk_idx.index_put_({3, 0}, kNumExpertsPerRank);
 
   auto dispatch_result = doMoeDispatch(
-      x,
-      topk_idx,
-      topk_weights,
-      num_experts,
-      communicator_,
-      backend);
+      x, topk_idx, topk_weights, num_experts, communicator_, backend);
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());

@@ -7,11 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <cuda.h>
-
 #include <ATen/core/Tensor.h>
-#include <string>
-#include <vector>
+#include <cuda.h>
 
 #include "multidevice/ipc_handle.h"
 

@@ -34,4 +34,3 @@ extern "C" __global__ void alltoallv_kernel(
       static_cast<unsigned long long>(recv_ptrs[peer]));
   dst[recv_byte_offset] = send[send_byte_offset];
 }
-
