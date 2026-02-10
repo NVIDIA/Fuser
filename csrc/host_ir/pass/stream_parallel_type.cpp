@@ -481,8 +481,11 @@ std::list<Expr*> processForLoopBodies(
               /*dim*/
               findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model),
               /*index=*/tensor_index);
-          auto [slicing_output, is_new_] =
-              tensor_slicing_cache.get(output_tv, /*dim*/ 0, /*index=*/tensor_index);
+          auto [slicing_output, is_new_] = tensor_slicing_cache.get(
+              output_tv,
+              /*dim*/
+              findStreamAxisIndex(output_tv, for_loop->iterDomain(), id_model),
+              /*index=*/tensor_index);
           auto reduce = IrBuilder::create<Communication>(
               CommunicationType::Reduce,
               slicing_output->out(),

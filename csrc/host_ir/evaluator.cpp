@@ -729,10 +729,6 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
     return;
   }
 
-  auto index = indexed_id->isBroadcast()
-      ? 0
-      : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
-
   // Count reduction axes up to the target axis
   int64_t reduction_count = std::count_if(
       hir_alias_select->in()->getLogicalDomain().begin(),
@@ -741,6 +737,14 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
       [](const IterDomain* id) { return id->isReduction(); });
   // Adjust the ATen axis by subtracting the number of reduction axes
   int64_t axis = hir_alias_select->axis() - reduction_count;
+
+  // Use index 0 if the IterDomain is marked as broadcast, or if the actual
+  // tensor dimension has size 1 (behaves like broadcast at runtime even if
+  // not marked as such in the IR)
+  auto index = (indexed_id->isBroadcast() || input.size(axis) == 1)
+      ? 0
+      : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
+
   expr_evaluator_.bind(hir_alias_select->out(), input.select(axis, index));
 }
 
