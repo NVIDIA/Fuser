@@ -703,6 +703,9 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
     GTEST_SKIP() << "K must be a multiple of D, but got K = " << K
                  << ", D = " << D;
   }
+  if (communicator_backend == CommunicatorBackend::kCuda) {
+    GTEST_SKIP() << "CUDA backend is not supported for this test";
+  }
 
   EnableOptionsGuard::getCurOptions().set(EnableOption::InsertReshardingAfter);
 
@@ -746,7 +749,8 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
   auto A_sharded = shardTensor1D(A_unsharded, /*axis=*/0, mesh);
   auto B_sharded = shardTensor1D(B_unsharded, /*axis=*/0, mesh);
 
-  auto C_out = executor.runWithInput({A_sharded, B_sharded})[0].as<at::Tensor>();
+  auto C_out =
+      executor.runWithInput({A_sharded, B_sharded})[0].as<at::Tensor>();
 
   auto C_unreduced_unsharded =
       at::matmul(A_unsharded, B_unsharded); // {D, D, M / D, N}
@@ -761,7 +765,7 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     RSMatmulTest,
-    testing::Values(/*CommunicatorBackend::kCuda, */CommunicatorBackend::kNccl),
+    testing::Values(CommunicatorBackend::kCuda, CommunicatorBackend::kNccl),
     testing::PrintToStringParamName());
 
 } // namespace nvfuser
