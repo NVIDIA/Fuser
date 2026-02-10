@@ -21,24 +21,22 @@
 #include <c10/core/MemoryFormat.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ExecutionEngine/Orc/CompileUtils.h"
-#include "llvm/ExecutionEngine/Orc/IRCompileLayer.h"
-#include "llvm/ExecutionEngine/Orc/LLJIT.h"
-#include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Verifier.h"
-#include "llvm/Support/Error.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Support/raw_ostream.h"
 
-#include "driver_api.h"
-#include "runtime/compiled_kernel.h"
-#include "runtime/executor.h"
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/ExecutionEngine/Orc/CompileUtils.h>
+#include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/Verifier.h>
+#include <llvm/Support/Error.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/raw_ostream.h>
 
 #include "bfs.h"
+#include "driver_api.h"
 #include "expr_evaluator.h"
 #include "fusion_profiler.h"
 #include "host_ir/evaluator.h"
@@ -51,6 +49,8 @@
 #include "linked_hash_map.h"
 #include "ops/all_ops.h"
 #include "polymorphic_value.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor.h"
 #include "runtime/executor_kernel_arg.h"
 #include "runtime/fusion_executor_cache.h"
 #include "runtime/fusion_kernel_runtime.h"
