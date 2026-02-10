@@ -663,7 +663,7 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
 
   MultiDeviceExecutorParams params;
   params.lower.communicator_backend = communicator_backend;
-  params.lower.offset_stream_indexing_by_rank = true;
+  params.lower.offset_stream_indexing_by_rank = true; // Will fail if false
   MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
 
   auto tensor_options =
@@ -684,6 +684,10 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
 
+// The difference between this test and the previous one is that this test
+// is resharding on the sum instead of the matmul.
+// TODO: support both true/false for params.lower.offset_stream_indexing_by_rank
+// in both fusions
 TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
   CommunicatorBackend communicator_backend = GetParam();
   constexpr int64_t M = 64;
@@ -732,7 +736,7 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
 
   MultiDeviceExecutorParams params;
   params.lower.communicator_backend = communicator_backend;
-  params.lower.offset_stream_indexing_by_rank = false;
+  params.lower.offset_stream_indexing_by_rank = false; // Will fail if true
   MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
 
   auto tensor_options =
