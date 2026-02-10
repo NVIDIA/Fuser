@@ -169,7 +169,10 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
     }
   }
 
-  return tensor;
+  // Make sure the returned tensor is at least as contiguous as the original
+  // tensor.  This is likely an overkill but probably OK for now because all
+  // multi-GPU tests create contiguous test tensors.
+  return tensor.contiguous();
 }
 
 std::vector<int64_t> unshardedSizes(
