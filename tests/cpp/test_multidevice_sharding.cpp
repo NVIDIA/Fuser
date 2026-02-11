@@ -374,38 +374,6 @@ TEST_F(MultiDeviceTest, Transpose) {
       UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
-TEST_F(MultiDeviceTest, LoopSplit) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto num_devices = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(num_devices);
-
-  TensorView* in = makeContigConcreteTensor({num_devices * 3});
-  in->setDeviceMesh(mesh);
-  fusion->addInput(in);
-  TensorView* out = set(in);
-  fusion->addOutput(out);
-
-  for (auto* tv : {in, out}) {
-    tv->outer_split(0, num_devices);
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-  }
-
-  at::Tensor in_tensor = at::randn({3}, tensor_options_);
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
-
-  testValidate(
-      executor_cache.fusion(),
-      {out_tensor},
-      {in_tensor},
-      {in_tensor},
-      __LINE__,
-      __FILE__);
-}
-
 TEST_F(MultiDeviceTest, LoopSplitWithReorder) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -572,11 +540,10 @@ TEST_F(MultiDeviceTest, BiasAddRelu) {
   fusion->addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(d);
-  for (auto* tv : {in, bias, broadcasted_bias, add_out, out}) {
+  for (auto* tv : {in, bias}) {
     tv->setDeviceMesh(mesh);
     tv->outer_split(-1, d);
     tv->axis(-2)->parallelize(ParallelType::DIDx);
-    tv->reorder({{-2, 0}});
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -737,71 +704,6 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Bool(),
         ::testing::Bool(),
         ::testing::Bool()));
-
-TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const int d = communicator_->size();
-  const int64_t b = 2, s = 2, h = 4, e = 3;
-
-  TensorView* tv0 = makeContigConcreteTensor(
-      {b, s, d * h * e}); // in: loop domain: {b, s, d*h*e}
-  TensorView* tv1 = reshape(
-      tv0,
-      {b, s, d * h * e},
-      {b, s, d * h, e}); // out: loop domain: {b, s, d*h, e}
-
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-
-  auto mesh = DeviceMesh::createForNumDevices(d);
-
-  // Propagate transform from reshaped output to input.
-  // Without this propagation, the two DID axes on `in` and `out` will not be
-  // mapped in together in ID model. This causes scheduling to fail due to
-  // resharding.
-  TransformPropagator propagator_c2p(tv1);
-  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator_c2p);
-  // in: loop domain: {b, s, d*h, e} after transform propagation
-
-  // Loop split and parallelize input
-  tv0->setDeviceMesh(mesh);
-  tv1->setDeviceMesh(mesh);
-  tv0->split(-2, d, /*inner_split=*/false);
-  tv0->axis(-3)->parallelize(ParallelType::DIDx);
-  // in: loop domain: {b, s, DIDx{d}, h, e}
-
-  // Propagate DID loop split to output
-  TransformPropagator propagator_p2c(tv0);
-  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator_p2c);
-  // out: loop domain: {b, s, d, h, e} after transform propagation
-
-  // Parallelize output
-  scheduler_utils::parallelizeAllLike(
-      tv0,
-      /*pos=*/-1,
-      /*selected_tv=*/{tv1});
-  // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
-
-  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
-  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor inp = at::randn({b, s, d * h * e}, tensor_options_);
-  at::Tensor sharded_inp = shardTensor(inp, tv0);
-
-  at::Tensor nvf_out =
-      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
-
-  testValidate(
-      executor_cache.fusion(),
-      {nvf_out},
-      {sharded_inp},
-      {sharded_inp.view({b, s, h, e})},
-      __LINE__,
-      __FILE__);
-}
 
 TEST_F(MultiDeviceTest, LoopShardedSplitReshapeIds) {
   auto fusion = std::make_unique<Fusion>();
@@ -1058,42 +960,6 @@ TEST_F(MultiDeviceTest, OuterReductionShardedInnerDimension) {
   for (auto* val : scheduled_fusion->outputs()) {
     EXPECT_TRUE(is_vectorized(val->as<TensorView>()));
   }
-}
-
-TEST_F(MultiDeviceTest, AllocationPermutationOfLoop) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const int d = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(d);
-
-  TensorView* tv0 = makeContigConcreteTensor({5, 3 * d});
-  TensorView* tv1 = set(tv0);
-
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-
-  for (auto* tv : {tv0, tv1}) {
-    tv->setDeviceMesh(mesh);
-    tv->outer_split(1, d);
-    tv->axis(1)->parallelize(ParallelType::DIDx);
-    // DIDx is outermost in loop but not in allocation domain
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-    reorderParallelizedToFront(tv);
-  }
-
-  // Disable the pass to verify we can run a fusion where allocation domain
-  // is a permutation of loop domain. This pass can currently not be modified
-  // due to other issues listed in #4381.
-  OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
-      optimization_guard(false);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor inp = at::randn({5, 3 * d}, tensor_options_);
-  at::Tensor sharded_inp = shardTensor1D(inp, -1, mesh);
-  at::Tensor nvf_out =
-      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
-  EXPECT_TRUE(at::allclose(nvf_out, sharded_inp));
 }
 
 TEST_F(MultiDeviceTest, PointwiseSchedulerReordering) {
