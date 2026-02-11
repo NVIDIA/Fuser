@@ -781,13 +781,12 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // propogated in the order of the reference, if that order doesn't match the
   // tensor we're mapping too then a transpose interfered with expanded the
   // vectorize dimension.
-  auto projected_dims_i = std::ssize(projected_dims) - 1;
-  // FIXME: use zip
-  for (auto alloc_i = std::ssize(alloc) - 1; alloc_i >= 0; alloc_i--) {
-    IterDomain* alloc_id = alloc[alloc_i];
-    // FIXME: isParallel?
+  auto projected_dim = projected_dims.rbegin();
+  // Wish I could `zip(alloc, contiguity) | std::views::reverse` here.
+  for (auto [alloc_id, cont] :
+       zip(alloc | std::views::reverse, contiguity | std::views::reverse)) {
     if (alloc_id->isReduction() || alloc_id->isBroadcast() ||
-        alloc_id->isDeviceDim()) {
+        alloc_id->isParallelized()) {
       continue;
     }
 
@@ -798,22 +797,21 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     NVF_ERROR_EQ(inputs_as_vals.size(), 1);
     auto* logical_id = inputs_as_vals.front()->as<IterDomain>();
 
-    while (projected_dims_i >= 0 &&
-           (projected_dims[projected_dims_i]->isBroadcast() ||
-            projected_dims[projected_dims_i]->isReduction() ||
-            projected_dims[projected_dims_i]->isDeviceDim())) {
-      projected_dims_i--;
+    while (projected_dim != projected_dims.rend() &&
+           ((*projected_dim)->isBroadcast() ||
+            (*projected_dim)->isReduction() ||
+            (*projected_dim)->isParallelized())) {
+      projected_dim++;
     }
     // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (projected_dims_i < 0 ||
-        projected_dims[projected_dims_i] != logical_id) {
+    if (projected_dim == projected_dims.rend() ||
+        *projected_dim != logical_id) {
       break;
     }
-    projected_dims_i--;
+    projected_dim++;
 
-    auto contiguity_i = contiguity.at(alloc_i);
-    NVF_ERROR(contiguity_i.has_value());
-    if (!contiguity_i.value()) {
+    NVF_ERROR(cont.has_value());
+    if (!cont.value()) {
       break;
     }
 
