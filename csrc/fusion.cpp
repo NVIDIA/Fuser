@@ -163,6 +163,24 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 
   auto ir_cloner = IrContainer::copy(from->ir_container(), to->ir_container());
 
+  // Remap cached special val pointers through the cloner
+  if (from->zero_val_) {
+    to->zero_val_ = ir_cloner.clone(from->zero_val_);
+  }
+  if (from->one_val_) {
+    to->one_val_ = ir_cloner.clone(from->one_val_);
+  }
+  if (from->true_val_) {
+    to->true_val_ = ir_cloner.clone(from->true_val_);
+  }
+  if (from->false_val_) {
+    to->false_val_ = ir_cloner.clone(from->false_val_);
+  }
+  if (from->magic_zero_val_) {
+    to->magic_zero_val_ =
+        ir_cloner.clone(from->magic_zero_val_)->as<NamedScalar>();
+  }
+
   for (auto val : from->vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
@@ -290,14 +308,13 @@ void Fusion::clear() noexcept {
   managed_data_.clear();
   managed_named_data_.clear();
 
-  // Reset per-Fusion special values (they'll be recreated lazily if needed).
-  // These unique_ptrs own the Val objects; ir_container()->clear() above only
-  // removed them from vals_ (they were already absent from vals_up_).
-  zero_val_.reset();
-  one_val_.reset();
-  true_val_.reset();
-  false_val_.reset();
-  magic_zero_val_.reset();
+  // Reset per-Fusion special value caches (the vals themselves are owned by
+  // ir_container and were already destroyed by ir_container()->clear() above).
+  zero_val_ = nullptr;
+  one_val_ = nullptr;
+  true_val_ = nullptr;
+  false_val_ = nullptr;
+  magic_zero_val_ = nullptr;
 
   axioms_.reset();
   metadata_.clear();
@@ -336,9 +353,8 @@ void Fusion::removeVal(Val* val) {
   assertInContainer(val, "Cannot remove val ");
 
   // Don't remove cached special vals — they are lazily created singletons
-  if (val == zero_val_.get() || val == one_val_.get() ||
-      val == true_val_.get() || val == false_val_.get() ||
-      val == magic_zero_val_.get()) {
+  if (val == zero_val_ || val == one_val_ || val == true_val_ ||
+      val == false_val_ || val == magic_zero_val_) {
     return;
   }
 
@@ -736,55 +752,38 @@ void Fusion::printTransforms() {
 
 Val* Fusion::zeroVal() {
   if (!zero_val_) {
-    auto val = IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
-    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
-    zero_val_ = std::unique_ptr<Val>(ir_container()->vals_up_.back().release());
-    ir_container()->vals_up_.pop_back();
+    zero_val_ = IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
   }
-  return zero_val_.get();
+  return zero_val_;
 }
 
 Val* Fusion::oneVal() {
   if (!one_val_) {
-    auto val = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
-    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
-    one_val_ = std::unique_ptr<Val>(ir_container()->vals_up_.back().release());
-    ir_container()->vals_up_.pop_back();
+    one_val_ = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
   }
-  return one_val_.get();
+  return one_val_;
 }
 
 Val* Fusion::falseVal() {
   if (!false_val_) {
-    auto val = IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
-    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
-    false_val_ =
-        std::unique_ptr<Val>(ir_container()->vals_up_.back().release());
-    ir_container()->vals_up_.pop_back();
+    false_val_ = IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
   }
-  return false_val_.get();
+  return false_val_;
 }
 
 Val* Fusion::trueVal() {
   if (!true_val_) {
-    auto val = IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
-    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
-    true_val_ = std::unique_ptr<Val>(ir_container()->vals_up_.back().release());
-    ir_container()->vals_up_.pop_back();
+    true_val_ = IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
   }
-  return true_val_.get();
+  return true_val_;
 }
 
 NamedScalar* Fusion::magicZeroVal() {
   if (!magic_zero_val_) {
-    auto val = IrBuilder::createInContainer<NamedScalar>(
+    magic_zero_val_ = IrBuilder::createInContainer<NamedScalar>(
         this, kMagicZeroName, DataType::Index);
-    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
-    magic_zero_val_ = std::unique_ptr<NamedScalar>(
-        ir_container()->vals_up_.back().release()->as<NamedScalar>());
-    ir_container()->vals_up_.pop_back();
   }
-  return magic_zero_val_.get();
+  return magic_zero_val_;
 }
 
 Val* Fusion::zeroVal(DataType dtype) {
