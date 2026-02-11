@@ -782,7 +782,8 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // tensor we're mapping too then a transpose interfered with expanded the
   // vectorize dimension.
   auto projected_dim = projected_dims.rbegin();
-  // Wish I could `zip(alloc, contiguity) | std::views::reverse` here.
+  // Wish I could `zip(alloc, contiguity) | std::views::reverse` here. It
+  // doesn't compile.
   for (auto [alloc_id, cont] :
        zip(alloc | std::views::reverse, contiguity | std::views::reverse)) {
     if (alloc_id->isReduction() || alloc_id->isBroadcast() ||
@@ -790,12 +791,10 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       continue;
     }
 
-    // FIXME: getInputsInTargetDomain.
-    const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-        {alloc_id},
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-    NVF_ERROR_EQ(inputs_as_vals.size(), 1);
-    auto* logical_id = inputs_as_vals.front()->as<IterDomain>();
+    std::vector<IterDomain*> reachable_ids =
+        ir_utils::getReachableIds(tv->getLogicalDomain(), {alloc_id});
+    NVF_ERROR_EQ(reachable_ids.size(), 1);
+    auto* logical_id = reachable_ids.front();
 
     while (projected_dim != projected_dims.rend() &&
            ((*projected_dim)->isBroadcast() ||
