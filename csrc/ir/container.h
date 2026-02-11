@@ -80,15 +80,9 @@ class IrContainer {
     return std::ssize(exprs_);
   }
 
-  // Note: The include_shortcuts parameter is now deprecated.
-  // With Phase 2 per-Fusion special values, all vals (including special values)
-  // are stored in vals_up_, so both vals_ and vals_up_ have the same size.
-  // This parameter is kept for API compatibility but has no effect.
   int64_t numVals(bool include_shortcuts) const noexcept {
     return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
   }
-
-  // This avoids ownership conflicts when multiple Fusions share an IrContainer.
 
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
@@ -154,10 +148,6 @@ class IrContainer {
 
   // Expression names counter
   StmtNameType expr_name_counter_ = 0;
-
-  // Note: Special values (zero_val_, one_val_, true_val_, false_val_,
-  // magic_zero_val_) are now per-Fusion, stored in Fusion class.
-  // This avoids ownership conflicts when multiple Fusions share an IrContainer.
 
  public:
   Fusion* parent() const {

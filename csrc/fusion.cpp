@@ -710,11 +710,6 @@ void Fusion::printTransforms() {
   t_exprs.handle(this);
 }
 
-// =========================================================================
-// Per-Fusion Special Values (Phase 2)
-// Each Fusion has its own special values for safe container sharing.
-// =========================================================================
-
 Val* Fusion::zeroVal() {
   if (!zero_val_) {
     zero_val_ = IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
