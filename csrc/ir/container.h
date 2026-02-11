@@ -119,16 +119,6 @@ class IrContainer {
 
   friend class StatementGuard;
 
-  // A simple garbage collection mechanism to remove all Exprs and Vals that
-  // were created after a certain point. This is useful for analysis that
-  // creates new Exprs and Vals in the container and wants to clean up after
-  // itself.
-  //
-  // Used by StatementGuard only.
-  void removeStatementsCreatedAfter(
-      int64_t prev_num_exprs,
-      int64_t prev_num_vals);
-
   // Deque of unique pointer is the memory owning data structure
   std::deque<std::unique_ptr<Val>> vals_up_;
 
