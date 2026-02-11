@@ -137,10 +137,6 @@ void IrContainer::removeExpr(Expr* expr) {
 //! Completely remove val from the fusion, break all dependencies associated
 //! with it
 void IrContainer::removeVal(Val* val) {
-  // Note: Special values (zero_val_, one_val_, etc.) are now per-Fusion,
-  // stored in Fusion class. They are registered as normal vals and can
-  // be removed like any other val.
-
   NVF_ERROR(
       vals_.find(val) != vals_.end(),
       "Wanted to remove a value but it doesn't exist in this container.");
@@ -222,8 +218,6 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
 
   return true;
 }
-
-// This avoids ownership conflicts when multiple Fusions share an IrContainer.
 
 void IrContainer::removeStatementsCreatedAfter(
     int64_t prev_num_exprs,
