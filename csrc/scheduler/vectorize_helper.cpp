@@ -786,8 +786,11 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // doesn't compile.
   for (auto [alloc_id, cont] :
        zip(alloc | std::views::reverse, contiguity | std::views::reverse)) {
-    if (alloc_id->isReduction() || alloc_id->isBroadcast() ||
-        alloc_id->isParallelized()) {
+    auto is_treated_as_size_one = [](IterDomain* id) {
+      return id->isReduction() || id->isBroadcast() || id->isParallelized() ||
+          id->extent()->isOneInt();
+    };
+    if (is_treated_as_size_one(alloc_id)) {
       continue;
     }
 
@@ -796,19 +799,17 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       break;
     }
 
+    while (projected_dim != projected_dims.rend() &&
+           is_treated_as_size_one(*projected_dim)) {
+      projected_dim++;
+    }
+
     IterDomain* logical_id = [&]() {
       std::vector<IterDomain*> reachable_ids =
           ir_utils::getReachableIds(tv->getLogicalDomain(), {alloc_id});
       NVF_ERROR_EQ(reachable_ids.size(), 1);
       return reachable_ids.front();
     }();
-
-    while (projected_dim != projected_dims.rend() &&
-           ((*projected_dim)->isBroadcast() ||
-            (*projected_dim)->isReduction() ||
-            (*projected_dim)->isParallelized())) {
-      projected_dim++;
-    }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
     if (projected_dim == projected_dims.rend() ||
