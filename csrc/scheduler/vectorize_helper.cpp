@@ -791,10 +791,17 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       continue;
     }
 
-    std::vector<IterDomain*> reachable_ids =
-        ir_utils::getReachableIds(tv->getLogicalDomain(), {alloc_id});
-    NVF_ERROR_EQ(reachable_ids.size(), 1);
-    auto* logical_id = reachable_ids.front();
+    NVF_ERROR(cont.has_value());
+    if (!cont.value()) {
+      break;
+    }
+
+    IterDomain* logical_id = [&]() {
+      std::vector<IterDomain*> reachable_ids =
+          ir_utils::getReachableIds(tv->getLogicalDomain(), {alloc_id});
+      NVF_ERROR_EQ(reachable_ids.size(), 1);
+      return reachable_ids.front();
+    }();
 
     while (projected_dim != projected_dims.rend() &&
            ((*projected_dim)->isBroadcast() ||
@@ -802,17 +809,24 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
             (*projected_dim)->isParallelized())) {
       projected_dim++;
     }
+
     // Mapping order isn't correct, cannot expand vectorization dimension.
     if (projected_dim == projected_dims.rend() ||
         *projected_dim != logical_id) {
       break;
     }
+    // This assumes projected_dim can be matched only once. This assumption is
+    // OK for now but when we get to non-outermost sharding such as
+    // ```
+    //    [iS0]
+    //    /  \.
+    //  iS1  iS2
+    //       /  \.
+    // iDIDx3  iS4
+    // ```
+    // We may want to allow multiple contiguous allocation IDs to match
+    // projected_dim.
     projected_dim++;
-
-    NVF_ERROR(cont.has_value());
-    if (!cont.value()) {
-      break;
-    }
 
     product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
         product_of_inner_extents, getProjectedExtent(alloc_id));
