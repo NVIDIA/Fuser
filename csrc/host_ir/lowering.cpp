@@ -181,13 +181,19 @@ void lowerSegment(
       for (Expr* c : convertSingleOpToCommunication(
                e, device_id, innermost.loop->index())) {
         NVF_ERROR(
-            c->isA<Communication>(),
-            "Exprs in a Communication group should be Communication: ",
+            c->isA<Communication>() || c->isA<CollectivePermute>(),
+            "Exprs in a Communication group should be Communication or "
+            "CollectivePermute: ",
             c);
-        auto* communication = c->as<Communication>();
-        TensorView* in = communication->in();
-        TensorView* out = communication->out();
-        if (communication->type() != CommunicationType::StreamBroadcast &&
+        TensorView* in = c->input(0)->as<TensorView>();
+        TensorView* out = c->output(0)->as<TensorView>();
+        bool can_shard_in = true;
+        if (c->isA<CollectivePermute>() ||
+            c->as<Communication>()->type() ==
+                CommunicationType::StreamBroadcast) {
+          can_shard_in = false;
+        }
+        if (can_shard_in &&
             haveDifferentShardings(
                 in,
                 DomainType::kAllocation,
@@ -196,8 +202,7 @@ void lowerSegment(
                 {ParallelType::Stream})) {
           Val*& sharded_in = replacement_map[in];
           if (sharded_in == nullptr) {
-            sharded_in =
-                hir::shardByStream(in, innermost.loop->index(), communication);
+            sharded_in = hir::shardByStream(in, innermost.loop->index(), c);
             innermost_scope.pushBack(sharded_in->definition());
           }
         }
@@ -213,8 +218,7 @@ void lowerSegment(
           innermost.parent_scope->insert(
               innermost.parent_insertion_point, allocate);
           auto [i, inserted] = replacement_map.emplace(
-              out,
-              hir::shardByStream(out, innermost.loop->index(), communication));
+              out, hir::shardByStream(out, innermost.loop->index(), c));
           NVF_ERROR(inserted, "The input segmented fusion should be SSA.");
           innermost_scope.pushBack(i->second->definition());
         } else {

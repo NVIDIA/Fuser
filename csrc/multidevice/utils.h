@@ -91,4 +91,10 @@ bool isValidDeviceSplit(Expr* expr);
 // See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 
+std::pair<Val*, Val*> dispatchSwizzle1D(
+    Val* my_rank,
+    DeviceIdxType device_id,
+    ParallelType pt,
+    const DeviceMesh& mesh);
+
 } // namespace nvfuser

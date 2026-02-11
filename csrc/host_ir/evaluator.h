@@ -96,6 +96,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   void handle(Synchronize*) override;
   void handle(PostOnStream*) override;
   void handle(LaunchKernel*) override;
+  void handle(CollectivePermute*) override;
   void handle(Communication*) override;
   void handle(P2PCommunication*) override;
   void handle(Wait*) override;

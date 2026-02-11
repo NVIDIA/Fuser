@@ -60,6 +60,9 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
     case CommunicationType::StreamBroadcast:
       os << "StreamBroadcast";
       break;
+    case CommunicationType::CollectivePermute:
+      os << "CollectivePermute";
+      break;
   }
   return os;
 }
@@ -158,6 +161,7 @@ bool hasRoot(CommunicationType type) {
     case CommunicationType::Allreduce:
     case CommunicationType::ReduceScatter:
     case CommunicationType::AllToAll:
+    case CommunicationType::CollectivePermute:
       return false;
   }
   std::unreachable();
@@ -176,6 +180,7 @@ bool isReduction(CommunicationType type) {
     case CommunicationType::SendRecv:
     case CommunicationType::AllToAll:
     case CommunicationType::StreamBroadcast:
+    case CommunicationType::CollectivePermute:
       return false;
     default:
       NVF_THROW("unrecognized CommunicationType: ", type);
@@ -323,6 +328,47 @@ std::string P2PCommunication::toInlineString(const int indent_size) const {
 }
 
 std::string P2PCommunication::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
+}
+
+CollectivePermute::CollectivePermute(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in,
+    Team team,
+    Val* send_peer,
+    Val* recv_peer,
+    CommunicatorBackend backend)
+    : Expr(passkey) {
+  NVF_ERROR(
+      in->getDeviceMesh().size() > 0,
+      "The input mesh size must be greater than 0.");
+  NVF_ERROR(
+      out->getDeviceMesh().size() > 0,
+      "The output mesh size must be greater than 0.");
+  addInput(in);
+  addInput(send_peer);
+  addInput(recv_peer);
+  addOutput(out);
+  addDataAttribute(CommunicationType::CollectivePermute);
+  addDataAttribute(team);
+  addDataAttribute(backend);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CollectivePermute)
+
+std::string CollectivePermute::toInlineString(const int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "CollectivePermute " << name() << " ("
+                          << "team=(" << team() << ")"
+                          << ", send_peer=" << sendPeer()->toInlineString()
+                          << ", recv_peer=" << recvPeer()->toInlineString()
+                          << ", input=" << in() << ", output=" << out()
+                          << ", backend=" << backend() << ")";
+  return ss.str();
+}
+
+std::string CollectivePermute::toString(int indent_size) const {
   return toInlineString(indent_size) + "\n";
 }
 
@@ -650,6 +696,28 @@ c10::intrusive_ptr<c10d::Work> postAllToAll(
       empty_split_sizes,
       /*options=*/{});
 }
+
+c10::intrusive_ptr<c10d::Work> postCollectivePermute(
+    CollectivePermute* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType send_peer_index,
+    DeviceIdxType recv_peer_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor) {
+  backend->startCoalescing();
+  std::vector<at::Tensor> send_tensors = {input_tensor};
+  backend->send(
+      send_tensors,
+      send_peer_index,
+      /*tag=*/0);
+  std::vector<at::Tensor> recv_tensors = {output_tensor};
+  backend->recv(
+      recv_tensors,
+      recv_peer_index,
+      /*tag=*/0);
+  return backend->endCoalescing();
+}
 } // namespace
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
@@ -744,6 +812,38 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
       NVF_THROW("Wrong communication type: ", communication->type());
       return nullptr;
   }
+}
+
+c10::intrusive_ptr<c10d::Work> postSingleCommunication(
+    CollectivePermute* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor,
+    DeviceIdxType send_peer_index,
+    DeviceIdxType recv_peer_index) {
+  const Team& team = communication->team();
+  if (std::find(team.begin(), team.end(), my_device_index) == team.end()) {
+    return nullptr;
+  }
+  NVF_CHECK(backend != nullptr);
+
+  if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
+    debug() << "Posting " << communication->toInlineString()
+            << " with input_tensor " << input_tensor.sizes()
+            << " and output_tensor " << output_tensor.sizes()
+            << " send_peer=" << send_peer_index
+            << " recv_peer=" << recv_peer_index << std::endl;
+  }
+
+  return postCollectivePermute(
+      communication,
+      my_device_index,
+      send_peer_index,
+      recv_peer_index,
+      backend,
+      input_tensor,
+      output_tensor);
 }
 
 namespace {

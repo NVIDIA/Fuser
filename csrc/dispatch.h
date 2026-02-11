@@ -125,6 +125,7 @@ class Val;
   f(SdpaFwdOp);                      \
   f(SdpaBwdOp);                      \
   f(EmbeddingFwdOp);                 \
+  f(CollectivePermute);              \
   f(Communication);                  \
   f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \

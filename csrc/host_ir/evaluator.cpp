@@ -310,6 +310,38 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
   ipc_handle_cache_.exchangeHandles(share_mem_handles->communications());
 }
 
+void HostIrEvaluator::handle(CollectivePermute* communication) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  at::Tensor input_tensor = getKnownTensorOrUndefined(communication->input(0));
+  at::Tensor output_tensor =
+      getKnownTensorOrUndefined(communication->output(0));
+
+#ifndef NDEBUG
+  validateSizesAndStrides(
+      {input_tensor, output_tensor},
+      {communication->in(), communication->out()},
+      expr_evaluator_);
+#endif
+
+  CommunicatorBackend backend_type = communication->backend();
+  // CollectivePermute is only supported with NCCL backend because
+  // UCC does not support coalescing.
+  NVF_CHECK_EQ(backend_type, CommunicatorBackend::kNccl);
+  c10d::Backend* backend =
+      communicator_->getBackendForTeam(communication->team(), backend_type);
+  works_[communication] = postSingleCommunication(
+      communication,
+      communicator_->deviceId(),
+      backend,
+      input_tensor,
+      output_tensor,
+      expr_evaluator_.evaluate(communication->sendPeer()).as<int64_t>(),
+      expr_evaluator_.evaluate(communication->recvPeer()).as<int64_t>());
+}
+
 void HostIrEvaluator::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),

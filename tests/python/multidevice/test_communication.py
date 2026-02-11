@@ -189,7 +189,7 @@ def test_collective_permute(multidevice_test):
         out_tv.set_device_mesh(mesh)
         out_tv.outer_split(0, d)
         out_tv.swizzle1d(0, nvfuser.ParallelType.mesh_x)
-        out_tv.axis(0).parallelize(nvfuser.ParallelType.Stream)
+        out_tv.axis(0).parallelize(nvfuser.ParallelType.stream)
 
     inp_ref = torch.randn(d * 3)
     inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
