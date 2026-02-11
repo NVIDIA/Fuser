@@ -80,6 +80,8 @@ class IrContainer {
     return std::ssize(exprs_);
   }
 
+  // When include_shortcuts is true, count cached special vals (zeroVal, etc.)
+  // whose ownership was transferred to Fusion but that still appear in vals_.
   int64_t numVals(bool include_shortcuts) const noexcept {
     return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
   }
