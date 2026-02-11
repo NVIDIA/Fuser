@@ -574,10 +574,7 @@ class NVF_API Fusion : public PolymorphicBase {
   // Statement removal
   void removeStatementsCreatedAfter(
       int64_t num_exprs_before,
-      int64_t num_vals_before) {
-    ir_container()->removeStatementsCreatedAfter(
-        num_exprs_before, num_vals_before);
-  }
+      int64_t num_vals_before);
 
  protected:
   friend SegmentCandidateFinder;

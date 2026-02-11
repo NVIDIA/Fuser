@@ -401,6 +401,57 @@ void Fusion::removeVal(Val* val) {
   invalidateTvsAndUses();
 }
 
+void Fusion::removeStatementsCreatedAfter(
+    int64_t num_exprs_before,
+    int64_t num_vals_before) {
+  auto* c = ir_container();
+
+  NVF_ERROR(
+      c->exprs_up_.size() == c->exprs_.size(),
+      "exprs_up_ (size ",
+      c->exprs_up_.size(),
+      ") and exprs_ (size ",
+      c->exprs_.size(),
+      ") are out of sync.");
+  NVF_ERROR(
+      std::ssize(c->exprs_up_) >= num_exprs_before,
+      "exprs_up_ size (",
+      std::ssize(c->exprs_up_),
+      ") is less than num_exprs_before (",
+      num_exprs_before,
+      ").");
+
+  // Remove expressions before values because we need to change Val::uses_.
+  while (std::ssize(c->exprs_up_) > num_exprs_before) {
+    Expr* e = c->exprs_up_.back().get();
+    for (Val* in : e->inputs()) {
+      in->removeUse(e);
+    }
+    c->exprs_.erase(e);
+    c->exprs_up_.pop_back();
+  }
+
+  // Null out any special value caches that point to vals about to be destroyed.
+  // This prevents dangling pointers when special vals are lazily created inside
+  // a StatementGuard scope.
+  while (std::ssize(c->vals_up_) > num_vals_before) {
+    Val* v = c->vals_up_.back().get();
+    if (v == zero_val_) {
+      zero_val_ = nullptr;
+    } else if (v == one_val_) {
+      one_val_ = nullptr;
+    } else if (v == true_val_) {
+      true_val_ = nullptr;
+    } else if (v == false_val_) {
+      false_val_ = nullptr;
+    } else if (v == magic_zero_val_) {
+      magic_zero_val_ = nullptr;
+    }
+    c->vals_.erase(v);
+    c->vals_up_.pop_back();
+  }
+}
+
 void Fusion::addInput(Val* input) {
   assertInContainer(input, "Cannot register input ");
 
