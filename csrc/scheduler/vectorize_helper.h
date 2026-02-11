@@ -263,11 +263,17 @@ class NVF_API ContiguousInnerDimensionsMapper
       TensorView* to,
       std::shared_ptr<Information> from_info) final;
 
-  // Projection from root<->logical domains
+  // Projects domain `from` to domain `to`, returns the projected IDs, and saves
+  // project extents to `projected_extent_`. One of `from` and `to` is the
+  // logical domain and the other is the root domain.
+  //
+  // In addition to root<>logical projection, this function projects domain
+  // `from` down to domain `leaf`. This is for vectorization analysis to know
+  // the projected extents of allocation IDs.
   std::vector<IterDomain*> projectId(
       const std::vector<IterDomain*>& from,
       const std::vector<IterDomain*>& to,
-      const std::vector<IterDomain*>& loop);
+      const std::vector<IterDomain*>& leaf);
 
   // Propagator functions
   void propagateC2P(TensorView* from, TensorView* to) final;

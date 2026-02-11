@@ -117,15 +117,18 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // Ordering of dimensions is important in this analysis, if an ordering is
   // contiguous in the reference, but not the target tensor views, then we
   // cannot consider that a contiguous merge dimension for vectorization.
-  auto projected_logical =
-      projectId(filtered_ids, logical_domain, logical_domain);
+  //
+  // `leaf` is logical here because the subsequent projectId will handle
+  // allocation. addProjectedExtent doesn't like the same ID being added
+  // multiple times.
+  filtered_ids = projectId(filtered_ids, logical_domain, logical_domain);
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
       projectId(
-          projected_logical,
+          filtered_ids,
           reference->getMaybeRootDomain(),
-          reference->getLoopDomain()),
-      projected_logical,
+          reference->getMaybeAllocationDomain()),
+      filtered_ids,
       reference->hasRoot() /*shouldn't matter how we initialize this*/);
 
   // Stop recording before traversal
@@ -231,7 +234,7 @@ void ContiguousInnerDimensionsMapper::distributePE(
 std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     const std::vector<IterDomain*>& from,
     const std::vector<IterDomain*>& to,
-    const std::vector<IterDomain*>& loop) {
+    const std::vector<IterDomain*>& leaf) {
   std::vector<IterDomain*> frontier = from;
 
   // Process `merge_or_split` and update `frontier`, where `merge_or_split` must
@@ -489,11 +492,12 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     }
   };
 
+  // Projection is done in the following order to avoid addProjectedExtent for
+  // the same ID multiple times.
   forward_project(to);
 
   std::vector<IterDomain*> frontier_saved = frontier;
-  // FIXME: allocation instead
-  forward_project(loop);
+  forward_project(leaf);
   frontier = frontier_saved;
 
   backward_project(to);
@@ -573,7 +577,9 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   }
   return MappedDomain::build(
       projectId(
-          producer_logical_ids, to->getMaybeRootDomain(), to->getLoopDomain()),
+          producer_logical_ids,
+          to->getMaybeRootDomain(),
+          to->getMaybeAllocationDomain()),
       producer_logical_ids,
       true);
 }
@@ -639,7 +645,10 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   }
   return MappedDomain::build(
       consumer_root_ids,
-      projectId(consumer_root_ids, to->getLogicalDomain(), to->getLoopDomain()),
+      projectId(
+          consumer_root_ids,
+          to->getLogicalDomain(),
+          to->getMaybeAllocationDomain()),
       false);
 }
 
