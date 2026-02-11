@@ -147,6 +147,9 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   std::swap(a.true_val_, b.true_val_);
   std::swap(a.false_val_, b.false_val_);
   std::swap(a.magic_zero_val_, b.magic_zero_val_);
+
+  std::swap(a.axioms_, b.axioms_);
+  std::swap(a.metadata_, b.metadata_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -207,6 +210,19 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   }
 
   to->expected_dynamic_smem_bytes_ = from->expected_dynamic_smem_bytes_;
+
+  if (from->axioms_ != nullptr) {
+    to->axioms_ = std::make_unique<std::vector<Val*>>();
+    to->axioms_->reserve(from->axioms_->size());
+    for (auto pred : *from->axioms_) {
+      to->axioms_->push_back(ir_cloner.clone(pred));
+    }
+  }
+
+  for (auto& [key, val_expr] : from->metadata_) {
+    to->metadata_[ir_cloner.clone(key)] = std::make_pair(
+        ir_cloner.clone(val_expr.first), ir_cloner.clone(val_expr.second));
+  }
 
   if (from->all_tvs_ptr_ != nullptr) {
     to->all_tvs_ptr_ = std::make_unique<std::vector<TensorView*>>();
@@ -274,13 +290,14 @@ void Fusion::clear() noexcept {
   managed_data_.clear();
   managed_named_data_.clear();
 
-  // Reset per-Fusion special values (they'll be recreated lazily if needed)
-  // The actual Val objects were removed by removeStatementsOwnedBy above.
-  zero_val_ = nullptr;
-  one_val_ = nullptr;
-  true_val_ = nullptr;
-  false_val_ = nullptr;
-  magic_zero_val_ = nullptr;
+  // Reset per-Fusion special values (they'll be recreated lazily if needed).
+  // These unique_ptrs own the Val objects; ir_container()->clear() above only
+  // removed them from vals_ (they were already absent from vals_up_).
+  zero_val_.reset();
+  one_val_.reset();
+  true_val_.reset();
+  false_val_.reset();
+  magic_zero_val_.reset();
 
   axioms_.reset();
   metadata_.clear();
@@ -317,6 +334,13 @@ void Fusion::removeExpr(Expr* expr) {
 
 void Fusion::removeVal(Val* val) {
   assertInContainer(val, "Cannot remove val ");
+
+  // Don't remove cached special vals — they are lazily created singletons
+  if (val == zero_val_.get() || val == one_val_.get() ||
+      val == true_val_.get() || val == false_val_.get() ||
+      val == magic_zero_val_.get()) {
+    return;
+  }
 
   NVF_CHECK(
       !val->isFusionInput(),
@@ -712,38 +736,55 @@ void Fusion::printTransforms() {
 
 Val* Fusion::zeroVal() {
   if (!zero_val_) {
-    zero_val_ = IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
+    auto val = IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
+    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
+    zero_val_ = std::unique_ptr<Val>(ir_container()->vals_up_.back().release());
+    ir_container()->vals_up_.pop_back();
   }
-  return zero_val_;
+  return zero_val_.get();
 }
 
 Val* Fusion::oneVal() {
   if (!one_val_) {
-    one_val_ = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
+    auto val = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
+    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
+    one_val_ = std::unique_ptr<Val>(ir_container()->vals_up_.back().release());
+    ir_container()->vals_up_.pop_back();
   }
-  return one_val_;
+  return one_val_.get();
 }
 
 Val* Fusion::falseVal() {
   if (!false_val_) {
-    false_val_ = IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
+    auto val = IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
+    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
+    false_val_ =
+        std::unique_ptr<Val>(ir_container()->vals_up_.back().release());
+    ir_container()->vals_up_.pop_back();
   }
-  return false_val_;
+  return false_val_.get();
 }
 
 Val* Fusion::trueVal() {
   if (!true_val_) {
-    true_val_ = IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
+    auto val = IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
+    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
+    true_val_ = std::unique_ptr<Val>(ir_container()->vals_up_.back().release());
+    ir_container()->vals_up_.pop_back();
   }
-  return true_val_;
+  return true_val_.get();
 }
 
 NamedScalar* Fusion::magicZeroVal() {
   if (!magic_zero_val_) {
-    magic_zero_val_ = IrBuilder::createInContainer<NamedScalar>(
+    auto val = IrBuilder::createInContainer<NamedScalar>(
         this, kMagicZeroName, DataType::Index);
+    NVF_ERROR(ir_container()->vals_up_.back().get() == val);
+    magic_zero_val_ = std::unique_ptr<NamedScalar>(
+        ir_container()->vals_up_.back().release()->as<NamedScalar>());
+    ir_container()->vals_up_.pop_back();
   }
-  return magic_zero_val_;
+  return magic_zero_val_.get();
 }
 
 Val* Fusion::zeroVal(DataType dtype) {
@@ -770,12 +811,10 @@ Val* Fusion::oneVal(DataType dtype) {
 
 Val* Fusion::metadataOf(Val* v) {
   if (metadata_.count(v) == 0) {
-    // Create metadata val owned by the same Fusion as v
-    Fusion* owner = v->container();
     auto metadata_val =
-        IrBuilder::createInContainer<Val>(owner, metaDataTypeOf(v));
+        IrBuilder::createInContainer<Val>(this, metaDataTypeOf(v));
     auto metadata_expr =
-        IrBuilder::createInContainer<GetMetaData>(owner, metadata_val, v);
+        IrBuilder::createInContainer<GetMetaData>(this, metadata_val, v);
     metadata_[v] = std::make_pair(metadata_val, metadata_expr);
   }
   return metadata_.at(v).first;
