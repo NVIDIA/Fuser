@@ -992,17 +992,22 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   std::cout << "reference1: " << reference1->toString() << std::endl;
   std::cout << "reference2: " << reference2->toString() << std::endl;
 
-  // output: [I0, I1] -> [I0/tile_0 * I1/tile_1, tile_0, tile_1]
-  // smem -> register is vectorized
-  // register -> smem is unrolled
-  int64_t tile_0 = 32, tile_1 = 32, unroll_vect = 4;
-  output_reference->split(1, tile_1);
-  output_reference->split(0, tile_0);
+  // Assume input [I0, I1] is transposed to output [I1, I0]
+  // input tiling: [I0, I1]  -> [..., tile_0, tile_1]
+  // output tiling: [I1, I0] -> [..., tile_1, tile_0]
+  int64_t tile_0 = 64, tile_1 = 32, unroll_vect = 4;
+  int64_t warps_per_row = tile_1 / unroll_vect;
+  // [I1, I0]
+  output_reference->split(1, tile_0);
+  output_reference->split(0, tile_1);
+  // [I1/tile_1, tile_1, I0/tile_0, tile_0]
   output_reference->reorder({{-2, 0}});
+  // [I0/tile_0, I1/tile_1, tile_1, tile_0]
   output_reference->merge(0);
-  // [I0/tile_0 * I1/tile_1, tile_0, tile_1]
+  // [I0/tile_0 * I1/tile_1, tile_1, tile_0]
   output_reference->split(1, unroll_vect);
   output_reference->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, tile_1/unroll_vect, unroll_vect, tile_0]
 
   TransformPropagator propagator(output_reference);
   MaxLogicalDomainInfoSpanningTree entire_dag(output_reference);
@@ -1015,13 +1020,10 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
       /*parallelize_inputs_on_did=*/true);
 
   {
-    // Split tile_0 (32) by unroll_vect (4) -> [8', 4']
-    // [BIDx, tile_0, tile_1] -> [BIDx, 8', 4', 32]
-    // [BIDx, 8', 4', 32]
-
-    // Merge 8' with 32 to get 256 TIDx threads
+    std::cout << "output_reference before merge: "
+              << output_reference->toString() << std::endl;
     output_reference->merge(1, 3);
-    // [BIDx, 256, 4']
+    // [BIDx, tile_1/unroll_vect * tile_0, unroll_vect]
     output_reference->axis(1)->parallelize(ParallelType::TIDx);
     output_reference->axis(2)->parallelize(ParallelType::Unroll);
   }
@@ -1044,18 +1046,12 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   }
 
   for (auto input_smem_cache : input_smem_tvs) {
-    // Schedule the memory format for 128 byte swizzle
-    // After backward propagation, structure is:
-    // [BIDx, 8', 4', 32]
+    // [BIDx, tile_1 / unroll_vect, unroll_vect, tile_0]
     input_smem_cache->reorder({{-1, 1}});
-    // [BIDx, 32, 8', 4']
-
-    std::cout << "input_smem_cache after reorder: "
-              << input_smem_cache->toString() << std::endl;
-
-    // Split 32 by 8 to create [4, 8]
-    // [BIDx, 32, 8', 4'] -> [BIDx, 4, 8, 8', 4']
-    input_smem_cache->split(1, 8);
+    // [BIDx, tile_0, tile_1 / unroll_vect, unroll_vect]
+    input_smem_cache->split(1, warps_per_row);
+    // [BIDx, tile_0/warps_per_row, warps_per_row, tile_1 / unroll_vect,
+    // unroll_vect]
 
     std::cout << "input_smem_cache before swizzle: "
               << input_smem_cache->toString() << std::endl;
