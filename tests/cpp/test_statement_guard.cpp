@@ -51,4 +51,55 @@ TEST_F(StatementGuardTest, ExecuteAfterGuard) {
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
+// Regression test: special vals lazily created inside a StatementGuard scope
+// must not become dangling pointers after the guard rolls back.
+TEST_F(StatementGuardTest, LazySpecialValsNotDangling) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigTensor(1);
+  fusion->addInput(in);
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  // Force lazy creation of trueVal/falseVal inside a StatementGuard scope.
+  // This reproduces the bug where haveDifferentShardings calls simplifyExpr
+  // inside a StatementGuard, which can lazily create special vals that then
+  // become dangling pointers when the guard rolls back.
+  {
+    StatementGuard sg(fusion.get());
+    // Directly trigger lazy creation of trueVal and falseVal
+    fusion->trueVal();
+    fusion->falseVal();
+    fusion->oneVal();
+  }
+
+  // After the guard, the special vals should still be valid (re-created if the
+  // originals were destroyed by the guard's rollback).
+  Val* z = fusion->zeroVal();
+  Val* o = fusion->oneVal();
+  Val* t = fusion->trueVal();
+  Val* f = fusion->falseVal();
+  EXPECT_NE(z, nullptr);
+  EXPECT_NE(o, nullptr);
+  EXPECT_NE(t, nullptr);
+  EXPECT_NE(f, nullptr);
+  EXPECT_TRUE(z->isZeroInt());
+  EXPECT_TRUE(o->isOneInt());
+  EXPECT_TRUE(t->isTrue());
+  EXPECT_TRUE(f->isFalse());
+
+  // The fusion should still be executable
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({8}, at::device(at::kCUDA));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensors[0].as<at::Tensor>()},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
