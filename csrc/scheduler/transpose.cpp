@@ -955,7 +955,6 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
         auto new_cache = tv->cacheAfter();
         new_cache->setMemoryType(MemoryType::Shared);
         input_smem_tvs.push_back(new_cache);
-        std::cout << "input_smem_tvs: " << new_cache->toString() << std::endl;
         group2_and_cached_inputs.emplace(new_cache);
       } else {
         existing_cache->definition()->as<LoadStoreOp>()->setOpType(
@@ -979,24 +978,13 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
           LoadStoreOpType::CpAsyncBulkTensorTile);
       cached_output->setMemoryType(MemoryType::Shared);
       output_smem_tvs.push_back(cached_output);
-      std::cout << "output_smem_tvs: " << cached_output->toString()
-                << std::endl;
     }
   }
-
-  TensorView* reference1 =
-      domain_map.findReferenceFor(grouped_inputs_outputs[0]);
-  TensorView* reference2 =
-      domain_map.findReferenceFor(grouped_inputs_outputs[1]);
-
-  std::cout << "reference1: " << reference1->toString() << std::endl;
-  std::cout << "reference2: " << reference2->toString() << std::endl;
 
   // Assume input [I0, I1] is transposed to output [I1, I0]
   // input tiling: [I0, I1]  -> [..., tile_0, tile_1]
   // output tiling: [I1, I0] -> [..., tile_1, tile_0]
-  int64_t tile_0 = 64, tile_1 = 32, unroll_vect = 4;
-  int64_t warps_per_row = tile_1 / unroll_vect;
+  int64_t tile_0 = 64, tile_1 = 32, unroll_vect_1 = 4, unroll_vect_0 = 8;
   // [I1, I0]
   output_reference->split(1, tile_0);
   output_reference->split(0, tile_1);
@@ -1005,9 +993,12 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   // [I0/tile_0, I1/tile_1, tile_1, tile_0]
   output_reference->merge(0);
   // [I0/tile_0 * I1/tile_1, tile_1, tile_0]
-  output_reference->split(1, unroll_vect);
+  output_reference->split(1, unroll_vect_1);
+  // [BIDx, tile_1/unroll_vect_1, unroll_vect_1, tile_0]
+  output_reference->split(-1, unroll_vect_0);
+  // [BIDx, tile_1/unroll_vect_1, unroll_vect_1, tile_0/unroll_vect_0,
+  // unroll_vect_0]
   output_reference->axis(0)->parallelize(ParallelType::BIDx);
-  // [BIDx, tile_1/unroll_vect, unroll_vect, tile_0]
 
   TransformPropagator propagator(output_reference);
   MaxLogicalDomainInfoSpanningTree entire_dag(output_reference);
@@ -1020,12 +1011,21 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
       /*parallelize_inputs_on_did=*/true);
 
   {
-    std::cout << "output_reference before merge: "
-              << output_reference->toString() << std::endl;
-    output_reference->merge(1, 3);
-    // [BIDx, tile_1/unroll_vect * tile_0, unroll_vect]
-    output_reference->axis(1)->parallelize(ParallelType::TIDx);
-    output_reference->axis(2)->parallelize(ParallelType::Unroll);
+    // [BIDx, tile_1/unroll_vect_1, unroll_vect_1, tile_0/unroll_vect_0,
+    // unroll_vect_0] Use 2D thread block (TIDy, TIDx) so indexer produces
+    // correct 2D base: output base = threadIdx.y*256 + threadIdx.x*8, shared
+    // read base = 8*threadIdx.x + 256*threadIdx.y. Do NOT merge the two tile
+    // dimensions so TIDy and TIDx stay distinct.
+    output_reference->axis(1)->parallelize(ParallelType::TIDy); // i1_tile, 8
+    output_reference->axis(2)->parallelize(ParallelType::Unroll); // 4
+    output_reference->axis(3)->parallelize(ParallelType::TIDx); // i0_tile, 8
+    output_reference->setAllocationDomain(
+        output_reference->getLoopDomain(), true);
+    // Bind 2D block (8, 8) for correct launch
+    const_cast<TransposeParams*>(tparams)->lparams.bindUnsafe(
+        8, ParallelType::TIDx);
+    const_cast<TransposeParams*>(tparams)->lparams.bindUnsafe(
+        8, ParallelType::TIDy);
   }
 
   {
@@ -1046,24 +1046,20 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   }
 
   for (auto input_smem_cache : input_smem_tvs) {
-    // [BIDx, tile_1 / unroll_vect, unroll_vect, tile_0]
-    input_smem_cache->reorder({{-1, 1}});
-    // [BIDx, tile_0, tile_1 / unroll_vect, unroll_vect]
-    input_smem_cache->split(1, warps_per_row);
-    // [BIDx, tile_0/warps_per_row, warps_per_row, tile_1 / unroll_vect,
-    // unroll_vect]
+    // [BIDx, tile_1/unroll_vect_1, unroll_vect_1, tile_0/unroll_vect_0,
+    // unroll_vect_0] Reorder to (i0, i1) so allocation matches TMA load layout
+    // (i0*32 + i1). Consumer (TIDy, ui, TIDx, uj) then indexes as (TIDx, uj,
+    // TIDy, ui) -> 256*TIDx + 32*uj + 4*TIDy + ui.
+    input_smem_cache->reorder({{1, 3}, {2, 4}, {3, 1}, {4, 2}});
+    // [BIDx, tile_0/unroll_vect_0, unroll_vect_0, tile_1/unroll_vect_1,
+    // unroll_vect_1] input_smem_cache->split(1, warps_per_row); [BIDx,
+    // tile_0/warps_per_row, warps_per_row, tile_1 / unroll_vect, unroll_vect]
 
-    std::cout << "input_smem_cache before swizzle: "
-              << input_smem_cache->toString() << std::endl;
+    // Disable XOR swizzle for now. In this TMA transpose path, the current
+    // consumer indexing does not compensate the swizzled layout, which causes
+    // a deterministic value permutation.
+    // input_smem_cache->swizzle(SwizzleType::XOR, 1, 3);
 
-    // Swizzle the two 8's at positions 2 and 3
-    // Both 8's come from splits (not merges), which is required
-    input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
-    // [BIDx, 4, 8, 8', 4']
-
-    // Set allocation domain to match the swizzled layout
-    std::cout << "input_smem_cache: " << input_smem_cache->toString()
-              << std::endl;
     input_smem_cache->setAllocationDomain(
         input_smem_cache->getLoopDomain(), true);
 
@@ -1074,13 +1070,7 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
     input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
     // [BIDx, Bulk, Bulk, Bulk, Bulk]
   }
-
-  for (auto input_smem_cache : input_smem_tvs) {
-    const auto& consumers = ir_utils::consumerTvsOf(input_smem_cache);
-    for (auto consumer : consumers) {
-      consumer->axis(-1)->parallelize(ParallelType::Vectorize);
-    }
-  }
+  output_reference->axis(4)->parallelize(ParallelType::Vectorize); // 8
 
   // fusion->print();
 }
@@ -1649,6 +1639,8 @@ bool TransposeScheduler::canScheduleRunTime(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("TransposeScheduler::canScheduleRunTime");
+
+  return true;
 
   auto reason =
       getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);

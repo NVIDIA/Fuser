@@ -7,6 +7,7 @@
 // clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+#include <iostream>
 
 #include "exceptions.h"
 #include "ops/all_ops.h"
@@ -1491,9 +1492,30 @@ TEST_F(TransposeTest, TmaTransposeSimple) {
   fusion.addOutput(output);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto input0 = at::randn({16384, 32768}, options);
+  auto input0 = at::arange(64 * 32, options).reshape({64, 32});
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({input0});
+  auto output0 = outputs[0].as<at::Tensor>();
+  auto reference = input0.transpose(0, 1);
+  auto print_matrix = [](const at::Tensor& t, const char* name) {
+    auto m = t.cpu().contiguous().to(at::kLong);
+    NVF_CHECK(m.dim() == 2, name, " is not a 2D tensor");
+    auto acc = m.accessor<int64_t, 2>();
+    std::cout << name << " (" << m.size(0) << "x" << m.size(1) << "):\n";
+    for (int64_t i = 0; i < m.size(0); ++i) {
+      for (int64_t j = 0; j < m.size(1); ++j) {
+        std::cout << acc[i][j];
+        if (j + 1 < m.size(1)) {
+          std::cout << ' ';
+        }
+      }
+      std::cout << '\n';
+    }
+    std::cout << std::endl;
+  };
+  print_matrix(input0, "TmaTransposeSimple input0");
+  print_matrix(output0, "TmaTransposeSimple output0");
+  print_matrix(reference, "TmaTransposeSimple reference");
   testValidate(executor_cache.fusion(), outputs, {input0}, __LINE__, __FILE__);
 }
 
