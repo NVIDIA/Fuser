@@ -550,10 +550,8 @@ class NVF_API Fusion : public PolymorphicBase {
     return ir_container()->numExprs();
   }
 
-  // When include_shortcuts is true, count cached special vals (zeroVal, etc.)
-  // which live outside vals_up_ but inside vals_.
-  int64_t numVals(bool include_shortcuts = true) const noexcept {
-    return ir_container()->numVals(include_shortcuts);
+  int64_t numVals() const noexcept {
+    return ir_container()->numVals();
   }
 
   // Shortcut values (frequently used constants)
@@ -642,11 +640,11 @@ class NVF_API Fusion : public PolymorphicBase {
   inline static const std::string exact_mappings_key = "exact_mappings";
   std::unique_ptr<IrContainer> ir_container_;
 
-  std::unique_ptr<Val> zero_val_;
-  std::unique_ptr<Val> one_val_;
-  std::unique_ptr<Val> true_val_;
-  std::unique_ptr<Val> false_val_;
-  std::unique_ptr<NamedScalar> magic_zero_val_;
+  Val* zero_val_ = nullptr;
+  Val* one_val_ = nullptr;
+  Val* true_val_ = nullptr;
+  Val* false_val_ = nullptr;
+  NamedScalar* magic_zero_val_ = nullptr;
 
   std::unique_ptr<std::vector<Val*>> axioms_;
 

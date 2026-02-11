@@ -90,8 +90,6 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
-  // deterministic_vals can contain special values like one_val_, zero_val_, etc
-  // that are not registered in the container.
   for (auto val : from->deterministic_vals()) {
     if (from->vals().count(val) > 0) {
       to->vals_.insert(ir_cloner.clone(val));
