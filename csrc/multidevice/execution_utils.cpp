@@ -135,6 +135,10 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
   {
     const auto device_id = Communicator::getInstance().deviceId();
     at::Tensor md_index = mesh.multiDimensionalIndexOf(device_id);
+    if (!md_index.defined()) {
+      // If the device is not in the mesh, return the first slice.
+      md_index = at::zeros({mesh.rank()});
+    }
     int64_t axis = 0;
     for (auto [id, size] : id_to_size) {
       if (id->isParallelized()) {

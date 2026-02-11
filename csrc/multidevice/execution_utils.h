@@ -40,7 +40,8 @@ NVF_API at::Tensor shardTensor1D(
 // TODO: This function will eventually support multi-dimensional meshes.
 //
 // TODO: If deviceId is not part of the mesh this should return an empty
-// tensor. Currently, we don't support this, so for now it returns a slice.
+// tensor. Currently, we don't support this, so for now it returns the
+// first slice.
 NVF_API at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv);
 
 // Given a TensorView and the shape of a sharded tensor of which certain
