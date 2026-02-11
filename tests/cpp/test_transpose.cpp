@@ -1476,6 +1476,10 @@ TEST_F(TransposeTest, NoTransposeMaverick17B) {
       executor_cache.fusion(), outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
+// case             time,ms    GB/s       SOL%
+// nonTMA:          0.660      6505.929   82.06
+// TMA load & store:1.073      4003.142   50.49
+// TMA load only:   0.902      4758.967   60.03
 TEST_F(TransposeTest, TmaTransposeSimple) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());

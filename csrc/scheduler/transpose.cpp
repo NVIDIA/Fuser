@@ -946,12 +946,10 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
    */
   std::vector<TensorView*> input_smem_tvs;
   std::vector<TensorView*> output_smem_tvs;
-  TensorView* input_reference = nullptr;
   std::unordered_set<TensorView*> group2_and_cached_inputs(
       grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end());
   for (auto tv : grouped_inputs_outputs[1]) {
     if (tv->isFusionInput()) {
-      input_reference = tv;
       auto existing_cache = ir_utils::consumerTvsOf(tv)[0];
       if (ir_utils::consumerTvsOf(existing_cache).size() > 1) {
         auto new_cache = tv->cacheAfter();
@@ -971,19 +969,18 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
     }
   }
   // set cached outputs of group 2 to shared memory
+  bool use_tma_store = false;
   TensorView* output_reference = nullptr;
-  TensorView* output_reg_cache = nullptr;
   for (const auto& [cached_output, output_idx] : cached_outputs) {
     auto output = fusion->outputs()[output_idx]->as<TensorView>();
     output_reference = output;
-    if (true || group2_and_cached_inputs.count(output) > 0) {
+    if (use_tma_store && group2_and_cached_inputs.count(output) > 0) {
       output->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
       cached_output->setMemoryType(MemoryType::Shared);
       output_smem_tvs.push_back(cached_output);
       std::cout << "output_smem_tvs: " << cached_output->toString()
                 << std::endl;
-      output_reg_cache = cached_output->cacheBefore();
     }
   }
 
@@ -1004,58 +1001,48 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   output_reference->reorder({{-2, 0}});
   output_reference->merge(0);
   // [I0/tile_0 * I1/tile_1, tile_0, tile_1]
+  output_reference->split(1, unroll_vect);
   output_reference->axis(0)->parallelize(ParallelType::BIDx);
-  using Options =
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options;
-  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+
+  TransformPropagator propagator(output_reference);
+  MaxLogicalDomainInfoSpanningTree entire_dag(output_reference);
+  entire_dag.traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(
       output_reference,
-      -1,
-      {input_reference},
-      Options{}.propagateParallelType());
-  // For fusion output, we just use TMA to store the entire tile back to global
-  // memory. There is no need to further schedule the output tensor.
-  output_reference->axis(1)->parallelize(ParallelType::Bulk);
-  output_reference->axis(2)->parallelize(ParallelType::Bulk);
+      /*selected_tvs=*/{},
+      /*selected_parallel_types=*/{},
+      /*propagate_padding=*/true,
+      /*parallelize_inputs_on_did=*/true);
 
-  fusion->printMath();
-
-  for (auto output_smem_cache : output_smem_tvs) {
-    // Match the tutorial's structure exactly:
-    // [BIDx, 32', 32]
-    std::cout << "output_smem_cache: " << output_smem_cache->toString()
-              << std::endl;
-    output_smem_cache->setAllocationDomain(
-        output_smem_cache->getLoopDomain(), true);
+  {
     // Split tile_0 (32) by unroll_vect (4) -> [8', 4']
     // [BIDx, tile_0, tile_1] -> [BIDx, 8', 4', 32]
-    output_smem_cache->split(1, unroll_vect);
     // [BIDx, 8', 4', 32]
 
-    // IMPORTANT: First propagation happens BEFORE the merge.
-    // This gives input_smem_cache the [BIDx, 8', 4', 32] structure.
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        output_smem_cache, -1, {input_reference});
-
     // Merge 8' with 32 to get 256 TIDx threads
-    output_smem_cache->merge(1, 3);
+    output_reference->merge(1, 3);
     // [BIDx, 256, 4']
-    output_smem_cache->axis(1)->parallelize(ParallelType::TIDx);
-
-    // Second propagation only propagates parallel types, not transforms.
-    // input_smem_cache already has the [BIDx, 8', 4', 32] structure from above.
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        output_smem_cache,
-        -1,
-        {input_smem_tvs.at(0)},
-        Options{}.propagateParallelType());
-    output_smem_cache->axis(2)->parallelize(ParallelType::Unroll);
-    output_reg_cache->axis(2)->parallelize(ParallelType::Vectorize);
-
-    std::cout << "output_reg_cache: " << output_reg_cache->toString()
-              << std::endl;
-    output_reg_cache->setAllocationDomain(
-        output_reg_cache->getLoopDomain(), true);
+    output_reference->axis(1)->parallelize(ParallelType::TIDx);
+    output_reference->axis(2)->parallelize(ParallelType::Unroll);
   }
+
+  {
+    std::unordered_set<TensorView*> except_tvs;
+    except_tvs.insert(input_smem_tvs.begin(), input_smem_tvs.end());
+    auto all_tvs_except1 = ir_utils::allTvsExcept(fusion, except_tvs);
+    SetSelector selector({all_tvs_except1.begin(), all_tvs_except1.end()});
+    MaxLogicalDomainInfoSpanningTree entire_dag_except1(
+        output_reference, &selector);
+    TransformPropagator propagator(output_reference);
+    entire_dag_except1.traverse(&propagator);
+    scheduler_utils::parallelizeAllLike(
+        output_reference,
+        /*selected_tvs=*/{},
+        /*selected_parallel_types=*/{},
+        /*propagate_padding=*/true,
+        /*parallelize_inputs_on_did=*/true);
+  }
+
   for (auto input_smem_cache : input_smem_tvs) {
     // Schedule the memory format for 128 byte swizzle
     // After backward propagation, structure is:
@@ -1090,6 +1077,13 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
     input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
     input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
     // [BIDx, Bulk, Bulk, Bulk, Bulk]
+  }
+
+  for (auto input_smem_cache : input_smem_tvs) {
+    const auto& consumers = ir_utils::consumerTvsOf(input_smem_cache);
+    for (auto consumer : consumers) {
+      consumer->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
   }
 
   // fusion->print();
