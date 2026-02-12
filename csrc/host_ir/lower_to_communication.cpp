@@ -365,7 +365,7 @@ void lowerToCollectivePermute(
   Swizzle1D* swizzle = stream_id->definition()->as<Swizzle1D>();
   ParallelType pt = swizzle->parallelType();
 
-  const auto& [send_peer, recv_peer] =
+  const auto& [recv_peer, send_peer] =
       dispatchSwizzle1D(root, my_device_idx, pt, input_tv->getDeviceMesh());
   Team team = input_tv->getDeviceMesh().vector();
   comms.push_back(IrBuilder::create<CollectivePermute>(

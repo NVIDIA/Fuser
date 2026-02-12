@@ -842,6 +842,11 @@ c10::intrusive_ptr<c10d::Work> postCollectivePermute(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  if (my_device_index == send_peer_index &&
+      my_device_index == recv_peer_index) {
+    doLocalCopy(output_tensor, input_tensor);
+    return nullptr;
+  }
   backend->startCoalescing();
   std::vector<at::Tensor> send_tensors = {input_tensor};
   backend->send(
@@ -965,7 +970,8 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
   }
   NVF_CHECK(backend != nullptr);
 
-  if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
+  if (isDebugDumpEnabled(DebugDumpOption::Communication) &&
+      my_device_index == 0) {
     debug() << "Posting " << communication->toInlineString()
             << " with input_tensor " << input_tensor.sizes()
             << " and output_tensor " << output_tensor.sizes()
