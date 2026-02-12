@@ -295,12 +295,6 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   }
   auto* out = bcast->out()->as<TensorView>();
 
-  std::optional<Layout> out_layout =
-      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
-  if (!out_layout.has_value()) {
-    return;
-  }
-
   // Let the allocation domain follow the logical domain. When a normalization
   // kernel is segmented, prefer reduction + pointwise over reduction +
   // transpose. See SmemPersistentNotSupportedIn3DReduction.
