@@ -115,66 +115,6 @@ IrContainer::~IrContainer() {
   clear();
 }
 
-void IrContainer::removeExpr(Expr* expr) {
-  NVF_ERROR(
-      exprs_.find(expr) != exprs_.end(),
-      "Wanted to remove an expression but it doesn't exist in this container.");
-  auto expr_in_deque = std::find_if(
-      exprs_up_.begin(),
-      exprs_up_.end(),
-      [expr](std::unique_ptr<Expr>& expr_up) { return expr_up.get() == expr; });
-
-  NVF_ERROR(
-      expr_in_deque != exprs_up_.end(),
-      "Wanted to remove an expression but its unique ptr is missing.");
-
-  exprs_.erase(expr);
-  exprs_up_.erase(expr_in_deque);
-}
-
-//! Completely remove val from the fusion, break all dependencies associated
-//! with it
-void IrContainer::removeVal(Val* val) {
-  NVF_ERROR(
-      vals_.find(val) != vals_.end(),
-      "Wanted to remove a value but it doesn't exist in this container.");
-  auto val_in_deque = std::find_if(
-      vals_up_.begin(), vals_up_.end(), [val](std::unique_ptr<Val>& val_up) {
-        return val_up.get() == val;
-      });
-
-  NVF_ERROR(
-      val_in_deque != vals_up_.end(),
-      "Wanted to remove a value but its unique ptr is missing.");
-
-  vals_.erase(val);
-  vals_up_.erase(val_in_deque);
-}
-
-//! Register the Val with this container
-void IrContainer::registerVal(Val* val) {
-  if (inContainer(val)) {
-    return;
-  }
-
-  // Otherwise handle registration locally
-  vals_up_.emplace_back(val);
-  vals_.insert(val);
-  val->setName(IrContainerPasskey(), getValName(val->vtype()));
-}
-
-//! Register expr with this container.
-void IrContainer::registerExpr(Expr* expr) {
-  if (inContainer(expr)) {
-    return;
-  }
-
-  // Otherwise handle registration locally
-  exprs_up_.emplace_back(expr);
-  exprs_.insert(expr);
-  expr->setName(IrContainerPasskey(), getExprName());
-}
-
 void IrContainer::clear() noexcept {
   FUSER_PERF_SCOPE("IrContainer clear");
   vals_.clear();
