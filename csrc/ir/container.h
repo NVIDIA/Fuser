@@ -137,8 +137,26 @@ class IrContainer {
   bool hasMultipleFusions() const;
   const std::unordered_set<Fusion*>& sharingFusions() const;
 
+  NVF_API const std::unordered_set<Val*>& valsOwnedBy(
+      const Fusion* fusion) const;
+  const std::unordered_set<Expr*>& exprsOwnedBy(const Fusion* fusion) const;
+  void transferStatementOwnership(const Fusion* from, const Fusion* to);
+  void removeStatementsOwnedBy(const Fusion* fusion);
+
+  std::deque<Val*> deterministicValsOwnedBy(
+      const Fusion* fusion) const noexcept;
+  std::deque<Expr*> deterministicExprsOwnedBy(
+      const Fusion* fusion) const noexcept;
+  std::unordered_map<Val*, int64_t> deterministicValsMapOwnedBy(
+      const Fusion* fusion) const noexcept;
+  std::unordered_map<Expr*, int64_t> deterministicExprsMapOwnedBy(
+      const Fusion* fusion) const noexcept;
+
  private:
   std::unordered_set<Fusion*> sharing_fusions_;
+  std::unordered_map<const Fusion*, std::unordered_set<Val*>> per_fusion_vals_;
+  std::unordered_map<const Fusion*, std::unordered_set<Expr*>>
+      per_fusion_exprs_;
 };
 
 } // namespace nvfuser

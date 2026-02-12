@@ -113,7 +113,11 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
 
   // After swapping container contents, update Statement::ir_container_
   // pointers so each Statement points to the Fusion whose container now
-  // holds it.
+  // holds it. Also fix per-Fusion tracking keys since a's container had
+  // b's entries and vice versa.
+  a.ir_container()->transferStatementOwnership(&b, &a);
+  b.ir_container()->transferStatementOwnership(&a, &b);
+
   if (a.ir_container_) {
     for (auto val : a.vals()) {
       val->ir_container_ = &a;
@@ -294,10 +298,9 @@ void Fusion::clear() noexcept {
   // constructor of Trace, which could throw an exception.
   // FUSER_PERF_SCOPE("Fusion clear");
 
-  // Clear container contents instead of destroying it
-  // This preserves the container object so Statement pointers don't become
-  // dangling
-  ir_container()->clear();
+  if (ir_container_) {
+    ir_container_->removeStatementsOwnedBy(this);
+  }
 
   inputs_.clear();
   outputs_.clear();
@@ -307,8 +310,6 @@ void Fusion::clear() noexcept {
   managed_data_.clear();
   managed_named_data_.clear();
 
-  // Reset per-Fusion special value caches (the vals themselves are owned by
-  // ir_container and were already destroyed by ir_container()->clear() above).
   zero_val_ = nullptr;
   one_val_ = nullptr;
   true_val_ = nullptr;
@@ -353,6 +354,7 @@ void Fusion::removeExpr(Expr* expr) {
   NVF_ERROR(
       expr_in_deque != c->exprs_up_.end(),
       "Wanted to remove an expression but its unique ptr is missing.");
+  c->per_fusion_exprs_[this].erase(expr);
   c->exprs_.erase(expr);
   c->exprs_up_.erase(expr_in_deque);
 }
@@ -413,6 +415,7 @@ void Fusion::removeVal(Val* val) {
   NVF_ERROR(
       val_in_deque != c->vals_up_.end(),
       "Wanted to remove a value but its unique ptr is missing.");
+  c->per_fusion_vals_[this].erase(val);
   c->vals_.erase(val);
   c->vals_up_.erase(val_in_deque);
 
@@ -445,13 +448,11 @@ void Fusion::removeStatementsCreatedAfter(
     for (Val* in : e->inputs()) {
       in->removeUse(e);
     }
+    c->per_fusion_exprs_[this].erase(e);
     c->exprs_.erase(e);
     c->exprs_up_.pop_back();
   }
 
-  // Null out any special value caches that point to vals about to be destroyed.
-  // This prevents dangling pointers when special vals are lazily created inside
-  // a StatementGuard scope.
   while (std::ssize(c->vals_up_) > num_vals_before) {
     Val* v = c->vals_up_.back().get();
     if (v == zero_val_) {
@@ -465,6 +466,7 @@ void Fusion::removeStatementsCreatedAfter(
     } else if (v == magic_zero_val_) {
       magic_zero_val_ = nullptr;
     }
+    c->per_fusion_vals_[this].erase(v);
     c->vals_.erase(v);
     c->vals_up_.pop_back();
   }
@@ -931,6 +933,7 @@ void Fusion::registerVal(Val* val) {
   auto* c = ir_container();
   c->vals_up_.emplace_back(val);
   c->vals_.insert(val);
+  c->per_fusion_vals_[this].insert(val);
   val->setName(IrContainerPasskey(), c->getValName(val->vtype()));
 }
 
@@ -947,6 +950,7 @@ void Fusion::registerExpr(Expr* expr) {
   auto* c = ir_container();
   c->exprs_up_.emplace_back(expr);
   c->exprs_.insert(expr);
+  c->per_fusion_exprs_[this].insert(expr);
   expr->setName(IrContainerPasskey(), c->getExprName());
 
   for (Val* input : expr->inputs()) {
