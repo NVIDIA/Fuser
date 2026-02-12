@@ -121,6 +121,7 @@ class Val;
   f(MoeDispatch);                    \
   f(MoeCombine);                     \
   f(Swizzle);                        \
+  f(Swizzle1D);                      \
   f(Resize);                         \
   f(MatmulOp);                       \
   f(LinearOp);                       \
