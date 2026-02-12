@@ -753,7 +753,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   std::cout << "bits_in_flight_per_sm: " << bits_in_flight_per_sm << std::endl;
   std::cout << "required_bits_per_sm: " << required_bits_per_sm << std::endl;
   if (bits_in_flight_per_sm < required_bits_per_sm) {
-    tparams->tile_size2 *= 2;
+    tparams->tile_size2 *= 1;
   }
 
   auto max_unroll_factor = ceilDiv(
@@ -995,7 +995,7 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   // Assume input [I0, I1] is transposed to output [I1, I0]
   // input tiling: [I0, I1]  -> [..., tile_0, tile_1]
   // output tiling: [I1, I0] -> [..., tile_1, tile_0]
-  int64_t tile_0 = 64, tile_1 = 32, unroll_vect = 4;
+  int64_t tile_0 = 32, tile_1 = 32, unroll_vect = 4;
   int64_t warps_per_row = tile_1 / unroll_vect;
   // [I1, I0]
   output_reference->split(1, tile_0);
@@ -1088,7 +1088,7 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
 void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   FusionGuard fg(fusion);
 
-  if (std::getenv("USE_TMA") != nullptr) {
+  if (std::getenv("USE_TMA_NEW") != nullptr) {
     return scheduleTransposeTMA(fusion, tparams);
   }
   // Make sure we don't have global memory set on intermediate tensors from
