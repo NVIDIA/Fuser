@@ -179,14 +179,14 @@ namespace {
 //   Same eager compute structure as the NCCL baseline, but communication uses
 //   nvFuser's CUDA backend allgather primitives (post/wait with symmetric-memory
 //   handles from cuda_p2p.h) before eager matmul_out.
-// - stagedAllgatherComputeThreadLoad:
+// - gpuAllgatherFusedNaiveCompute:
 //   Single fused kernel with explicit internal stages:
 //   (1) stage full A-row from remote pointers with regular thread loads,
 //   (2) compute matmul for that row.
-// - stagedAllgatherComputeThreadLoadSynchronized:
+// - gpuSyncAllgatherFusedNaiveCompute:
 //   Same thread-load staged kernel as above, but with fused cross-rank ready/done
 //   semaphores so remote reads are safe even when producer shards are mutable.
-// - stagedAllgatherComputeMultimem:
+// - gpuAllgatherMultimemFusedNaiveCompute:
 //   Same fused-kernel staged structure, but stage-1 writes use multimem store
 //   instructions on a multicast pointer before compute.
 // - *CutlassCompute variants:
@@ -197,12 +197,12 @@ enum class DistributedMatmulImpl {
   naiveFusedKernelCutlassCompute,
   baselinePytorchEagerNccl,
   baselinePytorchEagerCuda,
-  stagedAllgatherComputeThreadLoad,
-  stagedAllgatherComputeThreadLoadCutlassCompute,
-  stagedAllgatherComputeThreadLoadSynchronized,
-  stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute,
-  stagedAllgatherComputeMultimemCutlassCompute,
-  stagedAllgatherComputeMultimem
+  gpuAllgatherFusedNaiveCompute,
+  gpuAllgatherTmaCompute,
+  gpuSyncAllgatherFusedNaiveCompute,
+  gpuSyncAllgatherTmaCompute,
+  gpuAllgatherMultimemTmaCompute,
+  gpuAllgatherMultimemFusedNaiveCompute
 };
 
 enum class TimeMeasurementMode { CudaEvents, CpuClock };
@@ -267,18 +267,18 @@ const char* implName(DistributedMatmulImpl impl) {
       return "baselinePytorchEagerNccl";
     case DistributedMatmulImpl::baselinePytorchEagerCuda:
       return "baselinePytorchEagerCuda";
-    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoad:
-      return "stagedAllgatherComputeThreadLoad";
-    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoadCutlassCompute:
-      return "stagedAllgatherComputeThreadLoadCutlassCompute";
-    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized:
-      return "stagedAllgatherComputeThreadLoadSynchronized";
-    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute:
-      return "stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute";
-    case DistributedMatmulImpl::stagedAllgatherComputeMultimemCutlassCompute:
-      return "stagedAllgatherComputeMultimemCutlassCompute";
-    case DistributedMatmulImpl::stagedAllgatherComputeMultimem:
-      return "stagedAllgatherComputeMultimem";
+    case DistributedMatmulImpl::gpuAllgatherFusedNaiveCompute:
+      return "gpuAllgatherFusedNaiveCompute";
+    case DistributedMatmulImpl::gpuAllgatherTmaCompute:
+      return "gpuAllgatherTmaCompute";
+    case DistributedMatmulImpl::gpuSyncAllgatherFusedNaiveCompute:
+      return "gpuSyncAllgatherFusedNaiveCompute";
+    case DistributedMatmulImpl::gpuSyncAllgatherTmaCompute:
+      return "gpuSyncAllgatherTmaCompute";
+    case DistributedMatmulImpl::gpuAllgatherMultimemTmaCompute:
+      return "gpuAllgatherMultimemTmaCompute";
+    case DistributedMatmulImpl::gpuAllgatherMultimemFusedNaiveCompute:
+      return "gpuAllgatherMultimemFusedNaiveCompute";
   }
   NVF_ERROR(false, "Unknown implementation enum value: ", static_cast<int>(impl));
 }
@@ -404,12 +404,12 @@ BenchmarkResources initBenchmarkResources(
         resources.cuda_allgather_communication, resources.a_allgathered_half_cuda);
   }
 
-  if (impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoad ||
+  if (impl == DistributedMatmulImpl::gpuAllgatherFusedNaiveCompute ||
       impl == DistributedMatmulImpl::naiveFusedKernelCutlassCompute ||
-      impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoadCutlassCompute ||
-      impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized ||
+      impl == DistributedMatmulImpl::gpuAllgatherTmaCompute ||
+      impl == DistributedMatmulImpl::gpuSyncAllgatherFusedNaiveCompute ||
       impl ==
-          DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute) {
+          DistributedMatmulImpl::gpuSyncAllgatherTmaCompute) {
     resources.a_gathered_threadload = at::empty(
         {m, k},
         at::TensorOptions()
@@ -418,9 +418,9 @@ BenchmarkResources initBenchmarkResources(
             .layout(at::kStrided));
   }
 
-  if (impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized ||
+  if (impl == DistributedMatmulImpl::gpuSyncAllgatherFusedNaiveCompute ||
       impl ==
-          DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute) {
+          DistributedMatmulImpl::gpuSyncAllgatherTmaCompute) {
     // Per-rank [writer_rank, row, vec4-int] semaphores for fused ready/done.
     resources.threadload_ready_semaphore = SymmetricTensor::allocate(
         {world_size, m, 4}, at::ScalarType::Int, communicator->device());
@@ -439,8 +439,8 @@ BenchmarkResources initBenchmarkResources(
         "fused_remote_matmul_threadload_done");
   }
 
-  if (impl == DistributedMatmulImpl::stagedAllgatherComputeMultimem ||
-      impl == DistributedMatmulImpl::stagedAllgatherComputeMultimemCutlassCompute) {
+  if (impl == DistributedMatmulImpl::gpuAllgatherMultimemFusedNaiveCompute ||
+      impl == DistributedMatmulImpl::gpuAllgatherMultimemTmaCompute) {
     resources.a_gathered_multimem = SymmetricTensor::allocate(
         {m, k}, at::ScalarType::Half, communicator->device());
     resources.a_gathered_multimem_sym =
@@ -613,7 +613,7 @@ double timeImplementationMs(
           config,
           communicator,
           stream);
-    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoad:
+    case DistributedMatmulImpl::gpuAllgatherFusedNaiveCompute:
       return timeSeparatedAllgatherMatmulThreadLoadMs(
           device_remote_ptrs,
           reinterpret_cast<const __half*>(b_full_half.data_ptr()),
@@ -628,7 +628,7 @@ double timeImplementationMs(
           config.warmup_iters,
           config.iters,
           stream);
-    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoadCutlassCompute:
+    case DistributedMatmulImpl::gpuAllgatherTmaCompute:
       return timeSeparatedAllgatherMatmulThreadLoadCutlassMs(
           device_remote_ptrs,
           a_gathered_threadload,
@@ -642,13 +642,13 @@ double timeImplementationMs(
           config.warmup_iters,
           config.iters,
           stream);
-    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized:
+    case DistributedMatmulImpl::gpuSyncAllgatherFusedNaiveCompute:
       NVF_CHECK(
           threadload_ready_semaphore_sym != nullptr &&
               threadload_done_semaphore_sym != nullptr &&
               threadload_ready_semaphore_remote_ptrs != nullptr &&
               threadload_done_semaphore_remote_ptrs != nullptr,
-          "stagedAllgatherComputeThreadLoadSynchronized requires semaphore resources.");
+          "gpuSyncAllgatherFusedNaiveCompute requires semaphore resources.");
       return timeSeparatedAllgatherMatmulThreadLoadSynchronizedMs(
           device_remote_ptrs,
           reinterpret_cast<const __half*>(b_full_half.data_ptr()),
@@ -671,13 +671,13 @@ double timeImplementationMs(
           config.warmup_iters,
           config.iters,
           stream);
-    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute:
+    case DistributedMatmulImpl::gpuSyncAllgatherTmaCompute:
       NVF_CHECK(
           threadload_ready_semaphore_sym != nullptr &&
               threadload_done_semaphore_sym != nullptr &&
               threadload_ready_semaphore_remote_ptrs != nullptr &&
               threadload_done_semaphore_remote_ptrs != nullptr,
-          "stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute "
+          "gpuSyncAllgatherTmaCompute "
           "requires semaphore resources.");
       return timeSeparatedAllgatherMatmulThreadLoadSynchronizedCutlassMs(
           device_remote_ptrs,
@@ -700,12 +700,12 @@ double timeImplementationMs(
           config.warmup_iters,
           config.iters,
           stream);
-    case DistributedMatmulImpl::stagedAllgatherComputeMultimemCutlassCompute:
+    case DistributedMatmulImpl::gpuAllgatherMultimemTmaCompute:
       NVF_CHECK(
           a_gathered_multimem_sym != nullptr &&
               stage_semaphore_multimem_sym != nullptr &&
               stage_semaphore_remote_ptrs != nullptr,
-          "stagedAllgatherComputeMultimemCutlassCompute requires staging and "
+          "gpuAllgatherMultimemTmaCompute requires staging and "
           "semaphore tensors.");
       return timeSeparatedAllgatherMatmulMultimemCutlassMs(
           device_remote_ptrs,
@@ -726,11 +726,11 @@ double timeImplementationMs(
           config.warmup_iters,
           config.iters,
           stream);
-    case DistributedMatmulImpl::stagedAllgatherComputeMultimem:
+    case DistributedMatmulImpl::gpuAllgatherMultimemFusedNaiveCompute:
       NVF_CHECK(
           a_gathered_multimem_sym != nullptr &&
               stage_semaphore_multimem_sym != nullptr,
-          "stagedAllgatherComputeMultimem requires staging and semaphore tensors.");
+          "gpuAllgatherMultimemFusedNaiveCompute requires staging and semaphore tensors.");
       return timeSeparatedAllgatherMatmulMultimemMs(
           device_remote_ptrs,
           reinterpret_cast<const __half*>(b_full_half.data_ptr()),
@@ -791,8 +791,8 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   const int64_t my_rank = communicator_->deviceId();
   const auto impl = GetParam();
 
-  if ((impl == DistributedMatmulImpl::stagedAllgatherComputeMultimem ||
-       impl == DistributedMatmulImpl::stagedAllgatherComputeMultimemCutlassCompute) &&
+  if ((impl == DistributedMatmulImpl::gpuAllgatherMultimemFusedNaiveCompute ||
+       impl == DistributedMatmulImpl::gpuAllgatherMultimemTmaCompute) &&
       !isMulticastSupported(my_rank)) {
     GTEST_SKIP() << "Multicast is not supported on this device.";
   }
@@ -856,9 +856,9 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   int32_t* const* device_stage_semaphore_remote_ptrs = nullptr;
   int32_t* const* device_threadload_ready_semaphore_remote_ptrs = nullptr;
   int32_t* const* device_threadload_done_semaphore_remote_ptrs = nullptr;
-  if (impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized ||
+  if (impl == DistributedMatmulImpl::gpuSyncAllgatherFusedNaiveCompute ||
       impl ==
-          DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute) {
+          DistributedMatmulImpl::gpuSyncAllgatherTmaCompute) {
     NVF_CHECK(
         resources.threadload_ready_semaphore_sym != nullptr &&
             resources.threadload_done_semaphore_sym != nullptr,
@@ -871,8 +871,8 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
             resources.threadload_done_semaphore_sym->devicePeerPointers());
   }
 
-  if (impl == DistributedMatmulImpl::stagedAllgatherComputeMultimem ||
-      impl == DistributedMatmulImpl::stagedAllgatherComputeMultimemCutlassCompute) {
+  if (impl == DistributedMatmulImpl::gpuAllgatherMultimemFusedNaiveCompute ||
+      impl == DistributedMatmulImpl::gpuAllgatherMultimemTmaCompute) {
     NVF_CHECK(
         resources.stage_semaphore_multimem_sym != nullptr,
         "Missing staged multimem semaphore resources.");
@@ -883,10 +883,10 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
 
   const bool needs_cutlass_compute = impl ==
           DistributedMatmulImpl::naiveFusedKernelCutlassCompute ||
-      impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoadCutlassCompute ||
+      impl == DistributedMatmulImpl::gpuAllgatherTmaCompute ||
       impl ==
-          DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute ||
-      impl == DistributedMatmulImpl::stagedAllgatherComputeMultimemCutlassCompute;
+          DistributedMatmulImpl::gpuSyncAllgatherTmaCompute ||
+      impl == DistributedMatmulImpl::gpuAllgatherMultimemTmaCompute;
   if (needs_cutlass_compute &&
       !canRunHopperCutlassCompute(
           a_gathered_threadload.defined() ? a_gathered_threadload : a_gathered_multimem,
@@ -964,12 +964,12 @@ INSTANTIATE_TEST_SUITE_P(
         DistributedMatmulImpl::naiveFusedKernelCutlassCompute,
         DistributedMatmulImpl::baselinePytorchEagerNccl,
         DistributedMatmulImpl::baselinePytorchEagerCuda,
-        DistributedMatmulImpl::stagedAllgatherComputeThreadLoad,
-        DistributedMatmulImpl::stagedAllgatherComputeThreadLoadCutlassCompute,
-        DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized,
-        DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronizedCutlassCompute,
-        DistributedMatmulImpl::stagedAllgatherComputeMultimemCutlassCompute,
-        DistributedMatmulImpl::stagedAllgatherComputeMultimem),
+        DistributedMatmulImpl::gpuAllgatherFusedNaiveCompute,
+        DistributedMatmulImpl::gpuAllgatherTmaCompute,
+        DistributedMatmulImpl::gpuSyncAllgatherFusedNaiveCompute,
+        DistributedMatmulImpl::gpuSyncAllgatherTmaCompute,
+        DistributedMatmulImpl::gpuAllgatherMultimemTmaCompute,
+        DistributedMatmulImpl::gpuAllgatherMultimemFusedNaiveCompute),
     [](const testing::TestParamInfo<DistributedMatmulImpl>& info) {
       return implName(info.param);
     });
