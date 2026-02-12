@@ -521,31 +521,29 @@ class NVF_API Fusion : public PolymorphicBase {
   }
 
   // Collections access (return values in insertion order)
-  const std::deque<Val*> deterministic_vals() const noexcept {
-    return ir_container()->deterministic_vals();
+  std::deque<Val*> deterministic_vals() const noexcept {
+    return ir_container()->deterministicValsOwnedBy(this);
   }
 
-  const std::deque<Expr*> deterministic_exprs() const noexcept {
-    return ir_container()->deterministic_exprs();
+  std::deque<Expr*> deterministic_exprs() const noexcept {
+    return ir_container()->deterministicExprsOwnedBy(this);
   }
 
-  const std::unordered_map<Val*, int64_t> deterministic_vals_map()
-      const noexcept {
-    return ir_container()->deterministic_vals_map();
+  std::unordered_map<Val*, int64_t> deterministic_vals_map() const noexcept {
+    return ir_container()->deterministicValsMapOwnedBy(this);
   }
 
-  const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
-      const noexcept {
-    return ir_container()->deterministic_exprs_map();
+  std::unordered_map<Expr*, int64_t> deterministic_exprs_map() const noexcept {
+    return ir_container()->deterministicExprsMapOwnedBy(this);
   }
 
   // Collections access (unordered sets)
   const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return ir_container()->unordered_exprs();
+    return ir_container()->exprsOwnedBy(this);
   }
 
   const std::unordered_set<Val*>& vals() const noexcept {
-    return ir_container()->vals();
+    return ir_container()->valsOwnedBy(this);
   }
 
   // Count queries
