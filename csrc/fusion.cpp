@@ -346,7 +346,18 @@ void Fusion::removeExpr(Expr* expr) {
     }
   }
 
-  ir_container()->removeExpr(expr);
+  auto* c = ir_container();
+  auto expr_in_deque = std::find_if(
+      c->exprs_up_.begin(),
+      c->exprs_up_.end(),
+      [expr](std::unique_ptr<Expr>& expr_up) {
+        return expr_up.get() == expr;
+      });
+  NVF_ERROR(
+      expr_in_deque != c->exprs_up_.end(),
+      "Wanted to remove an expression but its unique ptr is missing.");
+  c->exprs_.erase(expr);
+  c->exprs_up_.erase(expr_in_deque);
 }
 
 void Fusion::removeVal(Val* val) {
@@ -396,7 +407,17 @@ void Fusion::removeVal(Val* val) {
   for (auto e : exprs_to_remove) {
     removeExpr(e);
   }
-  ir_container()->removeVal(val);
+
+  auto* c = ir_container();
+  auto val_in_deque = std::find_if(
+      c->vals_up_.begin(),
+      c->vals_up_.end(),
+      [val](std::unique_ptr<Val>& val_up) { return val_up.get() == val; });
+  NVF_ERROR(
+      val_in_deque != c->vals_up_.end(),
+      "Wanted to remove a value but its unique ptr is missing.");
+  c->vals_.erase(val);
+  c->vals_up_.erase(val_in_deque);
 
   invalidateTvsAndUses();
 }
@@ -910,7 +931,10 @@ void Fusion::registerVal(Val* val) {
         val->fusion() == this, val, " was not found in the active fusion.");
   }
 
-  ir_container()->registerVal(val);
+  auto* c = ir_container();
+  c->vals_up_.emplace_back(val);
+  c->vals_.insert(val);
+  val->setName(IrContainerPasskey(), c->getValName(val->vtype()));
 }
 
 void Fusion::registerExpr(Expr* expr) {
@@ -923,7 +947,10 @@ void Fusion::registerExpr(Expr* expr) {
         expr->fusion() == this, expr, " was not found in the active fusion.");
   }
 
-  ir_container()->registerExpr(expr);
+  auto* c = ir_container();
+  c->exprs_up_.emplace_back(expr);
+  c->exprs_.insert(expr);
+  expr->setName(IrContainerPasskey(), c->getExprName());
 
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");
