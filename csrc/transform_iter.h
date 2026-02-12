@@ -118,6 +118,8 @@ class ReplayTransformations : public IterVisitor {
   //  if replaying swizzle is enabled.
   void handle(Swizzle* m) override;
 
+  void handle(Swizzle1D* swizzle1d) override;
+
   void handle(Resize* resize) override;
 
   size_t newCounter() {
