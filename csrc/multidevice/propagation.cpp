@@ -16,6 +16,7 @@
 #include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
+#include "ir/utils.h"
 #include "linked_hash_map.h"
 #include "logical_domain_map.h"
 #include "multidevice/utils.h"
@@ -124,15 +125,15 @@ void transformLoopDomain(
     // Similarly, if target [h] -> ref [a, h/a], returns `h` for ref_id `a`.
     if (!ref2target.contains(ref_id)) {
       // Find the root domain id.
-      std::unordered_set<IterDomain*> inputs =
-          getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
+      std::vector<IterDomain*> inputs =
+          ir_utils::getReachableIds(ref->getMaybeRootDomain(), {ref_id});
       NVF_ERROR_EQ(
           inputs.size(),
           1,
           "Expected one input for ",
           ref_id,
           " in the root domain.");
-      ref_id = *inputs.begin();
+      ref_id = inputs.front();
     }
 
     NVF_ERROR(
@@ -306,17 +307,16 @@ void shardLoopLike(
 
     // Get input of device_id in the root / logical domain
     // that will be present in ref2target mapping.
-    std::unordered_set<IterDomain*> inputs =
-        direction == PropagateDirection::kForward
-        ? getInputsInTargetDomain({ref_id}, ref->getLogicalDomain())
-        : getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
+    std::vector<IterDomain*> inputs = direction == PropagateDirection::kForward
+        ? ir_utils::getReachableIds(ref->getLogicalDomain(), {ref_id})
+        : ir_utils::getReachableIds(ref->getMaybeRootDomain(), {ref_id});
     NVF_ERROR_EQ(
         inputs.size(),
         1,
         "Expected one input for ",
         ref_id,
         " in the root / logical domain.");
-    IterDomain* target_id = getOrDefault(ref2target, *inputs.begin());
+    IterDomain* target_id = getOrDefault(ref2target, inputs.front());
     if (target_id == nullptr) {
       continue;
     }
