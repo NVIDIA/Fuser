@@ -116,8 +116,6 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   // update the parent backpointers in those containers to point to their new
   // owners
   if (a.ir_container_) {
-    // Also update all Statement ir_container_ pointers to point to new owner
-    a.ir_container()->parent_ = &a;
     for (auto val : a.vals()) {
       val->ir_container_ = &a;
     }
@@ -126,8 +124,6 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
     }
   }
   if (b.ir_container_) {
-    // Also update all Statement ir_container_ pointers to point to new owner
-    b.ir_container()->parent_ = &b;
     for (auto val : b.vals()) {
       val->ir_container_ = &b;
     }
@@ -161,7 +157,8 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
 
-  auto ir_cloner = IrContainer::copy(from->ir_container(), to->ir_container());
+  auto ir_cloner =
+      IrContainer::copy(from->ir_container(), to->ir_container(), to);
 
   // Remap cached special val pointers through the cloner
   if (from->zero_val_) {
@@ -254,8 +251,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 }
 
 // Default constructor
-Fusion::Fusion() : ir_container_(std::make_unique<IrContainer>()) {
-  ir_container_->parent_ = this;
+Fusion::Fusion() : ir_container_(std::make_shared<IrContainer>()) {
+  ir_container_->addFusion(this);
 }
 
 // Copy constructor
@@ -287,6 +284,9 @@ Fusion& Fusion::operator=(Fusion&& other) noexcept {
 
 Fusion::~Fusion() {
   clear();
+  if (ir_container_) {
+    ir_container_->removeFusion(this);
+  }
 }
 
 void Fusion::clear() noexcept {
@@ -350,9 +350,7 @@ void Fusion::removeExpr(Expr* expr) {
   auto expr_in_deque = std::find_if(
       c->exprs_up_.begin(),
       c->exprs_up_.end(),
-      [expr](std::unique_ptr<Expr>& expr_up) {
-        return expr_up.get() == expr;
-      });
+      [expr](std::unique_ptr<Expr>& expr_up) { return expr_up.get() == expr; });
   NVF_ERROR(
       expr_in_deque != c->exprs_up_.end(),
       "Wanted to remove an expression but its unique ptr is missing.");
