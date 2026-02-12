@@ -196,7 +196,9 @@ struct SubstituteInExpr : public OptOutMutator {
 
  private:
   explicit SubstituteInExpr(Val* reference, Val* substitute) {
-    mutations_[reference] = substitute;
+    if (reference != substitute) {
+      mutations_[reference] = substitute;
+    }
   }
 
  private:
