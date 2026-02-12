@@ -931,7 +931,7 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
 
   if(NOT MSVC)
     target_compile_options(${TEST_NAME} PRIVATE
-      -Wall -Wno-unused-function -Werror
+      $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wno-unused-function -Werror>
     )
   endif()
 endfunction()
@@ -1031,6 +1031,8 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_fused_remote_matmul.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_fused_remote_matmul_kernel.cu
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication_cuda.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
