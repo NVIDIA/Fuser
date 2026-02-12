@@ -15,6 +15,83 @@ namespace nvfuser {
 
 namespace {
 
+constexpr int64_t kSemaphoreVecWidth = 4;
+constexpr int64_t kMaxSemaphorePollIters = 1LL << 26;
+
+__device__ inline void publishEpochToAllRanks(
+    int32_t* const* remote_semaphore_ptrs,
+    int32_t* local_semaphore,
+    int64_t writer_rank,
+    int64_t row,
+    int64_t m,
+    int64_t world_size,
+    int32_t epoch) {
+  int32_t* my_row_local =
+      local_semaphore + (writer_rank * m + row) * kSemaphoreVecWidth;
+  for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+    my_row_local[vec_i] = epoch;
+  }
+  __threadfence_system();
+  for (int64_t peer = 0; peer < world_size; ++peer) {
+    int32_t* peer_row_remote =
+        remote_semaphore_ptrs[peer] + (writer_rank * m + row) * kSemaphoreVecWidth;
+    for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+      peer_row_remote[vec_i] = epoch;
+    }
+  }
+  __threadfence_system();
+}
+
+__device__ inline void waitForEpochFromAllRanks(
+    int32_t* local_semaphore,
+    int64_t row,
+    int64_t m,
+    int64_t world_size,
+    int32_t epoch) {
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    auto* rank_epoch_ptr = reinterpret_cast<unsigned int*>(
+        local_semaphore + (rank * m + row) * kSemaphoreVecWidth);
+    int64_t spins = 0;
+    while (atomicAdd(rank_epoch_ptr, 0U) < static_cast<unsigned int>(epoch)) {
+      ++spins;
+      if (spins > kMaxSemaphorePollIters) {
+        asm volatile("trap;");
+      }
+    }
+  }
+}
+
+template <typename LaunchFn>
+double timeKernelLaunchesMs(
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream,
+    LaunchFn&& launch_once) {
+  for (int64_t i = 0; i < warmup_iters; ++i) {
+    launch_once();
+  }
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
+
+  cudaEvent_t start = nullptr;
+  cudaEvent_t stop = nullptr;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
+  for (int64_t i = 0; i < iters; ++i) {
+    launch_once();
+  }
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
+
+  float total_ms = 0.0f;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&total_ms, start, stop));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
+  return static_cast<double>(total_ms) / static_cast<double>(iters);
+}
+
 // Naive fused kernel:
 // - A is row-sharded across ranks (axis M)
 // - each output row reads from its owner rank shard via remote pointers
@@ -99,48 +176,27 @@ __global__ void fusedStagedThreadLoadSynchronizedKernel(
     int64_t m_per_rank,
     const __half* b_full,
     __half* c_out) {
-  constexpr int64_t kSemaphoreVecWidth = 4;
-  constexpr int64_t kMaxPollIters = 1LL << 26;
   const int32_t launch_epoch = launch_epoch_base + 1;
   for (int64_t row = blockIdx.x; row < m; row += gridDim.x) {
     const int64_t owner_rank = row / m_per_rank;
     const int64_t local_row = row - owner_rank * m_per_rank;
     const __half* a_local = a_remote_shards[owner_rank];
-    int32_t* my_ready_row_local =
-        ready_semaphore_local + (my_rank * m + row) * kSemaphoreVecWidth;
-    int32_t* my_done_row_local =
-        done_semaphore_local + (my_rank * m + row) * kSemaphoreVecWidth;
-
     if (threadIdx.x == 0) {
       // Publish ready epoch to all ranks before remote reads.
-      for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
-        my_ready_row_local[vec_i] = launch_epoch;
-      }
-      __threadfence_system();
-      for (int64_t peer = 0; peer < world_size; ++peer) {
-        int32_t* peer_ready_row_remote = ready_semaphore_remote_ptrs[peer] +
-            (my_rank * m + row) * kSemaphoreVecWidth;
-        for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
-          peer_ready_row_remote[vec_i] = launch_epoch;
-        }
-      }
-      __threadfence_system();
+      publishEpochToAllRanks(
+          ready_semaphore_remote_ptrs,
+          ready_semaphore_local,
+          my_rank,
+          row,
+          m,
+          world_size,
+          launch_epoch);
     }
     __syncthreads();
 
     if (threadIdx.x == 0) {
-      for (int64_t rank = 0; rank < world_size; ++rank) {
-        auto* rank_ready_epoch_ptr = reinterpret_cast<unsigned int*>(
-            ready_semaphore_local + (rank * m + row) * kSemaphoreVecWidth);
-        int64_t spins = 0;
-        while (atomicAdd(rank_ready_epoch_ptr, 0U) <
-               static_cast<unsigned int>(launch_epoch)) {
-          ++spins;
-          if (spins > kMaxPollIters) {
-            asm volatile("trap;");
-          }
-        }
-      }
+      waitForEpochFromAllRanks(
+          ready_semaphore_local, row, m, world_size, launch_epoch);
     }
     __syncthreads();
 
@@ -163,34 +219,20 @@ __global__ void fusedStagedThreadLoadSynchronizedKernel(
 
     if (threadIdx.x == 0) {
       // Publish done epoch so producers can safely mutate next iteration.
-      for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
-        my_done_row_local[vec_i] = launch_epoch;
-      }
-      __threadfence_system();
-      for (int64_t peer = 0; peer < world_size; ++peer) {
-        int32_t* peer_done_row_remote = done_semaphore_remote_ptrs[peer] +
-            (my_rank * m + row) * kSemaphoreVecWidth;
-        for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
-          peer_done_row_remote[vec_i] = launch_epoch;
-        }
-      }
-      __threadfence_system();
+      publishEpochToAllRanks(
+          done_semaphore_remote_ptrs,
+          done_semaphore_local,
+          my_rank,
+          row,
+          m,
+          world_size,
+          launch_epoch);
     }
     __syncthreads();
 
     if (threadIdx.x == 0) {
-      for (int64_t rank = 0; rank < world_size; ++rank) {
-        auto* rank_done_epoch_ptr = reinterpret_cast<unsigned int*>(
-            done_semaphore_local + (rank * m + row) * kSemaphoreVecWidth);
-        int64_t spins = 0;
-        while (atomicAdd(rank_done_epoch_ptr, 0U) <
-               static_cast<unsigned int>(launch_epoch)) {
-          ++spins;
-          if (spins > kMaxPollIters) {
-            asm volatile("trap;");
-          }
-        }
-      }
+      waitForEpochFromAllRanks(
+          done_semaphore_local, row, m, world_size, launch_epoch);
     }
     __syncthreads();
   }
@@ -223,12 +265,11 @@ __global__ void fusedStagedMultimemKernel(
     for (int64_t vec_i = threadIdx.x; vec_i < n_vec; vec_i += blockDim.x) {
       const uint4 val =
           reinterpret_cast<const uint4*>(a_local + local_row * k)[vec_i];
-      char* dst_byte = reinterpret_cast<char*>(a_row_stage) + vec_i * 16;
 
 #if __CUDA_ARCH__ >= 900
       asm volatile("multimem.st.global.v4.f32 [%0], {%1, %2, %3, %4};"
                    :
-                   : "l"((void*)dst_byte),
+                   : "l"((void*)(a_row_stage + vec_i * vec_elems)),
                      "f"(__int_as_float(static_cast<int>(val.x))),
                      "f"(__int_as_float(static_cast<int>(val.y))),
                      "f"(__int_as_float(static_cast<int>(val.z))),
@@ -250,43 +291,25 @@ __global__ void fusedStagedMultimemKernel(
     // Cross-device barrier between stage-1 stores and stage-2 reads.
     // Each rank publishes one epoch for (my_rank,row), then waits until
     // all writer ranks have published the same epoch for that row.
-    constexpr int64_t kSemaphoreVecWidth = 4;
-    constexpr int64_t kMaxPollIters = 1LL << 26;
     const int32_t launch_epoch = launch_epoch_base + 1;
-    int32_t* my_row_local = stage_semaphore_local +
-        (my_rank * m + row) * kSemaphoreVecWidth;
 
     if (threadIdx.x == 0) {
       // Publish local completion to all peers' semaphore tensors.
-      for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
-        my_row_local[vec_i] = launch_epoch;
-      }
-      __threadfence_system();
-      for (int64_t peer = 0; peer < world_size; ++peer) {
-        int32_t* peer_row_remote = stage_semaphore_remote_ptrs[peer] +
-            (my_rank * m + row) * kSemaphoreVecWidth;
-        for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
-          peer_row_remote[vec_i] = launch_epoch;
-        }
-      }
-      __threadfence_system();
+      publishEpochToAllRanks(
+          stage_semaphore_remote_ptrs,
+          stage_semaphore_local,
+          my_rank,
+          row,
+          m,
+          world_size,
+          launch_epoch);
     }
     __syncthreads();
 
     if (threadIdx.x == 0) {
       // Wait until every writer rank has published this row's epoch.
-      for (int64_t rank = 0; rank < world_size; ++rank) {
-        auto* rank_epoch_ptr = reinterpret_cast<unsigned int*>(
-            stage_semaphore_local + (rank * m + row) * kSemaphoreVecWidth);
-        int64_t spins = 0;
-        while (atomicAdd(rank_epoch_ptr, 0U) <
-               static_cast<unsigned int>(launch_epoch)) {
-          ++spins;
-          if (spins > kMaxPollIters) {
-            asm volatile("trap;");
-          }
-        }
-      }
+      waitForEpochFromAllRanks(
+          stage_semaphore_local, row, m, world_size, launch_epoch);
     }
     __syncthreads();
 #else
@@ -337,31 +360,7 @@ double timeFusedRemoteMatmulMs(
     fusedRemoteMatmulKernel<<<grid, block, 0, stream>>>(
         a_remote_shards, b_full, c_out, m, n, k, m_per_rank);
   };
-
-  for (int64_t i = 0; i < warmup_iters; ++i) {
-    launch_once();
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
-
-  cudaEvent_t start = nullptr;
-  cudaEvent_t stop = nullptr;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
-
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
-  for (int64_t i = 0; i < iters; ++i) {
-    launch_once();
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
-
-  float total_ms = 0.0f;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&total_ms, start, stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
-  return static_cast<double>(total_ms) / static_cast<double>(iters);
+  return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
 double timeSeparatedAllgatherMatmulThreadLoadMs(
@@ -385,30 +384,7 @@ double timeSeparatedAllgatherMatmulThreadLoadMs(
     fusedStagedThreadLoadKernel<<<grid, block, 0, stream>>>(
         a_remote_shards, a_gathered, m, n, k, m_per_rank, b_full, c_out);
   };
-
-  for (int64_t i = 0; i < warmup_iters; ++i) {
-    launch_once();
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
-
-  cudaEvent_t start = nullptr;
-  cudaEvent_t stop = nullptr;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
-  for (int64_t i = 0; i < iters; ++i) {
-    launch_once();
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
-
-  float total_ms = 0.0f;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&total_ms, start, stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
-  return static_cast<double>(total_ms) / static_cast<double>(iters);
+  return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
 double timeSeparatedAllgatherMatmulThreadLoadSynchronizedMs(
@@ -457,30 +433,7 @@ double timeSeparatedAllgatherMatmulThreadLoadSynchronizedMs(
         c_out);
     ++launch_epoch_base;
   };
-
-  for (int64_t i = 0; i < warmup_iters; ++i) {
-    launch_once();
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
-
-  cudaEvent_t start = nullptr;
-  cudaEvent_t stop = nullptr;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
-  for (int64_t i = 0; i < iters; ++i) {
-    launch_once();
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
-
-  float total_ms = 0.0f;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&total_ms, start, stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
-  return static_cast<double>(total_ms) / static_cast<double>(iters);
+  return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
 double timeSeparatedAllgatherMatmulMultimemMs(
@@ -525,30 +478,7 @@ double timeSeparatedAllgatherMatmulMultimemMs(
         c_out);
     ++launch_epoch_base;
   };
-
-  for (int64_t i = 0; i < warmup_iters; ++i) {
-    launch_once();
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
-
-  cudaEvent_t start = nullptr;
-  cudaEvent_t stop = nullptr;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
-  for (int64_t i = 0; i < iters; ++i) {
-    launch_once();
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
-
-  float total_ms = 0.0f;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&total_ms, start, stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
-  return static_cast<double>(total_ms) / static_cast<double>(iters);
+  return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
 } // namespace nvfuser
