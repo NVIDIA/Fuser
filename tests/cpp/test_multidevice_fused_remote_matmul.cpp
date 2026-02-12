@@ -12,6 +12,8 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 
+#include <chrono>
+
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "ir/builder.h"
@@ -45,6 +47,15 @@ enum class RemoteMatmulImpl {
   baselinePytorchEagerCuda
 };
 
+enum class TimeMeasurementMode { CudaEvents, CpuClock };
+
+struct BenchmarkConfig {
+  int64_t warmup_iters;
+  int64_t iters;
+  TimeMeasurementMode time_mode;
+  bool barrier_at_each_iteration;
+};
+
 const char* implName(RemoteMatmulImpl impl) {
   switch (impl) {
     case RemoteMatmulImpl::naiveFusedKernel:
@@ -57,44 +68,78 @@ const char* implName(RemoteMatmulImpl impl) {
   NVF_ERROR(false, "Unknown implementation enum value: ", static_cast<int>(impl));
 }
 
+template <typename Fn>
+double benchmarkLoopMs(
+    const BenchmarkConfig& config,
+    Communicator* communicator,
+    cudaStream_t stream,
+    Fn&& run_once) {
+  for (int64_t i = 0; i < config.warmup_iters; ++i) {
+    if (config.barrier_at_each_iteration) {
+      communicator->barrier();
+    }
+    run_once();
+  }
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
+
+  if (config.time_mode == TimeMeasurementMode::CudaEvents) {
+    float total_ms = 0.0f;
+    for (int64_t i = 0; i < config.iters; ++i) {
+      if (config.barrier_at_each_iteration) {
+        communicator->barrier();
+      }
+      cudaEvent_t start = nullptr;
+      cudaEvent_t stop = nullptr;
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
+      run_once();
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
+      float iter_ms = 0.0f;
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&iter_ms, start, stop));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
+      total_ms += iter_ms;
+    }
+    return static_cast<double>(total_ms) / static_cast<double>(config.iters);
+  }
+
+  double total_ms = 0.0;
+  for (int64_t i = 0; i < config.iters; ++i) {
+    if (config.barrier_at_each_iteration) {
+      communicator->barrier();
+    }
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
+    auto start = std::chrono::high_resolution_clock::now();
+    run_once();
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
+    auto stop = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> elapsed = stop - start;
+    total_ms += elapsed.count();
+  }
+  return total_ms / static_cast<double>(config.iters);
+}
+
 double timeBaselinePytorchEagerMs(
     c10d::Backend* backend,
     at::Tensor& a_local_half,
     const at::Tensor& b_full_half,
     at::Tensor& c_out_half,
-    int64_t warmup_iters,
-    int64_t iters,
+    const BenchmarkConfig& config,
+    Communicator* communicator,
     cudaStream_t stream) {
   at::Tensor a_allgathered_half = at::empty(
       {a_local_half.size(0) * backend->getSize(), a_local_half.size(1)},
       a_local_half.options());
-
-  for (int64_t i = 0; i < warmup_iters; ++i) {
+  auto run_once = [&]() {
     backend->_allgather_base(a_allgathered_half, a_local_half)->wait();
     at::matmul_out(c_out_half, a_allgathered_half, b_full_half);
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
-
-  cudaEvent_t start = nullptr;
-  cudaEvent_t stop = nullptr;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
-
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
-  for (int64_t i = 0; i < iters; ++i) {
-    backend->_allgather_base(a_allgathered_half, a_local_half)->wait();
-    at::matmul_out(c_out_half, a_allgathered_half, b_full_half);
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
-
-  float total_ms = 0.0f;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&total_ms, start, stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
-  return static_cast<double>(total_ms) / static_cast<double>(iters);
+  };
+  return benchmarkLoopMs(config, communicator, stream, run_once);
 }
 
 double timeBaselinePytorchEagerCudaMs(
@@ -104,10 +149,10 @@ double timeBaselinePytorchEagerCudaMs(
     at::Tensor& a_allgathered_half,
     const at::Tensor& b_full_half,
     at::Tensor& c_out_half,
-    int64_t warmup_iters,
-    int64_t iters,
+    const BenchmarkConfig& config,
+    Communicator* communicator,
     cudaStream_t stream) {
-  for (int64_t i = 0; i < warmup_iters; ++i) {
+  auto run_once = [&]() {
     postWithCudaBackend(
         communication,
         a_local_half,
@@ -120,43 +165,14 @@ double timeBaselinePytorchEagerCudaMs(
         (CUstream)stream,
         /*root=*/-1);
     at::matmul_out(c_out_half, a_allgathered_half, b_full_half);
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
-
-  cudaEvent_t start = nullptr;
-  cudaEvent_t stop = nullptr;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
-
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
-  for (int64_t i = 0; i < iters; ++i) {
-    postWithCudaBackend(
-        communication,
-        a_local_half,
-        allgather_handle,
-        (CUstream)stream,
-        /*root=*/-1);
-    waitWithCudaBackend(
-        communication,
-        allgather_handle,
-        (CUstream)stream,
-        /*root=*/-1);
-    at::matmul_out(c_out_half, a_allgathered_half, b_full_half);
-  }
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
-
-  float total_ms = 0.0f;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&total_ms, start, stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
-  return static_cast<double>(total_ms) / static_cast<double>(iters);
+  };
+  return benchmarkLoopMs(config, communicator, stream, run_once);
 }
 
 double timeImplementationMs(
     RemoteMatmulImpl impl,
+    const BenchmarkConfig& config,
+    Communicator* communicator,
     c10d::Backend* nccl_backend,
     Communication* cuda_allgather_communication,
     SymMemForAllgather* cuda_allgather_handle,
@@ -170,23 +186,25 @@ double timeImplementationMs(
     int64_t n,
     int64_t k,
     int64_t m_per_rank,
-    int64_t warmup_iters,
-    int64_t iters,
     cudaStream_t stream) {
   switch (impl) {
-    case RemoteMatmulImpl::naiveFusedKernel:
-      return timeFusedRemoteMatmulMs(
-          device_remote_ptrs,
-          reinterpret_cast<const __half*>(b_full_half.data_ptr()),
-          reinterpret_cast<__half*>(c_out_half.data_ptr()),
-          world_size,
-          m,
-          n,
-          k,
-          m_per_rank,
-          warmup_iters,
-          iters,
-          stream);
+    case RemoteMatmulImpl::naiveFusedKernel: {
+      auto run_once = [&]() {
+        timeFusedRemoteMatmulMs(
+            device_remote_ptrs,
+            reinterpret_cast<const __half*>(b_full_half.data_ptr()),
+            reinterpret_cast<__half*>(c_out_half.data_ptr()),
+            world_size,
+            m,
+            n,
+            k,
+            m_per_rank,
+            /*warmup_iters=*/0,
+            /*iters=*/1,
+            stream);
+      };
+      return benchmarkLoopMs(config, communicator, stream, run_once);
+    }
     case RemoteMatmulImpl::baselinePytorchEagerNccl:
       NVF_CHECK(
           nccl_backend != nullptr,
@@ -196,8 +214,8 @@ double timeImplementationMs(
           a_local_half,
           b_full_half,
           c_out_half,
-          warmup_iters,
-          iters,
+          config,
+          communicator,
           stream);
     case RemoteMatmulImpl::baselinePytorchEagerCuda:
       NVF_CHECK(
@@ -210,8 +228,8 @@ double timeImplementationMs(
           a_allgathered_half_cuda,
           b_full_half,
           c_out_half,
-          warmup_iters,
-          iters,
+          config,
+          communicator,
           stream);
   }
   NVF_ERROR(false, "Unsupported implementation enum: ", static_cast<int>(impl));
@@ -220,7 +238,19 @@ double timeImplementationMs(
 } // namespace
 
 class FusedRemoteMatmulTest : public MultiDeviceTest,
-                              public testing::WithParamInterface<RemoteMatmulImpl> {};
+                              public testing::WithParamInterface<RemoteMatmulImpl> {
+ protected:
+  static constexpr BenchmarkConfig kBenchmarkConfig = {
+      /*warmup_iters=*/8,
+      /*iters=*/30,
+      /*time_mode=*/TimeMeasurementMode::CpuClock,
+      /*barrier_at_each_iteration=*/false};
+  static constexpr BenchmarkConfig kCorrectnessConfig = {
+      /*warmup_iters=*/3,
+      /*iters=*/1,
+      /*time_mode=*/TimeMeasurementMode::CpuClock,
+      /*barrier_at_each_iteration=*/false};
+};
 
 TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   if (!communicator_->is_available()) {
@@ -324,6 +354,8 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   // Correctness check.
   (void)timeImplementationMs(
       impl,
+      kCorrectnessConfig,
+      communicator_,
       nccl_backend,
       cuda_allgather_communication,
       cuda_allgather_handle.get(),
@@ -337,8 +369,6 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       n,
       k,
       m_per_rank,
-      /*warmup_iters=*/3,
-      /*iters=*/1,
       stream);
 
   at::Tensor c_ref_cpu = at::matmul(a_full_cpu, b_full_cpu);
@@ -347,10 +377,10 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       << "Fused remote-pointer matmul output mismatch.";
 
   communicator_->barrier();
-  constexpr int64_t warmup_iters = 8;
-  constexpr int64_t iters = 30;
-  const double ms_per_iter = timeImplementationMs(
+  const double local_ms_per_iter = timeImplementationMs(
       impl,
+      kBenchmarkConfig,
+      communicator_,
       nccl_backend,
       cuda_allgather_communication,
       cuda_allgather_handle.get(),
@@ -364,18 +394,23 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       n,
       k,
       m_per_rank,
-      warmup_iters,
-      iters,
       stream);
   communicator_->barrier();
 
+  at::Tensor max_time_tensor = at::tensor(
+      {static_cast<float>(local_ms_per_iter)},
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
+  std::vector<at::Tensor> time_tensors = {max_time_tensor};
+  communicator_->getWorld()->allreduce(time_tensors, {c10d::ReduceOp::MAX})->wait();
+  const double global_ms_per_iter = static_cast<double>(max_time_tensor.item<float>());
+
   const double flops = 2.0 * static_cast<double>(m) * static_cast<double>(n) *
       static_cast<double>(k);
-  const double tflops = flops / (ms_per_iter * 1.0e9);
+  const double tflops = flops / (global_ms_per_iter * 1.0e9);
   if (my_rank == 0) {
     std::cout << "[perf] fused_remote_matmul impl=" << implName(impl)
               << " M=" << m << " N=" << n << " K=" << k
-              << " world_size=" << world_size << " : " << ms_per_iter
+              << " world_size=" << world_size << " : " << global_ms_per_iter
               << " ms/iter, " << tflops << " TFLOP/s" << std::endl;
   }
 
