@@ -141,7 +141,15 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
         auto mesh_size = mesh.size(id->getParallelType());
         NVF_ERROR_EQ(size, mesh_size);
         auto mesh_axis = mesh.parallelTypeToAxis(id->getParallelType());
-        auto index = md_index[mesh_axis].item<int64_t>();
+        auto index = [&]() -> int64_t {
+          if (!md_index.defined()) {
+            // Similar to shardTensor1D, returning slice 0 when device is not
+            // in the mesh. The correct behavior is probably to return an
+            // undefined tensor or a size-0 tensor.
+            return 0;
+          }
+          return md_index[mesh_axis].item<int64_t>();
+        }();
         tensor = tensor.slice(axis, index, index + 1);
       }
       axis++;
@@ -169,7 +177,10 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
     }
   }
 
-  return tensor;
+  // Make sure the returned tensor is at least as contiguous as the original
+  // tensor.  This is likely an overkill but probably OK for now because all
+  // multi-GPU tests create contiguous test tensors.
+  return tensor.contiguous();
 }
 
 std::vector<int64_t> unshardedSizes(
