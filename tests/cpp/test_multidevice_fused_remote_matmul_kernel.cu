@@ -42,6 +42,51 @@ __device__ inline void publishEpochToAllRanks(
   __threadfence_system();
 }
 
+__device__ inline void publishEpochToRank(
+    int32_t* remote_semaphore_for_target_rank,
+    int64_t writer_rank,
+    int64_t row,
+    int64_t m,
+    int32_t epoch) {
+  int32_t* row_remote =
+      remote_semaphore_for_target_rank + (writer_rank * m + row) * kSemaphoreVecWidth;
+  for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+    row_remote[vec_i] = epoch;
+  }
+  __threadfence_system();
+}
+
+__device__ inline void setLocalEpoch(
+    int32_t* local_semaphore,
+    int64_t writer_rank,
+    int64_t row,
+    int64_t m,
+    int32_t epoch) {
+  int32_t* row_local =
+      local_semaphore + (writer_rank * m + row) * kSemaphoreVecWidth;
+  for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+    row_local[vec_i] = epoch;
+  }
+  __threadfence_system();
+}
+
+__device__ inline void waitForEpochFromRank(
+    int32_t* local_semaphore,
+    int64_t row,
+    int64_t m,
+    int64_t writer_rank,
+    int32_t epoch) {
+  auto* rank_epoch_ptr = reinterpret_cast<unsigned int*>(
+      local_semaphore + (writer_rank * m + row) * kSemaphoreVecWidth);
+  int64_t spins = 0;
+  while (atomicAdd(rank_epoch_ptr, 0U) < static_cast<unsigned int>(epoch)) {
+    ++spins;
+    if (spins > kMaxSemaphorePollIters) {
+      asm volatile("trap;");
+    }
+  }
+}
+
 __device__ inline void waitForEpochFromAllRanks(
     int32_t* local_semaphore,
     int64_t row,
@@ -182,21 +227,23 @@ __global__ void fusedStagedThreadLoadSynchronizedKernel(
     const int64_t local_row = row - owner_rank * m_per_rank;
     const __half* a_local = a_remote_shards[owner_rank];
     if (threadIdx.x == 0) {
-      // Publish ready epoch to all ranks before remote reads.
-      publishEpochToAllRanks(
-          ready_semaphore_remote_ptrs,
-          ready_semaphore_local,
-          my_rank,
-          row,
-          m,
-          world_size,
-          launch_epoch);
+      // Owner publishes "ready"; non-owners wait only on owner readiness.
+      if (my_rank == owner_rank) {
+        publishEpochToAllRanks(
+            ready_semaphore_remote_ptrs,
+            ready_semaphore_local,
+            my_rank,
+            row,
+            m,
+            world_size,
+            launch_epoch);
+      }
     }
     __syncthreads();
 
-    if (threadIdx.x == 0) {
-      waitForEpochFromAllRanks(
-          ready_semaphore_local, row, m, world_size, launch_epoch);
+    if (threadIdx.x == 0 && my_rank != owner_rank) {
+      waitForEpochFromRank(
+          ready_semaphore_local, row, m, owner_rank, launch_epoch);
     }
     __syncthreads();
 
@@ -218,19 +265,21 @@ __global__ void fusedStagedThreadLoadSynchronizedKernel(
     __syncthreads();
 
     if (threadIdx.x == 0) {
-      // Publish done epoch so producers can safely mutate next iteration.
-      publishEpochToAllRanks(
-          done_semaphore_remote_ptrs,
-          done_semaphore_local,
-          my_rank,
-          row,
-          m,
-          world_size,
-          launch_epoch);
+      // Readers ack completion only to owner; owner waits on all readers.
+      if (my_rank == owner_rank) {
+        setLocalEpoch(done_semaphore_local, my_rank, row, m, launch_epoch);
+      } else {
+        publishEpochToRank(
+            done_semaphore_remote_ptrs[owner_rank],
+            my_rank,
+            row,
+            m,
+            launch_epoch);
+      }
     }
     __syncthreads();
 
-    if (threadIdx.x == 0) {
+    if (threadIdx.x == 0 && my_rank == owner_rank) {
       waitForEpochFromAllRanks(
           done_semaphore_local, row, m, world_size, launch_epoch);
     }
@@ -259,31 +308,32 @@ __global__ void fusedStagedMultimemKernel(
     const __half* a_local = a_remote_shards[owner_rank];
     __half* a_row_stage = a_gathered_multicast + row * k;
 
-    // Stage 1: gather row into multicast staging buffer via 16-byte vectors.
+    // Owner materializes the multicast row; non-owners wait on owner readiness.
     constexpr int64_t vec_elems = 8; // 8 * half = 16 bytes
     const int64_t n_vec = k / vec_elems;
-    for (int64_t vec_i = threadIdx.x; vec_i < n_vec; vec_i += blockDim.x) {
-      const uint4 val =
-          reinterpret_cast<const uint4*>(a_local + local_row * k)[vec_i];
-
+    if (my_rank == owner_rank) {
+      for (int64_t vec_i = threadIdx.x; vec_i < n_vec; vec_i += blockDim.x) {
+        const uint4 val =
+            reinterpret_cast<const uint4*>(a_local + local_row * k)[vec_i];
 #if __CUDA_ARCH__ >= 900
-      asm volatile("multimem.st.global.v4.f32 [%0], {%1, %2, %3, %4};"
-                   :
-                   : "l"((void*)(a_row_stage + vec_i * vec_elems)),
-                     "f"(__int_as_float(static_cast<int>(val.x))),
-                     "f"(__int_as_float(static_cast<int>(val.y))),
-                     "f"(__int_as_float(static_cast<int>(val.z))),
-                     "f"(__int_as_float(static_cast<int>(val.w)))
-                   : "memory");
+        asm volatile("multimem.st.global.v4.f32 [%0], {%1, %2, %3, %4};"
+                     :
+                     : "l"((void*)(a_row_stage + vec_i * vec_elems)),
+                       "f"(__int_as_float(static_cast<int>(val.x))),
+                       "f"(__int_as_float(static_cast<int>(val.y))),
+                       "f"(__int_as_float(static_cast<int>(val.z))),
+                       "f"(__int_as_float(static_cast<int>(val.w)))
+                     : "memory");
 #else
-      (void)val;
-      // Multimem path must never run on non-Hopper architectures.
-      asm volatile("trap;");
+        (void)val;
+        // Multimem path must never run on non-Hopper architectures.
+        asm volatile("trap;");
 #endif
-    }
-    for (int64_t kk = n_vec * vec_elems + threadIdx.x; kk < k;
-         kk += blockDim.x) {
-      a_row_stage[kk] = a_local[local_row * k + kk];
+      }
+      for (int64_t kk = n_vec * vec_elems + threadIdx.x; kk < k;
+           kk += blockDim.x) {
+        a_row_stage[kk] = a_local[local_row * k + kk];
+      }
     }
     __syncthreads();
 
@@ -294,22 +344,23 @@ __global__ void fusedStagedMultimemKernel(
     const int32_t launch_epoch = launch_epoch_base + 1;
 
     if (threadIdx.x == 0) {
-      // Publish local completion to all peers' semaphore tensors.
-      publishEpochToAllRanks(
-          stage_semaphore_remote_ptrs,
-          stage_semaphore_local,
-          my_rank,
-          row,
-          m,
-          world_size,
-          launch_epoch);
+      if (my_rank == owner_rank) {
+        publishEpochToAllRanks(
+            stage_semaphore_remote_ptrs,
+            stage_semaphore_local,
+            my_rank,
+            row,
+            m,
+            world_size,
+            launch_epoch);
+      }
     }
     __syncthreads();
 
-    if (threadIdx.x == 0) {
-      // Wait until every writer rank has published this row's epoch.
-      waitForEpochFromAllRanks(
-          stage_semaphore_local, row, m, world_size, launch_epoch);
+    if (threadIdx.x == 0 && my_rank != owner_rank) {
+      // Non-owners only need owner readiness before reading multicast row.
+      waitForEpochFromRank(
+          stage_semaphore_local, row, m, owner_rank, launch_epoch);
     }
     __syncthreads();
 #else
