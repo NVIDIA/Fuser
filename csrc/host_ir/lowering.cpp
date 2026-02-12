@@ -150,24 +150,6 @@ Expr* cloneWithNewOperands(
   return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
 }
 
-// If all allocation domain extents of tv are constant, returns a new constant
-// Val for the total size. Otherwise returns nullptr. Using a constant size
-// makes the Allocate independent of the loop index so it is not invalidated
-// when the index changes in the evaluator.
-Val* getConstantAllocationSizeIfAvailable(TensorView* tv) {
-  const auto* domain = tv->domain();
-  int64_t size = 1;
-  for (IterDomain* axis :
-       domain->maybeAllocation() | TensorDomain::kNoReductions) {
-    Val* extent = axis->extent();
-    if (!extent->isConst()) {
-      return nullptr;
-    }
-    size *= extent->evaluate().as<int64_t>();
-  }
-  return IrBuilder::create<Val>(size, DataType::Index);
-}
-
 void lowerSegment(
     const SegmentedGroup& group,
     const AliasInfoMap& aliases,
@@ -194,6 +176,7 @@ void lowerSegment(
       // If a value is already cloned, IrCloner::clone returns the cloned value
       // without cloning the value again.
       Expr* e = ir_cloner.clone(group.exprs().front());
+      debug() << "Cloned e: " << e << std::endl;
 
       // TODO: `replacement_map` should be associated with the scope so
       // ShardByStream across segments in the same for-loop can be reused.
@@ -227,14 +210,8 @@ void lowerSegment(
           }
         }
 
-        // Allocate the recv buffers of communications. Use a constant size
-        // when all extents are constant so the Allocate is independent of the
-        // loop index and not invalidated when it changes.
-        Val* constant_size = getConstantAllocationSizeIfAvailable(out);
-        auto* allocate = constant_size != nullptr
-            ? IrBuilder::create<kir::Allocate>(
-                  out, out->getMemoryType(), constant_size)
-            : IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+        auto* allocate =
+            IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
         if (getShardedIterDomain(
                 out, ParallelType::Stream, DomainType::kLoop) != nullptr &&
             getShardedIterDomain(
@@ -339,11 +316,8 @@ void lowerSegment(
           if (getShardedIterDomain(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
-            Val* constant_size = getConstantAllocationSizeIfAvailable(out);
-            auto* allocate = constant_size != nullptr
-                ? IrBuilder::create<kir::Allocate>(
-                      out, out->getMemoryType(), constant_size)
-                : IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+            auto* allocate =
+                IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
             innermost.parent_scope->insert(
                 innermost.parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
@@ -379,11 +353,8 @@ void lowerSegment(
             " must not be an alias, got ",
             alias);
 
-        Val* constant_size = getConstantAllocationSizeIfAvailable(out_tv);
-        auto* allocate = constant_size != nullptr
-            ? IrBuilder::create<kir::Allocate>(
-                  out_tv, out_tv->getMemoryType(), constant_size)
-            : IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
+        auto* allocate =
+            IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
         innermost_scope.pushBack(allocate);
       }
 

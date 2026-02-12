@@ -564,6 +564,101 @@ void HostIrEvaluator::handle(hir::ForLoop* for_loop) {
   auto stop = expr_evaluator_.evaluate(for_loop->stop()).as<int64_t>();
 
   for (auto i = start; i < stop; i++) {
+    // This is not ideal. In lowering, we create communication expr.
+    // The collective permute has the output tensorview, and input vals of
+    // send_peer and recv_peer. While the definition of output_tv is not
+    // modified and remains `set`, this output_tv is a use of the vals Even
+    // though we shardByStream, the use of vals is not modified and has a
+    // dependency on T1. Cloned e: T1_g_float[istreamIdx6{1}, iS5{3}]
+    // (DeviceMesh{0})
+    //  = Set( T0_g_float[ideviceIdx.x2{1}, iS3{3}] (DeviceMesh{0}),
+    //  cache_op=Streaming )
+
+    //  c: CollectivePermute 77 (team=(0), send_peer=( ( 1 + ( 0 - i140 ) ) % 1
+    //  ), recv_peer=( ( i140 + 0 ) % 1 ), input=T0_g_float[ideviceIdx.x2{1},
+    //  iS3{3}] (DeviceMesh{0}), output=T1_g_float[istreamIdx6{1}, iS5{3}]
+    //  (DeviceMesh{0}), backend=NCCL)
+
+    //  %HostIrContainer { (T0_g_float[ideviceIdx.x2{1}, iS3{3}]
+    //  (DeviceMesh{0})) -> (T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0}))
+    //  :
+    //    T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0}) =
+    //    ALLOCATE(buffer=T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0}),
+    //    mem_type=global, size=3, zero_init=false, resets_to_zero=false) Stream
+    //    0x281a6c60 = GetCurrentStream() FOR i140 from 0 to 1:
+    //      SetCurrentStream(Stream i140)
+    //      Synchronize(Stream 0x281a6c60)
+    //      T2_l_float[istreamIdx10{1}, iS9{3}] (DeviceMesh{0}) =
+    //      ShardByStream(T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0}),
+    //      stream_index=i140) CollectivePermute 82 (team=(0), send_peer=( ( 1 +
+    //      ( 0 - i140 ) ) % 1 ), recv_peer=( ( i140 + 0 ) % 1 ),
+    //      input=T0_g_float[ideviceIdx.x2{1}, iS3{3}] (DeviceMesh{0}),
+    //      output=T2_l_float[istreamIdx10{1}, iS9{3}] (DeviceMesh{0}),
+    //      backend=NCCL) Wait(Communication 82)
+    //    SetCurrentStream(Stream 0x281a6c60)
+    //    FOR i140 from 0 to 1:
+    //      Synchronize(Stream i140)
+    //  } // %HostIrContainer
+
+    //  Invalidating index: i140
+    //  allConsumerValsOf(i140)
+    //  Visited val: i140
+    //  Consumer of i140: i163 definition: i163 = 0 - i140;
+
+    //  Visited val: i163
+    //  Consumer of i163: i165 definition: i165 = 1 + i163;
+
+    //  Visited val: i165
+    //  Consumer of i165: i167 definition: i167 = i165 % 1;
+
+    //  Visited val: i167
+    //  Consumer of i167: T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0})
+    //  definition: T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0})
+    //     = Set( T0_g_float[ideviceIdx.x2{1}, iS3{3}] (DeviceMesh{0}),
+    //     cache_op=Streaming )
+
+    //  Visited val: T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0})
+    //  Consumer of i167: T2_l_float[istreamIdx10{1}, iS9{3}] (DeviceMesh{0})
+    //  definition: T2_l_float[istreamIdx10{1}, iS9{3}] (DeviceMesh{0}) =
+    //  ShardByStream(T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0}),
+    //  stream_index=i140)
+
+    //  Visited val: T2_l_float[istreamIdx10{1}, iS9{3}] (DeviceMesh{0})
+    //  Consumer of i140: i169 definition: i169 = i140 + 0;
+
+    //  Visited val: i169
+    //  Consumer of i169: i171 definition: i171 = i169 % 1;
+
+    //  Visited val: i171
+    //  Consumer of i171: T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0})
+    //  definition: T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0})
+    //     = Set( T0_g_float[ideviceIdx.x2{1}, iS3{3}] (DeviceMesh{0}),
+    //     cache_op=Streaming )
+
+    //  Consumer of i171: T2_l_float[istreamIdx10{1}, iS9{3}] (DeviceMesh{0})
+    //  definition: T2_l_float[istreamIdx10{1}, iS9{3}] (DeviceMesh{0}) =
+    //  ShardByStream(T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0}),
+    //  stream_index=i140)
+
+    //  Consumer of i140: T2_l_float[istreamIdx10{1}, iS9{3}] (DeviceMesh{0})
+    //  definition: T2_l_float[istreamIdx10{1}, iS9{3}] (DeviceMesh{0}) =
+    //  ShardByStream(T1_g_float[istreamIdx6{1}, iS5{3}] (DeviceMesh{0}),
+    //  stream_index=i140)
+
+    //  consumer_vals: 8
+    //  Invalidating consumer: i169
+    //  Invalidating consumer: T2_l_float[istreamIdx10{1}, iS9{3}]
+    //  (DeviceMesh{0}) Invalidating consumer: T1_g_float[istreamIdx6{1},
+    //  iS5{3}] (DeviceMesh{0}) Invalidating consumer: i167 Invalidating
+    //  consumer: i165 Invalidating consumer: i163 Invalidating consumer: i171
+    //  Invalidating consumer: i140
+
+    expr_evaluator_.invalidate(for_loop->index());
+    for (auto consumer : allConsumerValsOf(for_loop->index())) {
+      if (!consumer->isA<TensorView>()) {
+        expr_evaluator_.invalidate(consumer);
+      }
+    }
     expr_evaluator_.bind(for_loop->index(), i);
     for (Expr* e : for_loop->body().exprs()) {
       dispatch(e);
