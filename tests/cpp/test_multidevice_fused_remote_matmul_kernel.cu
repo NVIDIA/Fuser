@@ -9,7 +9,10 @@
 #include <cuda_fp16.h>
 #include <limits>
 
+#include <ATen/core/Tensor.h>
+
 #include "cuda_utils.h"
+#include "runtime/matmul_tma.h"
 
 namespace nvfuser {
 
@@ -135,6 +138,25 @@ double timeKernelLaunchesMs(
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
   return static_cast<double>(total_ms) / static_cast<double>(iters);
+}
+
+template <typename CommLaunchFn>
+double timeCommThenCutlassMs(
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream,
+    const at::Tensor& a_comm,
+    const at::Tensor& b_full,
+    at::Tensor& c_out,
+    CommLaunchFn&& launch_comm_once) {
+  NVF_CHECK(
+      canRunMatmulTma(a_comm, b_full),
+      "CUTLASS TMA compute requires Hopper+ and compatible half inputs.");
+  auto launch_once = [&]() {
+    launch_comm_once();
+    c_out.copy_(matmulTma(a_comm, b_full), /*non_blocking=*/true);
+  };
+  return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
 // Naive fused kernel:
@@ -414,6 +436,48 @@ double timeFusedRemoteMatmulMs(
   return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
+double timeNaiveRemoteMatmulCutlassMs(
+    const __half* const* a_remote_shards,
+    at::Tensor& a_gathered,
+    const at::Tensor& b_full,
+    at::Tensor& c_out,
+    int64_t m,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t block_threads,
+    int64_t grid_blocks,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream) {
+  const dim3 block(static_cast<uint32_t>(block_threads));
+  const dim3 grid(static_cast<uint32_t>(grid_blocks <= 0 ? m : grid_blocks));
+  const __half* b_ptr =
+      reinterpret_cast<const __half*>(b_full.data_ptr<at::Half>());
+  __half* c_ptr = reinterpret_cast<__half*>(c_out.data_ptr<at::Half>());
+  __half* a_gathered_ptr =
+      reinterpret_cast<__half*>(a_gathered.data_ptr<at::Half>());
+  auto launch_comm_once = [&]() {
+    // Keep communication as remote thread-load gather.
+    fusedStagedThreadLoadKernel<<<grid, block, 0, stream>>>(
+        a_remote_shards,
+        a_gathered_ptr,
+        m,
+        /*n=*/0,
+        k,
+        m_per_rank,
+        b_ptr,
+        c_ptr);
+  };
+  return timeCommThenCutlassMs(
+      warmup_iters,
+      iters,
+      stream,
+      a_gathered,
+      b_full,
+      c_out,
+      launch_comm_once);
+}
+
 double timeSeparatedAllgatherMatmulThreadLoadMs(
     const __half* const* a_remote_shards,
     const __half* b_full,
@@ -436,6 +500,47 @@ double timeSeparatedAllgatherMatmulThreadLoadMs(
         a_remote_shards, a_gathered, m, n, k, m_per_rank, b_full, c_out);
   };
   return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
+}
+
+double timeSeparatedAllgatherMatmulThreadLoadCutlassMs(
+    const __half* const* a_remote_shards,
+    at::Tensor& a_gathered,
+    const at::Tensor& b_full,
+    at::Tensor& c_out,
+    int64_t m,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t block_threads,
+    int64_t grid_blocks,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream) {
+  const dim3 block(static_cast<uint32_t>(block_threads));
+  const dim3 grid(static_cast<uint32_t>(grid_blocks <= 0 ? m : grid_blocks));
+  const __half* b_ptr =
+      reinterpret_cast<const __half*>(b_full.data_ptr<at::Half>());
+  __half* c_ptr = reinterpret_cast<__half*>(c_out.data_ptr<at::Half>());
+  __half* a_gathered_ptr =
+      reinterpret_cast<__half*>(a_gathered.data_ptr<at::Half>());
+  auto launch_comm_once = [&]() {
+    fusedStagedThreadLoadKernel<<<grid, block, 0, stream>>>(
+        a_remote_shards,
+        a_gathered_ptr,
+        m,
+        /*n=*/0,
+        k,
+        m_per_rank,
+        b_ptr,
+        c_ptr);
+  };
+  return timeCommThenCutlassMs(
+      warmup_iters,
+      iters,
+      stream,
+      a_gathered,
+      b_full,
+      c_out,
+      launch_comm_once);
 }
 
 double timeSeparatedAllgatherMatmulThreadLoadSynchronizedMs(
@@ -487,6 +592,65 @@ double timeSeparatedAllgatherMatmulThreadLoadSynchronizedMs(
   return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
+double timeSeparatedAllgatherMatmulThreadLoadSynchronizedCutlassMs(
+    const __half* const* a_remote_shards,
+    at::Tensor& a_gathered,
+    int32_t* const* ready_semaphore_remote_ptrs,
+    int32_t* ready_semaphore_local,
+    int32_t* const* done_semaphore_remote_ptrs,
+    int32_t* done_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    const at::Tensor& b_full,
+    at::Tensor& c_out,
+    int64_t m,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t block_threads,
+    int64_t grid_blocks,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream) {
+  const dim3 block(static_cast<uint32_t>(block_threads));
+  const dim3 grid(static_cast<uint32_t>(grid_blocks <= 0 ? m : grid_blocks));
+  int64_t launch_epoch_base = 0;
+  const __half* b_ptr =
+      reinterpret_cast<const __half*>(b_full.data_ptr<at::Half>());
+  __half* c_ptr = reinterpret_cast<__half*>(c_out.data_ptr<at::Half>());
+  __half* a_gathered_ptr =
+      reinterpret_cast<__half*>(a_gathered.data_ptr<at::Half>());
+  auto launch_comm_once = [&]() {
+    NVF_CHECK(
+        launch_epoch_base < std::numeric_limits<int32_t>::max(),
+        "ThreadLoad synchronized CUTLASS semaphore epoch overflow.");
+    fusedStagedThreadLoadSynchronizedKernel<<<grid, block, 0, stream>>>(
+        a_remote_shards,
+        a_gathered_ptr,
+        ready_semaphore_remote_ptrs,
+        ready_semaphore_local,
+        done_semaphore_remote_ptrs,
+        done_semaphore_local,
+        my_rank,
+        world_size,
+        static_cast<int32_t>(launch_epoch_base),
+        m,
+        /*n=*/0,
+        k,
+        m_per_rank,
+        b_ptr,
+        c_ptr);
+    ++launch_epoch_base;
+  };
+  return timeCommThenCutlassMs(
+      warmup_iters,
+      iters,
+      stream,
+      a_gathered,
+      b_full,
+      c_out,
+      launch_comm_once);
+}
+
 double timeSeparatedAllgatherMatmulMultimemMs(
     const __half* const* a_remote_shards,
     const __half* b_full,
@@ -530,6 +694,60 @@ double timeSeparatedAllgatherMatmulMultimemMs(
     ++launch_epoch_base;
   };
   return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
+}
+
+double timeSeparatedAllgatherMatmulMultimemCutlassMs(
+    const __half* const* a_remote_shards,
+    __half* a_gathered_multicast_ptr,
+    const at::Tensor& a_gathered_local,
+    int32_t* const* stage_semaphore_remote_ptrs,
+    int32_t* stage_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    const at::Tensor& b_full,
+    at::Tensor& c_out,
+    int64_t m,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t block_threads,
+    int64_t grid_blocks,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream) {
+  const dim3 block(static_cast<uint32_t>(block_threads));
+  const dim3 grid(static_cast<uint32_t>(grid_blocks <= 0 ? m : grid_blocks));
+  int64_t launch_epoch_base = 0;
+  const __half* b_ptr =
+      reinterpret_cast<const __half*>(b_full.data_ptr<at::Half>());
+  __half* c_ptr = reinterpret_cast<__half*>(c_out.data_ptr<at::Half>());
+  auto launch_comm_once = [&]() {
+    NVF_CHECK(
+        launch_epoch_base < std::numeric_limits<int32_t>::max(),
+        "Multimem CUTLASS semaphore epoch overflow.");
+    fusedStagedMultimemKernel<<<grid, block, 0, stream>>>(
+        a_remote_shards,
+        a_gathered_multicast_ptr,
+        stage_semaphore_remote_ptrs,
+        stage_semaphore_local,
+        my_rank,
+        world_size,
+        static_cast<int32_t>(launch_epoch_base),
+        m,
+        /*n=*/0,
+        k,
+        m_per_rank,
+        b_ptr,
+        c_ptr);
+    ++launch_epoch_base;
+  };
+  return timeCommThenCutlassMs(
+      warmup_iters,
+      iters,
+      stream,
+      a_gathered_local,
+      b_full,
+      c_out,
+      launch_comm_once);
 }
 
 } // namespace nvfuser
