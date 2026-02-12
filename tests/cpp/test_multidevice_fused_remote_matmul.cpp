@@ -56,6 +56,27 @@ double timeSeparatedAllgatherMatmulThreadLoadMs(
     int64_t iters,
     cudaStream_t stream);
 
+double timeSeparatedAllgatherMatmulThreadLoadSynchronizedMs(
+    const __half* const* a_remote_shards,
+    const __half* b_full,
+    __half* c_out,
+    __half* a_gathered,
+    int32_t* const* ready_semaphore_remote_ptrs,
+    int32_t* ready_semaphore_local,
+    int32_t* const* done_semaphore_remote_ptrs,
+    int32_t* done_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t block_threads,
+    int64_t grid_blocks,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream);
+
 double timeSeparatedAllgatherMatmulMultimemMs(
     const __half* const* a_remote_shards,
     const __half* b_full,
@@ -94,6 +115,9 @@ namespace {
 //   Single fused kernel with explicit internal stages:
 //   (1) stage full A-row from remote pointers with regular thread loads,
 //   (2) compute matmul for that row.
+// - stagedAllgatherComputeThreadLoadSynchronized:
+//   Same thread-load staged kernel as above, but with fused cross-rank ready/done
+//   semaphores so remote reads are safe even when producer shards are mutable.
 // - stagedAllgatherComputeMultimem:
 //   Same fused-kernel staged structure, but stage-1 writes use multimem store
 //   instructions on a multicast pointer before compute.
@@ -102,6 +126,7 @@ enum class DistributedMatmulImpl {
   baselinePytorchEagerNccl,
   baselinePytorchEagerCuda,
   stagedAllgatherComputeThreadLoad,
+  stagedAllgatherComputeThreadLoadSynchronized,
   stagedAllgatherComputeMultimem
 };
 
@@ -151,6 +176,10 @@ struct BenchmarkResources {
   std::unique_ptr<SymmetricTensor> a_gathered_multimem_sym;
   at::Tensor stage_semaphore_multimem;
   std::unique_ptr<SymmetricTensor> stage_semaphore_multimem_sym;
+  at::Tensor threadload_ready_semaphore;
+  std::unique_ptr<SymmetricTensor> threadload_ready_semaphore_sym;
+  at::Tensor threadload_done_semaphore;
+  std::unique_ptr<SymmetricTensor> threadload_done_semaphore_sym;
 };
 
 const char* implName(DistributedMatmulImpl impl) {
@@ -163,6 +192,8 @@ const char* implName(DistributedMatmulImpl impl) {
       return "baselinePytorchEagerCuda";
     case DistributedMatmulImpl::stagedAllgatherComputeThreadLoad:
       return "stagedAllgatherComputeThreadLoad";
+    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized:
+      return "stagedAllgatherComputeThreadLoadSynchronized";
     case DistributedMatmulImpl::stagedAllgatherComputeMultimem:
       return "stagedAllgatherComputeMultimem";
   }
@@ -281,13 +312,33 @@ BenchmarkResources initBenchmarkResources(
         resources.cuda_allgather_communication, resources.a_allgathered_half_cuda);
   }
 
-  if (impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoad) {
+  if (impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoad ||
+      impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized) {
     resources.a_gathered_threadload = at::empty(
         {m, k},
         at::TensorOptions()
             .dtype(at::kHalf)
             .device(communicator->device())
             .layout(at::kStrided));
+  }
+
+  if (impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized) {
+    // Per-rank [writer_rank, row, vec4-int] semaphores for fused ready/done.
+    resources.threadload_ready_semaphore = SymmetricTensor::allocate(
+        {world_size, m, 4}, at::ScalarType::Int, communicator->device());
+    resources.threadload_ready_semaphore.zero_();
+    resources.threadload_ready_semaphore_sym = std::make_unique<SymmetricTensor>(
+        resources.threadload_ready_semaphore);
+    resources.threadload_ready_semaphore_sym->setupRemoteHandles(
+        "fused_remote_matmul_threadload_ready");
+
+    resources.threadload_done_semaphore = SymmetricTensor::allocate(
+        {world_size, m, 4}, at::ScalarType::Int, communicator->device());
+    resources.threadload_done_semaphore.zero_();
+    resources.threadload_done_semaphore_sym = std::make_unique<SymmetricTensor>(
+        resources.threadload_done_semaphore);
+    resources.threadload_done_semaphore_sym->setupRemoteHandles(
+        "fused_remote_matmul_threadload_done");
   }
 
   if (impl == DistributedMatmulImpl::stagedAllgatherComputeMultimem) {
@@ -379,8 +430,12 @@ double timeImplementationMs(
     at::Tensor& a_allgathered_half_cuda,
     at::Tensor& a_gathered_threadload,
     at::Tensor& a_gathered_multimem,
+    SymmetricTensor* threadload_ready_semaphore_sym,
+    SymmetricTensor* threadload_done_semaphore_sym,
     SymmetricTensor* a_gathered_multimem_sym,
     SymmetricTensor* stage_semaphore_multimem_sym,
+    int32_t* const* threadload_ready_semaphore_remote_ptrs,
+    int32_t* const* threadload_done_semaphore_remote_ptrs,
     int32_t* const* stage_semaphore_remote_ptrs,
     const at::Tensor& b_full_half,
     at::Tensor& c_out_half,
@@ -451,6 +506,35 @@ double timeImplementationMs(
           reinterpret_cast<const __half*>(b_full_half.data_ptr()),
           reinterpret_cast<__half*>(c_out_half.data_ptr()),
           reinterpret_cast<__half*>(a_gathered_threadload.data_ptr()),
+          m,
+          n,
+          k,
+          m_per_rank,
+          staged_block_threads,
+          staged_grid_blocks,
+          config.warmup_iters,
+          config.iters,
+          stream);
+    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized:
+      NVF_CHECK(
+          threadload_ready_semaphore_sym != nullptr &&
+              threadload_done_semaphore_sym != nullptr &&
+              threadload_ready_semaphore_remote_ptrs != nullptr &&
+              threadload_done_semaphore_remote_ptrs != nullptr,
+          "stagedAllgatherComputeThreadLoadSynchronized requires semaphore resources.");
+      return timeSeparatedAllgatherMatmulThreadLoadSynchronizedMs(
+          device_remote_ptrs,
+          reinterpret_cast<const __half*>(b_full_half.data_ptr()),
+          reinterpret_cast<__half*>(c_out_half.data_ptr()),
+          reinterpret_cast<__half*>(a_gathered_threadload.data_ptr()),
+          threadload_ready_semaphore_remote_ptrs,
+          reinterpret_cast<int32_t*>(
+              threadload_ready_semaphore_sym->localTensor().data_ptr()),
+          threadload_done_semaphore_remote_ptrs,
+          reinterpret_cast<int32_t*>(
+              threadload_done_semaphore_sym->localTensor().data_ptr()),
+          my_rank,
+          world_size,
           m,
           n,
           k,
@@ -599,6 +683,39 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   a_gathered_multimem = resources.a_gathered_multimem;
 
   int32_t** device_stage_semaphore_remote_ptrs = nullptr;
+  int32_t** device_threadload_ready_semaphore_remote_ptrs = nullptr;
+  int32_t** device_threadload_done_semaphore_remote_ptrs = nullptr;
+  if (impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized) {
+    NVF_CHECK(
+        resources.threadload_ready_semaphore_sym != nullptr &&
+            resources.threadload_done_semaphore_sym != nullptr,
+        "Missing synchronized threadload semaphore resources.");
+    std::vector<int32_t*> host_ready_remote_ptrs(world_size);
+    std::vector<int32_t*> host_done_remote_ptrs(world_size);
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      host_ready_remote_ptrs[rank] = reinterpret_cast<int32_t*>(
+          resources.threadload_ready_semaphore_sym->remoteTensor(rank).data_ptr());
+      host_done_remote_ptrs[rank] = reinterpret_cast<int32_t*>(
+          resources.threadload_done_semaphore_sym->remoteTensor(rank).data_ptr());
+    }
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(
+        &device_threadload_ready_semaphore_remote_ptrs,
+        world_size * sizeof(int32_t*)));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        device_threadload_ready_semaphore_remote_ptrs,
+        host_ready_remote_ptrs.data(),
+        world_size * sizeof(int32_t*),
+        cudaMemcpyHostToDevice));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(
+        &device_threadload_done_semaphore_remote_ptrs,
+        world_size * sizeof(int32_t*)));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        device_threadload_done_semaphore_remote_ptrs,
+        host_done_remote_ptrs.data(),
+        world_size * sizeof(int32_t*),
+        cudaMemcpyHostToDevice));
+  }
+
   if (impl == DistributedMatmulImpl::stagedAllgatherComputeMultimem) {
     NVF_CHECK(
         resources.stage_semaphore_multimem_sym != nullptr,
@@ -632,8 +749,12 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       a_allgathered_half_cuda,
       a_gathered_threadload,
       a_gathered_multimem,
+      resources.threadload_ready_semaphore_sym.get(),
+      resources.threadload_done_semaphore_sym.get(),
       resources.a_gathered_multimem_sym.get(),
       resources.stage_semaphore_multimem_sym.get(),
+      const_cast<int32_t* const*>(device_threadload_ready_semaphore_remote_ptrs),
+      const_cast<int32_t* const*>(device_threadload_done_semaphore_remote_ptrs),
       const_cast<int32_t* const*>(device_stage_semaphore_remote_ptrs),
       b_full_half,
       c_out_half,
@@ -664,8 +785,12 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       a_allgathered_half_cuda,
       a_gathered_threadload,
       a_gathered_multimem,
+      resources.threadload_ready_semaphore_sym.get(),
+      resources.threadload_done_semaphore_sym.get(),
       resources.a_gathered_multimem_sym.get(),
       resources.stage_semaphore_multimem_sym.get(),
+      const_cast<int32_t* const*>(device_threadload_ready_semaphore_remote_ptrs),
+      const_cast<int32_t* const*>(device_threadload_done_semaphore_remote_ptrs),
       const_cast<int32_t* const*>(device_stage_semaphore_remote_ptrs),
       b_full_half,
       c_out_half,
@@ -696,6 +821,14 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   if (device_stage_semaphore_remote_ptrs != nullptr) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaFree(device_stage_semaphore_remote_ptrs));
   }
+  if (device_threadload_ready_semaphore_remote_ptrs != nullptr) {
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaFree(device_threadload_ready_semaphore_remote_ptrs));
+  }
+  if (device_threadload_done_semaphore_remote_ptrs != nullptr) {
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaFree(device_threadload_done_semaphore_remote_ptrs));
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -706,6 +839,7 @@ INSTANTIATE_TEST_SUITE_P(
         DistributedMatmulImpl::baselinePytorchEagerNccl,
         DistributedMatmulImpl::baselinePytorchEagerCuda,
         DistributedMatmulImpl::stagedAllgatherComputeThreadLoad,
+        DistributedMatmulImpl::stagedAllgatherComputeThreadLoadSynchronized,
         DistributedMatmulImpl::stagedAllgatherComputeMultimem),
     [](const testing::TestParamInfo<DistributedMatmulImpl>& info) {
       return implName(info.param);

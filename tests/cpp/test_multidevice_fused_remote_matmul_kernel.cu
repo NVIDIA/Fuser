@@ -83,6 +83,119 @@ __global__ void fusedStagedThreadLoadKernel(
   }
 }
 
+__global__ void fusedStagedThreadLoadSynchronizedKernel(
+    const __half* const* a_remote_shards,
+    __half* a_gathered,
+    int32_t* const* ready_semaphore_remote_ptrs,
+    int32_t* ready_semaphore_local,
+    int32_t* const* done_semaphore_remote_ptrs,
+    int32_t* done_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    int32_t launch_epoch_base,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank,
+    const __half* b_full,
+    __half* c_out) {
+  constexpr int64_t kSemaphoreVecWidth = 4;
+  constexpr int64_t kMaxPollIters = 1LL << 26;
+  const int32_t launch_epoch = launch_epoch_base + 1;
+  for (int64_t row = blockIdx.x; row < m; row += gridDim.x) {
+    const int64_t owner_rank = row / m_per_rank;
+    const int64_t local_row = row - owner_rank * m_per_rank;
+    const __half* a_local = a_remote_shards[owner_rank];
+    int32_t* my_ready_row_local =
+        ready_semaphore_local + (my_rank * m + row) * kSemaphoreVecWidth;
+    int32_t* my_done_row_local =
+        done_semaphore_local + (my_rank * m + row) * kSemaphoreVecWidth;
+
+    if (threadIdx.x == 0) {
+      // Publish ready epoch to all ranks before remote reads.
+      for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+        my_ready_row_local[vec_i] = launch_epoch;
+      }
+      __threadfence_system();
+      for (int64_t peer = 0; peer < world_size; ++peer) {
+        int32_t* peer_ready_row_remote = ready_semaphore_remote_ptrs[peer] +
+            (my_rank * m + row) * kSemaphoreVecWidth;
+        for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+          peer_ready_row_remote[vec_i] = launch_epoch;
+        }
+      }
+      __threadfence_system();
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+      for (int64_t rank = 0; rank < world_size; ++rank) {
+        auto* rank_ready_epoch_ptr = reinterpret_cast<unsigned int*>(
+            ready_semaphore_local + (rank * m + row) * kSemaphoreVecWidth);
+        int64_t spins = 0;
+        while (atomicAdd(rank_ready_epoch_ptr, 0U) <
+               static_cast<unsigned int>(launch_epoch)) {
+          ++spins;
+          if (spins > kMaxPollIters) {
+            asm volatile("trap;");
+          }
+        }
+      }
+    }
+    __syncthreads();
+
+    // Stage 1: gather this row into staged global buffer.
+    for (int64_t kk = threadIdx.x; kk < k; kk += blockDim.x) {
+      a_gathered[row * k + kk] = a_local[local_row * k + kk];
+    }
+    __syncthreads();
+
+    // Stage 2: compute this row from staged global A.
+    for (int64_t col = threadIdx.x; col < n; col += blockDim.x) {
+      float acc = 0.0f;
+      for (int64_t kk = 0; kk < k; ++kk) {
+        acc += __half2float(a_gathered[row * k + kk]) *
+            __half2float(b_full[kk * n + col]);
+      }
+      c_out[row * n + col] = __float2half(acc);
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+      // Publish done epoch so producers can safely mutate next iteration.
+      for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+        my_done_row_local[vec_i] = launch_epoch;
+      }
+      __threadfence_system();
+      for (int64_t peer = 0; peer < world_size; ++peer) {
+        int32_t* peer_done_row_remote = done_semaphore_remote_ptrs[peer] +
+            (my_rank * m + row) * kSemaphoreVecWidth;
+        for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+          peer_done_row_remote[vec_i] = launch_epoch;
+        }
+      }
+      __threadfence_system();
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+      for (int64_t rank = 0; rank < world_size; ++rank) {
+        auto* rank_done_epoch_ptr = reinterpret_cast<unsigned int*>(
+            done_semaphore_local + (rank * m + row) * kSemaphoreVecWidth);
+        int64_t spins = 0;
+        while (atomicAdd(rank_done_epoch_ptr, 0U) <
+               static_cast<unsigned int>(launch_epoch)) {
+          ++spins;
+          if (spins > kMaxPollIters) {
+            asm volatile("trap;");
+          }
+        }
+      }
+    }
+    __syncthreads();
+  }
+}
+
 // Same fused structure as above, but stage-1 writes use multimem stores.
 __global__ void fusedStagedMultimemKernel(
     const __half* const* a_remote_shards,
@@ -271,6 +384,78 @@ double timeSeparatedAllgatherMatmulThreadLoadMs(
   auto launch_once = [&]() {
     fusedStagedThreadLoadKernel<<<grid, block, 0, stream>>>(
         a_remote_shards, a_gathered, m, n, k, m_per_rank, b_full, c_out);
+  };
+
+  for (int64_t i = 0; i < warmup_iters; ++i) {
+    launch_once();
+  }
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
+
+  cudaEvent_t start = nullptr;
+  cudaEvent_t stop = nullptr;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
+  for (int64_t i = 0; i < iters; ++i) {
+    launch_once();
+  }
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
+
+  float total_ms = 0.0f;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&total_ms, start, stop));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
+  return static_cast<double>(total_ms) / static_cast<double>(iters);
+}
+
+double timeSeparatedAllgatherMatmulThreadLoadSynchronizedMs(
+    const __half* const* a_remote_shards,
+    const __half* b_full,
+    __half* c_out,
+    __half* a_gathered,
+    int32_t* const* ready_semaphore_remote_ptrs,
+    int32_t* ready_semaphore_local,
+    int32_t* const* done_semaphore_remote_ptrs,
+    int32_t* done_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t block_threads,
+    int64_t grid_blocks,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream) {
+  const dim3 block(static_cast<uint32_t>(block_threads));
+  const dim3 grid(static_cast<uint32_t>(grid_blocks <= 0 ? m : grid_blocks));
+  int64_t launch_epoch_base = 0;
+
+  auto launch_once = [&]() {
+    NVF_CHECK(
+        launch_epoch_base < std::numeric_limits<int32_t>::max(),
+        "ThreadLoad synchronized semaphore epoch overflow.");
+    fusedStagedThreadLoadSynchronizedKernel<<<grid, block, 0, stream>>>(
+        a_remote_shards,
+        a_gathered,
+        ready_semaphore_remote_ptrs,
+        ready_semaphore_local,
+        done_semaphore_remote_ptrs,
+        done_semaphore_local,
+        my_rank,
+        world_size,
+        static_cast<int32_t>(launch_epoch_base),
+        m,
+        n,
+        k,
+        m_per_rank,
+        b_full,
+        c_out);
+    ++launch_epoch_base;
   };
 
   for (int64_t i = 0; i < warmup_iters; ++i) {
