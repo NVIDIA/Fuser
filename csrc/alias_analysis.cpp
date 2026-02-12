@@ -308,7 +308,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   std::vector<IterDomain*> out_allocation(out_logical);
   std::vector<std::optional<bool>> out_contiguity;
   for (const auto i : arange(out_logical.size())) {
-    if (bcast->isBroadcastDim(i)) {
+    if (out_logical.at(i)->isBroadcast()) {
       out_contiguity.push_back(std::nullopt);
     } else {
       out_contiguity.push_back(true);
