@@ -35,6 +35,38 @@ double timeFusedRemoteMatmulMs(
     int64_t n,
     int64_t k,
     int64_t m_per_rank,
+    int64_t block_x,
+    int64_t block_y,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream);
+
+double timeSeparatedAllgatherMatmulThreadLoadMs(
+    const __half* const* a_remote_shards,
+    const __half* b_full,
+    __half* c_out,
+    __half* a_gathered,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t block_threads,
+    int64_t grid_blocks,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream);
+
+double timeSeparatedAllgatherMatmulMultimemMs(
+    const __half* const* a_remote_shards,
+    const __half* b_full,
+    __half* c_out,
+    __half* a_gathered_multicast,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t block_threads,
+    int64_t grid_blocks,
     int64_t warmup_iters,
     int64_t iters,
     cudaStream_t stream);
@@ -54,13 +86,46 @@ namespace {
 //   Same eager compute structure as the NCCL baseline, but communication uses
 //   nvFuser's CUDA backend allgather primitives (post/wait with symmetric-memory
 //   handles from cuda_p2p.h) before eager matmul_out.
+// - stagedAllgatherComputeThreadLoad:
+//   Single fused kernel with explicit internal stages:
+//   (1) stage full A-row from remote pointers with regular thread loads,
+//   (2) compute matmul for that row.
+// - stagedAllgatherComputeMultimem:
+//   Same fused-kernel staged structure, but stage-1 writes use multimem store
+//   instructions on a multicast pointer before compute.
 enum class DistributedMatmulImpl {
   naiveFusedKernel,
   baselinePytorchEagerNccl,
-  baselinePytorchEagerCuda
+  baselinePytorchEagerCuda,
+  stagedAllgatherComputeThreadLoad,
+  stagedAllgatherComputeMultimem
 };
 
 enum class TimeMeasurementMode { CudaEvents, CpuClock };
+
+// Runtime kernel-launch knobs shared by all implementations.
+enum class RuntimeParams {
+  NaiveBlockX,
+  NaiveBlockY,
+  StagedBlockThreads,
+  StagedGridBlocks
+};
+
+int64_t runtimeParam(RuntimeParams param) {
+  switch (param) {
+    case RuntimeParams::NaiveBlockX:
+      return 16;
+    case RuntimeParams::NaiveBlockY:
+      return 16;
+    case RuntimeParams::StagedBlockThreads:
+      return 256;
+    case RuntimeParams::StagedGridBlocks:
+      // <= 0 means auto-select from M in the kernel launcher.
+      return 0;
+  }
+  NVF_ERROR(false, "Unknown runtime parameter enum value.");
+  return 0;
+}
 
 // Centralized benchmark knobs used by every implementation path.
 struct BenchmarkConfig {
@@ -77,6 +142,9 @@ struct BenchmarkResources {
   Communication* cuda_allgather_communication = nullptr;
   std::unique_ptr<SymMemForAllgather> cuda_allgather_handle;
   at::Tensor a_allgathered_half_cuda;
+  at::Tensor a_gathered_threadload;
+  at::Tensor a_gathered_multimem;
+  std::unique_ptr<SymmetricTensor> a_gathered_multimem_sym;
 };
 
 const char* implName(DistributedMatmulImpl impl) {
@@ -87,8 +155,21 @@ const char* implName(DistributedMatmulImpl impl) {
       return "baselinePytorchEagerNccl";
     case DistributedMatmulImpl::baselinePytorchEagerCuda:
       return "baselinePytorchEagerCuda";
+    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoad:
+      return "stagedAllgatherComputeThreadLoad";
+    case DistributedMatmulImpl::stagedAllgatherComputeMultimem:
+      return "stagedAllgatherComputeMultimem";
   }
   NVF_ERROR(false, "Unknown implementation enum value: ", static_cast<int>(impl));
+}
+
+bool isMulticastSupported(int64_t device_id) {
+  int is_multicast_supported = 0;
+  auto result = cuDeviceGetAttribute(
+      &is_multicast_supported,
+      CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+      static_cast<CUdevice>(device_id));
+  return result == CUDA_SUCCESS && is_multicast_supported != 0;
 }
 
 template <typename Fn>
@@ -193,6 +274,24 @@ BenchmarkResources initBenchmarkResources(
     resources.cuda_allgather_handle = std::make_unique<SymMemForAllgather>(
         resources.cuda_allgather_communication, resources.a_allgathered_half_cuda);
   }
+
+  if (impl == DistributedMatmulImpl::stagedAllgatherComputeThreadLoad) {
+    resources.a_gathered_threadload = at::empty(
+        {m, k},
+        at::TensorOptions()
+            .dtype(at::kHalf)
+            .device(communicator->device())
+            .layout(at::kStrided));
+  }
+
+  if (impl == DistributedMatmulImpl::stagedAllgatherComputeMultimem) {
+    resources.a_gathered_multimem = SymmetricTensor::allocate(
+        {m, k}, at::ScalarType::Half, communicator->device());
+    resources.a_gathered_multimem_sym =
+        std::make_unique<SymmetricTensor>(resources.a_gathered_multimem);
+    resources.a_gathered_multimem_sym->setupMulticast(
+        /*exporter_rank=*/0, "fused_remote_matmul_staged_multimem");
+  }
   return resources;
 }
 
@@ -261,6 +360,9 @@ double timeImplementationMs(
     const __half* const* device_remote_ptrs,
     at::Tensor& a_local_half,
     at::Tensor& a_allgathered_half_cuda,
+    at::Tensor& a_gathered_threadload,
+    at::Tensor& a_gathered_multimem,
+    SymmetricTensor* a_gathered_multimem_sym,
     const at::Tensor& b_full_half,
     at::Tensor& c_out_half,
     int64_t world_size,
@@ -270,6 +372,13 @@ double timeImplementationMs(
     int64_t m_per_rank,
     cudaStream_t stream) {
   // Dispatch to implementation-specific execution path.
+  (void)a_gathered_multimem;
+  const int64_t naive_block_x = runtimeParam(RuntimeParams::NaiveBlockX);
+  const int64_t naive_block_y = runtimeParam(RuntimeParams::NaiveBlockY);
+  const int64_t staged_block_threads =
+      runtimeParam(RuntimeParams::StagedBlockThreads);
+  const int64_t staged_grid_blocks =
+      runtimeParam(RuntimeParams::StagedGridBlocks);
   switch (impl) {
     case DistributedMatmulImpl::naiveFusedKernel: {
       auto run_once = [&]() {
@@ -282,6 +391,8 @@ double timeImplementationMs(
             n,
             k,
             m_per_rank,
+            naive_block_x,
+            naive_block_y,
             /*warmup_iters=*/0,
             /*iters=*/1,
             stream);
@@ -313,6 +424,39 @@ double timeImplementationMs(
           c_out_half,
           config,
           communicator,
+          stream);
+    case DistributedMatmulImpl::stagedAllgatherComputeThreadLoad:
+      return timeSeparatedAllgatherMatmulThreadLoadMs(
+          device_remote_ptrs,
+          reinterpret_cast<const __half*>(b_full_half.data_ptr()),
+          reinterpret_cast<__half*>(c_out_half.data_ptr()),
+          reinterpret_cast<__half*>(a_gathered_threadload.data_ptr()),
+          m,
+          n,
+          k,
+          m_per_rank,
+          staged_block_threads,
+          staged_grid_blocks,
+          config.warmup_iters,
+          config.iters,
+          stream);
+    case DistributedMatmulImpl::stagedAllgatherComputeMultimem:
+      NVF_CHECK(
+          a_gathered_multimem_sym != nullptr,
+          "stagedAllgatherComputeMultimem requires multicast staging tensor.");
+      return timeSeparatedAllgatherMatmulMultimemMs(
+          device_remote_ptrs,
+          reinterpret_cast<const __half*>(b_full_half.data_ptr()),
+          reinterpret_cast<__half*>(c_out_half.data_ptr()),
+          reinterpret_cast<__half*>(a_gathered_multimem_sym->multicastPtr()),
+          m,
+          n,
+          k,
+          m_per_rank,
+          staged_block_threads,
+          staged_grid_blocks,
+          config.warmup_iters,
+          config.iters,
           stream);
   }
   NVF_ERROR(false, "Unsupported implementation enum: ", static_cast<int>(impl));
@@ -354,6 +498,11 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   const int64_t world_size = communicator_->size();
   const int64_t my_rank = communicator_->deviceId();
   const auto impl = GetParam();
+
+  if (impl == DistributedMatmulImpl::stagedAllgatherComputeMultimem &&
+      !isMulticastSupported(my_rank)) {
+    GTEST_SKIP() << "Multicast is not supported on this device.";
+  }
 
   // ---------- Problem shape ----------
   Team all_devices(world_size);
@@ -405,6 +554,8 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   // ---------- Outputs and stream ----------
   at::Tensor c_out_half = at::zeros({m, n}, gpu_half_opts);
   at::Tensor a_allgathered_half_cuda;
+  at::Tensor a_gathered_threadload;
+  at::Tensor a_gathered_multimem;
   c10::cuda::CUDAStream test_stream = c10::cuda::getStreamFromPool(
       /*isHighPriority=*/false,
       static_cast<int>(communicator_->device().index()));
@@ -418,6 +569,8 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
     GTEST_SKIP() << "NCCL backend unavailable for baselinePytorchEagerNccl.";
   }
   a_allgathered_half_cuda = resources.a_allgathered_half_cuda;
+  a_gathered_threadload = resources.a_gathered_threadload;
+  a_gathered_multimem = resources.a_gathered_multimem;
 
   // ---------- Correctness ----------
   // Run once before validation to execute the selected implementation path.
@@ -431,6 +584,9 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       const_cast<const __half* const*>(device_remote_ptrs),
       a_local_half,
       a_allgathered_half_cuda,
+      a_gathered_threadload,
+      a_gathered_multimem,
+      resources.a_gathered_multimem_sym.get(),
       b_full_half,
       c_out_half,
       world_size,
@@ -457,6 +613,9 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       const_cast<const __half* const*>(device_remote_ptrs),
       a_local_half,
       a_allgathered_half_cuda,
+      a_gathered_threadload,
+      a_gathered_multimem,
+      resources.a_gathered_multimem_sym.get(),
       b_full_half,
       c_out_half,
       world_size,
@@ -490,7 +649,9 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(
         DistributedMatmulImpl::naiveFusedKernel,
         DistributedMatmulImpl::baselinePytorchEagerNccl,
-        DistributedMatmulImpl::baselinePytorchEagerCuda),
+        DistributedMatmulImpl::baselinePytorchEagerCuda,
+        DistributedMatmulImpl::stagedAllgatherComputeThreadLoad,
+        DistributedMatmulImpl::stagedAllgatherComputeMultimem),
     [](const testing::TestParamInfo<DistributedMatmulImpl>& info) {
       return implName(info.param);
     });
