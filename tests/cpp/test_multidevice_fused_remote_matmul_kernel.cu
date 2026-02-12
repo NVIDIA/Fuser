@@ -14,6 +14,10 @@ namespace nvfuser {
 
 namespace {
 
+// Naive fused kernel:
+// - A is row-sharded across ranks (axis M)
+// - each output row reads from its owner rank shard via remote pointers
+// - B is replicated
 __global__ void fusedRemoteMatmulKernel(
     const __half* const* a_remote_shards,
     const __half* b_full,
@@ -28,6 +32,7 @@ __global__ void fusedRemoteMatmulKernel(
     return;
   }
 
+  // Map global row to the rank-local row in that rank's A shard.
   const int64_t owner_rank = row / m_per_rank;
   const int64_t local_row = row - owner_rank * m_per_rank;
   const __half* a_local = a_remote_shards[owner_rank];
@@ -61,9 +66,13 @@ double timeFusedRemoteMatmulMs(
       static_cast<uint32_t>((n + block.x - 1) / block.x),
       static_cast<uint32_t>((m + block.y - 1) / block.y));
 
-  for (int64_t i = 0; i < warmup_iters; ++i) {
+  auto launch_once = [&]() {
     fusedRemoteMatmulKernel<<<grid, block, 0, stream>>>(
         a_remote_shards, b_full, c_out, m, n, k, m_per_rank);
+  };
+
+  for (int64_t i = 0; i < warmup_iters; ++i) {
+    launch_once();
   }
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
   NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
@@ -75,8 +84,7 @@ double timeFusedRemoteMatmulMs(
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
   for (int64_t i = 0; i < iters; ++i) {
-    fusedRemoteMatmulKernel<<<grid, block, 0, stream>>>(
-        a_remote_shards, b_full, c_out, m, n, k, m_per_rank);
+    launch_once();
   }
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));

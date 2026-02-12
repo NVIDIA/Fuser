@@ -41,7 +41,20 @@ double timeFusedRemoteMatmulMs(
 
 namespace {
 
-enum class RemoteMatmulImpl {
+// Implementations compared by this benchmark:
+// - naiveFusedKernel:
+//   A rank-local, handwritten remote-pointer matmul path. A is sharded on M and
+//   each output row pulls its owner shard directly from symmetric remote memory.
+//   This models a fused comm+compute style where data movement is embedded in
+//   the kernel access pattern.
+// - baselinePytorchEagerNccl:
+//   Reference eager path using PyTorch process group NCCL allgather to rebuild
+//   full A on every rank, then regular eager matmul_out(A_full, B_full).
+// - baselinePytorchEagerCuda:
+//   Same eager compute structure as the NCCL baseline, but communication uses
+//   nvFuser's CUDA backend allgather primitives (post/wait with symmetric-memory
+//   handles from cuda_p2p.h) before eager matmul_out.
+enum class DistributedMatmulImpl {
   naiveFusedKernel,
   baselinePytorchEagerNccl,
   baselinePytorchEagerCuda
@@ -49,6 +62,7 @@ enum class RemoteMatmulImpl {
 
 enum class TimeMeasurementMode { CudaEvents, CpuClock };
 
+// Centralized benchmark knobs used by every implementation path.
 struct BenchmarkConfig {
   int64_t warmup_iters;
   int64_t iters;
@@ -56,13 +70,22 @@ struct BenchmarkConfig {
   bool barrier_at_each_iteration;
 };
 
-const char* implName(RemoteMatmulImpl impl) {
+// Optional runtime objects required by specific implementations.
+struct BenchmarkResources {
+  c10d::Backend* nccl_backend = nullptr;
+  std::unique_ptr<hir::HostIrContainer> cuda_hic;
+  Communication* cuda_allgather_communication = nullptr;
+  std::unique_ptr<SymMemForAllgather> cuda_allgather_handle;
+  at::Tensor a_allgathered_half_cuda;
+};
+
+const char* implName(DistributedMatmulImpl impl) {
   switch (impl) {
-    case RemoteMatmulImpl::naiveFusedKernel:
+    case DistributedMatmulImpl::naiveFusedKernel:
       return "naiveFusedKernel";
-    case RemoteMatmulImpl::baselinePytorchEagerNccl:
+    case DistributedMatmulImpl::baselinePytorchEagerNccl:
       return "baselinePytorchEagerNccl";
-    case RemoteMatmulImpl::baselinePytorchEagerCuda:
+    case DistributedMatmulImpl::baselinePytorchEagerCuda:
       return "baselinePytorchEagerCuda";
   }
   NVF_ERROR(false, "Unknown implementation enum value: ", static_cast<int>(impl));
@@ -74,6 +97,9 @@ double benchmarkLoopMs(
     Communicator* communicator,
     cudaStream_t stream,
     Fn&& run_once) {
+  NVF_CHECK(config.iters > 0, "iters must be > 0, got ", config.iters);
+
+  // Warmup segment (not timed).
   for (int64_t i = 0; i < config.warmup_iters; ++i) {
     if (config.barrier_at_each_iteration) {
       communicator->barrier();
@@ -83,16 +109,19 @@ double benchmarkLoopMs(
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
   NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
 
+  // Timed segment with device-side timestamps.
   if (config.time_mode == TimeMeasurementMode::CudaEvents) {
+    // Time each iteration independently so optional barriers can remain outside
+    // the measured region while preserving per-iteration MAX reduction semantics.
+    cudaEvent_t start = nullptr;
+    cudaEvent_t stop = nullptr;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
     float total_ms = 0.0f;
     for (int64_t i = 0; i < config.iters; ++i) {
       if (config.barrier_at_each_iteration) {
         communicator->barrier();
       }
-      cudaEvent_t start = nullptr;
-      cudaEvent_t stop = nullptr;
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
       NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
       run_once();
       NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
@@ -100,13 +129,14 @@ double benchmarkLoopMs(
       NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
       float iter_ms = 0.0f;
       NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&iter_ms, start, stop));
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
       total_ms += iter_ms;
     }
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
     return static_cast<double>(total_ms) / static_cast<double>(config.iters);
   }
 
+  // Timed segment with host-side timestamps (includes stream sync cost).
   double total_ms = 0.0;
   for (int64_t i = 0; i < config.iters; ++i) {
     if (config.barrier_at_each_iteration) {
@@ -122,6 +152,58 @@ double benchmarkLoopMs(
     total_ms += elapsed.count();
   }
   return total_ms / static_cast<double>(config.iters);
+}
+
+BenchmarkResources initBenchmarkResources(
+    DistributedMatmulImpl impl,
+    Communicator* communicator,
+    const Team& all_devices,
+    int64_t world_size,
+    int64_t m,
+    int64_t k) {
+  BenchmarkResources resources;
+  // NCCL eager baseline resources.
+  if (impl == DistributedMatmulImpl::baselinePytorchEagerNccl) {
+    if (!communicator->isBackendAvailable(CommunicatorBackend::kNccl)) {
+      return resources;
+    }
+    resources.nccl_backend =
+        communicator->getBackendForTeam(all_devices, CommunicatorBackend::kNccl);
+  }
+
+  // CUDA backend eager baseline resources (symmetric allgather handle).
+  if (impl == DistributedMatmulImpl::baselinePytorchEagerCuda) {
+    resources.cuda_hic = std::make_unique<hir::HostIrContainer>();
+    FusionGuard fg(resources.cuda_hic.get());
+    auto* in_tv = makeContigTensor(2);
+    auto* out_tv = makeContigTensor(2);
+    DeviceMesh mesh = DeviceMesh::createForNumDevices(world_size);
+    in_tv->setDeviceMesh(mesh);
+    out_tv->setDeviceMesh(mesh);
+    resources.cuda_allgather_communication = IrBuilder::create<Communication>(
+        CommunicationType::Allgather,
+        out_tv,
+        in_tv,
+        all_devices,
+        /*root=*/-1,
+        RedOpType::UNUSED,
+        CommunicatorBackend::kCuda);
+    resources.a_allgathered_half_cuda = SymmetricTensor::allocate(
+        {m, k}, at::ScalarType::Half, communicator->device());
+    resources.cuda_allgather_handle = std::make_unique<SymMemForAllgather>(
+        resources.cuda_allgather_communication, resources.a_allgathered_half_cuda);
+  }
+  return resources;
+}
+
+double reduceMaxTimeMs(Communicator* communicator, double local_ms_per_iter) {
+  // Reduce per-rank timing with MAX so throughput reflects slowest rank.
+  at::Tensor max_time_tensor = at::tensor(
+      {static_cast<float>(local_ms_per_iter)},
+      at::TensorOptions().dtype(at::kFloat).device(communicator->device()));
+  std::vector<at::Tensor> time_tensors = {max_time_tensor};
+  communicator->getWorld()->allreduce(time_tensors, {c10d::ReduceOp::MAX})->wait();
+  return static_cast<double>(max_time_tensor.item<float>());
 }
 
 double timeBaselinePytorchEagerMs(
@@ -170,7 +252,7 @@ double timeBaselinePytorchEagerCudaMs(
 }
 
 double timeImplementationMs(
-    RemoteMatmulImpl impl,
+    DistributedMatmulImpl impl,
     const BenchmarkConfig& config,
     Communicator* communicator,
     c10d::Backend* nccl_backend,
@@ -187,8 +269,9 @@ double timeImplementationMs(
     int64_t k,
     int64_t m_per_rank,
     cudaStream_t stream) {
+  // Dispatch to implementation-specific execution path.
   switch (impl) {
-    case RemoteMatmulImpl::naiveFusedKernel: {
+    case DistributedMatmulImpl::naiveFusedKernel: {
       auto run_once = [&]() {
         timeFusedRemoteMatmulMs(
             device_remote_ptrs,
@@ -205,7 +288,7 @@ double timeImplementationMs(
       };
       return benchmarkLoopMs(config, communicator, stream, run_once);
     }
-    case RemoteMatmulImpl::baselinePytorchEagerNccl:
+    case DistributedMatmulImpl::baselinePytorchEagerNccl:
       NVF_CHECK(
           nccl_backend != nullptr,
           "baselinePytorchEagerNccl requires a valid NCCL process group backend.");
@@ -217,7 +300,7 @@ double timeImplementationMs(
           config,
           communicator,
           stream);
-    case RemoteMatmulImpl::baselinePytorchEagerCuda:
+    case DistributedMatmulImpl::baselinePytorchEagerCuda:
       NVF_CHECK(
           cuda_allgather_communication != nullptr && cuda_allgather_handle != nullptr,
           "baselinePytorchEagerCuda requires initialized CUDA allgather resources.");
@@ -238,7 +321,8 @@ double timeImplementationMs(
 } // namespace
 
 class FusedRemoteMatmulTest : public MultiDeviceTest,
-                              public testing::WithParamInterface<RemoteMatmulImpl> {
+                              public testing::WithParamInterface<
+                                  DistributedMatmulImpl> {
  protected:
   static constexpr BenchmarkConfig kBenchmarkConfig = {
       /*warmup_iters=*/8,
@@ -252,7 +336,14 @@ class FusedRemoteMatmulTest : public MultiDeviceTest,
       /*barrier_at_each_iteration=*/false};
 };
 
+// Benchmark context:
+// - A is sharded on M across ranks, B is replicated.
+// - We compare three execution paths under identical setup/validation:
+//   fused remote-pointer kernel, NCCL allgather+eager matmul, and CUDA-backend
+//   allgather+eager matmul.
+// - Rank 0 reports throughput using MAX latency reduced across ranks.
 TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
+  // ---------- Preconditions ----------
   if (!communicator_->is_available()) {
     GTEST_SKIP() << "Communicator is unavailable.";
   }
@@ -264,20 +355,9 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   const int64_t my_rank = communicator_->deviceId();
   const auto impl = GetParam();
 
+  // ---------- Problem shape ----------
   Team all_devices(world_size);
   std::iota(all_devices.begin(), all_devices.end(), 0);
-
-  c10d::Backend* nccl_backend = nullptr;
-  if (impl == RemoteMatmulImpl::baselinePytorchEagerNccl) {
-    if (!communicator_->isBackendAvailable(CommunicatorBackend::kNccl)) {
-      GTEST_SKIP() << "NCCL backend unavailable for baselinePytorchEagerNccl.";
-    }
-    nccl_backend =
-        communicator_->getBackendForTeam(all_devices, CommunicatorBackend::kNccl);
-  }
-  std::unique_ptr<hir::HostIrContainer> cuda_hic;
-  Communication* cuda_allgather_communication = nullptr;
-  std::unique_ptr<SymMemForAllgather> cuda_allgather_handle;
 
   constexpr int64_t m = 1024;
   constexpr int64_t k = 1024;
@@ -285,12 +365,13 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   NVF_ERROR(m % world_size == 0, "M must be divisible by world size.");
   const int64_t m_per_rank = m / world_size;
 
+  // ---------- Inputs ----------
   const auto cpu_float_opts =
       at::TensorOptions().dtype(at::kFloat).device(at::kCPU);
   const auto gpu_half_opts =
       at::TensorOptions().dtype(at::kHalf).device(communicator_->device());
 
-  // Every rank builds identical global inputs from the same seed.
+  // Deterministic inputs on every rank for fair cross-impl comparison.
   at::manual_seed(0);
   at::Tensor a_full_cpu = at::randn({m, k}, cpu_float_opts);
   at::Tensor b_full_cpu = at::randn({k, n}, cpu_float_opts);
@@ -321,6 +402,7 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       world_size * sizeof(__half*),
       cudaMemcpyHostToDevice));
 
+  // ---------- Outputs and stream ----------
   at::Tensor c_out_half = at::zeros({m, n}, gpu_half_opts);
   at::Tensor a_allgathered_half_cuda;
   c10::cuda::CUDAStream test_stream = c10::cuda::getStreamFromPool(
@@ -329,36 +411,23 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   c10::cuda::CUDAStreamGuard stream_guard(test_stream);
   cudaStream_t stream = test_stream.stream();
 
-  if (impl == RemoteMatmulImpl::baselinePytorchEagerCuda) {
-    cuda_hic = std::make_unique<hir::HostIrContainer>();
-    FusionGuard fg(cuda_hic.get());
-    auto* in_tv = makeContigTensor(2);
-    auto* out_tv = makeContigTensor(2);
-    DeviceMesh mesh = DeviceMesh::createForNumDevices(world_size);
-    in_tv->setDeviceMesh(mesh);
-    out_tv->setDeviceMesh(mesh);
-    cuda_allgather_communication = IrBuilder::create<Communication>(
-        CommunicationType::Allgather,
-        out_tv,
-        in_tv,
-        all_devices,
-        /*root=*/-1,
-        RedOpType::UNUSED,
-        CommunicatorBackend::kCuda);
-    a_allgathered_half_cuda = SymmetricTensor::allocate(
-        {m, k}, at::ScalarType::Half, communicator_->device());
-    cuda_allgather_handle = std::make_unique<SymMemForAllgather>(
-        cuda_allgather_communication, a_allgathered_half_cuda);
+  auto resources =
+      initBenchmarkResources(impl, communicator_, all_devices, world_size, m, k);
+  if (impl == DistributedMatmulImpl::baselinePytorchEagerNccl &&
+      resources.nccl_backend == nullptr) {
+    GTEST_SKIP() << "NCCL backend unavailable for baselinePytorchEagerNccl.";
   }
+  a_allgathered_half_cuda = resources.a_allgathered_half_cuda;
 
-  // Correctness check.
+  // ---------- Correctness ----------
+  // Run once before validation to execute the selected implementation path.
   (void)timeImplementationMs(
       impl,
       kCorrectnessConfig,
       communicator_,
-      nccl_backend,
-      cuda_allgather_communication,
-      cuda_allgather_handle.get(),
+      resources.nccl_backend,
+      resources.cuda_allgather_communication,
+      resources.cuda_allgather_handle.get(),
       const_cast<const __half* const*>(device_remote_ptrs),
       a_local_half,
       a_allgathered_half_cuda,
@@ -376,14 +445,15 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   EXPECT_TRUE(c_out_cpu.allclose(c_ref_cpu, 2e-1, 2e-1))
       << "Fused remote-pointer matmul output mismatch.";
 
+  // ---------- Benchmark ----------
   communicator_->barrier();
   const double local_ms_per_iter = timeImplementationMs(
       impl,
       kBenchmarkConfig,
       communicator_,
-      nccl_backend,
-      cuda_allgather_communication,
-      cuda_allgather_handle.get(),
+      resources.nccl_backend,
+      resources.cuda_allgather_communication,
+      resources.cuda_allgather_handle.get(),
       const_cast<const __half* const*>(device_remote_ptrs),
       a_local_half,
       a_allgathered_half_cuda,
@@ -396,14 +466,11 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       m_per_rank,
       stream);
   communicator_->barrier();
+  // Distributed throughput is constrained by the slowest rank.
+  const double global_ms_per_iter =
+      reduceMaxTimeMs(communicator_, local_ms_per_iter);
 
-  at::Tensor max_time_tensor = at::tensor(
-      {static_cast<float>(local_ms_per_iter)},
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
-  std::vector<at::Tensor> time_tensors = {max_time_tensor};
-  communicator_->getWorld()->allreduce(time_tensors, {c10d::ReduceOp::MAX})->wait();
-  const double global_ms_per_iter = static_cast<double>(max_time_tensor.item<float>());
-
+  // ---------- Reporting ----------
   const double flops = 2.0 * static_cast<double>(m) * static_cast<double>(n) *
       static_cast<double>(k);
   const double tflops = flops / (global_ms_per_iter * 1.0e9);
@@ -421,10 +488,10 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     FusedRemoteMatmulTest,
     testing::Values(
-        RemoteMatmulImpl::naiveFusedKernel,
-        RemoteMatmulImpl::baselinePytorchEagerNccl,
-        RemoteMatmulImpl::baselinePytorchEagerCuda),
-    [](const testing::TestParamInfo<RemoteMatmulImpl>& info) {
+        DistributedMatmulImpl::naiveFusedKernel,
+        DistributedMatmulImpl::baselinePytorchEagerNccl,
+        DistributedMatmulImpl::baselinePytorchEagerCuda),
+    [](const testing::TestParamInfo<DistributedMatmulImpl>& info) {
       return implName(info.param);
     });
 
