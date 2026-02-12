@@ -7,7 +7,6 @@
 // clang-format on
 #include <unordered_map>
 #include <vector>
-#include "ir/internal_nodes.h"
 
 #include <alias_analysis.h>
 #include <dispatch.h>
@@ -294,29 +293,25 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   if (in == nullptr) {
     return;
   }
-  // Skip reduction + broadcast to avoid unnecessary allocation-domain changes
-  // on broadcast tensors. For example, when a normalization kernel is
-  // segmented, prefer reduction + pointwise over reduction + transpose.
-  // See SmemPersistentNotSupportedIn3DReduction.
-  if (in->definition() && in->definition()->isA<ReductionOp>()) {
-    return;
-  }
-
   auto* out = bcast->out()->as<TensorView>();
+
   std::optional<Layout> out_layout =
       mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_layout.has_value()) {
     return;
   }
 
-  // Put new, broadcast dimensions to the end.
-  std::vector<IterDomain*> out_allocation = out_layout->allocation_domain();
-  std::vector<std::optional<bool>> out_contiguity = out_layout->contiguity();
+  // Let the allocation domain follow the logical domain. When a normalization
+  // kernel is segmented, prefer reduction + pointwise over reduction +
+  // transpose. See SmemPersistentNotSupportedIn3DReduction.
   const std::vector<IterDomain*> out_logical = out->getLogicalDomain();
+  std::vector<IterDomain*> out_allocation(out_logical);
+  std::vector<std::optional<bool>> out_contiguity;
   for (const auto i : arange(out_logical.size())) {
     if (bcast->isBroadcastDim(i)) {
-      out_allocation.push_back(out_logical[i]);
       out_contiguity.push_back(std::nullopt);
+    } else {
+      out_contiguity.push_back(true);
     }
   }
 
