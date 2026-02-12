@@ -154,7 +154,8 @@ double timeCommThenCutlassMs(
       "CUTLASS TMA compute requires Hopper+ and compatible half inputs.");
   auto launch_once = [&]() {
     launch_comm_once();
-    c_out.copy_(matmulTma(a_comm, b_full), /*non_blocking=*/true);
+    // Rebind output tensor to TMA matmul result (avoids an extra device copy).
+    c_out = matmulTma(a_comm, b_full);
   };
   return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
