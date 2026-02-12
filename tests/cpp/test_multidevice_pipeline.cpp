@@ -359,7 +359,7 @@ auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4, mesh5);
 } // namespace
 
 INSTANTIATE_TEST_SUITE_P(
-    DISABLED_Gather,
+    Gather,
     PipelineTestTwoStages,
     testing::Combine(
         testing::Values(CommunicatorBackend::kNccl),
@@ -412,7 +412,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
-    DISABLED_Bcast_sharded_same_mesh,
+    Bcast_sharded_same_mesh,
     PipelineTestTwoStages,
     testing::Combine(
         testing::Values(CommunicatorBackend::kNccl),
