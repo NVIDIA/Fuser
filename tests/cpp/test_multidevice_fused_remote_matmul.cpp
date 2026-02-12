@@ -61,6 +61,10 @@ double timeSeparatedAllgatherMatmulMultimemMs(
     const __half* b_full,
     __half* c_out,
     __half* a_gathered_multicast,
+    int32_t* const* stage_semaphore_remote_ptrs,
+    int32_t* stage_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
     int64_t m,
     int64_t n,
     int64_t k,
@@ -145,6 +149,8 @@ struct BenchmarkResources {
   at::Tensor a_gathered_threadload;
   at::Tensor a_gathered_multimem;
   std::unique_ptr<SymmetricTensor> a_gathered_multimem_sym;
+  at::Tensor stage_semaphore_multimem;
+  std::unique_ptr<SymmetricTensor> stage_semaphore_multimem_sym;
 };
 
 const char* implName(DistributedMatmulImpl impl) {
@@ -291,6 +297,17 @@ BenchmarkResources initBenchmarkResources(
         std::make_unique<SymmetricTensor>(resources.a_gathered_multimem);
     resources.a_gathered_multimem_sym->setupMulticast(
         /*exporter_rank=*/0, "fused_remote_matmul_staged_multimem");
+
+    // Per-rank semaphore rows used by the fused multimem kernel barrier.
+    // Shape is [writer_rank, row, vec4-int] so each writer can publish one
+    // epoch per row, and each reader can wait on all writers for that row.
+    resources.stage_semaphore_multimem = SymmetricTensor::allocate(
+        {world_size, m, 4}, at::ScalarType::Int, communicator->device());
+    resources.stage_semaphore_multimem.zero_();
+    resources.stage_semaphore_multimem_sym =
+        std::make_unique<SymmetricTensor>(resources.stage_semaphore_multimem);
+    resources.stage_semaphore_multimem_sym->setupRemoteHandles(
+        "fused_remote_matmul_stage_semaphore");
   }
   return resources;
 }
@@ -363,8 +380,11 @@ double timeImplementationMs(
     at::Tensor& a_gathered_threadload,
     at::Tensor& a_gathered_multimem,
     SymmetricTensor* a_gathered_multimem_sym,
+    SymmetricTensor* stage_semaphore_multimem_sym,
+    int32_t* const* stage_semaphore_remote_ptrs,
     const at::Tensor& b_full_half,
     at::Tensor& c_out_half,
+    int64_t my_rank,
     int64_t world_size,
     int64_t m,
     int64_t n,
@@ -442,13 +462,19 @@ double timeImplementationMs(
           stream);
     case DistributedMatmulImpl::stagedAllgatherComputeMultimem:
       NVF_CHECK(
-          a_gathered_multimem_sym != nullptr,
-          "stagedAllgatherComputeMultimem requires multicast staging tensor.");
+          a_gathered_multimem_sym != nullptr &&
+              stage_semaphore_multimem_sym != nullptr,
+          "stagedAllgatherComputeMultimem requires staging and semaphore tensors.");
       return timeSeparatedAllgatherMatmulMultimemMs(
           device_remote_ptrs,
           reinterpret_cast<const __half*>(b_full_half.data_ptr()),
           reinterpret_cast<__half*>(c_out_half.data_ptr()),
           reinterpret_cast<__half*>(a_gathered_multimem_sym->multicastPtr()),
+          stage_semaphore_remote_ptrs,
+          reinterpret_cast<int32_t*>(
+              stage_semaphore_multimem_sym->localTensor().data_ptr()),
+          my_rank,
+          world_size,
           m,
           n,
           k,
@@ -572,6 +598,26 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   a_gathered_threadload = resources.a_gathered_threadload;
   a_gathered_multimem = resources.a_gathered_multimem;
 
+  int32_t** device_stage_semaphore_remote_ptrs = nullptr;
+  if (impl == DistributedMatmulImpl::stagedAllgatherComputeMultimem) {
+    NVF_CHECK(
+        resources.stage_semaphore_multimem_sym != nullptr,
+        "Missing staged multimem semaphore resources.");
+    std::vector<int32_t*> host_stage_semaphore_remote_ptrs(world_size);
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      // Base pointer to that rank's local semaphore tensor in its VA space.
+      host_stage_semaphore_remote_ptrs[rank] = reinterpret_cast<int32_t*>(
+          resources.stage_semaphore_multimem_sym->remoteTensor(rank).data_ptr());
+    }
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(
+        &device_stage_semaphore_remote_ptrs, world_size * sizeof(int32_t*)));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        device_stage_semaphore_remote_ptrs,
+        host_stage_semaphore_remote_ptrs.data(),
+        world_size * sizeof(int32_t*),
+        cudaMemcpyHostToDevice));
+  }
+
   // ---------- Correctness ----------
   // Run once before validation to execute the selected implementation path.
   (void)timeImplementationMs(
@@ -587,8 +633,11 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       a_gathered_threadload,
       a_gathered_multimem,
       resources.a_gathered_multimem_sym.get(),
+      resources.stage_semaphore_multimem_sym.get(),
+      const_cast<int32_t* const*>(device_stage_semaphore_remote_ptrs),
       b_full_half,
       c_out_half,
+      my_rank,
       world_size,
       m,
       n,
@@ -616,8 +665,11 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
       a_gathered_threadload,
       a_gathered_multimem,
       resources.a_gathered_multimem_sym.get(),
+      resources.stage_semaphore_multimem_sym.get(),
+      const_cast<int32_t* const*>(device_stage_semaphore_remote_ptrs),
       b_full_half,
       c_out_half,
+      my_rank,
       world_size,
       m,
       n,
@@ -641,6 +693,9 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmulRemotePointerFused) {
   }
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaFree(device_remote_ptrs));
+  if (device_stage_semaphore_remote_ptrs != nullptr) {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaFree(device_stage_semaphore_remote_ptrs));
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

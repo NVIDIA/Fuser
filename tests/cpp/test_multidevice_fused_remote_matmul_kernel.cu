@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <cuda_fp16.h>
+#include <limits>
 
 #include "cuda_utils.h"
 
@@ -86,6 +87,11 @@ __global__ void fusedStagedThreadLoadKernel(
 __global__ void fusedStagedMultimemKernel(
     const __half* const* a_remote_shards,
     __half* a_gathered_multicast,
+    int32_t* const* stage_semaphore_remote_ptrs,
+    int32_t* stage_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    int32_t launch_epoch_base,
     int64_t m,
     int64_t n,
     int64_t k,
@@ -126,6 +132,58 @@ __global__ void fusedStagedMultimemKernel(
       a_row_stage[kk] = a_local[local_row * k + kk];
     }
     __syncthreads();
+
+#if __CUDA_ARCH__ >= 900
+    // Cross-device barrier between stage-1 stores and stage-2 reads.
+    // Each rank publishes one epoch for (my_rank,row), then waits until
+    // all writer ranks have published the same epoch for that row.
+    constexpr int64_t kSemaphoreVecWidth = 4;
+    constexpr int64_t kMaxPollIters = 1LL << 26;
+    const int32_t launch_epoch = launch_epoch_base + 1;
+    int32_t* my_row_local = stage_semaphore_local +
+        (my_rank * m + row) * kSemaphoreVecWidth;
+
+    if (threadIdx.x == 0) {
+      // Publish local completion to all peers' semaphore tensors.
+      for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+        my_row_local[vec_i] = launch_epoch;
+      }
+      __threadfence_system();
+      for (int64_t peer = 0; peer < world_size; ++peer) {
+        int32_t* peer_row_remote = stage_semaphore_remote_ptrs[peer] +
+            (my_rank * m + row) * kSemaphoreVecWidth;
+        for (int64_t vec_i = 0; vec_i < kSemaphoreVecWidth; ++vec_i) {
+          peer_row_remote[vec_i] = launch_epoch;
+        }
+      }
+      __threadfence_system();
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+      // Wait until every writer rank has published this row's epoch.
+      for (int64_t rank = 0; rank < world_size; ++rank) {
+        auto* rank_epoch_ptr = reinterpret_cast<unsigned int*>(
+            stage_semaphore_local + (rank * m + row) * kSemaphoreVecWidth);
+        int64_t spins = 0;
+        while (atomicAdd(rank_epoch_ptr, 0U) <
+               static_cast<unsigned int>(launch_epoch)) {
+          ++spins;
+          if (spins > kMaxPollIters) {
+            asm volatile("trap;");
+          }
+        }
+      }
+    }
+    __syncthreads();
+#else
+    (void)stage_semaphore_remote_ptrs;
+    (void)stage_semaphore_local;
+    (void)my_rank;
+    (void)world_size;
+    (void)launch_epoch_base;
+    asm volatile("trap;");
+#endif
 
     // Stage 2: compute from staged multicast-backed row.
     for (int64_t col = threadIdx.x; col < n; col += blockDim.x) {
@@ -245,6 +303,10 @@ double timeSeparatedAllgatherMatmulMultimemMs(
     const __half* b_full,
     __half* c_out,
     __half* a_gathered_multicast,
+    int32_t* const* stage_semaphore_remote_ptrs,
+    int32_t* stage_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
     int64_t m,
     int64_t n,
     int64_t k,
@@ -256,17 +318,27 @@ double timeSeparatedAllgatherMatmulMultimemMs(
     cudaStream_t stream) {
   const dim3 block(static_cast<uint32_t>(block_threads));
   const dim3 grid(static_cast<uint32_t>(grid_blocks <= 0 ? m : grid_blocks));
+  int64_t launch_epoch_base = 0;
 
   auto launch_once = [&]() {
+    NVF_CHECK(
+        launch_epoch_base < std::numeric_limits<int32_t>::max(),
+        "Multimem semaphore epoch overflow.");
     fusedStagedMultimemKernel<<<grid, block, 0, stream>>>(
         a_remote_shards,
         a_gathered_multicast,
+        stage_semaphore_remote_ptrs,
+        stage_semaphore_local,
+        my_rank,
+        world_size,
+        static_cast<int32_t>(launch_epoch_base),
         m,
         n,
         k,
         m_per_rank,
         b_full,
         c_out);
+    ++launch_epoch_base;
   };
 
   for (int64_t i = 0; i < warmup_iters; ++i) {
