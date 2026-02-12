@@ -86,7 +86,10 @@ class IrContainer {
   }
 
  protected:
-  static IrCloner copy(const IrContainer* from, IrContainer* to);
+  static IrCloner copy(
+      const IrContainer* from,
+      IrContainer* to,
+      Fusion* dest_fusion);
 
   static void swap(IrContainer& a, IrContainer& b) noexcept;
 
@@ -127,16 +130,15 @@ class IrContainer {
   StmtNameType expr_name_counter_ = 0;
 
  public:
-  Fusion* parent() const {
-    NVF_ERROR(
-        parent_ != nullptr, "Call to IrContainer::parent() holds nullptr.")
-    return parent_;
-  }
+  void addFusion(Fusion* fusion);
+  void removeFusion(Fusion* fusion);
+  void transferFusion(Fusion* from, Fusion* to);
+  size_t sharingCount() const;
+  bool hasMultipleFusions() const;
+  const std::unordered_set<Fusion*>& sharingFusions() const;
 
  private:
-  // Parent Fusion that owns this container (for pure composition pattern)
-  // Used by Statement::fusion() to navigate back to owning Fusion
-  Fusion* parent_ = nullptr;
+  std::unordered_set<Fusion*> sharing_fusions_;
 };
 
 } // namespace nvfuser
