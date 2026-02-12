@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <cuda_fp16.h>
+#include <mma.h>
 #include <limits>
 
 #include <ATen/core/Tensor.h>
@@ -20,6 +21,7 @@ namespace {
 
 constexpr int64_t kSemaphoreVecWidth = 4;
 constexpr int64_t kMaxSemaphorePollIters = 1LL << 26;
+constexpr int64_t kMmaTile = 16;
 
 __device__ inline void publishEpochToAllRanks(
     int32_t* const* remote_semaphore_ptrs,
@@ -408,6 +410,319 @@ __global__ void fusedStagedMultimemKernel(
   }
 }
 
+__global__ void fusedNaiveFusedTmaKernel(
+    const __half* const* a_remote_shards,
+    const __half* b_full,
+    __half* c_out,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank) {
+#if __CUDA_ARCH__ >= 900
+  if (threadIdx.x >= warpSize || threadIdx.y != 0 || threadIdx.z != 0) {
+    return;
+  }
+  const int lane = static_cast<int>(threadIdx.x);
+  const int64_t row_base = static_cast<int64_t>(blockIdx.y) * kMmaTile;
+  const int64_t col_base = static_cast<int64_t>(blockIdx.x) * kMmaTile;
+  if (row_base + kMmaTile > m || col_base + kMmaTile > n || k % kMmaTile != 0) {
+    return;
+  }
+
+  __shared__ __half a_tile[kMmaTile * kMmaTile];
+  __shared__ __half b_tile[kMmaTile * kMmaTile];
+  using namespace nvcuda;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc_frag;
+  wmma::fill_fragment(acc_frag, 0.0f);
+
+  for (int64_t kk0 = 0; kk0 < k; kk0 += kMmaTile) {
+    for (int64_t idx = lane; idx < kMmaTile * kMmaTile; idx += warpSize) {
+      const int64_t r = idx / kMmaTile;
+      const int64_t c = idx % kMmaTile;
+      const int64_t row = row_base + r;
+      const int64_t owner_rank = row / m_per_rank;
+      const int64_t local_row = row - owner_rank * m_per_rank;
+      const __half* a_local = a_remote_shards[owner_rank];
+      a_tile[idx] = a_local[local_row * k + (kk0 + c)];
+      b_tile[idx] = b_full[(kk0 + r) * n + (col_base + c)];
+    }
+    __syncwarp();
+
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> b_frag;
+    wmma::load_matrix_sync(a_frag, a_tile, kMmaTile);
+    wmma::load_matrix_sync(b_frag, b_tile, kMmaTile);
+    wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
+    __syncwarp();
+  }
+
+  __shared__ float c_tile[kMmaTile * kMmaTile];
+  wmma::store_matrix_sync(c_tile, acc_frag, kMmaTile, wmma::mem_row_major);
+  __syncwarp();
+  for (int64_t idx = lane; idx < kMmaTile * kMmaTile; idx += warpSize) {
+    const int64_t r = idx / kMmaTile;
+    const int64_t c = idx % kMmaTile;
+    c_out[(row_base + r) * n + (col_base + c)] = __float2half(c_tile[idx]);
+  }
+#else
+  (void)a_remote_shards;
+  (void)b_full;
+  (void)c_out;
+  (void)m;
+  (void)n;
+  (void)k;
+  (void)m_per_rank;
+  asm volatile("trap;");
+#endif
+}
+
+__global__ void fusedStagedThreadLoadSynchronizedFusedTmaKernel(
+    const __half* const* a_remote_shards,
+    int32_t* const* ready_semaphore_remote_ptrs,
+    int32_t* ready_semaphore_local,
+    int32_t* const* done_semaphore_remote_ptrs,
+    int32_t* done_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    int32_t launch_epoch_base,
+    const __half* b_full,
+    __half* c_out,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank) {
+#if __CUDA_ARCH__ >= 900
+  if (threadIdx.x >= warpSize || threadIdx.y != 0 || threadIdx.z != 0) {
+    return;
+  }
+  const int lane = static_cast<int>(threadIdx.x);
+  const int64_t row_base = static_cast<int64_t>(blockIdx.y) * kMmaTile;
+  const int64_t col_base = static_cast<int64_t>(blockIdx.x) * kMmaTile;
+  if (row_base + kMmaTile > m || col_base + kMmaTile > n || k % kMmaTile != 0) {
+    return;
+  }
+  const int32_t launch_epoch = launch_epoch_base + 1;
+
+  for (int64_t r = 0; r < kMmaTile; ++r) {
+    const int64_t row = row_base + r;
+    const int64_t owner_rank = row / m_per_rank;
+    if (lane == 0) {
+      if (my_rank == owner_rank) {
+        publishEpochToAllRanks(
+            ready_semaphore_remote_ptrs,
+            ready_semaphore_local,
+            my_rank,
+            row,
+            m,
+            world_size,
+            launch_epoch);
+      }
+    }
+    __syncwarp();
+    if (lane == 0 && my_rank != owner_rank) {
+      waitForEpochFromRank(
+          ready_semaphore_local, row, m, owner_rank, launch_epoch);
+    }
+    __syncwarp();
+  }
+
+  __shared__ __half a_tile[kMmaTile * kMmaTile];
+  __shared__ __half b_tile[kMmaTile * kMmaTile];
+  using namespace nvcuda;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc_frag;
+  wmma::fill_fragment(acc_frag, 0.0f);
+  for (int64_t kk0 = 0; kk0 < k; kk0 += kMmaTile) {
+    for (int64_t idx = lane; idx < kMmaTile * kMmaTile; idx += warpSize) {
+      const int64_t r = idx / kMmaTile;
+      const int64_t c = idx % kMmaTile;
+      const int64_t row = row_base + r;
+      const int64_t owner_rank = row / m_per_rank;
+      const int64_t local_row = row - owner_rank * m_per_rank;
+      const __half* a_local = a_remote_shards[owner_rank];
+      a_tile[idx] = a_local[local_row * k + (kk0 + c)];
+      b_tile[idx] = b_full[(kk0 + r) * n + (col_base + c)];
+    }
+    __syncwarp();
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> b_frag;
+    wmma::load_matrix_sync(a_frag, a_tile, kMmaTile);
+    wmma::load_matrix_sync(b_frag, b_tile, kMmaTile);
+    wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
+    __syncwarp();
+  }
+
+  __shared__ float c_tile[kMmaTile * kMmaTile];
+  wmma::store_matrix_sync(c_tile, acc_frag, kMmaTile, wmma::mem_row_major);
+  __syncwarp();
+  for (int64_t idx = lane; idx < kMmaTile * kMmaTile; idx += warpSize) {
+    const int64_t r = idx / kMmaTile;
+    const int64_t c = idx % kMmaTile;
+    c_out[(row_base + r) * n + (col_base + c)] = __float2half(c_tile[idx]);
+  }
+  __syncwarp();
+
+  for (int64_t r = 0; r < kMmaTile; ++r) {
+    const int64_t row = row_base + r;
+    const int64_t owner_rank = row / m_per_rank;
+    if (lane == 0) {
+      if (my_rank == owner_rank) {
+        setLocalEpoch(done_semaphore_local, my_rank, row, m, launch_epoch);
+      } else {
+        publishEpochToRank(
+            done_semaphore_remote_ptrs[owner_rank],
+            my_rank,
+            row,
+            m,
+            launch_epoch);
+      }
+    }
+    __syncwarp();
+    if (lane == 0 && my_rank == owner_rank) {
+      waitForEpochFromAllRanks(
+          done_semaphore_local, row, m, world_size, launch_epoch);
+    }
+    __syncwarp();
+  }
+#else
+  (void)a_remote_shards;
+  (void)ready_semaphore_remote_ptrs;
+  (void)ready_semaphore_local;
+  (void)done_semaphore_remote_ptrs;
+  (void)done_semaphore_local;
+  (void)my_rank;
+  (void)world_size;
+  (void)launch_epoch_base;
+  (void)b_full;
+  (void)c_out;
+  (void)m;
+  (void)n;
+  (void)k;
+  (void)m_per_rank;
+  asm volatile("trap;");
+#endif
+}
+
+__global__ void fusedStagedMultimemFusedTmaKernel(
+    const __half* const* a_remote_shards,
+    __half* a_gathered_multicast,
+    int32_t* const* stage_semaphore_remote_ptrs,
+    int32_t* stage_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    int32_t launch_epoch_base,
+    const __half* b_full,
+    __half* c_out,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank) {
+#if __CUDA_ARCH__ >= 900
+  if (threadIdx.x >= warpSize || threadIdx.y != 0 || threadIdx.z != 0) {
+    return;
+  }
+  const int lane = static_cast<int>(threadIdx.x);
+  const int64_t row_base = static_cast<int64_t>(blockIdx.y) * kMmaTile;
+  const int64_t col_base = static_cast<int64_t>(blockIdx.x) * kMmaTile;
+  if (row_base + kMmaTile > m || col_base + kMmaTile > n || k % kMmaTile != 0) {
+    return;
+  }
+
+  constexpr int64_t vec_elems = 8;
+  for (int64_t r = 0; r < kMmaTile; ++r) {
+    const int64_t row = row_base + r;
+    const int64_t owner_rank = row / m_per_rank;
+    const int64_t local_row = row - owner_rank * m_per_rank;
+    const __half* a_local = a_remote_shards[owner_rank];
+    __half* a_row_stage = a_gathered_multicast + row * k;
+    if (my_rank == owner_rank) {
+      const int64_t n_vec = k / vec_elems;
+      for (int64_t vec_i = lane; vec_i < n_vec; vec_i += warpSize) {
+        const uint4 val =
+            reinterpret_cast<const uint4*>(a_local + local_row * k)[vec_i];
+        asm volatile("multimem.st.global.v4.f32 [%0], {%1, %2, %3, %4};"
+                     :
+                     : "l"((void*)(a_row_stage + vec_i * vec_elems)),
+                       "f"(__int_as_float(static_cast<int>(val.x))),
+                       "f"(__int_as_float(static_cast<int>(val.y))),
+                       "f"(__int_as_float(static_cast<int>(val.z))),
+                       "f"(__int_as_float(static_cast<int>(val.w)))
+                     : "memory");
+      }
+      for (int64_t kk = (k / vec_elems) * vec_elems + lane; kk < k;
+           kk += warpSize) {
+        a_row_stage[kk] = a_local[local_row * k + kk];
+      }
+    }
+    __syncwarp();
+
+    const int32_t launch_epoch = launch_epoch_base + 1;
+    if (lane == 0) {
+      if (my_rank == owner_rank) {
+        publishEpochToAllRanks(
+            stage_semaphore_remote_ptrs,
+            stage_semaphore_local,
+            my_rank,
+            row,
+            m,
+            world_size,
+            launch_epoch);
+      }
+    }
+    __syncwarp();
+    if (lane == 0 && my_rank != owner_rank) {
+      waitForEpochFromRank(
+          stage_semaphore_local, row, m, owner_rank, launch_epoch);
+    }
+    __syncwarp();
+  }
+
+  __shared__ __half a_tile[kMmaTile * kMmaTile];
+  __shared__ __half b_tile[kMmaTile * kMmaTile];
+  using namespace nvcuda;
+  wmma::fragment<wmma::accumulator, 16, 16, 16, float> acc_frag;
+  wmma::fill_fragment(acc_frag, 0.0f);
+  for (int64_t kk0 = 0; kk0 < k; kk0 += kMmaTile) {
+    for (int64_t idx = lane; idx < kMmaTile * kMmaTile; idx += warpSize) {
+      const int64_t r = idx / kMmaTile;
+      const int64_t c = idx % kMmaTile;
+      const int64_t row = row_base + r;
+      a_tile[idx] = a_gathered_multicast[row * k + (kk0 + c)];
+      b_tile[idx] = b_full[(kk0 + r) * n + (col_base + c)];
+    }
+    __syncwarp();
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::row_major> b_frag;
+    wmma::load_matrix_sync(a_frag, a_tile, kMmaTile);
+    wmma::load_matrix_sync(b_frag, b_tile, kMmaTile);
+    wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
+    __syncwarp();
+  }
+  __shared__ float c_tile[kMmaTile * kMmaTile];
+  wmma::store_matrix_sync(c_tile, acc_frag, kMmaTile, wmma::mem_row_major);
+  __syncwarp();
+  for (int64_t idx = lane; idx < kMmaTile * kMmaTile; idx += warpSize) {
+    const int64_t r = idx / kMmaTile;
+    const int64_t c = idx % kMmaTile;
+    c_out[(row_base + r) * n + (col_base + c)] = __float2half(c_tile[idx]);
+  }
+#else
+  (void)a_remote_shards;
+  (void)a_gathered_multicast;
+  (void)stage_semaphore_remote_ptrs;
+  (void)stage_semaphore_local;
+  (void)my_rank;
+  (void)world_size;
+  (void)launch_epoch_base;
+  (void)b_full;
+  (void)c_out;
+  (void)m;
+  (void)n;
+  (void)k;
+  (void)m_per_rank;
+  asm volatile("trap;");
+#endif
+}
+
 } // namespace
 
 double timeFusedRemoteMatmulMs(
@@ -684,6 +999,127 @@ double timeSeparatedAllgatherMatmulMultimemCutlassMs(
       b_full,
       c_out,
       launch_comm_once);
+}
+
+double timeNaiveRemoteMatmulFusedTmaMs(
+    const __half* const* a_remote_shards,
+    const __half* b_full,
+    __half* c_out,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream) {
+  NVF_CHECK(
+      m % kMmaTile == 0 && n % kMmaTile == 0 && k % kMmaTile == 0,
+      "FusedTma kernels require M,N,K divisible by 16.");
+  const dim3 block(32);
+  const dim3 grid(
+      static_cast<uint32_t>(n / kMmaTile),
+      static_cast<uint32_t>(m / kMmaTile));
+  auto launch_once = [&]() {
+    fusedNaiveFusedTmaKernel<<<grid, block, 0, stream>>>(
+        a_remote_shards, b_full, c_out, m, n, k, m_per_rank);
+  };
+  return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
+}
+
+double timeSeparatedAllgatherMatmulThreadLoadSynchronizedFusedTmaMs(
+    const __half* const* a_remote_shards,
+    int32_t* const* ready_semaphore_remote_ptrs,
+    int32_t* ready_semaphore_local,
+    int32_t* const* done_semaphore_remote_ptrs,
+    int32_t* done_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    const __half* b_full,
+    __half* c_out,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream) {
+  NVF_CHECK(
+      m % kMmaTile == 0 && n % kMmaTile == 0 && k % kMmaTile == 0,
+      "FusedTma kernels require M,N,K divisible by 16.");
+  const dim3 block(32);
+  const dim3 grid(
+      static_cast<uint32_t>(n / kMmaTile),
+      static_cast<uint32_t>(m / kMmaTile));
+  int64_t launch_epoch_base = 0;
+  auto launch_once = [&]() {
+    NVF_CHECK(
+        launch_epoch_base < std::numeric_limits<int32_t>::max(),
+        "FusedTma threadload semaphore epoch overflow.");
+    fusedStagedThreadLoadSynchronizedFusedTmaKernel<<<grid, block, 0, stream>>>(
+        a_remote_shards,
+        ready_semaphore_remote_ptrs,
+        ready_semaphore_local,
+        done_semaphore_remote_ptrs,
+        done_semaphore_local,
+        my_rank,
+        world_size,
+        static_cast<int32_t>(launch_epoch_base),
+        b_full,
+        c_out,
+        m,
+        n,
+        k,
+        m_per_rank);
+    ++launch_epoch_base;
+  };
+  return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
+}
+
+double timeSeparatedAllgatherMatmulMultimemFusedTmaMs(
+    const __half* const* a_remote_shards,
+    __half* a_gathered_multicast,
+    int32_t* const* stage_semaphore_remote_ptrs,
+    int32_t* stage_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    const __half* b_full,
+    __half* c_out,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream) {
+  NVF_CHECK(
+      m % kMmaTile == 0 && n % kMmaTile == 0 && k % kMmaTile == 0,
+      "FusedTma kernels require M,N,K divisible by 16.");
+  const dim3 block(32);
+  const dim3 grid(
+      static_cast<uint32_t>(n / kMmaTile),
+      static_cast<uint32_t>(m / kMmaTile));
+  int64_t launch_epoch_base = 0;
+  auto launch_once = [&]() {
+    NVF_CHECK(
+        launch_epoch_base < std::numeric_limits<int32_t>::max(),
+        "FusedTma multimem semaphore epoch overflow.");
+    fusedStagedMultimemFusedTmaKernel<<<grid, block, 0, stream>>>(
+        a_remote_shards,
+        a_gathered_multicast,
+        stage_semaphore_remote_ptrs,
+        stage_semaphore_local,
+        my_rank,
+        world_size,
+        static_cast<int32_t>(launch_epoch_base),
+        b_full,
+        c_out,
+        m,
+        n,
+        k,
+        m_per_rank);
+    ++launch_epoch_base;
+  };
+  return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
 } // namespace nvfuser
