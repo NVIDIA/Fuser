@@ -301,11 +301,17 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
     return;
   }
 
-  // Let the allocation domain follow the logical domain. When a normalization
-  // kernel is segmented, prefer reduction + pointwise over reduction +
-  // transpose. See SmemPersistentNotSupportedIn3DReduction.
-  std::vector<IterDomain*> out_allocation = out->getLogicalDomain();
-  std::vector<std::optional<bool>> out_contiguity = out->getContiguity();
+  // Put new, broadcast dimensions to the corresponding positions in the
+  // broadcast dimension. So allocation stays close to logical domain.
+  std::vector<IterDomain*> out_allocation = out_layout->allocation_domain();
+  std::vector<std::optional<bool>> out_contiguity = out_layout->contiguity();
+  const std::vector<IterDomain*> out_logical = out->getLogicalDomain();
+  for (const auto i : arange(out_logical.size())) {
+    if (bcast->isBroadcastDim(i)) {
+      out_allocation.insert(out_allocation.begin() + i, out_logical[i]);
+      out_contiguity.insert(out_contiguity.begin() + i, std::nullopt);
+    }
+  }
 
   aliasIfCompliant(
       out, in, Layout(std::move(out_allocation), std::move(out_contiguity)));
