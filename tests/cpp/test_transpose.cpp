@@ -1507,7 +1507,7 @@ TEST_F(TransposeTest, TmaTransposeSimpleDebug) {
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
 
-  int dim0 = 32, dim1 = 32;
+  int dim0 = 64, dim1 = 32;
   auto input = makeContigTensor(2);
   fusion.addInput(input);
   auto output = transpose(input, 0, 1);

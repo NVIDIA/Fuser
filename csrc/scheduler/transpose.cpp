@@ -879,6 +879,16 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   return tparams;
 }
 
+// Each thread loads a row fragment with s x uv elements from smem and unrolled
+// write as a column fragment to global memory. Each warp loads 32 columns x (s
+// x uv) rows elements from smem and write as 32 rows x (s x uv) elements to
+// global memory. Each block loads tile0 x tile1 elements from global memory and
+// write as tile1 x tile0 elements to global memory. tile0 = 32 x tile0_warps
+// tile1 = s x uv x tile1_warps
+// For example, tile0 = 64, tile1 = 32
+// set s = 2, uv = 4, each thread loads a row fragment with 2 x 4 = 8 elements.
+// we need tile0_warps = 2 and tile1_warps = 4.
+// tile1 must be 128 bytes to use TMA 128B swizzle.
 void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   FusionGuard fg(fusion);
 
@@ -995,9 +1005,38 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   // Assume input [I0, I1] is transposed to output [I1, I0]
   // input tiling: [I0, I1]  -> [..., tile_0, tile_1]
   // output tiling: [I1, I0] -> [..., tile_1, tile_0]
-  int64_t tile_0 = 64, tile_1 = 32, unroll_vect = 4, bdimx = 256;
-  int64_t factor_1 = tile_1 / unroll_vect * tile_0 / bdimx;
-  int64_t warps_per_row = tile_1 / unroll_vect;
+  const int64_t elements_per_thread = 8; // heuristics
+  int64_t tile_0 = 64, tile_1 = 32, unroll_vect = 4;
+
+  for (auto input_smem_cache : input_smem_tvs) {
+    // input tiling: [I0, I1]
+    input_smem_cache->split(1, tile_1);
+    input_smem_cache->split(0, tile_0);
+    // [I0/tile_0, tile_0, I1/tile_1, tile_1]
+    input_smem_cache->reorder({{-2, 1}});
+    // [I0/tile_0, I1/tile_1, tile_0, tile_1]
+    input_smem_cache->merge(0);
+    // [I0/tile_0 * I1/tile_1, tile_0, tile_1]
+
+    // with 128B swizzle, s = 128B / 16B = 8, tile_1 * dtypeBytes = 128B
+    constexpr int64_t swizzle_bytes = 128;
+    int64_t number_of_16B_chunks = swizzle_bytes / 16;
+    int64_t elements_per_16B_chunk =
+        16 / dataTypeSizeByte(input_smem_cache->getDataType().value());
+    input_smem_cache->split(2, elements_per_16B_chunk);
+    input_smem_cache->split(1, number_of_16B_chunks);
+    // [I0/tile_0 * I1/tile_1, tile_0 / s, s, s, 16B]
+    input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
+
+    input_smem_cache->axis(0)->parallelize(ParallelType::BIDx);
+    input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
+    input_smem_cache->setAllocationDomain(
+        input_smem_cache->getLoopDomain(), true);
+  }
+
   // [I1, I0]
   output_reference->split(1, tile_0);
   output_reference->split(0, tile_1);
@@ -1006,31 +1045,18 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   // [I0/tile_0, I1/tile_1, tile_1, tile_0]
   output_reference->merge(0);
   // [I0/tile_0 * I1/tile_1, tile_1, tile_0]
-  output_reference->split(1, unroll_vect);
+  output_reference->split(1, elements_per_thread);
+  // [I0/tile_0 * I1/tile_1, tile_1/elements_per_thread, elements_per_thread,
+  // tile_0]
+  output_reference->split(2, unroll_vect);
+  // [I0/tile_0 * I1/tile_1, tile_1/elements_per_thread, elements_per_thread/uv,
+  // uv, tile_0]
+  output_reference->merge(1, 4);
+  // [I0/tile_0 * I1/tile_1, tile_0*tile_1/elements_per_thread,
+  // elements_per_thread/uv, uv]
   output_reference->axis(0)->parallelize(ParallelType::BIDx);
-  // [BIDx, tile_1/unroll_vect, unroll_vect, tile_0]
-
-  TransformPropagator propagator(output_reference);
-  MaxLogicalDomainInfoSpanningTree entire_dag(output_reference);
-  entire_dag.traverse(&propagator);
-  scheduler_utils::parallelizeAllLike(
-      output_reference,
-      /*selected_tvs=*/{},
-      /*selected_parallel_types=*/{},
-      /*propagate_padding=*/true,
-      /*parallelize_inputs_on_did=*/true);
-
-  {
-    std::cout << "output_reference before merge: "
-              << output_reference->toString() << std::endl;
-
-    output_reference->split(1, factor_1);
-    // [BIDx, tile_1/uv/2, 2, uv, tile_0]
-    output_reference->merge(1, 4);
-    // [BIDx, tile_1/uv/2 * tile_0, 2, uv]
-    output_reference->axis(1)->parallelize(ParallelType::TIDx);
-    output_reference->axis(3)->parallelize(ParallelType::Unroll);
-  }
+  output_reference->axis(1)->parallelize(ParallelType::TIDx);
+  output_reference->axis(3)->parallelize(ParallelType::Unroll);
 
   {
     std::unordered_set<TensorView*> except_tvs;
@@ -1043,40 +1069,10 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
     entire_dag_except1.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(
         output_reference,
-        /*selected_tvs=*/{},
+        /*selected_tvs=*/{all_tvs_except1},
         /*selected_parallel_types=*/{},
         /*propagate_padding=*/true,
         /*parallelize_inputs_on_did=*/true);
-  }
-
-  for (auto input_smem_cache : input_smem_tvs) {
-    // [BIDx, tile_1 / unroll_vect, unroll_vect, tile_0]
-    input_smem_cache->reorder({{-1, 1}});
-    // [BIDx, tile_0, tile_1 / unroll_vect, unroll_vect]
-    input_smem_cache->split(1, warps_per_row);
-    // [BIDx, tile_0/warps_per_row, warps_per_row, tile_1 / unroll_vect,
-    // unroll_vect]
-
-    std::cout << "input_smem_cache before swizzle: "
-              << input_smem_cache->toString() << std::endl;
-
-    // Swizzle the two 8's at positions 2 and 3
-    // Both 8's come from splits (not merges), which is required
-    input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
-    // [BIDx, 4, 8, 8', 4']
-
-    // Set allocation domain to match the swizzled layout
-    std::cout << "input_smem_cache: " << input_smem_cache->toString()
-              << std::endl;
-    input_smem_cache->setAllocationDomain(
-        input_smem_cache->getLoopDomain(), true);
-
-    // Parallelize all dimensions as Bulk for TMA
-    input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
-    input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
-    input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
-    input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
-    // [BIDx, Bulk, Bulk, Bulk, Bulk]
   }
 
   for (auto input_smem_cache : input_smem_tvs) {
