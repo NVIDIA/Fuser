@@ -15,27 +15,27 @@ import setuptools.command.build_ext
 class BuildConfig:
     cmake_only: bool = False
     build_setup: bool = True
-    no_python: bool = False
-    no_cutlass: bool = False
-    no_test: bool = False
-    no_benchmark: bool = False
-    no_ninja: bool = False
-    build_with_ucc: bool = False
-    build_with_asan: bool = False
-    build_without_distributed: bool = False
-    explicit_error_check: bool = False
+    no_python: bool | None = None
+    no_cutlass: bool | None = None
+    no_test: bool | None = None
+    no_benchmark: bool | None = None
+    no_ninja: bool | None = None
+    build_with_ucc: bool | None = None
+    build_with_asan: bool | None = None
+    build_without_distributed: bool | None = None
+    explicit_error_check: bool | None = None
     overwrite_version: bool = False
-    version_tag: str = None
-    build_type: str = "Release"
+    version_tag: str = ""
+    build_type: str | None = None
     wheel_name: str = "nvfuser"
-    nvmmh_include_dir: str = ""
+    nvmmh_include_dir: str | None = None
     build_dir: str = ""
     install_dir: str = ""
     install_requires: list = field(default_factory=list)
     extras_require: dict = field(default_factory=dict)
-    cpp_standard: int = 20
+    cpp_standard: int | None = None
     cutlass_max_jobs: int | None = None
-    enable_pch: bool = False
+    enable_pch: bool | None = None
 
 
 def check_env_flag_bool_default(name: str, default: str = "") -> bool:
@@ -51,6 +51,9 @@ def get_env_flag_bool(name: str) -> bool:
 
 # Override BuildConfig with environment variables. Only change if variable
 # exists. Do not use default to override argparse.
+#
+# `os.getenv()` returns None if the environment variable is not set. So many of
+# the following `if in os.environ` checks can be avoided.
 def override_build_config_from_env(config):
     # Command line arguments don't work on PEP517 builds and will be silently ignored,
     # so we need to pass those options as environment variables instead.
@@ -245,7 +248,7 @@ def cmake(config, relative_path):
     # make build directories
     cwd = os.path.dirname(os.path.abspath(__file__))
     cmake_build_dir = (
-        os.path.join(cwd, "build") if not config.build_dir else config.build_dir
+        config.build_dir if config.build_dir else os.path.join(cwd, "build")
     )
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
@@ -277,39 +280,52 @@ def cmake(config, relative_path):
         return "ON" if flag else "OFF"
 
     # generate cmake directory
-    #
-    # cmake options are sticky: when -DFOO=... isn't specified, cmake's option
-    # FOO prefers the cached value over the default value. This behavior
-    # confused me several times (e.g.
-    # https://github.com/NVIDIA/Fuser/pull/4319) when I ran `pip install -e`,
-    # so I chose to always pass these options even for default values. Doing so
-    # explicitly overrides cached values and ensures consistent behavior across
-    # clean and dirty builds.
+    # Only set cmake variables when the corresponding BuildConfig field is not None.
+    # When None, the option is omitted and cmake uses its default/cached value.
     cmd_str = [
         get_cmake_bin(),
         pytorch_cmake_config,
-        f"-DCMAKE_BUILD_TYPE={config.build_type}",
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
-        f"-DNVFUSER_CPP_STANDARD={config.cpp_standard}",
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
-        f"-DNVFUSER_BUILD_WITH_ASAN={on_or_off(config.build_with_asan)}",
-        f"-DNVFUSER_STANDALONE_BUILD_WITH_UCC={on_or_off(config.build_with_ucc)}",
-        f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
-        f"-DBUILD_TEST={on_or_off(not config.no_test)}",
-        f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
-        f"-DNVFUSER_DISABLE_CUTLASS={on_or_off(config.no_cutlass)}",
         f"-DPython_EXECUTABLE={sys.executable}",
-        f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
-        f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
-        f"-DNVFUSER_USE_PCH={on_or_off(config.enable_pch)}",
         "-B",
         cmake_build_dir,
     ]
-    if config.cutlass_max_jobs:
+    if config.build_type is not None:
+        cmd_str.append(f"-DCMAKE_BUILD_TYPE={config.build_type}")
+    if config.cpp_standard is not None:
+        cmd_str.append(f"-DNVFUSER_CPP_STANDARD={config.cpp_standard}")
+    if config.build_with_asan is not None:
+        cmd_str.append(f"-DNVFUSER_BUILD_WITH_ASAN={on_or_off(config.build_with_asan)}")
+    if config.build_with_ucc is not None:
+        cmd_str.append(
+            f"-DNVFUSER_STANDALONE_BUILD_WITH_UCC={on_or_off(config.build_with_ucc)}"
+        )
+    if config.explicit_error_check is not None:
+        cmd_str.append(
+            f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}"
+        )
+    if config.no_test is not None:
+        cmd_str.append(f"-DBUILD_TEST={on_or_off(not config.no_test)}")
+    if config.no_python is not None:
+        cmd_str.append(f"-DBUILD_PYTHON={on_or_off(not config.no_python)}")
+    if config.no_cutlass is not None:
+        cmd_str.append(f"-DNVFUSER_DISABLE_CUTLASS={on_or_off(config.no_cutlass)}")
+    if config.no_benchmark is not None:
+        cmd_str.append(
+            f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}"
+        )
+    if config.build_without_distributed is not None:
+        cmd_str.append(
+            f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}"
+        )
+    if config.enable_pch is not None:
+        cmd_str.append(f"-DNVFUSER_USE_PCH={on_or_off(config.enable_pch)}")
+    if config.cutlass_max_jobs is not None:
         cmd_str.append(f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}")
-    if config.nvmmh_include_dir:
+    if config.nvmmh_include_dir is not None:
         cmd_str.append(f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}")
-    if not config.no_ninja:
+    if config.no_ninja is not None and not config.no_ninja:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
     cmd_str.append(relative_path)
