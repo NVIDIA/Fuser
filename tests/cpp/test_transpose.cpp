@@ -1371,7 +1371,7 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
                         .get()
                         ->scheduler_type;
   NVF_CHECK(
-      heuristic1 == SchedulerType::Transpose,
+      heuristic1 == SchedulerType::PointWise,
       "Unexpected heuristic: ",
       heuristic1);
   testValidate(fusion_ptr, cg_outputs, {t0, t1}, __LINE__, __FILE__);
