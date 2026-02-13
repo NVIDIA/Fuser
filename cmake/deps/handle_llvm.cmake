@@ -10,8 +10,6 @@ macro(handle_llvm)
   message("")
   message("Finding LLVM...")
 
-  # Pass the minimum version so CMake skips incompatible LLVM installations
-  # (e.g. LLVM 17 bundled inside PyTorch) during the search.
   find_package(LLVM ${NVFUSER_REQUIREMENT_LLVM_VERSION_MIN} ${MAYBE_REQUIRED})
 
   # Use common status function

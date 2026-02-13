@@ -20,9 +20,7 @@ macro(handle_torch)
     )
 
     if(TORCH_FIND_RESULT EQUAL 0)
-      # Temporarily add Torch path for find_package, then remove it so
-      # subsequent find_package calls (e.g. LLVM) don't pick up libraries
-      # bundled inside PyTorch (such as its internal LLVM 17).
+      # Temporarily add Torch path for find_package
       list(APPEND CMAKE_PREFIX_PATH "${TORCH_CMAKE_PATH}")
 
       # Direct find_package call
