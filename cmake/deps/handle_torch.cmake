@@ -20,11 +20,16 @@ macro(handle_torch)
     )
 
     if(TORCH_FIND_RESULT EQUAL 0)
-      # Setup environment for Torch find_package
+      # Temporarily add Torch path for find_package, then remove it so
+      # subsequent find_package calls (e.g. LLVM) don't pick up libraries
+      # bundled inside PyTorch (such as its internal LLVM 17).
       list(APPEND CMAKE_PREFIX_PATH "${TORCH_CMAKE_PATH}")
 
       # Direct find_package call
       find_package(Torch ${MAYBE_REQUIRED})
+
+      # Remove Torch path to avoid polluting other dependency searches
+      list(REMOVE_ITEM CMAKE_PREFIX_PATH "${TORCH_CMAKE_PATH}")
 
     else()
       set(Torch_FOUND FALSE)
