@@ -255,21 +255,8 @@ def cmake(config, relative_path):
     )
 
     from tools.gen_nvfuser_version import (
-        get_pytorch_cmake_prefix,
         get_pytorch_use_distributed,
     )
-
-    # this is used to suppress import error.
-    # so we can get the right pytorch prefix for cmake
-    import logging
-
-    logger = logging.getLogger("nvfuser")
-    logger_level = logger.getEffectiveLevel()
-    logger.setLevel(logging.CRITICAL)
-
-    pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
-
-    logger.setLevel(logger_level)
 
     pytorch_use_distributed = get_pytorch_use_distributed()
 
@@ -287,7 +274,6 @@ def cmake(config, relative_path):
     # clean and dirty builds.
     cmd_str = [
         get_cmake_bin(),
-        pytorch_cmake_config,
         f"-DCMAKE_BUILD_TYPE={config.build_type}",
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={config.cpp_standard}",

@@ -20,11 +20,14 @@ macro(handle_torch)
     )
 
     if(TORCH_FIND_RESULT EQUAL 0)
-      # Setup environment for Torch find_package
+      # Temporarily add Torch path for find_package
       list(APPEND CMAKE_PREFIX_PATH "${TORCH_CMAKE_PATH}")
 
       # Direct find_package call
       find_package(Torch ${MAYBE_REQUIRED})
+
+      # Remove Torch path to avoid polluting other dependency searches
+      list(REMOVE_ITEM CMAKE_PREFIX_PATH "${TORCH_CMAKE_PATH}")
 
     else()
       set(Torch_FOUND FALSE)
