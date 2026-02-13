@@ -495,7 +495,7 @@ def test_column_parallel_linear_forward(multidevice_test):
     broadcast_events = [
         event for event in prof.events() if "ncclDevKernel_Broadcast" in event.name
     ]
-    assert len(broadcast_events) == d
+    assert len(broadcast_events) == (d if d > 1 else 0)
 
 
 @pytest.mark.mpi
