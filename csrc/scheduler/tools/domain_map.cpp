@@ -540,8 +540,14 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   const auto& ref1_loop = ref1->getMaybeAllocationDomain();
   const auto& ref2_loop = ref2->getMaybeAllocationDomain();
   const auto& ca_map = domain_map.getComputeAtMap();
+
+  // Filter out reduction domains before comparing
+  auto is_not_reduction = [](IterDomain* id) { return !id->isReduction(); };
+  auto ref1_filtered = ref1_loop | std::views::filter(is_not_reduction);
+  auto ref2_filtered = ref2_loop | std::views::filter(is_not_reduction);
+
   const bool all_mapped = std::ranges::equal(
-      ref1_loop, ref2_loop, [&](IterDomain* id1, IterDomain* id2) {
+      ref1_filtered, ref2_filtered, [&](IterDomain* id1, IterDomain* id2) {
         return ca_map.areMapped(id1, id2, IdMappingMode::PERMISSIVE);
       });
   if (all_mapped) {
@@ -549,9 +555,9 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
     // any_bcast
     const bool any_bcast =
         std::ranges::any_of(
-            ref1_loop, [](IterDomain* id) { return id->isBroadcast(); }) ||
+            ref1_filtered, [](IterDomain* id) { return id->isBroadcast(); }) ||
         std::ranges::any_of(
-            ref2_loop, [](IterDomain* id) { return id->isBroadcast(); });
+            ref2_filtered, [](IterDomain* id) { return id->isBroadcast(); });
     NVF_ERROR(
         any_bcast,
         "all_mapped implies any_bcast, ca_map:\n",
