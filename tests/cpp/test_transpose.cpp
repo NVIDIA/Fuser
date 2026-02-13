@@ -5,8 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/ops/range.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+#include <iomanip>
 
 #include "exceptions.h"
 #include "ops/all_ops.h"
@@ -1477,9 +1479,12 @@ TEST_F(TransposeTest, NoTransposeMaverick17B) {
 }
 
 // case             time,ms    GB/s       SOL%
-// nonTMA:          0.660      6505.929   82.06
+// nonTMA, 32x64:   0.660      6505.929   82.06
+// nonTMA, 32x32:   0.693      6193.685   78.12
 // TMA load & store:1.073      4003.142   50.49
 // TMA load only:   0.902      4758.967   60.03
+// TMA load 32x32:  0.702      6117.743   77.17
+// TMA load 64x32:  0.660      6505.289   82.05
 TEST_F(TransposeTest, TmaTransposeSimple) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -1494,6 +1499,39 @@ TEST_F(TransposeTest, TmaTransposeSimple) {
   auto input0 = at::randn({16384, 32768}, options);
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({input0});
+  testValidate(executor_cache.fusion(), outputs, {input0}, __LINE__, __FILE__);
+}
+
+TEST_F(TransposeTest, TmaTransposeSimpleDebug) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  int dim0 = 32, dim1 = 32;
+  auto input = makeContigTensor(2);
+  fusion.addInput(input);
+  auto output = transpose(input, 0, 1);
+  fusion.addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input0 = at::arange(dim0 * dim1, options).reshape({dim0, dim1});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input0});
+  auto print2d = [](const at::Tensor& t) {
+    at::Tensor t_cpu = t.cpu();
+    const int64_t rows = t_cpu.size(0), cols = t_cpu.size(1);
+    const int width = 5; // column width for values 0..dim0*dim1-1
+    for (int64_t i = 0; i < rows; i++) {
+      for (int64_t j = 0; j < cols; j++) {
+        std::cout << std::setw(width) << (int)t_cpu[i][j].item<float>();
+      }
+      std::cout << std::endl;
+    }
+  };
+  std::cout << "input0:" << std::endl;
+  print2d(input0);
+  std::cout << "output:" << std::endl;
+  print2d(outputs[0].as<at::Tensor>());
   testValidate(executor_cache.fusion(), outputs, {input0}, __LINE__, __FILE__);
 }
 

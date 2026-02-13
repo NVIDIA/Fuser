@@ -995,7 +995,8 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   // Assume input [I0, I1] is transposed to output [I1, I0]
   // input tiling: [I0, I1]  -> [..., tile_0, tile_1]
   // output tiling: [I1, I0] -> [..., tile_1, tile_0]
-  int64_t tile_0 = 32, tile_1 = 32, unroll_vect = 4;
+  int64_t tile_0 = 64, tile_1 = 32, unroll_vect = 4, bdimx = 256;
+  int64_t factor_1 = tile_1 / unroll_vect * tile_0 / bdimx;
   int64_t warps_per_row = tile_1 / unroll_vect;
   // [I1, I0]
   output_reference->split(1, tile_0);
@@ -1022,10 +1023,13 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   {
     std::cout << "output_reference before merge: "
               << output_reference->toString() << std::endl;
-    output_reference->merge(1, 3);
-    // [BIDx, tile_1/unroll_vect * tile_0, unroll_vect]
+
+    output_reference->split(1, factor_1);
+    // [BIDx, tile_1/uv/2, 2, uv, tile_0]
+    output_reference->merge(1, 4);
+    // [BIDx, tile_1/uv/2 * tile_0, 2, uv]
     output_reference->axis(1)->parallelize(ParallelType::TIDx);
-    output_reference->axis(2)->parallelize(ParallelType::Unroll);
+    output_reference->axis(3)->parallelize(ParallelType::Unroll);
   }
 
   {
@@ -1081,6 +1085,8 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
       consumer->axis(-1)->parallelize(ParallelType::Vectorize);
     }
   }
+
+  inlineMost();
 
   // fusion->print();
 }
@@ -1649,6 +1655,7 @@ bool TransposeScheduler::canScheduleRunTime(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("TransposeScheduler::canScheduleRunTime");
+  return true;
 
   auto reason =
       getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
