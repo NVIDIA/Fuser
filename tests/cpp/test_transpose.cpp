@@ -1485,6 +1485,7 @@ TEST_F(TransposeTest, NoTransposeMaverick17B) {
 // TMA load only:   0.902      4758.967   60.03
 // TMA load 32x32:  0.702      6117.743   77.17
 // TMA load 64x32:  0.660      6505.289   82.05
+// TMA ldst 64x32:  0.781      5497.776   69.35
 TEST_F(TransposeTest, TmaTransposeSimple) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());

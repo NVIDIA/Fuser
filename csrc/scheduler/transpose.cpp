@@ -11,6 +11,7 @@
 #include <ATen/cuda/CUDAContext.h>
 
 #include "debug.h"
+#include "exceptions.h"
 #include "instrumentation.h"
 #include "scheduler/debug_utils.h"
 #include "scheduler/reduction_utils.h"
@@ -921,14 +922,15 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
       input_tvs.push_back(tv);
     }
   }
-  auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  auto filtered_output_tvs =
+      ir_utils::filterByType<TensorView>(fusion->outputs());
 
   int64_t max_dims = 0;
   for (auto inp : input_tvs) {
     max_dims = std::max(scheduler_utils::nLogicalDims(inp), max_dims);
   }
 
-  for (auto out : output_tvs) {
+  for (auto out : filtered_output_tvs) {
     max_dims = std::max(scheduler_utils::nLogicalDims(out), max_dims);
   }
 
@@ -956,79 +958,103 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
    */
   std::vector<TensorView*> input_smem_tvs;
   std::vector<TensorView*> output_smem_tvs;
-  std::unordered_set<TensorView*> group2_and_cached_inputs(
-      grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end());
-  for (auto tv : grouped_inputs_outputs[1]) {
-    if (tv->isFusionInput()) {
-      auto existing_cache = ir_utils::consumerTvsOf(tv)[0];
-      if (ir_utils::consumerTvsOf(existing_cache).size() > 1) {
-        auto new_cache = tv->cacheAfter();
-        new_cache->setMemoryType(MemoryType::Shared);
-        input_smem_tvs.push_back(new_cache);
-        std::cout << "input_smem_tvs: " << new_cache->toString() << std::endl;
-        group2_and_cached_inputs.emplace(new_cache);
-      } else {
-        existing_cache->definition()->as<LoadStoreOp>()->setOpType(
-            LoadStoreOpType::CpAsyncBulkTensorTile);
-        existing_cache->setMemoryType(MemoryType::Shared);
-        input_smem_tvs.push_back(existing_cache);
-        std::cout << "input_smem_tvs: " << existing_cache->toString()
-                  << std::endl;
-        group2_and_cached_inputs.emplace(existing_cache);
-      }
-    }
+  std::vector<TensorView*> output_regs_tvs;
+  std::vector<TensorView*> output_tvs;
+  for (const auto& [cached_input, _] : cached_inputs) {
+    cached_input->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
+    cached_input->setMemoryType(MemoryType::Shared);
+    input_smem_tvs.push_back(cached_input);
   }
+
   // set cached outputs of group 2 to shared memory
   bool use_tma_store = false;
-  TensorView* output_reference = nullptr;
+  if (std::getenv("USE_TMA_STORE") != nullptr) {
+    use_tma_store = true;
+  }
   for (const auto& [cached_output, output_idx] : cached_outputs) {
     auto output = fusion->outputs()[output_idx]->as<TensorView>();
-    output_reference = output;
-    if (use_tma_store && group2_and_cached_inputs.count(output) > 0) {
-      output->definition()->as<LoadStoreOp>()->setOpType(
-          LoadStoreOpType::CpAsyncBulkTensorTile);
-      cached_output->setMemoryType(MemoryType::Shared);
-      output_smem_tvs.push_back(cached_output);
-      std::cout << "output_smem_tvs: " << cached_output->toString()
-                << std::endl;
+    output_tvs.push_back(output);
+    if (!use_tma_store) {
+      continue;
     }
+    output->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
+    cached_output->setMemoryType(MemoryType::Shared);
+    output_smem_tvs.push_back(cached_output);
+    output_regs_tvs.push_back(cached_output->cacheBefore());
   }
 
-  TensorView* reference1 =
-      domain_map.findReferenceFor(grouped_inputs_outputs[0]);
-  TensorView* reference2 =
-      domain_map.findReferenceFor(grouped_inputs_outputs[1]);
-
-  std::cout << "reference1: " << reference1->toString() << std::endl;
-  std::cout << "reference2: " << reference2->toString() << std::endl;
-
+  // Tunable paras: tile_0 and chunks per thread
   // Assume input [I0, I1] is transposed to output [I1, I0]
   // input tiling: [I0, I1]  -> [..., tile_0, tile_1]
   // output tiling: [I1, I0] -> [..., tile_1, tile_0]
-  const int64_t elements_per_thread = 8; // heuristics
-  int64_t tile_0 = 64, tile_1 = 32, unroll_vect = 4;
+  constexpr int64_t tma_swizzle_bytes = 128;
+  constexpr int64_t swizzle_chunk_bytes = 16;
+  constexpr int64_t number_of_swizzle_chunks =
+      tma_swizzle_bytes / swizzle_chunk_bytes;
+  const int64_t smem_dtype_bytes =
+      dataTypeSizeByte(input_smem_tvs.at(0)->getDataType().value());
+  const int64_t tile_1 = tma_swizzle_bytes / smem_dtype_bytes;
+  const int64_t elements_per_chunk = swizzle_chunk_bytes / smem_dtype_bytes;
+  int64_t chunks_per_thread = 2;
+  int64_t tile_0 = 64;
+  int64_t n_threads =
+      tile_0 * tile_1 / (chunks_per_thread * elements_per_chunk);
+  std::cout << "n_threads: " << n_threads << std::endl;
 
+  TensorView* ref_tv = use_tma_store ? output_regs_tvs.at(0) : output_tvs.at(0);
+
+  // ======= schedule TMA tiles ==================
+  // use output as reference since all tvs after cached smem inputs are
+  // following the transposed output layout which is [..., tile_1, tile_0], the
+  // original input has a non-transposed layout of [..., tile_0, tile_1] [i1,
+  // i0]
+  ref_tv->split(1, tile_0);
+  ref_tv->split(0, tile_1);
+  // [i1/tile_1, tile_1, i0/tile_0, tile_0]
+  ref_tv->reorder({{-2, 0}});
+  // [i0/tile_0, i1/tile_1, tile_1, tile_0]
+  ref_tv->merge(0);
+  // [i0/tile_0 * i1/tile_1, tile_1, tile_0]
+  ref_tv->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, tile_1, tile_0]
+
+  {
+    TransformPropagator propagator(ref_tv);
+    MaxLogicalDomainInfoSpanningTree entire_dag(ref_tv);
+    entire_dag.traverse(&propagator);
+    scheduler_utils::parallelizeAllLike(
+        ref_tv,
+        /*selected_tvs=*/{},
+        /*selected_parallel_types=*/{},
+        /*propagate_padding=*/true,
+        /*parallelize_inputs_on_did=*/true);
+  }
+  if (use_tma_store) {
+    for (auto output_tv : output_tvs) {
+      output_tv->axis(1)->parallelize(ParallelType::Bulk);
+      output_tv->axis(2)->parallelize(ParallelType::Bulk);
+    }
+    for (auto output_smem_cache : output_smem_tvs) {
+      output_smem_cache->setAllocationDomain(
+          output_smem_cache->getLoopDomain(), true);
+    }
+  }
+  fusion->print();
+
+  // ======= schedule input shared memory with swizzle ==================
   for (auto input_smem_cache : input_smem_tvs) {
-    // input tiling: [I0, I1]
-    input_smem_cache->split(1, tile_1);
-    input_smem_cache->split(0, tile_0);
-    // [I0/tile_0, tile_0, I1/tile_1, tile_1]
-    input_smem_cache->reorder({{-2, 1}});
-    // [I0/tile_0, I1/tile_1, tile_0, tile_1]
-    input_smem_cache->merge(0);
-    // [I0/tile_0 * I1/tile_1, tile_0, tile_1]
-
-    // with 128B swizzle, s = 128B / 16B = 8, tile_1 * dtypeBytes = 128B
-    constexpr int64_t swizzle_bytes = 128;
-    int64_t number_of_16B_chunks = swizzle_bytes / 16;
-    int64_t elements_per_16B_chunk =
-        16 / dataTypeSizeByte(input_smem_cache->getDataType().value());
-    input_smem_cache->split(2, elements_per_16B_chunk);
-    input_smem_cache->split(1, number_of_16B_chunks);
-    // [I0/tile_0 * I1/tile_1, tile_0 / s, s, s, 16B]
+    // after transpose propagation, input_smem_cache has domains:
+    // [BIDx, tile_1, tile_0]
+    // reorder to put its innermost dimension tile_1 to the last dimension
+    input_smem_cache->reorder({{-1, -2}});
+    // [BIDx, tile_0, tile_1]
+    input_smem_cache->split(2, elements_per_chunk);
+    input_smem_cache->split(1, number_of_swizzle_chunks);
+    // [BIDx, tile_0 / s, s, s, elements_per_chunk]
     input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
 
-    input_smem_cache->axis(0)->parallelize(ParallelType::BIDx);
     input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
     input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
     input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
@@ -1037,42 +1063,44 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
         input_smem_cache->getLoopDomain(), true);
   }
 
-  // [I1, I0]
-  output_reference->split(1, tile_0);
-  output_reference->split(0, tile_1);
-  // [I1/tile_1, tile_1, I0/tile_0, tile_0]
-  output_reference->reorder({{-2, 0}});
-  // [I0/tile_0, I1/tile_1, tile_1, tile_0]
-  output_reference->merge(0);
-  // [I0/tile_0 * I1/tile_1, tile_1, tile_0]
-  output_reference->split(1, elements_per_thread);
-  // [I0/tile_0 * I1/tile_1, tile_1/elements_per_thread, elements_per_thread,
-  // tile_0]
-  output_reference->split(2, unroll_vect);
-  // [I0/tile_0 * I1/tile_1, tile_1/elements_per_thread, elements_per_thread/uv,
-  // uv, tile_0]
-  output_reference->merge(1, 4);
-  // [I0/tile_0 * I1/tile_1, tile_0*tile_1/elements_per_thread,
-  // elements_per_thread/uv, uv]
-  output_reference->axis(0)->parallelize(ParallelType::BIDx);
-  output_reference->axis(1)->parallelize(ParallelType::TIDx);
-  output_reference->axis(3)->parallelize(ParallelType::Unroll);
+  // ======= schedule register tvs ==================
+  // regsiter layout follows output layout, where tile_0 is the innermost
+  // dimension
+
+  // [BIDx, tile_1, tile_0]
+  ref_tv->split(1, elements_per_chunk);
+  // [BIDx, tile_1/elements_per_chunk, elements_per_chunk, tile_0]
+  ref_tv->split(1, chunks_per_thread);
+  // [BIDx, tile_1/elements_per_chunk/chunks_per_thread,
+  //  chunks_per_thread, elements_per_chunk, tile_0]
+  ref_tv->merge(1, 4);
+  // [BIDx, nthreads, chunks_per_thread, elements_per_chunk]
+  ref_tv->axis(1)->parallelize(ParallelType::TIDx);
+  // ref_tv->axis(2)->parallelize(ParallelType::Unroll);
+  ref_tv->axis(3)->parallelize(ParallelType::Unroll);
 
   {
     std::unordered_set<TensorView*> except_tvs;
     except_tvs.insert(input_smem_tvs.begin(), input_smem_tvs.end());
+    if (use_tma_store) {
+      except_tvs.insert(output_tvs.begin(), output_tvs.end());
+    }
     auto all_tvs_except1 = ir_utils::allTvsExcept(fusion, except_tvs);
     SetSelector selector({all_tvs_except1.begin(), all_tvs_except1.end()});
-    MaxLogicalDomainInfoSpanningTree entire_dag_except1(
-        output_reference, &selector);
-    TransformPropagator propagator(output_reference);
+    MaxLogicalDomainInfoSpanningTree entire_dag_except1(ref_tv, &selector);
+    TransformPropagator propagator(ref_tv);
     entire_dag_except1.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(
-        output_reference,
+        ref_tv,
         /*selected_tvs=*/{all_tvs_except1},
         /*selected_parallel_types=*/{},
         /*propagate_padding=*/true,
         /*parallelize_inputs_on_did=*/true);
+  }
+
+  for (auto output_regs_cache : output_regs_tvs) {
+    output_regs_cache->setAllocationDomain(
+        output_regs_cache->getLoopDomain(), true);
   }
 
   for (auto input_smem_cache : input_smem_tvs) {
@@ -1082,7 +1110,7 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
     }
   }
 
-  inlineMost();
+  // inlineMost();
 
   // fusion->print();
 }
