@@ -21,15 +21,22 @@
 namespace nvfuser {
 namespace hir {
 
-using DispatchCombineTest = MultiDeviceTest;
+class DispatchCombineTest
+    : public MultiDeviceTest,
+      public ::testing::WithParamInterface<CommunicatorBackend> {};
 
-TEST_F(DispatchCombineTest, DispatchCombineTop1) {
+TEST_P(DispatchCombineTest, DispatchCombineTop1) {
   if (!communicator_->is_available() || communicator_->size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
   }
 
   const int64_t world_size = communicator_->size();
   const int64_t my_rank = communicator_->deviceId();
+  const auto backend = GetParam();
+  if (backend != CommunicatorBackend::kCuda &&
+      !communicator_->isBackendAvailable(backend)) {
+    GTEST_SKIP() << "Backend " << backend << " not available.";
+  }
   constexpr int64_t kNumExpertsPerRank = 2;
   const int64_t num_experts = world_size * kNumExpertsPerRank;
   constexpr int64_t kNumTokens = 4;
@@ -60,7 +67,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       in_topk_idx,
       in_topk_weights,
       num_experts,
-      CommunicatorBackend::kNccl);
+      backend);
 
   auto* combined_x = makeSymbolicTensor(2);
   auto* combine = IrBuilder::create<MoeCombine>(
@@ -70,7 +77,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       recv_src_idx,
       n_tokens_to_rank,
       n_tokens_from_rank,
-      CommunicatorBackend::kNccl);
+      backend);
 
   hic->pushBackTopLevelExprs(dispatch);
   hic->pushBackTopLevelExprs(combine);
@@ -110,13 +117,18 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       << "Dispatch/Combine mismatch on rank " << my_rank;
 }
 
-TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
+TEST_P(DispatchCombineTest, DispatchOnlyTop1) {
   if (!communicator_->is_available() || communicator_->size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
   }
 
   const int64_t world_size = communicator_->size();
   const int64_t my_rank = communicator_->deviceId();
+  const auto backend = GetParam();
+  if (backend != CommunicatorBackend::kCuda &&
+      !communicator_->isBackendAvailable(backend)) {
+    GTEST_SKIP() << "Backend " << backend << " not available.";
+  }
   constexpr int64_t kNumExpertsPerRank = 2;
   const int64_t num_experts = world_size * kNumExpertsPerRank;
   constexpr int64_t kNumTokens = 4;
@@ -147,7 +159,7 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
       in_topk_idx,
       in_topk_weights,
       num_experts,
-      CommunicatorBackend::kNccl);
+      backend);
 
   hic->pushBackTopLevelExprs(dispatch);
 
@@ -188,12 +200,7 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
       {{in_x, x}, {in_topk_idx, topk_idx}, {in_topk_weights, topk_weights}});
 
   auto expected = doMoeDispatch(
-      x,
-      topk_idx,
-      topk_weights,
-      num_experts,
-      communicator_,
-      CommunicatorBackend::kNccl);
+      x, topk_idx, topk_weights, num_experts, communicator_, backend);
 
   EXPECT_TRUE(at::allclose(outputs[0].as<at::Tensor>(), expected.recv_x))
       << "Dispatch recv_x mismatch on rank " << my_rank;
@@ -212,13 +219,18 @@ TEST_F(DispatchCombineTest, DispatchOnlyTop1) {
       << "Dispatch n_tokens_from_rank mismatch on rank " << my_rank;
 }
 
-TEST_F(DispatchCombineTest, CombineOnlyTop1) {
+TEST_P(DispatchCombineTest, CombineOnlyTop1) {
   if (!communicator_->is_available() || communicator_->size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
   }
 
   const int64_t world_size = communicator_->size();
   const int64_t my_rank = communicator_->deviceId();
+  const auto backend = GetParam();
+  if (backend != CommunicatorBackend::kCuda &&
+      !communicator_->isBackendAvailable(backend)) {
+    GTEST_SKIP() << "Backend " << backend << " not available.";
+  }
   constexpr int64_t kNumExpertsPerRank = 2;
   const int64_t num_experts = world_size * kNumExpertsPerRank;
   constexpr int64_t kNumTokens = 4;
@@ -246,12 +258,7 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
   topk_idx.index_put_({3, 0}, kNumExpertsPerRank);
 
   auto dispatch_result = doMoeDispatch(
-      x,
-      topk_idx,
-      topk_weights,
-      num_experts,
-      communicator_,
-      CommunicatorBackend::kNccl);
+      x, topk_idx, topk_weights, num_experts, communicator_, backend);
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
@@ -270,7 +277,7 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
       in_src_idx,
       in_n_tokens_to_rank,
       in_n_tokens_from_rank,
-      CommunicatorBackend::kNccl);
+      backend);
 
   hic->pushBackTopLevelExprs(combine);
 
@@ -295,6 +302,11 @@ TEST_F(DispatchCombineTest, CombineOnlyTop1) {
   EXPECT_TRUE(at::allclose(combined, x))
       << "Combine mismatch on rank " << my_rank;
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    DispatchCombineBackends,
+    DispatchCombineTest,
+    ::testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kCuda));
 
 } // namespace hir
 } // namespace nvfuser
