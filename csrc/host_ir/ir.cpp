@@ -257,9 +257,13 @@ Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
-      (expr->isOneOf<Communication, P2PCommunication, EndCoalescing>()),
-      expr,
-      " must be a Communication, a P2PCommunication, or a EndCoalescing");
+      (expr->isOneOf<
+          Communication,
+          CollectivePermute,
+          P2PCommunication,
+          EndCoalescing>()),
+      "Got: ",
+      expr);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
