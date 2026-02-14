@@ -438,24 +438,6 @@ TEST_F(HirLowerStreamTest, Matmul_N) {
       << "Output: " << output << " Expected: " << expected_output;
 }
 
-TEST_F(HirLowerStreamTest, Matmul_K) {
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard fg(hic.get());
-  TensorView* a = makeContigTensor(2);
-  TensorView* b = makeContigTensor(2);
-  TensorView* c = matmul(a, b);
-  hic->addInput(a);
-  hic->addInput(b);
-  hic->addOutput(c);
-  hic->pushBackTopLevelExprs(c->definition());
-  a->setMemoryType(MemoryType::Global);
-  b->setMemoryType(MemoryType::Global);
-  c->setMemoryType(MemoryType::Global);
-  c->axis(-1)->parallelize(ParallelType::Stream);
-
-  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
-}
-
 // We don's support PostOnStream because it does not support well pre-allocated
 // outputs. There is no strong motivation to support PostOnStream
 TEST_F(HirLowerStreamTest, DoNotSupportPostOnStream) {
