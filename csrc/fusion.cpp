@@ -7,6 +7,7 @@
 // clang-format on
 #include <fusion.h>
 
+#include <type.h>
 #include <iterator>
 #include <ranges>
 
@@ -19,7 +20,9 @@
 #include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ir/cloner.h>
+#include <ir/internal_nodes.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -104,39 +107,95 @@ bool Fusion::sameDefinition(const Fusion& other) const {
 void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
-  // We need to be careful to call IrContainer swap not unique_ptr swap, which
-  // will only swap the ptrs NOT the contents.
-  IrContainer::swap(*(a.ir_container()), *(b.ir_container()));
+  if (&a == &b) {
+    return;
+  }
 
-  // Fix parent pointers after swapping containers
-  // After swap, each Fusion owns a different IrContainer, so we must
-  // update the parent backpointers in those containers to point to their new
-  // owners
+  // Phase 2: Pointer-based swap with ownership-filtered Statement updates
+  // This is more efficient than content swap and correctly handles shared
+  // containers by only updating statements owned by the swapped Fusions.
+
+  // Step 1: Collect statements owned by each Fusion BEFORE swap
+  // We need to copy to vectors because we'll be modifying ownership
+  std::vector<Val*> a_owned_vals, b_owned_vals;
+  std::vector<Expr*> a_owned_exprs, b_owned_exprs;
+
   if (a.ir_container_) {
-    // Also update all Statement ir_container_ pointers to point to new owner
-    a.ir_container()->parent_ = &a;
-    for (auto val : a.vals()) {
-      val->ir_container_ = &a;
-    }
-    for (auto expr : a.deterministic_exprs()) {
-      expr->ir_container_ = &a;
-    }
-  }
-  if (b.ir_container_) {
-    // Also update all Statement ir_container_ pointers to point to new owner
-    b.ir_container()->parent_ = &b;
-    for (auto val : b.vals()) {
-      val->ir_container_ = &b;
-    }
-    for (auto expr : b.deterministic_exprs()) {
-      expr->ir_container_ = &b;
-    }
+    const auto& a_vals = a.ir_container_->valsOwnedBy(&a);
+    const auto& a_exprs = a.ir_container_->exprsOwnedBy(&a);
+    a_owned_vals.assign(a_vals.begin(), a_vals.end());
+    a_owned_exprs.assign(a_exprs.begin(), a_exprs.end());
   }
 
+  if (b.ir_container_) {
+    const auto& b_vals = b.ir_container_->valsOwnedBy(&b);
+    const auto& b_exprs = b.ir_container_->exprsOwnedBy(&b);
+    b_owned_vals.assign(b_vals.begin(), b_vals.end());
+    b_owned_exprs.assign(b_exprs.begin(), b_exprs.end());
+  }
+
+  // Step 2: Handle registration transfers (before pointer swap)
+  // After swap, a should be registered with its new container (was b's)
+  // and b should be registered with its new container (was a's)
+  if (a.ir_container_ && b.ir_container_ &&
+      a.ir_container_.get() != b.ir_container_.get()) {
+    // Different containers: swap registrations
+    // In a's container: remove a, add b (because b will own this container)
+    // In b's container: remove b, add a (because a will own this container)
+    a.ir_container_->transferFusion(&a, &b);
+    b.ir_container_->transferFusion(&b, &a);
+  }
+
+  // Step 3: Swap container pointers (not content swap!)
+  std::swap(a.ir_container_, b.ir_container_);
+
+  // Step 4: Swap all Fusion-level members
   std::swap(a.inputs_, b.inputs_);
   std::swap(a.outputs_, b.outputs_);
-
   std::swap(a.io_alias_, b.io_alias_);
+  std::swap(a.all_tv_uses_valid_, b.all_tv_uses_valid_);
+  std::swap(a.is_during_update_uses_, b.is_during_update_uses_);
+  std::swap(a.managed_data_, b.managed_data_);
+  std::swap(a.managed_named_data_, b.managed_named_data_);
+  std::swap(a.expected_dynamic_smem_bytes_, b.expected_dynamic_smem_bytes_);
+  std::swap(a.all_tvs_ptr_, b.all_tvs_ptr_);
+
+  // Swap per-Fusion special values (Phase 2)
+  std::swap(a.zero_val_, b.zero_val_);
+  std::swap(a.one_val_, b.one_val_);
+  std::swap(a.true_val_, b.true_val_);
+  std::swap(a.false_val_, b.false_val_);
+  std::swap(a.magic_zero_val_, b.magic_zero_val_);
+
+  // Swap per-Fusion axioms and metadata (Phase 2)
+  std::swap(a.axioms_, b.axioms_);
+  std::swap(a.metadata_, b.metadata_);
+
+  // Step 5: Update statement ownership
+  // Statements that belonged to a now belong to b (they go with their data)
+  // Statements that belonged to b now belong to a
+  for (auto* val : a_owned_vals) {
+    val->ir_container_ = &b;
+  }
+  for (auto* expr : a_owned_exprs) {
+    expr->ir_container_ = &b;
+  }
+  for (auto* val : b_owned_vals) {
+    val->ir_container_ = &a;
+  }
+  for (auto* expr : b_owned_exprs) {
+    expr->ir_container_ = &a;
+  }
+
+  // Step 6: Update per-Fusion tracking in containers
+  // After swap: a's new container needs to track a's new statements (was b's)
+  //             b's new container needs to track b's new statements (was a's)
+  if (a.ir_container_) {
+    a.ir_container_->transferStatementOwnership(&b, &a);
+  }
+  if (b.ir_container_) {
+    b.ir_container_->transferStatementOwnership(&a, &b);
+  }
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -146,25 +205,46 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 }
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
+  FUSER_PERF_SCOPE("Fusion copy");
+
+  // Phase 2: Clear destination's state only (not entire container)
+  // to->clear() removes only 'to's statements from the shared container
   to->clear();
 
-  auto ir_cloner = IrContainer::copy(from->ir_container(), to->ir_container());
+  // Phase 2: Create IrCloner targeting 'to' Fusion directly
+  // IrCloner sets cloned nodes' ir_container_ to 'to'
+  // This works with shared containers - clones go into the shared container
+  // but are tracked as owned by 'to' via per-Fusion tracking
+  IrCloner ir_cloner(to);
 
-  for (auto val : from->vals()) {
+  // Phase 2: Clone only 'from's owned vals (not all vals in shared container)
+  // CRITICAL: Use deterministic_vals() to get vals in insertion order.
+  // Using ownedVals() (unordered_set) causes non-deterministic clone order,
+  // which assigns different name() values to cloned vals between runs.
+  // This breaks code that uses tv->name() as map keys (e.g., GreedyParams).
+  for (auto val : from->deterministic_vals()) {
+    ir_cloner.clone(val);
+  }
+
+  // Update definition_ and uses_ on cloned vals
+  for (auto val : from->deterministic_vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
 
+  // Clone fusion inputs
   to->inputs_ = ir_cloner.clone(from->inputs_);
-  to->outputs_ = ir_cloner.clone(from->outputs_);
   for (auto inp : to->inputs_) {
     inp->setIsFusionInput(true);
   }
+
+  // Clone fusion outputs
+  to->outputs_ = ir_cloner.clone(from->outputs_);
   for (auto out : to->outputs_) {
     out->setIsFusionOutput(true);
   }
 
-  // TODO: put this into ir_cloner instead
+  // Clone io_alias mappings
   for (Val* out : from->outputs_) {
     const AliasInfo& alias = from->io_alias_.get(out);
     if (alias.type == AllocationType::New) {
@@ -176,10 +256,12 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     to->io_alias_.add(copied_out, copied_in, alias.type, alias.visibility);
   }
 
+  // Copy other Fusion-level state
   to->all_tv_uses_valid_ = from->all_tv_uses_valid_;
   // This should never be true on copy, but copying for completeness.
   to->is_during_update_uses_ = from->is_during_update_uses_;
 
+  // Clone managed data
   for (const auto& i : from->managed_data_) {
     if (i.first.has_value()) {
       to->managed_data_.emplace_back(i.second(ir_cloner, i.first), i.second);
@@ -198,6 +280,7 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 
   to->expected_dynamic_smem_bytes_ = from->expected_dynamic_smem_bytes_;
 
+  // Clone cached TV list if present
   if (from->all_tvs_ptr_ != nullptr) {
     to->all_tvs_ptr_ = std::make_unique<std::vector<TensorView*>>();
     to->all_tvs_ptr_->reserve(from->all_tvs_ptr_->size());
@@ -210,13 +293,24 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 }
 
 // Default constructor
-Fusion::Fusion() : ir_container_(std::make_unique<IrContainer>()) {
+Fusion::Fusion() : ir_container_(std::make_shared<IrContainer>()) {
   ir_container_->parent_ = this;
+  ir_container_->addFusion(this); // Register with container for Phase 2
 }
 
-// Copy constructor
-Fusion::Fusion(const Fusion& other) : Fusion() {
-  FUSER_PERF_SCOPE("Fusion copy");
+// Copy constructor - Phase 2: Share container with source
+Fusion::Fusion(const Fusion& other)
+    : ir_container_(other.ir_container_) { // Share container pointer
+  FUSER_PERF_SCOPE("Fusion copy ctor");
+
+  // Note: Special values are per-Fusion (Task 7), initialized to nullptr.
+  // They will be created lazily when accessed on the copy.
+  // Do NOT copy other.zero_val_ etc - each Fusion has its own.
+
+  // Register with shared container
+  ir_container_->addFusion(this);
+
+  // Delegate to static copy method to clone nodes
   Fusion::copy(&other, this);
 }
 
@@ -236,12 +330,18 @@ Fusion& Fusion::operator=(const Fusion& other) {
 
 Fusion& Fusion::operator=(Fusion&& other) noexcept {
   FUSER_PERF_SCOPE("Fusion move assign");
+  if (this == &other) {
+    return *this;
+  }
   clear();
   swap(*this, other);
   return *this;
 }
 
 Fusion::~Fusion() {
+  if (ir_container_) {
+    ir_container_->removeFusion(this); // Unregister before destruction
+  }
   clear();
 }
 
@@ -251,11 +351,17 @@ void Fusion::clear() noexcept {
   // constructor of Trace, which could throw an exception.
   // FUSER_PERF_SCOPE("Fusion clear");
 
-  // Clear container contents instead of destroying it
-  // This preserves the container object so Statement pointers don't become
-  // dangling
-  ir_container()->clear();
+  // Phase 2 (Task 4): Only clear THIS Fusion's statements, not the entire
+  // container. With shared containers, calling ir_container()->clear() would
+  // break other Fusions sharing the container.
+  //
+  // Phase 1: ir_container()->clear() was equivalent to this (1:1 relationship)
+  // Phase 2: Must filter by ownership to avoid affecting other Fusions
+  if (ir_container_) {
+    ir_container_->removeStatementsOwnedBy(this);
+  }
 
+  // Clear Fusion-level state (these are per-Fusion, not in the container)
   inputs_.clear();
   outputs_.clear();
 
@@ -263,6 +369,18 @@ void Fusion::clear() noexcept {
 
   managed_data_.clear();
   managed_named_data_.clear();
+
+  // Reset per-Fusion special values (they'll be recreated lazily if needed)
+  // The actual Val objects were removed by removeStatementsOwnedBy above.
+  zero_val_ = nullptr;
+  one_val_ = nullptr;
+  true_val_ = nullptr;
+  false_val_ = nullptr;
+  magic_zero_val_ = nullptr;
+
+  // Reset per-Fusion axioms and metadata (Phase 2)
+  axioms_.reset();
+  metadata_.clear();
 
   invalidateTvsAndUses();
 
@@ -687,6 +805,117 @@ void Fusion::printTransforms() {
   FusionGuard fg(this);
   IrTransformPrinter t_exprs(debug());
   t_exprs.handle(this);
+}
+
+// =========================================================================
+// Per-Fusion Special Values (Phase 2)
+// Each Fusion has its own special values for safe container sharing.
+// =========================================================================
+
+Val* Fusion::zeroVal() {
+  if (!zero_val_) {
+    zero_val_ = IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
+  }
+  return zero_val_;
+}
+
+Val* Fusion::oneVal() {
+  if (!one_val_) {
+    one_val_ = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
+  }
+  return one_val_;
+}
+
+Val* Fusion::falseVal() {
+  if (!false_val_) {
+    false_val_ = IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
+  }
+  return false_val_;
+}
+
+Val* Fusion::trueVal() {
+  if (!true_val_) {
+    true_val_ = IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
+  }
+  return true_val_;
+}
+
+NamedScalar* Fusion::magicZeroVal() {
+  if (!magic_zero_val_) {
+    magic_zero_val_ = IrBuilder::createInContainer<NamedScalar>(
+        this, kMagicZeroName, DataType::Index);
+  }
+  return magic_zero_val_;
+}
+
+Val* Fusion::zeroVal(DataType dtype) {
+  if (dtype == DataType::Index) {
+    return zeroVal();
+  } else if (isBooleanType(dtype)) {
+    return falseVal();
+  } else {
+    // NOTE: this does not cache values
+    return IrBuilder::createInContainer<Val>(this, 0L, dtype);
+  }
+}
+
+Val* Fusion::oneVal(DataType dtype) {
+  if (dtype == DataType::Index) {
+    return oneVal();
+  } else if (isBooleanType(dtype)) {
+    return trueVal();
+  } else {
+    // NOTE: this does not cache values
+    return IrBuilder::createInContainer<Val>(this, 1L, dtype);
+  }
+}
+
+// =========================================================================
+// Per-Fusion Metadata and Axioms (Phase 2)
+// These are per-Fusion to avoid ownership issues with shared containers.
+// =========================================================================
+
+Val* Fusion::metadataOf(Val* v) {
+  if (metadata_.count(v) == 0) {
+    // Create metadata val owned by the same Fusion as v
+    Fusion* owner = v->container();
+    auto metadata_val =
+        IrBuilder::createInContainer<Val>(owner, metaDataTypeOf(v));
+    auto metadata_expr =
+        IrBuilder::createInContainer<GetMetaData>(owner, metadata_val, v);
+    metadata_[v] = std::make_pair(metadata_val, metadata_expr);
+  }
+  return metadata_.at(v).first;
+}
+
+const std::vector<Val*>& Fusion::axioms() {
+  if (!axioms_) {
+    axioms_ = std::make_unique<std::vector<Val*>>();
+    axioms_->reserve(kParallelTypeThreads.size() * 3);
+    auto zero = zeroVal();
+    for (auto p : kParallelTypeThreads) {
+      auto pidx = NamedScalar::getParallelIndex(p);
+      auto pdim = NamedScalar::getParallelDim(p);
+      axioms_->push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
+      axioms_->push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
+      axioms_->push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
+    }
+  }
+  return *axioms_;
+}
+
+void Fusion::assumePositive(Val* val) {
+  NVF_ERROR(inContainer(val));
+  // Lazy init axioms, then add the assumption
+  axioms();
+  axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
+}
+
+void Fusion::assumeNonNegative(Val* val) {
+  NVF_ERROR(inContainer(val));
+  // Lazy init axioms, then add the assumption
+  axioms();
+  axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }
 
 void Fusion::registerVal(Val* val) {

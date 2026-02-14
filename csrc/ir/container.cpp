@@ -7,6 +7,7 @@
 // clang-format on
 #include "ir/container.h"
 
+#include "fusion.h"
 #include "instrumentation.h"
 #include "ir/base_nodes.h"
 #include "ir/builder.h"
@@ -17,6 +18,7 @@ namespace nvfuser {
 
 //! Return values in insertion order
 const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
+  std::shared_lock lock(mutex_);
   std::deque<Val*> vals_deque;
   std::transform(
       vals_up_.begin(),
@@ -28,6 +30,7 @@ const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
 
 //! Return expression in insertion order
 const std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
+  std::shared_lock lock(mutex_);
   std::deque<Expr*> exprs_deque;
   std::transform(
       exprs_up_.begin(),
@@ -40,6 +43,7 @@ const std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
 //! Return mapping from value to integer id
 const std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
     const noexcept {
+  std::shared_lock lock(mutex_);
   std::unordered_map<Val*, int64_t> vals_map;
   int64_t count = 0;
   std::transform(
@@ -55,6 +59,7 @@ const std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
 //! Return mapping from expression to integer id
 const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
     const noexcept {
+  std::shared_lock lock(mutex_);
   std::unordered_map<Expr*, int64_t> exprs_map;
   int64_t count = 0;
   std::transform(
@@ -67,8 +72,272 @@ const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
   return exprs_map;
 }
 
+// =========================================================================
+// Per-Fusion Deterministic Accessors (Phase 2)
+// =========================================================================
+
+std::deque<Val*> IrContainer::deterministicValsOwnedBy(
+    Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
+  std::deque<Val*> result;
+
+  // Get the set of vals owned by this Fusion for O(1) lookup
+  auto it = per_fusion_vals_.find(fusion);
+  if (it == per_fusion_vals_.end()) {
+    return result; // Empty - no vals owned by this Fusion
+  }
+  const auto& owned_vals = it->second;
+
+  // Iterate in insertion order, filtering to only owned vals
+  for (const auto& val_up : vals_up_) {
+    Val* val = val_up.get();
+    if (owned_vals.count(val) > 0) {
+      result.push_back(val);
+    }
+  }
+  return result;
+}
+
+std::deque<Expr*> IrContainer::deterministicExprsOwnedBy(
+    Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
+  std::deque<Expr*> result;
+
+  // Get the set of exprs owned by this Fusion for O(1) lookup
+  auto it = per_fusion_exprs_.find(fusion);
+  if (it == per_fusion_exprs_.end()) {
+    return result; // Empty - no exprs owned by this Fusion
+  }
+  const auto& owned_exprs = it->second;
+
+  // Iterate in insertion order, filtering to only owned exprs
+  for (const auto& expr_up : exprs_up_) {
+    Expr* expr = expr_up.get();
+    if (owned_exprs.count(expr) > 0) {
+      result.push_back(expr);
+    }
+  }
+  return result;
+}
+
+std::unordered_map<Val*, int64_t> IrContainer::deterministicValsMapOwnedBy(
+    Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
+  std::unordered_map<Val*, int64_t> result;
+
+  // Get the set of vals owned by this Fusion for O(1) lookup
+  auto it = per_fusion_vals_.find(fusion);
+  if (it == per_fusion_vals_.end()) {
+    return result; // Empty - no vals owned by this Fusion
+  }
+  const auto& owned_vals = it->second;
+
+  // Iterate in insertion order, assigning sequential ids to owned vals
+  int64_t count = 0;
+  for (const auto& val_up : vals_up_) {
+    Val* val = val_up.get();
+    if (owned_vals.count(val) > 0) {
+      result[val] = count++;
+    }
+  }
+  return result;
+}
+
+std::unordered_map<Expr*, int64_t> IrContainer::deterministicExprsMapOwnedBy(
+    Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
+  std::unordered_map<Expr*, int64_t> result;
+
+  // Get the set of exprs owned by this Fusion for O(1) lookup
+  auto it = per_fusion_exprs_.find(fusion);
+  if (it == per_fusion_exprs_.end()) {
+    return result; // Empty - no exprs owned by this Fusion
+  }
+  const auto& owned_exprs = it->second;
+
+  // Iterate in insertion order, assigning sequential ids to owned exprs
+  int64_t count = 0;
+  for (const auto& expr_up : exprs_up_) {
+    Expr* expr = expr_up.get();
+    if (owned_exprs.count(expr) > 0) {
+      result[expr] = count++;
+    }
+  }
+  return result;
+}
+
+const std::unordered_set<Expr*>& IrContainer::unordered_exprs() const noexcept {
+  // Note: Returns reference - caller responsible for not holding across
+  // concurrent modifications. Lock provides snapshot consistency during call.
+  std::shared_lock lock(mutex_);
+  return exprs_;
+}
+
+const std::unordered_set<Val*>& IrContainer::vals() const noexcept {
+  // Note: Returns reference - caller responsible for not holding across
+  // concurrent modifications. Lock provides snapshot consistency during call.
+  std::shared_lock lock(mutex_);
+  return vals_;
+}
+
+int64_t IrContainer::numExprs() const noexcept {
+  std::shared_lock lock(mutex_);
+  return std::ssize(exprs_);
+}
+
+int64_t IrContainer::numVals(bool include_shortcuts) const noexcept {
+  std::shared_lock lock(mutex_);
+  return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
+}
+
+// =========================================================================
+// Fusion tracking for shared container support (Phase 2)
+// =========================================================================
+
+void IrContainer::addFusion(Fusion* fusion) {
+  std::unique_lock lock(mutex_);
+  sharing_fusions_.insert(fusion);
+}
+
+void IrContainer::removeFusion(Fusion* fusion) {
+  std::unique_lock lock(mutex_);
+  sharing_fusions_.erase(fusion);
+  removeStatementsOwnedByUnlocked(fusion);
+}
+
+void IrContainer::transferFusion(Fusion* from, Fusion* to) {
+  std::unique_lock lock(mutex_);
+  sharing_fusions_.erase(from);
+  sharing_fusions_.insert(to);
+  // Note: Statements retain their container() pointer - they don't need
+  // to be updated because container() returns Fusion* which points to
+  // the owning Fusion, and that ownership is what we're transferring.
+}
+
+size_t IrContainer::sharingCount() const {
+  std::shared_lock lock(mutex_);
+  return sharing_fusions_.size();
+}
+
+bool IrContainer::hasMultipleFusions() const {
+  std::shared_lock lock(mutex_);
+  return sharing_fusions_.size() > 1;
+}
+
+const std::unordered_set<Fusion*>& IrContainer::sharingFusions() const {
+  std::shared_lock lock(mutex_);
+  return sharing_fusions_;
+}
+
+// =========================================================================
+// Per-Fusion Statement Tracking (Phase 2 Task 4)
+// =========================================================================
+
+const std::unordered_set<Val*>& IrContainer::valsOwnedBy(Fusion* fusion) const {
+  std::shared_lock lock(mutex_);
+  static const std::unordered_set<Val*> empty;
+  auto it = per_fusion_vals_.find(fusion);
+  return it != per_fusion_vals_.end() ? it->second : empty;
+}
+
+const std::unordered_set<Expr*>& IrContainer::exprsOwnedBy(
+    Fusion* fusion) const {
+  std::shared_lock lock(mutex_);
+  static const std::unordered_set<Expr*> empty;
+  auto it = per_fusion_exprs_.find(fusion);
+  return it != per_fusion_exprs_.end() ? it->second : empty;
+}
+
+void IrContainer::transferStatementOwnership(Fusion* from, Fusion* to) {
+  std::unique_lock lock(mutex_);
+
+  // Transfer vals ownership tracking
+  auto vals_it = per_fusion_vals_.find(from);
+  if (vals_it != per_fusion_vals_.end()) {
+    // Move the set to 'to', merging if 'to' already has entries
+    auto& to_vals = per_fusion_vals_[to];
+    to_vals.insert(vals_it->second.begin(), vals_it->second.end());
+    per_fusion_vals_.erase(vals_it);
+  }
+
+  // Transfer exprs ownership tracking
+  auto exprs_it = per_fusion_exprs_.find(from);
+  if (exprs_it != per_fusion_exprs_.end()) {
+    // Move the set to 'to', merging if 'to' already has entries
+    auto& to_exprs = per_fusion_exprs_[to];
+    to_exprs.insert(exprs_it->second.begin(), exprs_it->second.end());
+    per_fusion_exprs_.erase(exprs_it);
+  }
+
+  // Transfer per-Fusion name counters (Phase 2 Task 10)
+  auto val_names_it = per_fusion_val_name_map_.find(from);
+  if (val_names_it != per_fusion_val_name_map_.end()) {
+    // Merge counter maps: take max of each ValType counter
+    auto& to_map = per_fusion_val_name_map_[to];
+    for (auto& [vtype, counter] : val_names_it->second) {
+      to_map[vtype] = std::max(to_map[vtype], counter);
+    }
+    per_fusion_val_name_map_.erase(val_names_it);
+  }
+
+  auto expr_names_it = per_fusion_expr_name_counter_.find(from);
+  if (expr_names_it != per_fusion_expr_name_counter_.end()) {
+    auto& to_counter = per_fusion_expr_name_counter_[to];
+    to_counter = std::max(to_counter, expr_names_it->second);
+    per_fusion_expr_name_counter_.erase(expr_names_it);
+  }
+}
+
+void IrContainer::removeStatementsOwnedBy(Fusion* fusion) {
+  std::unique_lock lock(mutex_);
+  removeStatementsOwnedByUnlocked(fusion);
+}
+
+void IrContainer::removeStatementsOwnedByUnlocked(Fusion* fusion) {
+  // Remove all Vals owned by this Fusion
+  for (auto it = vals_up_.begin(); it != vals_up_.end();) {
+    Val* val = it->get();
+    // Check if this Val's container points to the Fusion being removed
+    if (val->container() == fusion) {
+      vals_.erase(val);
+      it = vals_up_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  // Remove all Exprs owned by this Fusion
+  for (auto it = exprs_up_.begin(); it != exprs_up_.end();) {
+    Expr* expr = it->get();
+    // Check if this Expr's container points to the Fusion being removed
+    if (expr->container() == fusion) {
+      exprs_.erase(expr);
+      it = exprs_up_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  // Clean up per-Fusion tracking (Phase 2 Task 4)
+  per_fusion_vals_.erase(fusion);
+  per_fusion_exprs_.erase(fusion);
+
+  // Clean up per-Fusion name counters (Phase 2 Task 10)
+  per_fusion_val_name_map_.erase(fusion);
+  per_fusion_expr_name_counter_.erase(fusion);
+}
+
 void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
-  FUSER_PERF_SCOPE("Fusion swap");
+  FUSER_PERF_SCOPE("IrContainer swap");
+
+  // NOTE: This method is deprecated in Phase 2. Fusion::swap handles
+  // pointer-based swapping of shared containers. This is kept for
+  // backward compatibility but should not be called directly.
+
+  // Lock both containers in consistent order to avoid deadlock
+  std::unique_lock lock_a(a.mutex_, std::defer_lock);
+  std::unique_lock lock_b(b.mutex_, std::defer_lock);
+  std::lock(lock_a, lock_b);
 
   // Swap the content
   std::swap(a.vals_up_, b.vals_up_);
@@ -80,34 +349,70 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   std::swap(a.val_type_name_map_, b.val_type_name_map_);
   std::swap(a.expr_name_counter_, b.expr_name_counter_);
 
-  std::swap(a.metadata_, b.metadata_);
-
   std::swap(a.parent_, b.parent_);
 
-  std::swap(a.zero_val_, b.zero_val_);
-  std::swap(a.one_val_, b.one_val_);
-  std::swap(a.true_val_, b.true_val_);
-  std::swap(a.false_val_, b.false_val_);
-  std::swap(a.magic_zero_val_, b.magic_zero_val_);
-  std::swap(a.axioms_, b.axioms_);
+  // Note: Special values, axioms, and metadata are now per-Fusion,
+  // not per-IrContainer. They are handled by Fusion::swap.
+  std::swap(a.sharing_fusions_, b.sharing_fusions_);
+  std::swap(a.per_fusion_vals_, b.per_fusion_vals_);
+  std::swap(a.per_fusion_exprs_, b.per_fusion_exprs_);
+
+  // Swap per-Fusion name counters (Phase 2 Task 10)
+  std::swap(a.per_fusion_val_name_map_, b.per_fusion_val_name_map_);
+  std::swap(a.per_fusion_expr_name_counter_, b.per_fusion_expr_name_counter_);
 }
 
 IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
-  to->clear();
+  // NOTE: This method is deprecated in Phase 2. Fusion::copy handles
+  // copying with shared containers. This is kept for backward compatibility
+  // but should not be called directly.
+
+  // Lock both containers: shared for reading from, unique for writing to
+  std::shared_lock lock_from(from->mutex_);
+  std::unique_lock lock_to(to->mutex_);
+
+  // Clear without calling clear() which would try to re-acquire the lock
+  to->vals_.clear();
+  to->vals_up_.clear();
+  to->exprs_.clear();
+  to->exprs_up_.clear();
+  to->val_type_name_map_.clear();
+  to->expr_name_counter_ = 0;
+  to->per_fusion_vals_.clear();
+  to->per_fusion_exprs_.clear();
+  to->per_fusion_val_name_map_.clear();
+  to->per_fusion_expr_name_counter_.clear();
+
+  // NOTE: In Phase 2, we can't use to->parent() here because parent_ might
+  // not be set correctly for shared containers. Fusion::copy handles this.
+  NVF_ERROR(
+      to->parent_ != nullptr,
+      "IrContainer::copy requires parent_ to be set. Use Fusion::copy "
+      "instead.");
   IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
-  // deterministic_vals can contain special values like one_val_, zero_val_, etc
-  // that are not registered in the container.
-  for (auto val : from->deterministic_vals()) {
-    if (from->vals().count(val) > 0) {
+  std::deque<Val*> from_vals;
+  std::transform(
+      from->vals_up_.begin(),
+      from->vals_up_.end(),
+      std::back_inserter(from_vals),
+      [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
+  for (auto val : from_vals) {
+    if (from->vals_.count(val) > 0) {
       to->vals_.insert(ir_cloner.clone(val));
     }
   }
 
   // Copy expressions in deterministic order
-  for (auto expr : from->deterministic_exprs()) {
-    if (from->unordered_exprs().count(expr) > 0) {
+  std::deque<Expr*> from_exprs;
+  std::transform(
+      from->exprs_up_.begin(),
+      from->exprs_up_.end(),
+      std::back_inserter(from_exprs),
+      [](const std::unique_ptr<Expr>& expr_up) { return expr_up.get(); });
+  for (auto expr : from_exprs) {
+    if (from->exprs_.count(expr) > 0) {
       to->exprs_.insert(ir_cloner.clone(expr));
     }
   }
@@ -115,14 +420,7 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
 
-  if (from->axioms_ != nullptr) {
-    to->axioms_ = std::make_unique<std::vector<Val*>>();
-    for (auto pred : *from->axioms_) {
-      to->axioms_->push_back(ir_cloner.clone(pred));
-    }
-  }
-
-  to->metadata_ = ir_cloner.clone(from->metadata_);
+  // Note: axioms and metadata are now per-Fusion, handled by Fusion::copy
 
   return ir_cloner;
 }
@@ -146,6 +444,14 @@ void IrContainer::removeExpr(Expr* expr) {
       expr_in_deque != exprs_up_.end(),
       "Wanted to remove an expression but its unique ptr is missing.");
 
+  // Remove from per-Fusion tracking (Phase 2 Task 4)
+  if (expr->container() != nullptr) {
+    auto it = per_fusion_exprs_.find(expr->container());
+    if (it != per_fusion_exprs_.end()) {
+      it->second.erase(expr);
+    }
+  }
+
   exprs_.erase(expr);
   exprs_up_.erase(expr_in_deque);
 }
@@ -153,12 +459,9 @@ void IrContainer::removeExpr(Expr* expr) {
 //! Completely remove val from the fusion, break all dependencies associated
 //! with it
 void IrContainer::removeVal(Val* val) {
-  // Don't remove shortcuts
-  if (val == true_val_.get() || val == false_val_.get() ||
-      val == one_val_.get() || val == zero_val_.get() ||
-      val == magic_zero_val_.get()) {
-    return;
-  }
+  // Note: Special values (zero_val_, one_val_, etc.) are now per-Fusion,
+  // stored in Fusion class. They are registered as normal vals and can
+  // be removed like any other val.
 
   NVF_ERROR(
       vals_.find(val) != vals_.end(),
@@ -171,6 +474,14 @@ void IrContainer::removeVal(Val* val) {
   NVF_ERROR(
       val_in_deque != vals_up_.end(),
       "Wanted to remove a value but its unique ptr is missing.");
+
+  // Remove from per-Fusion tracking (Phase 2 Task 4)
+  if (val->container() != nullptr) {
+    auto it = per_fusion_vals_.find(val->container());
+    if (it != per_fusion_vals_.end()) {
+      it->second.erase(val);
+    }
+  }
 
   vals_.erase(val);
   vals_up_.erase(val_in_deque);
@@ -185,7 +496,17 @@ void IrContainer::registerVal(Val* val) {
   // Otherwise handle registration locally
   vals_up_.emplace_back(val);
   vals_.insert(val);
-  val->setName(IrContainerPasskey(), getValName(val->vtype()));
+
+  // Phase 2 Task 10: Use per-Fusion counter if val has an owning Fusion.
+  // This ensures cloned Fusions get matching names (T0=T0, T1=T1)
+  // instead of incrementing global names (T0=T10, T1=T11).
+  Fusion* owning_fusion = val->container();
+  val->setName(IrContainerPasskey(), getValName(owning_fusion, val->vtype()));
+
+  // Track per-Fusion ownership (Phase 2 Task 4)
+  if (owning_fusion != nullptr) {
+    per_fusion_vals_[owning_fusion].insert(val);
+  }
 }
 
 //! Register expr with this container.
@@ -197,7 +518,15 @@ void IrContainer::registerExpr(Expr* expr) {
   // Otherwise handle registration locally
   exprs_up_.emplace_back(expr);
   exprs_.insert(expr);
-  expr->setName(IrContainerPasskey(), getExprName());
+
+  // Phase 2 Task 10: Use per-Fusion counter if expr has an owning Fusion.
+  Fusion* owning_fusion = expr->container();
+  expr->setName(IrContainerPasskey(), getExprName(owning_fusion));
+
+  // Track per-Fusion ownership (Phase 2 Task 4)
+  if (owning_fusion != nullptr) {
+    per_fusion_exprs_[owning_fusion].insert(expr);
+  }
 }
 
 void IrContainer::clear() noexcept {
@@ -206,10 +535,16 @@ void IrContainer::clear() noexcept {
   vals_up_.clear();
   exprs_.clear();
   exprs_up_.clear();
-  axioms_.reset();
   val_type_name_map_.clear();
-  metadata_.clear();
   expr_name_counter_ = 0;
+
+  // Clear per-Fusion tracking (Phase 2 Task 4)
+  per_fusion_vals_.clear();
+  per_fusion_exprs_.clear();
+
+  // Clear per-Fusion name counters (Phase 2 Task 10)
+  per_fusion_val_name_map_.clear();
+  per_fusion_expr_name_counter_.clear();
 }
 
 bool IrContainer::inContainer(const Statement* const_stmt) const {
@@ -224,9 +559,15 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
     return false;
   }
 
+  // Phase 2: With shared containers, multiple Fusions can share this container.
+  // The statement's container() returns its owning Fusion, which should be
+  // one of the Fusions sharing this container.
+  // Phase 1 (single Fusion): sharing_fusions_ == {parent_}
+  // Phase 2 (shared container): sharing_fusions_ contains multiple Fusions
   NVF_ERROR(
-      const_stmt->container() == this->parent(),
-      "Container claims to own stmt, but stmt disagrees.");
+      sharing_fusions_.count(const_stmt->container()) > 0,
+      "Container claims to own stmt, but stmt's owning Fusion is not "
+      "registered with this container.");
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   auto* stmt = const_cast<Statement*>(const_stmt);
@@ -244,154 +585,78 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
   return true;
 }
 
-// Shortcuts for frequently used vals
-Val* IrContainer::zeroVal() {
-  if (!zero_val_) {
-    auto zero_val =
-        IrBuilder::createInContainer<Val>(this->parent(), 0L, DataType::Index);
-    NVF_ERROR(vals_up_.back().get() == zero_val);
-    zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
-    vals_up_.pop_back();
-  }
-  return zero_val_.get();
-}
-
-Val* IrContainer::zeroVal(DataType dtype) {
-  if (dtype == DataType::Index) {
-    return zeroVal();
-  } else if (isBooleanType(dtype)) {
-    return falseVal();
-  } else {
-    // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this->parent(), 0L, dtype);
-  }
-}
-
-Val* IrContainer::oneVal() {
-  if (!one_val_) {
-    auto one_val =
-        IrBuilder::createInContainer<Val>(this->parent(), 1L, DataType::Index);
-    NVF_ERROR(vals_up_.back().get() == one_val);
-    one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
-    vals_up_.pop_back();
-  }
-  return one_val_.get();
-}
-
-Val* IrContainer::oneVal(DataType dtype) {
-  if (dtype == DataType::Index) {
-    return oneVal();
-  } else if (isBooleanType(dtype)) {
-    return trueVal();
-  } else {
-    // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this->parent(), 1L, dtype);
-  }
-}
-
-Val* IrContainer::falseVal() {
-  if (!false_val_) {
-    auto false_val = IrBuilder::createInContainer<Val>(
-        this->parent(), false, DataType::Bool);
-    NVF_ERROR(vals_up_.back().get() == false_val);
-    false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
-    vals_up_.pop_back();
-  }
-  return false_val_.get();
-}
-
-Val* IrContainer::trueVal() {
-  if (!true_val_) {
-    auto true_val =
-        IrBuilder::createInContainer<Val>(this->parent(), true, DataType::Bool);
-    NVF_ERROR(vals_up_.back().get() == true_val);
-    true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
-    vals_up_.pop_back();
-  }
-  return true_val_.get();
-}
-
-NamedScalar* IrContainer::magicZeroVal() {
-  if (!magic_zero_val_) {
-    auto magic_zero =
-        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
-    NVF_ERROR(vals_up_.back().get() == magic_zero);
-    magic_zero_val_ = std::unique_ptr<NamedScalar>(
-        vals_up_.back().release()->as<NamedScalar>());
-    vals_up_.pop_back();
-  }
-  return magic_zero_val_.get();
-}
-
-Val* IrContainer::metadataOf(Val* v) {
-  if (metadata_.count(v) == 0) {
-    auto metadata_val =
-        IrBuilder::createInContainer<Val>(this->parent(), metaDataTypeOf(v));
-    auto metadata_expr = IrBuilder::createInContainer<GetMetaData>(
-        this->parent(), metadata_val, v);
-    metadata_[v] = std::make_pair(metadata_val, metadata_expr);
-  }
-  return metadata_.at(v).first;
-}
-
-void IrContainer::lazyInitAxioms() {
-  if (!axioms_) {
-    axioms_ = std::make_unique<std::vector<Val*>>();
-    axioms_->reserve(kParallelTypeThreads.size() * 3);
-    auto zero = zeroVal();
-    for (auto p : kParallelTypeThreads) {
-      auto pidx = NamedScalar::getParallelIndex(p);
-      auto pdim = NamedScalar::getParallelDim(p);
-      axioms_->push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
-      axioms_->push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
-      axioms_->push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
-    }
-  }
-}
-
-void IrContainer::assumePositive(Val* val) {
-  NVF_ERROR(val->container() == this->parent());
-  lazyInitAxioms();
-  axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
-}
-
-void IrContainer::assumeNonNegative(Val* val) {
-  NVF_ERROR(val->container() == this->parent());
-  lazyInitAxioms();
-  axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
-}
+// Note: Shortcut values (zeroVal, oneVal, trueVal, falseVal, magicZeroVal),
+// metadata, and axioms are now per-Fusion. Use Fusion::zeroVal(),
+// Fusion::metadataOf(), Fusion::axioms(), etc. instead.
+// This avoids ownership conflicts when multiple Fusions share an IrContainer.
 
 void IrContainer::removeStatementsCreatedAfter(
+    Fusion* fusion,
     int64_t prev_num_exprs,
     int64_t prev_num_vals) {
-  NVF_ERROR(
-      exprs_up_.size() == exprs_.size(),
-      "exprs_up_ (size ",
-      exprs_up_.size(),
-      ") and exprs_ (size ",
-      exprs_.size(),
-      ") are out of sync.");
-  NVF_ERROR(
-      std::ssize(exprs_up_) >= prev_num_exprs,
-      "exprs_up_ size (",
-      std::ssize(exprs_up_),
-      ") is less than prev_num_exprs (",
-      prev_num_exprs,
-      ").");
+  std::unique_lock lock(mutex_);
 
-  // Remove expressions before values because we need to change Val::uses_.
-  while (std::ssize(exprs_up_) > prev_num_exprs) {
-    Expr* e = exprs_up_.back().get();
-    for (Val* in : e->inputs()) {
-      in->removeUse(e);
-    }
-    exprs_.erase(e);
-    exprs_up_.pop_back();
+  // Phase 2: Remove only statements owned by the specified Fusion.
+  // This correctly handles shared containers where multiple Fusions
+  // have statements interleaved in the container's deques.
+
+  // Get current per-Fusion counts
+  auto vals_it = per_fusion_vals_.find(fusion);
+  auto exprs_it = per_fusion_exprs_.find(fusion);
+
+  int64_t current_fusion_exprs =
+      (exprs_it != per_fusion_exprs_.end()) ? exprs_it->second.size() : 0;
+  int64_t current_fusion_vals =
+      (vals_it != per_fusion_vals_.end()) ? vals_it->second.size() : 0;
+
+  // Calculate how many statements to remove from this Fusion
+  int64_t exprs_to_remove = current_fusion_exprs - prev_num_exprs;
+  int64_t vals_to_remove = current_fusion_vals - prev_num_vals;
+
+  if (exprs_to_remove <= 0 && vals_to_remove <= 0) {
+    return; // Nothing to remove
   }
 
-  while (std::ssize(vals_up_) > prev_num_vals) {
-    vals_.erase(vals_up_.back().get());
-    vals_up_.pop_back();
+  // Remove expressions owned by this Fusion (from back of deque)
+  // We iterate backwards and remove only those owned by this Fusion
+  int64_t exprs_removed = 0;
+  // Use index-based iteration to avoid iterator invalidation issues
+  for (int64_t i = static_cast<int64_t>(exprs_up_.size()) - 1;
+       i >= 0 && exprs_removed < exprs_to_remove;
+       --i) {
+    Expr* e = exprs_up_[i].get();
+    if (e->container() == fusion) {
+      // Clean up use-def chains
+      for (Val* in : e->inputs()) {
+        in->removeUse(e);
+      }
+      // Remove from tracking sets
+      exprs_.erase(e);
+      if (exprs_it != per_fusion_exprs_.end()) {
+        exprs_it->second.erase(e);
+      }
+      // Erase from deque
+      exprs_up_.erase(exprs_up_.begin() + i);
+      exprs_removed++;
+    }
+  }
+
+  // Remove vals owned by this Fusion (from back of deque)
+  int64_t vals_removed = 0;
+  for (int64_t i = static_cast<int64_t>(vals_up_.size()) - 1;
+       i >= 0 && vals_removed < vals_to_remove;
+       --i) {
+    Val* v = vals_up_[i].get();
+    if (v->container() == fusion) {
+      // Remove from tracking sets
+      vals_.erase(v);
+      if (vals_it != per_fusion_vals_.end()) {
+        vals_it->second.erase(v);
+      }
+      // Erase from deque
+      vals_up_.erase(vals_up_.begin() + i);
+      vals_removed++;
+    }
   }
 }
 

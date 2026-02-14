@@ -912,6 +912,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_overlap.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pdl.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_phase2_container_sharing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp

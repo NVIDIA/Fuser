@@ -8,6 +8,7 @@
 #pragma once
 
 #include <deque>
+#include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -30,7 +31,7 @@ class NamedScalar;
 
 class IrContainer {
  public:
-  NVF_API IrContainer();
+  IrContainer();
 
   // Copy/Move Constructors and Operators are deleted. IrContainer is managed
   // through a smart pointer in IrContainer. Semantic operations for Fusion
@@ -64,47 +65,114 @@ class IrContainer {
   const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
       const noexcept;
 
+  // =========================================================================
+  // Per-Fusion Deterministic Accessors (Phase 2)
+  // These return statements in insertion order, filtered by ownership.
+  // =========================================================================
+
+  //! Return values owned by a specific Fusion in insertion order
+  std::deque<Val*> deterministicValsOwnedBy(Fusion* fusion) const noexcept;
+
+  //! Return expressions owned by a specific Fusion in insertion order
+  std::deque<Expr*> deterministicExprsOwnedBy(Fusion* fusion) const noexcept;
+
+  //! Return mapping from value to integer id for values owned by a Fusion
+  //! The integer ids are local to this Fusion's values (0, 1, 2, ...)
+  std::unordered_map<Val*, int64_t> deterministicValsMapOwnedBy(
+      Fusion* fusion) const noexcept;
+
+  //! Return mapping from expression to integer id for exprs owned by a Fusion
+  //! The integer ids are local to this Fusion's exprs (0, 1, 2, ...)
+  std::unordered_map<Expr*, int64_t> deterministicExprsMapOwnedBy(
+      Fusion* fusion) const noexcept;
+
   //! Return the set of Exprs registered with this fusion. Warning: This will
   //! return exprs outside inputs/outputs, so can be unsafe for use with
   //! segmented fusions.
-  const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return exprs_;
-  }
+  //! Note: Returns reference - caller must not hold across concurrent mods
+  const std::unordered_set<Expr*>& unordered_exprs() const noexcept;
 
   //! Return the set of Vals registered with this fusion
-  const std::unordered_set<Val*>& vals() const noexcept {
-    return vals_;
-  }
+  //! Note: Returns reference - caller must not hold across concurrent mods
+  const std::unordered_set<Val*>& vals() const noexcept;
 
-  int64_t numExprs() const noexcept {
-    return std::ssize(exprs_);
-  }
+  int64_t numExprs() const noexcept;
 
-  // When include_shortcuts is true, it will count the shortcuts like true_val_.
+  // Note: The include_shortcuts parameter is now deprecated.
+  // With Phase 2 per-Fusion special values, all vals (including special values)
+  // are stored in vals_up_, so both vals_ and vals_up_ have the same size.
+  // This parameter is kept for API compatibility but has no effect.
   int64_t numVals(bool include_shortcuts) const noexcept {
     return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
   }
 
-  // Shortcuts for frequently used vals
-  NVF_API Val* zeroVal();
-  NVF_API Val* oneVal();
-  Val* falseVal();
-  Val* trueVal();
-  NamedScalar* magicZeroVal();
-  NVF_API Val* zeroVal(DataType dtype);
-  NVF_API Val* oneVal(DataType dtype);
-  Val* metadataOf(Val*);
+  // Note: Shortcut values (zeroVal, oneVal, trueVal, falseVal, magicZeroVal),
+  // metadata, and axioms are now per-Fusion. Use Fusion::zeroVal(),
+  // Fusion::metadataOf(), Fusion::axioms(), etc. instead.
+  // This avoids ownership conflicts when multiple Fusions share an IrContainer.
 
-  // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
-  const std::vector<Val*>& axioms() {
-    lazyInitAxioms();
-    return *axioms_;
-  }
+ public:
+  // =========================================================================
+  // Fusion tracking for shared container support (Phase 2)
+  // =========================================================================
 
-  void assumePositive(Val* val);
-  void assumeNonNegative(Val* val);
+  //! Register a Fusion as sharing this container
+  void addFusion(Fusion* fusion);
+
+  //! Unregister a Fusion and cleanup its owned Statements
+  void removeFusion(Fusion* fusion);
+
+  //! Transfer registration from one Fusion to another (for move operations)
+  void transferFusion(Fusion* from, Fusion* to);
+
+  //! Number of Fusions sharing this container
+  size_t sharingCount() const;
+
+  //! Whether multiple Fusions share this container
+  bool hasMultipleFusions() const;
+
+  //! Get the set of Fusions sharing this container
+  const std::unordered_set<Fusion*>& sharingFusions() const;
+
+  // =========================================================================
+  // Per-Fusion Statement Tracking (Phase 2 Task 4)
+  // =========================================================================
+
+  //! Get Vals owned by a specific Fusion
+  //! Returns empty set if Fusion has no vals in this container
+  NVF_API const std::unordered_set<Val*>& valsOwnedBy(Fusion* fusion) const;
+
+  //! Get Exprs owned by a specific Fusion
+  //! Returns empty set if Fusion has no exprs in this container
+  const std::unordered_set<Expr*>& exprsOwnedBy(Fusion* fusion) const;
+
+  //! Transfer statement ownership tracking from one Fusion to another
+  //! Used during move operations
+  void transferStatementOwnership(Fusion* from, Fusion* to);
+
+  //! Public version of removeStatementsOwnedBy (acquires lock)
+  //! Removes all Statements owned by a specific Fusion
+  void removeStatementsOwnedBy(Fusion* fusion);
 
  protected:
+  // Mutex for thread-safe access when container is shared between Fusions
+  // mutable because we need to lock in const methods
+  mutable std::shared_mutex mutex_;
+
+  //! Fusions that share this container (for Phase 2 shared_ptr ownership)
+  std::unordered_set<Fusion*> sharing_fusions_;
+
+  //! Per-Fusion statement tracking for efficient ownership queries
+  //! Maps each Fusion to the set of Vals it owns in this container
+  std::unordered_map<Fusion*, std::unordered_set<Val*>> per_fusion_vals_;
+
+  //! Maps each Fusion to the set of Exprs it owns in this container
+  std::unordered_map<Fusion*, std::unordered_set<Expr*>> per_fusion_exprs_;
+
+  //! Remove all Statements owned by a specific Fusion (internal helper)
+  //! Caller must hold unique_lock on mutex_
+  void removeStatementsOwnedByUnlocked(Fusion* fusion);
+
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 
   static void swap(IrContainer& a, IrContainer& b) noexcept;
@@ -124,20 +192,47 @@ class IrContainer {
   //! Register expr with this container.
   NVF_API void registerExpr(Expr* expr);
 
-  StmtNameType getValName(ValType vtype) {
+  //! Get next val name, using per-Fusion counter if fusion is non-null,
+  //! falling back to global counter otherwise.
+  //! Per-Fusion counters ensure cloned Fusions produce matching names.
+  StmtNameType getValName(Fusion* fusion, ValType vtype) {
+    if (fusion != nullptr) {
+      auto& name_map = per_fusion_val_name_map_[fusion];
+      if (name_map.find(vtype) == name_map.end()) {
+        name_map[vtype] = 0;
+      }
+      // Also advance global counter to keep it >= all per-Fusion counters
+      // This prevents conflicts if global counter is used later
+      auto& global = val_type_name_map_[vtype];
+      auto per_fusion_name = name_map[vtype]++;
+      if (global <= per_fusion_name) {
+        global = per_fusion_name + 1;
+      }
+      return per_fusion_name;
+    }
+    // Global fallback for non-Fusion contexts
     if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
       val_type_name_map_[vtype] = 0;
     }
     return val_type_name_map_[vtype]++;
   }
 
-  StmtNameType getExprName() {
+  //! Get next expr name, using per-Fusion counter if fusion is non-null,
+  //! falling back to global counter otherwise.
+  StmtNameType getExprName(Fusion* fusion) {
+    if (fusion != nullptr) {
+      auto& counter = per_fusion_expr_name_counter_[fusion];
+      auto per_fusion_name = counter++;
+      // Also advance global counter
+      if (expr_name_counter_ <= per_fusion_name) {
+        expr_name_counter_ = per_fusion_name + 1;
+      }
+      return per_fusion_name;
+    }
     return expr_name_counter_++;
   }
 
   void clear() noexcept;
-
-  void lazyInitAxioms();
 
   friend class StatementGuard;
 
@@ -147,7 +242,13 @@ class IrContainer {
   // itself.
   //
   // Used by StatementGuard only.
+  //
+  // Phase 2 Note: This method now takes a Fusion pointer to properly handle
+  // shared containers. It removes only statements owned by the specified
+  // Fusion that were created after the snapshot point, preserving statements
+  // owned by other Fusions sharing the container.
   void removeStatementsCreatedAfter(
+      Fusion* fusion,
       int64_t prev_num_exprs,
       int64_t prev_num_vals);
 
@@ -165,27 +266,26 @@ class IrContainer {
   // something like check if an Expr is in this container
   std::unordered_set<Expr*> exprs_;
 
-  // Values names counters
+  // Values names counters (global fallback for non-Fusion contexts)
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;
 
-  // Expression names counter
+  // Expression names counter (global fallback for non-Fusion contexts)
   StmtNameType expr_name_counter_ = 0;
 
-  // Manually store some persistent, frequently used nodes. It's very
-  // challenging to do this anything but manually as detecting when a container
-  // may or may not have one of these vals is tricky. Specifically because if
-  // the container doesn't own it, it's hard to understand from the outside if
-  // the node may have been removed then re-registered. It could also be tricky
-  // to know when we're using a different container as in FusionCopy_test
-  // demonstrates deleting then creating containers can result in the same
-  // pointer for the container.
-  std::unique_ptr<Val> true_val_;
-  std::unique_ptr<Val> false_val_;
-  std::unique_ptr<Val> one_val_;
-  std::unique_ptr<Val> zero_val_;
-  std::unique_ptr<NamedScalar> magic_zero_val_;
-  std::unique_ptr<std::vector<Val*>> axioms_;
-  std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
+  // Per-Fusion name counters (Phase 2 Task 10)
+  // Each Fusion gets its own counter starting at 0, so cloned Fusions
+  // produce matching names (T0=T0, T1=T1) instead of incrementing names.
+  // This is critical for GreedyParams and normalization_utils which use
+  // tv->name() as map keys across cloned Fusions.
+  std::unordered_map<Fusion*, std::unordered_map<ValType, StmtNameType>>
+      per_fusion_val_name_map_;
+  std::unordered_map<Fusion*, StmtNameType> per_fusion_expr_name_counter_;
+
+  // Note: Special values (zero_val_, one_val_, true_val_, false_val_,
+  // magic_zero_val_) are now per-Fusion, stored in Fusion class.
+  // This avoids ownership conflicts when multiple Fusions share an IrContainer.
+  // See Fusion::zeroVal(), Fusion::axioms(), Fusion::metadataOf(), etc.
+  // for the per-Fusion implementations.
 
  public:
   Fusion* parent() const {

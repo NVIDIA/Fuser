@@ -8,6 +8,7 @@
 #pragma once
 
 #include <any>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -59,6 +60,7 @@ namespace nvfuser {
 //! checks.
 
 class Fusion;
+class NamedScalar;
 class TensorView;
 
 class SegmentCandidateFinder;
@@ -146,8 +148,8 @@ class AliasInfoMap {
 class NVF_API Fusion : public PolymorphicBase {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
- protected:
-  // Direct access to underlying container
+ public:
+  // Direct access to underlying container (for Phase 2 shared_ptr support)
   IrContainer* ir_container() {
     NVF_ERROR(
         ir_container_.get() != nullptr,
@@ -162,7 +164,11 @@ class NVF_API Fusion : public PolymorphicBase {
     return ir_container_.get();
   }
 
- public:
+  // Return the shared_ptr to the container (for Phase 2 container sharing)
+  std::shared_ptr<IrContainer> ir_container_ptr() const {
+    return ir_container_;
+  }
+
   // Registration (public API with passkey)
   virtual void registerStmt(IrBuilderPasskey, Statement* stmt) {
     if (stmt->isVal()) {
@@ -517,94 +523,95 @@ class NVF_API Fusion : public PolymorphicBase {
   }
 
   // Collections access (return values in insertion order)
-  const std::deque<Val*> deterministic_vals() const noexcept {
-    return ir_container()->deterministic_vals();
+  // Phase 2: These return only statements owned by THIS Fusion,
+  // not all statements in the (possibly shared) container.
+  std::deque<Val*> deterministic_vals() const noexcept {
+    return ir_container()->deterministicValsOwnedBy(const_cast<Fusion*>(this));
   }
 
-  const std::deque<Expr*> deterministic_exprs() const noexcept {
-    return ir_container()->deterministic_exprs();
+  std::deque<Expr*> deterministic_exprs() const noexcept {
+    return ir_container()->deterministicExprsOwnedBy(const_cast<Fusion*>(this));
   }
 
-  const std::unordered_map<Val*, int64_t> deterministic_vals_map()
-      const noexcept {
-    return ir_container()->deterministic_vals_map();
+  std::unordered_map<Val*, int64_t> deterministic_vals_map() const noexcept {
+    return ir_container()->deterministicValsMapOwnedBy(
+        const_cast<Fusion*>(this));
   }
 
-  const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
-      const noexcept {
-    return ir_container()->deterministic_exprs_map();
+  std::unordered_map<Expr*, int64_t> deterministic_exprs_map() const noexcept {
+    return ir_container()->deterministicExprsMapOwnedBy(
+        const_cast<Fusion*>(this));
   }
 
   // Collections access (unordered sets)
   const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return ir_container()->unordered_exprs();
+    return ownedExprs();
   }
 
   const std::unordered_set<Val*>& vals() const noexcept {
-    return ir_container()->vals();
+    return ownedVals();
+  }
+
+  // Per-Fusion Statement Access (Phase 2 Task 4)
+  // These methods return only statements owned by THIS Fusion,
+  // not all statements in the shared container.
+  //
+  // Phase 1 (unique_ptr): ownedVals() == vals() (1:1 relationship)
+  // Phase 2 (shared_ptr): ownedVals() ⊆ vals() (filtering by ownership)
+
+  //! Return only Vals owned by this Fusion
+  //! Unlike vals() which returns ALL vals in the (possibly shared) container,
+  //! this returns only vals where val->container() == this
+  const std::unordered_set<Val*>& ownedVals() const {
+    return ir_container()->valsOwnedBy(const_cast<Fusion*>(this));
+  }
+
+  //! Return only Exprs owned by this Fusion
+  //! Unlike unordered_exprs() which returns ALL exprs in the container,
+  //! this returns only exprs where expr->container() == this
+  const std::unordered_set<Expr*>& ownedExprs() const {
+    return ir_container()->exprsOwnedBy(const_cast<Fusion*>(this));
   }
 
   // Count queries
   int64_t numExprs() const noexcept {
-    return ir_container()->numExprs();
+    return ownedExprs().size();
   }
 
   int64_t numVals(bool include_shortcuts) const noexcept {
-    return ir_container()->numVals(include_shortcuts);
+    return ownedVals().size();
   }
 
   // Shortcut values (frequently used constants)
-  Val* zeroVal() {
-    return ir_container()->zeroVal();
-  }
+  // Phase 2: These are now per-Fusion with lazy creation.
+  // Each Fusion has its own special values to avoid ownership conflicts
+  // when multiple Fusions share an IrContainer.
+  Val* zeroVal();
+  Val* oneVal();
+  Val* falseVal();
+  Val* trueVal();
+  NamedScalar* magicZeroVal();
+  Val* zeroVal(DataType dtype);
+  Val* oneVal(DataType dtype);
 
-  Val* oneVal() {
-    return ir_container()->oneVal();
-  }
-
-  Val* falseVal() {
-    return ir_container()->falseVal();
-  }
-
-  Val* trueVal() {
-    return ir_container()->trueVal();
-  }
-
-  NamedScalar* magicZeroVal() {
-    return ir_container()->magicZeroVal();
-  }
-
-  Val* zeroVal(DataType dtype) {
-    return ir_container()->zeroVal(dtype);
-  }
-
-  Val* oneVal(DataType dtype) {
-    return ir_container()->oneVal(dtype);
-  }
-
-  Val* metadataOf(Val* val) {
-    return ir_container()->metadataOf(val);
-  }
+  // Phase 2: Per-Fusion metadata and axioms
+  // These are now per-Fusion to avoid ownership issues with shared containers.
+  Val* metadataOf(Val* val);
 
   // Axioms (CUDA programming assumptions)
-  const std::vector<Val*>& axioms() {
-    return ir_container()->axioms();
-  }
+  const std::vector<Val*>& axioms();
 
-  void assumePositive(Val* val) {
-    ir_container()->assumePositive(val);
-  }
-
-  void assumeNonNegative(Val* val) {
-    ir_container()->assumeNonNegative(val);
-  }
+  void assumePositive(Val* val);
+  void assumeNonNegative(Val* val);
 
   // Statement removal
+  // Phase 2: Now takes this Fusion as parameter to properly handle
+  // shared containers. Only removes statements owned by this Fusion.
   void removeStatementsCreatedAfter(
       int64_t num_exprs_before,
       int64_t num_vals_before) {
     ir_container()->removeStatementsCreatedAfter(
-        num_exprs_before, num_vals_before);
+        this, num_exprs_before, num_vals_before);
   }
 
  protected:
@@ -666,7 +673,25 @@ class NVF_API Fusion : public PolymorphicBase {
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 
   inline static const std::string exact_mappings_key = "exact_mappings";
-  std::unique_ptr<IrContainer> ir_container_;
+  std::shared_ptr<IrContainer> ir_container_;
+
+  // Phase 2: Per-Fusion special values
+  // With shared containers, each Fusion needs its own special values.
+  // These are raw pointers - memory is owned by IrContainer's vals_up_.
+  // Destroying this Fusion removes these vals via removeStatementsOwnedBy().
+  Val* zero_val_ = nullptr;
+  Val* one_val_ = nullptr;
+  Val* true_val_ = nullptr;
+  Val* false_val_ = nullptr;
+  NamedScalar* magic_zero_val_ = nullptr;
+
+  // Phase 2: Per-Fusion axioms (CUDA programming assumptions)
+  // These are per-Fusion to avoid ownership issues with shared containers.
+  std::unique_ptr<std::vector<Val*>> axioms_;
+
+  // Phase 2: Per-Fusion metadata cache
+  // Maps Val* to (metadata_val, metadata_expr) pairs
+  std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 };
 
 // Template implementations for Fusion::manage<T>() that use IrCloner
@@ -719,7 +744,13 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
 
   dest_container->registerStmt(IrBuilderPasskey(dest_container), dest_stmt);
 
-  if (src_container != dest_container) {
+  // Phase 2 Task 10: For same-container cloning (shared IrContainer),
+  // per-Fusion name counters produce matching names naturally (both start
+  // at 0), so the name override below is NOT needed and is skipped.
+  // For cross-container cloning (different IrContainers), we still need
+  // to force the source name since the destination's global counter may
+  // have diverged.
+  if (src_container->ir_container() != dest_container->ir_container()) {
     dest_stmt->setName(IrBuilderPasskey(dest_container), src_stmt->name());
   }
 
