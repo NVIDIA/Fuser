@@ -128,6 +128,7 @@ LaunchKernel::LaunchKernel(
     CompiledKernel* compiled_kernel,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
+    const std::vector<Val*>& intermediates,
     Val* cache_id)
     : Expr(passkey, inputs, outputs, {}), compiled_kernel_(compiled_kernel) {
   NVF_CHECK(
@@ -139,6 +140,11 @@ LaunchKernel::LaunchKernel(
   addDataAttribute(launch_constraints);
   addDataAttribute(compiled_kernel->compileParams());
   addAttribute(cache_id);
+
+  // Add intermediate buffers as attributes (starting at index 4)
+  for (Val* intermediate : intermediates) {
+    addAttribute(intermediate);
+  }
 }
 
 LaunchKernel::LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner)
@@ -152,6 +158,12 @@ std::string LaunchKernel::toString(int indent_size) const {
   indent(ss, indent_size + 1) << "Group ID: " << groupId() << "," << std::endl;
   indent(ss, indent_size + 1)
       << "Inputs: {" << toDelimitedString(inputs()) << "}," << std::endl;
+  auto intermediates = intermediateBuffers();
+  if (!intermediates.empty()) {
+    indent(ss, indent_size + 1)
+        << "Intermediates: {" << toDelimitedString(intermediates) << "},"
+        << std::endl;
+  }
   indent(ss, indent_size + 1)
       << "Outputs: {" << toDelimitedString(outputs()) << "}," << std::endl;
   indent(ss, indent_size) << ")" << std::endl;
