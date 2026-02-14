@@ -650,6 +650,12 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, cluster_dims)
       .PARAM(MatmulParams, mma_macro);
 
+  // Cutlass scheduler parameters
+  INITHEURISTICPARAMS(CutlassParams)
+      .PARAM(CutlassParams, mma_tile)
+      .PARAM(CutlassParams, per_sm_tile)
+      .PARAM(CutlassParams, cluster_shape);
+
 #undef PARAM
 #undef INITPARAMS
 }
