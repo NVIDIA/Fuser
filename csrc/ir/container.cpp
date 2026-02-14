@@ -7,6 +7,7 @@
 // clang-format on
 #include "ir/container.h"
 
+#include "fusion.h"
 #include "instrumentation.h"
 #include "ir/base_nodes.h"
 #include "ir/builder.h"
@@ -80,25 +81,15 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   std::swap(a.val_type_name_map_, b.val_type_name_map_);
   std::swap(a.expr_name_counter_, b.expr_name_counter_);
 
-  std::swap(a.metadata_, b.metadata_);
-
   std::swap(a.parent_, b.parent_);
-
-  std::swap(a.zero_val_, b.zero_val_);
-  std::swap(a.one_val_, b.one_val_);
-  std::swap(a.true_val_, b.true_val_);
-  std::swap(a.false_val_, b.false_val_);
-  std::swap(a.magic_zero_val_, b.magic_zero_val_);
-  std::swap(a.axioms_, b.axioms_);
 }
 
 IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->clear();
+
   IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
-  // deterministic_vals can contain special values like one_val_, zero_val_, etc
-  // that are not registered in the container.
   for (auto val : from->deterministic_vals()) {
     if (from->vals().count(val) > 0) {
       to->vals_.insert(ir_cloner.clone(val));
@@ -114,15 +105,6 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
 
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
-
-  if (from->axioms_ != nullptr) {
-    to->axioms_ = std::make_unique<std::vector<Val*>>();
-    for (auto pred : *from->axioms_) {
-      to->axioms_->push_back(ir_cloner.clone(pred));
-    }
-  }
-
-  to->metadata_ = ir_cloner.clone(from->metadata_);
 
   return ir_cloner;
 }
@@ -153,13 +135,6 @@ void IrContainer::removeExpr(Expr* expr) {
 //! Completely remove val from the fusion, break all dependencies associated
 //! with it
 void IrContainer::removeVal(Val* val) {
-  // Don't remove shortcuts
-  if (val == true_val_.get() || val == false_val_.get() ||
-      val == one_val_.get() || val == zero_val_.get() ||
-      val == magic_zero_val_.get()) {
-    return;
-  }
-
   NVF_ERROR(
       vals_.find(val) != vals_.end(),
       "Wanted to remove a value but it doesn't exist in this container.");
@@ -206,9 +181,7 @@ void IrContainer::clear() noexcept {
   vals_up_.clear();
   exprs_.clear();
   exprs_up_.clear();
-  axioms_.reset();
   val_type_name_map_.clear();
-  metadata_.clear();
   expr_name_counter_ = 0;
 }
 
@@ -242,157 +215,6 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
   }
 
   return true;
-}
-
-// Shortcuts for frequently used vals
-Val* IrContainer::zeroVal() {
-  if (!zero_val_) {
-    auto zero_val =
-        IrBuilder::createInContainer<Val>(this->parent(), 0L, DataType::Index);
-    NVF_ERROR(vals_up_.back().get() == zero_val);
-    zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
-    vals_up_.pop_back();
-  }
-  return zero_val_.get();
-}
-
-Val* IrContainer::zeroVal(DataType dtype) {
-  if (dtype == DataType::Index) {
-    return zeroVal();
-  } else if (isBooleanType(dtype)) {
-    return falseVal();
-  } else {
-    // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this->parent(), 0L, dtype);
-  }
-}
-
-Val* IrContainer::oneVal() {
-  if (!one_val_) {
-    auto one_val =
-        IrBuilder::createInContainer<Val>(this->parent(), 1L, DataType::Index);
-    NVF_ERROR(vals_up_.back().get() == one_val);
-    one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
-    vals_up_.pop_back();
-  }
-  return one_val_.get();
-}
-
-Val* IrContainer::oneVal(DataType dtype) {
-  if (dtype == DataType::Index) {
-    return oneVal();
-  } else if (isBooleanType(dtype)) {
-    return trueVal();
-  } else {
-    // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this->parent(), 1L, dtype);
-  }
-}
-
-Val* IrContainer::falseVal() {
-  if (!false_val_) {
-    auto false_val = IrBuilder::createInContainer<Val>(
-        this->parent(), false, DataType::Bool);
-    NVF_ERROR(vals_up_.back().get() == false_val);
-    false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
-    vals_up_.pop_back();
-  }
-  return false_val_.get();
-}
-
-Val* IrContainer::trueVal() {
-  if (!true_val_) {
-    auto true_val =
-        IrBuilder::createInContainer<Val>(this->parent(), true, DataType::Bool);
-    NVF_ERROR(vals_up_.back().get() == true_val);
-    true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
-    vals_up_.pop_back();
-  }
-  return true_val_.get();
-}
-
-NamedScalar* IrContainer::magicZeroVal() {
-  if (!magic_zero_val_) {
-    auto magic_zero =
-        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
-    NVF_ERROR(vals_up_.back().get() == magic_zero);
-    magic_zero_val_ = std::unique_ptr<NamedScalar>(
-        vals_up_.back().release()->as<NamedScalar>());
-    vals_up_.pop_back();
-  }
-  return magic_zero_val_.get();
-}
-
-Val* IrContainer::metadataOf(Val* v) {
-  if (metadata_.count(v) == 0) {
-    auto metadata_val =
-        IrBuilder::createInContainer<Val>(this->parent(), metaDataTypeOf(v));
-    auto metadata_expr = IrBuilder::createInContainer<GetMetaData>(
-        this->parent(), metadata_val, v);
-    metadata_[v] = std::make_pair(metadata_val, metadata_expr);
-  }
-  return metadata_.at(v).first;
-}
-
-void IrContainer::lazyInitAxioms() {
-  if (!axioms_) {
-    axioms_ = std::make_unique<std::vector<Val*>>();
-    axioms_->reserve(kParallelTypeThreads.size() * 3);
-    auto zero = zeroVal();
-    for (auto p : kParallelTypeThreads) {
-      auto pidx = NamedScalar::getParallelIndex(p);
-      auto pdim = NamedScalar::getParallelDim(p);
-      axioms_->push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
-      axioms_->push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
-      axioms_->push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
-    }
-  }
-}
-
-void IrContainer::assumePositive(Val* val) {
-  NVF_ERROR(val->container() == this->parent());
-  lazyInitAxioms();
-  axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
-}
-
-void IrContainer::assumeNonNegative(Val* val) {
-  NVF_ERROR(val->container() == this->parent());
-  lazyInitAxioms();
-  axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
-}
-
-void IrContainer::removeStatementsCreatedAfter(
-    int64_t prev_num_exprs,
-    int64_t prev_num_vals) {
-  NVF_ERROR(
-      exprs_up_.size() == exprs_.size(),
-      "exprs_up_ (size ",
-      exprs_up_.size(),
-      ") and exprs_ (size ",
-      exprs_.size(),
-      ") are out of sync.");
-  NVF_ERROR(
-      std::ssize(exprs_up_) >= prev_num_exprs,
-      "exprs_up_ size (",
-      std::ssize(exprs_up_),
-      ") is less than prev_num_exprs (",
-      prev_num_exprs,
-      ").");
-
-  // Remove expressions before values because we need to change Val::uses_.
-  while (std::ssize(exprs_up_) > prev_num_exprs) {
-    Expr* e = exprs_up_.back().get();
-    for (Val* in : e->inputs()) {
-      in->removeUse(e);
-    }
-    exprs_.erase(e);
-    exprs_up_.pop_back();
-  }
-
-  while (std::ssize(vals_up_) > prev_num_vals) {
-    vals_.erase(vals_up_.back().get());
-    vals_up_.pop_back();
-  }
 }
 
 } // namespace nvfuser
