@@ -51,7 +51,8 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId
 // `tv->getLogicalDomain()` map one-to-one modulo reduction. However, a size in
 // `at::Tensor::sizes` is a factor of the corresponding logical IterDomain's
 // extent if that IterDomain is sharded.
-int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
+NVF_API int64_t
+getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
 // Returns the IterDomain that's parallelized on `parallel_type` in the domain
 // of type `domain_type`.

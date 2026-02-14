@@ -49,20 +49,13 @@ CUTLASS_LIB="$BUILD_DIR/libnvf_cutlass.so"
 check_file_exists "$NVFUSER_CODEGEN_LIB" || exit 1
 
 # Find Python extension files
-NVFUSER_EXT=$(find_python_extensions "$PYTHON_DIR/nvfuser" "_C*.so")
 NVFUSER_DIRECT_EXT=$(find_python_extensions "$PYTHON_DIR/nvfuser_direct" "_C_DIRECT*.so")
-
-if [ -z "$NVFUSER_EXT" ]; then
-    echo "ERROR: nvfuser Python extension (_C*.so) not found in $PYTHON_DIR/nvfuser"
-    exit 1
-fi
 
 if [ -z "$NVFUSER_DIRECT_EXT" ]; then
     echo "ERROR: nvfuser_direct Python extension (_C_DIRECT*.so) not found in $PYTHON_DIR/nvfuser_direct"
     exit 1
 fi
 
-echo "Found nvfuser extension: $NVFUSER_EXT"
 echo "Found nvfuser_direct extension: $NVFUSER_DIRECT_EXT"
 echo ""
 
@@ -129,15 +122,13 @@ check_extension_symbols() {
 }
 
 # Check both extensions
-NVFUSER_OK=0
 NVFUSER_DIRECT_OK=0
 
-check_extension_symbols "$NVFUSER_EXT" "nvfuser" || NVFUSER_OK=1
 check_extension_symbols "$NVFUSER_DIRECT_EXT" "nvfuser_direct" || NVFUSER_DIRECT_OK=1
 
 # 4. Final results
 echo "=== FINAL RESULTS ==="
-if [ $NVFUSER_OK -eq 0 ] && [ $NVFUSER_DIRECT_OK -eq 0 ]; then
+if [ $NVFUSER_DIRECT_OK -eq 0 ]; then
     echo "✅ SUCCESS: All Python extensions have properly exported symbols"
     echo ""
     echo "Cleaning up temporary files..."
@@ -146,9 +137,6 @@ if [ $NVFUSER_OK -eq 0 ] && [ $NVFUSER_DIRECT_OK -eq 0 ]; then
 else
     echo "❌ FAILURE: Missing symbols detected"
     echo ""
-    if [ $NVFUSER_OK -ne 0 ]; then
-        echo "- nvfuser extension has missing symbols (see $TEMP_DIR/nvfuser_missing_symbols.txt)"
-    fi
     if [ $NVFUSER_DIRECT_OK -ne 0 ]; then
         echo "- nvfuser_direct extension has missing symbols (see $TEMP_DIR/nvfuser_direct_missing_symbols.txt)"
     fi
@@ -165,9 +153,6 @@ else
     echo "- exported_symbols.txt: Combined exported symbols from all libraries"
     echo "- nvfuser_undefined_symbols.txt: Undefined symbols from nvfuser extension"
     echo "- nvfuser_direct_undefined_symbols.txt: Undefined symbols from nvfuser_direct extension"
-    if [ $NVFUSER_OK -ne 0 ]; then
-        echo "- nvfuser_missing_symbols.txt: Missing symbols from nvfuser extension"
-    fi
     if [ $NVFUSER_DIRECT_OK -ne 0 ]; then
         echo "- nvfuser_direct_missing_symbols.txt: Missing symbols from nvfuser_direct extension"
     fi

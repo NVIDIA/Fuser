@@ -135,10 +135,7 @@ class build_ext(setuptools.command.build_ext.build_ext):
         self.copy_file(libnvfuser_path, install_dst)
 
     def build_extension(self, ext):
-        if ext.name == "nvfuser._C":
-            self.copy_library(ext, "libnvfuser")
-            self.copy_shared_library("libnvfuser_codegen.so")
-        elif ext.name == "nvfuser_direct._C_DIRECT":
+        if ext.name == "nvfuser_direct._C_DIRECT":
             self.copy_library(ext, "libnvfuser_direct")
             self.copy_shared_library("libnvfuser_codegen.so")
         else:
@@ -361,8 +358,7 @@ def run(config, version_tag, relative_path):
     from setuptools import Extension, setup, find_packages
 
     # NOTE(crcrpar): Deliberately build basically two dynamic libraries here so that they can
-    # be treated as "nvfuser_package_data". This function call will put the two of "nvfuser" and
-    # "nvfuser_codegen" into "./nvfuser/lib", and the former will be "nvfuser._C".
+    # be treated as "nvfuser_package_data".
     if config.build_setup:
         cmake(config, relative_path)
     if not config.cmake_only:
@@ -404,7 +400,6 @@ def run(config, version_tag, relative_path):
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=find_packages(),
             ext_modules=[
-                Extension(name="nvfuser._C", sources=[]),
                 Extension(name="nvfuser_direct._C_DIRECT", sources=[]),
             ],
             license_files=("LICENSE",),
