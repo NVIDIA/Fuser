@@ -80,29 +80,11 @@ class IrContainer {
     return std::ssize(exprs_);
   }
 
-  // When include_shortcuts is true, it will count the shortcuts like true_val_.
+  // When include_shortcuts is true, count cached special vals (zeroVal, etc.)
+  // whose ownership was transferred to Fusion but that still appear in vals_.
   int64_t numVals(bool include_shortcuts) const noexcept {
     return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
   }
-
-  // Shortcuts for frequently used vals
-  NVF_API Val* zeroVal();
-  NVF_API Val* oneVal();
-  Val* falseVal();
-  Val* trueVal();
-  NamedScalar* magicZeroVal();
-  NVF_API Val* zeroVal(DataType dtype);
-  NVF_API Val* oneVal(DataType dtype);
-  Val* metadataOf(Val*);
-
-  // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
-  const std::vector<Val*>& axioms() {
-    lazyInitAxioms();
-    return *axioms_;
-  }
-
-  void assumePositive(Val* val);
-  void assumeNonNegative(Val* val);
 
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
@@ -137,8 +119,6 @@ class IrContainer {
 
   void clear() noexcept;
 
-  void lazyInitAxioms();
-
   friend class StatementGuard;
 
   // A simple garbage collection mechanism to remove all Exprs and Vals that
@@ -170,22 +150,6 @@ class IrContainer {
 
   // Expression names counter
   StmtNameType expr_name_counter_ = 0;
-
-  // Manually store some persistent, frequently used nodes. It's very
-  // challenging to do this anything but manually as detecting when a container
-  // may or may not have one of these vals is tricky. Specifically because if
-  // the container doesn't own it, it's hard to understand from the outside if
-  // the node may have been removed then re-registered. It could also be tricky
-  // to know when we're using a different container as in FusionCopy_test
-  // demonstrates deleting then creating containers can result in the same
-  // pointer for the container.
-  std::unique_ptr<Val> true_val_;
-  std::unique_ptr<Val> false_val_;
-  std::unique_ptr<Val> one_val_;
-  std::unique_ptr<Val> zero_val_;
-  std::unique_ptr<NamedScalar> magic_zero_val_;
-  std::unique_ptr<std::vector<Val*>> axioms_;
-  std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 
  public:
   Fusion* parent() const {

@@ -59,6 +59,7 @@ namespace nvfuser {
 //! checks.
 
 class Fusion;
+class NamedScalar;
 class TensorView;
 
 class SegmentCandidateFinder;
@@ -549,55 +550,28 @@ class NVF_API Fusion : public PolymorphicBase {
     return ir_container()->numExprs();
   }
 
-  int64_t numVals(bool include_shortcuts) const noexcept {
+  // When include_shortcuts is true, count cached special vals (zeroVal, etc.)
+  // which live outside vals_up_ but inside vals_.
+  int64_t numVals(bool include_shortcuts = true) const noexcept {
     return ir_container()->numVals(include_shortcuts);
   }
 
   // Shortcut values (frequently used constants)
-  Val* zeroVal() {
-    return ir_container()->zeroVal();
-  }
+  Val* zeroVal();
+  Val* oneVal();
+  Val* falseVal();
+  Val* trueVal();
+  NamedScalar* magicZeroVal();
+  Val* zeroVal(DataType dtype);
+  Val* oneVal(DataType dtype);
 
-  Val* oneVal() {
-    return ir_container()->oneVal();
-  }
-
-  Val* falseVal() {
-    return ir_container()->falseVal();
-  }
-
-  Val* trueVal() {
-    return ir_container()->trueVal();
-  }
-
-  NamedScalar* magicZeroVal() {
-    return ir_container()->magicZeroVal();
-  }
-
-  Val* zeroVal(DataType dtype) {
-    return ir_container()->zeroVal(dtype);
-  }
-
-  Val* oneVal(DataType dtype) {
-    return ir_container()->oneVal(dtype);
-  }
-
-  Val* metadataOf(Val* val) {
-    return ir_container()->metadataOf(val);
-  }
+  Val* metadataOf(Val* val);
 
   // Axioms (CUDA programming assumptions)
-  const std::vector<Val*>& axioms() {
-    return ir_container()->axioms();
-  }
+  const std::vector<Val*>& axioms();
 
-  void assumePositive(Val* val) {
-    ir_container()->assumePositive(val);
-  }
-
-  void assumeNonNegative(Val* val) {
-    ir_container()->assumeNonNegative(val);
-  }
+  void assumePositive(Val* val);
+  void assumeNonNegative(Val* val);
 
   // Statement removal
   void removeStatementsCreatedAfter(
@@ -667,6 +641,16 @@ class NVF_API Fusion : public PolymorphicBase {
 
   inline static const std::string exact_mappings_key = "exact_mappings";
   std::unique_ptr<IrContainer> ir_container_;
+
+  std::unique_ptr<Val> zero_val_;
+  std::unique_ptr<Val> one_val_;
+  std::unique_ptr<Val> true_val_;
+  std::unique_ptr<Val> false_val_;
+  std::unique_ptr<NamedScalar> magic_zero_val_;
+
+  std::unique_ptr<std::vector<Val*>> axioms_;
+
+  std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 };
 
 // Template implementations for Fusion::manage<T>() that use IrCloner
