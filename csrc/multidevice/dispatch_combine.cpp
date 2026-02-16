@@ -153,7 +153,8 @@ DispatchResult doMoeDispatch(
   }
 
   NVF_CHECK_EQ(
-      backend, CommunicatorBackend::kCuda,
+      backend,
+      CommunicatorBackend::kCuda,
       "Only CUDA and NCCL backends are supported for MoeDispatch.");
 
   auto metadata =
