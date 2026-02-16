@@ -11,7 +11,6 @@
 
 #include "compute_at_map.h"
 #include "expr_evaluator.h"
-#include "expr_simplifier.h"
 #include "id_model/id_model.h"
 #include "instrumentation.h"
 #include "ir/builder.h"
@@ -208,10 +207,6 @@ void ContiguousInnerDimensionsMapper::distributePE(
 std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     const std::vector<IterDomain*>& from,
     const std::vector<IterDomain*>& to) {
-  if (from.empty()) {
-    return {};
-  }
-
   std::vector<IterDomain*> frontier = from;
 
   // Process `merge_or_split` and update `frontier`, where `merge_or_split` must
@@ -451,10 +446,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
           "ProjectDimensions does not support expr type: ", expr->toString());
     } // switch on expr type
   } // For loop on the transform expressions
-
-  if (frontier.empty()) {
-    return {};
-  }
 
   auto forward_exprs = StmtSort::getExprsBetween(
       {frontier.begin(), frontier.end()}, {to.begin(), to.end()});

@@ -16,6 +16,7 @@
 #include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
+#include "ir/utils.h"
 #include "linked_hash_map.h"
 #include "logical_domain_map.h"
 #include "multidevice/utils.h"
@@ -124,15 +125,15 @@ void transformLoopDomain(
     // Similarly, if target [h] -> ref [a, h/a], returns `h` for ref_id `a`.
     if (!ref2target.contains(ref_id)) {
       // Find the root domain id.
-      std::unordered_set<IterDomain*> inputs =
-          getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
+      std::vector<IterDomain*> inputs =
+          ir_utils::getReachableIds(ref->getMaybeRootDomain(), {ref_id});
       NVF_ERROR_EQ(
           inputs.size(),
           1,
           "Expected one input for ",
           ref_id,
           " in the root domain.");
-      ref_id = *inputs.begin();
+      ref_id = inputs.front();
     }
 
     NVF_ERROR(
@@ -181,51 +182,66 @@ void transformLoopDomain(
       {device_or_stream_ids.begin(), device_or_stream_ids.end()});
 
   for (Expr* transform : transforms) {
-    auto* split = dynamic_cast<Split*>(transform);
-    NVF_ERROR(
-        split != nullptr,
-        "Expected a split transform producing the device/stream id. Got: ",
-        transform);
-
-    IterDomain* ref_id = split->in();
-    IterDomain* target_id = get_target_id(ref_id);
-    NVF_ERROR(
-        transformed_loop.contains(target_id),
-        "Expected the target ID, ",
-        target_id,
-        ", to be in the loop domain.");
-
-    // Sharding on producer logical id is equivalent to sharding on the
-    // outermost consumer reshaped id iff:
-    // 1. The reference is outer split by num_devices.
-    // 2. The extent of sharded id in producer / consumer is divisible by
-    // split_factor. NOTE: We can only check if DID(d) is on the outer of the
-    // split regardless of the split_factor. However, when applying the split to
-    // the target, the split_factor will need to be num_devices. For e.g.: A[h]
-    // -> reshape -> B[a, h/a] If A is inner split `h/d`, then directly
-    // replaying the split on `a` will produce `a/(h/d), h/d` instead of `d,
-    // a/d`. So we should instead outer split by num_devices.
-
-    // Find the consumer between the reference and target.
-    auto [consumer_id, consumer_tv] = direction == PropagateDirection::kForward
-        ? std::make_pair(target_id, target)
-        : std::make_pair(ref_id, ref);
-
-    if (hasRootToLogicalTransform(consumer_id, consumer_tv)) {
-      validate_split(split, target_id);
+    if (auto* swizzle1d = dynamic_cast<Swizzle1D*>(transform)) {
+      IterDomain* ref_id = swizzle1d->in();
+      IterDomain* target_id = get_target_id(ref_id);
+      NVF_ERROR(
+          transformed_loop.contains(target_id),
+          "Expected the target ID, ",
+          target_id,
+          ", to be in the loop domain.");
+      auto it = transformed_loop.erase(target_id).second;
+      auto replayed_id =
+          IterDomain::swizzle1d(target_id, swizzle1d->parallelType());
+      transformed_loop.insert(it, replayed_id, std::monostate());
+      ref2target[swizzle1d->out()] = replayed_id;
+      continue;
     }
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      IterDomain* ref_id = split->in();
+      IterDomain* target_id = get_target_id(ref_id);
+      NVF_ERROR(
+          transformed_loop.contains(target_id),
+          "Expected the target ID, ",
+          target_id,
+          ", to be in the loop domain.");
 
-    auto it = transformed_loop.erase(target_id).second;
-    auto [outer, inner] =
-        IterDomain::split(target_id, split->factor(), split->innerSplit());
+      // Sharding on producer logical id is equivalent to sharding on the
+      // outermost consumer reshaped id iff:
+      // 1. The reference is outer split by num_devices.
+      // 2. The extent of sharded id in producer / consumer is divisible by
+      // split_factor. NOTE: We can only check if DID(d) is on the outer of the
+      // split regardless of the split_factor. However, when applying the split
+      // to the target, the split_factor will need to be num_devices. For e.g.:
+      // A[h]
+      // -> reshape -> B[a, h/a] If A is inner split `h/d`, then directly
+      // replaying the split on `a` will produce `a/(h/d), h/d` instead of `d,
+      // a/d`. So we should instead outer split by num_devices.
 
-    transformed_loop.insert(it, outer, std::monostate());
-    transformed_loop.insert(it, inner, std::monostate());
+      // Find the consumer between the reference and target.
+      auto [consumer_id, consumer_tv] =
+          direction == PropagateDirection::kForward
+          ? std::make_pair(target_id, target)
+          : std::make_pair(ref_id, ref);
 
-    // Add mapping between ref and target for the propagated DID split.
-    // This is used to propagate 2D sharding and parallelization.
-    ref2target[split->outer()] = outer;
-    ref2target[split->inner()] = inner;
+      if (hasRootToLogicalTransform(consumer_id, consumer_tv)) {
+        validate_split(split, target_id);
+      }
+
+      auto it = transformed_loop.erase(target_id).second;
+      auto [outer, inner] =
+          IterDomain::split(target_id, split->factor(), split->innerSplit());
+
+      transformed_loop.insert(it, outer, std::monostate());
+      transformed_loop.insert(it, inner, std::monostate());
+
+      // Add mapping between ref and target for the propagated DID split.
+      // This is used to propagate 2D sharding and parallelization.
+      ref2target[split->outer()] = outer;
+      ref2target[split->inner()] = inner;
+      continue;
+    }
+    NVF_THROW("Expected a split or swizzle1d transform. Got: ", transform);
   }
 
   // Parallelize based on the ref2target map.
@@ -291,17 +307,16 @@ void shardLoopLike(
 
     // Get input of device_id in the root / logical domain
     // that will be present in ref2target mapping.
-    std::unordered_set<IterDomain*> inputs =
-        direction == PropagateDirection::kForward
-        ? getInputsInTargetDomain({ref_id}, ref->getLogicalDomain())
-        : getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
+    std::vector<IterDomain*> inputs = direction == PropagateDirection::kForward
+        ? ir_utils::getReachableIds(ref->getLogicalDomain(), {ref_id})
+        : ir_utils::getReachableIds(ref->getMaybeRootDomain(), {ref_id});
     NVF_ERROR_EQ(
         inputs.size(),
         1,
         "Expected one input for ",
         ref_id,
         " in the root / logical domain.");
-    IterDomain* target_id = getOrDefault(ref2target, *inputs.begin());
+    IterDomain* target_id = getOrDefault(ref2target, inputs.front());
     if (target_id == nullptr) {
       continue;
     }
