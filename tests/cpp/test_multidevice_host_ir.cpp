@@ -10,6 +10,7 @@
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
+#include "host_ir/ops.h"
 #include "host_ir/pass/stream_parallel_type.h"
 #include "ir/all_nodes.h"
 #include "multidevice/symmetric_tensor.h"
@@ -526,16 +527,13 @@ TEST_F(MultiDeviceTest, SwizzleWithParallelType) {
       tv->outer_split(1, d);
       tv->axis(1)->parallelize(ParallelType::DIDx);
       tv->setAllocationDomain(tv->getLoopDomain(), true);
-    }
-    auto* allocate_out = IrBuilder::create<kir::Allocate>(
-        out_tv, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
-
-    for (auto* tv : {in_tv, out_tv}) {
       tv->outer_split(0, d);
       tv->swizzle1d(0, ParallelType::DIDx);
       tv->axis(0)->parallelize(ParallelType::Stream);
     }
 
+    auto* allocate_out = IrBuilder::create<kir::Allocate>(
+        out_tv, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
     auto* stream_index = IrBuilder::create<Val>(DataType::Index);
     auto* for_loop = IrBuilder::create<ForLoop>(
         stream_index,
@@ -543,22 +541,10 @@ TEST_F(MultiDeviceTest, SwizzleWithParallelType) {
         /*stop=*/IrBuilder::create<Val>(d - 1, DataType::Index));
 
     TensorView* in_shard =
-        ops::newValLike(in_tv, *in_tv->getDataType())->as<TensorView>();
+        hir::shardByStream(in_tv, stream_index, out_tv->definition());
     TensorView* out_shard =
-        ops::newValLike(out_tv, *out_tv->getDataType())->as<TensorView>();
+        hir::shardByStream(out_tv, stream_index, out_tv->definition());
 
-    for (auto* tv : {in_shard, out_shard}) {
-      tv->setDeviceMesh(mesh);
-      tv->outer_split(1, d);
-      tv->axis(1)->parallelize(ParallelType::DIDx);
-      tv->outer_split(0, d);
-      tv->swizzle1d(0, ParallelType::DIDx);
-      tv->axis(0)->parallelize(ParallelType::Stream);
-      tv->setAllocationDomain(tv->getLoopDomain(), true);
-    }
-
-    IrBuilder::create<ShardByStream>(in_shard, in_tv, stream_index);
-    IrBuilder::create<ShardByStream>(out_shard, out_tv, stream_index);
     auto* copy = IrBuilder::create<LoadStoreOp>(
         LoadStoreOpType::Set, out_shard, in_shard);
 
