@@ -544,21 +544,31 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   const auto& ref2_loop = ref2->getMaybeAllocationDomain();
   const auto& ca_map = domain_map.getComputeAtMap();
 
-  // Filter out reduction and broadcast dimensions before comparing. Only
-  // require the common prefix to be mapped; extra dimensions in the longer
-  // sequence are ignored (e.g. ref1 [i1,i2] and ref2 [i1] are all_mapped if
-  // i1/i1 are mapped).
+  // Filter out reduction and broadcast dimensions before comparing.
+  // - the shorter must be a subsequence of the longer (same
+  //   order), e.g. longer [i0,i1,i2] allows shorter [i0,i1], [i1,i2], [i0,i2];
+  //   disallows [i1,i0], [i2,i1], [i2,i0].
   auto ref1_filtered =
       ref1_loop | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts;
   auto ref2_filtered =
       ref2_loop | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts;
 
+  const auto n1 = std::ranges::distance(ref1_filtered);
+  const auto n2 = std::ranges::distance(ref2_filtered);
+  auto shorter = (n1 <= n2) ? ref1_filtered : ref2_filtered;
+  auto longer = (n1 <= n2) ? ref2_filtered : ref1_filtered;
+  auto it = std::ranges::begin(longer);
+  auto end = std::ranges::end(longer);
   bool all_mapped = true;
-  for (auto [id1, id2] : zip(ref1_filtered, ref2_filtered)) {
-    if (!ca_map.areMapped(id1, id2, IdMappingMode::PERMISSIVE)) {
+  for (IterDomain* id_s : shorter) {
+    it = std::ranges::find_if(it, end, [&](IterDomain* id_l) {
+      return ca_map.areMapped(id_s, id_l, IdMappingMode::PERMISSIVE);
+    });
+    if (it == end) {
       all_mapped = false;
       break;
     }
+    ++it;
   }
   if (all_mapped) {
     // Not required, just to validate the assumption that all_mapped implies
