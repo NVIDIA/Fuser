@@ -13,6 +13,7 @@
 #include "instrumentation.h"
 #include "scheduler/debug_utils.h"
 #include "scheduler/reduction_non_tma.h"
+#include "scheduler/reduction_outer_tma.h"
 #include "scheduler/reduction_tma.h"
 #include "scheduler/reduction_utils.h"
 #include "scheduler/registry_utils.h"
@@ -239,6 +240,50 @@ bool mayUseTma(
 
   return true;
 }
+
+bool mayUseTmaOuter(
+    const reduction_scheduler_utils::FusionRuntimeProperties& props) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+
+  if (dev_prop->major < 9) {
+    return false;
+  }
+
+  // Require outer reduction
+  if (props.fastest_dim_reduction) {
+    return false;
+  }
+
+  int64_t dtype_bytes = props.max_dtype_size_bit_for_vectorization / 8;
+  uint64_t total_reduction_bytes = props.total_reduction_numel * dtype_bytes;
+
+  // Minimum TMA transfer size
+  uint64_t min_tma_bytes = 16384;
+  if (total_reduction_bytes < min_tma_bytes) {
+    return false;
+  }
+
+  // TMA tile may exceed Smem size for multiple tensors.
+  if (props.n_tensor_inputs != 1) {
+    return false;
+  }
+
+  // TMA requires 16-byte alignment on both dims.
+  // For outer reduction [R, I], both R and I extents (in bytes) must be
+  // multiples of 16. We check the iteration dim via inner_most_dimension_numel.
+  if ((props.inner_most_dimension_numel * dtype_bytes) % 16 != 0) {
+    return false;
+  }
+  if ((props.total_reduction_numel * dtype_bytes) % 16 != 0) {
+    return false;
+  }
+
+  if (props.vectorize_factor <= 1) {
+    return false;
+  }
+
+  return true;
+}
 } // namespace
 
 std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
@@ -250,14 +295,26 @@ std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
   auto props = reduction_scheduler_utils::getFusionRuntimeProperties(
       fusion, runtime_info, data_cache);
 
-  bool use_tma =
-      mayUseTma(props) && isOptionEnabled(EnableOption::TmaReduction);
+  bool tma_enabled = isOptionEnabled(EnableOption::TmaReduction);
+  tma_enabled = true;
 
   std::unique_ptr<HeuristicParams> rparams = nullptr;
-  if (use_tma) {
+
+  // Try outer TMA scheduler for outer reductions
+  if (tma_enabled && mayUseTmaOuter(props)) {
+    rparams = reduction::outer_tma::getReductionHeuristics(
+        fusion, runtime_info, data_cache, props);
+    // rparams = nullptr;
+  } else {
+    NVF_ERROR(false);
+  }
+
+  // Try inner TMA scheduler for inner reductions
+  if (rparams == nullptr && tma_enabled && mayUseTma(props)) {
     rparams = reduction::tma::getReductionHeuristics(
         fusion, runtime_info, data_cache, props);
   }
+
   // Fallback to non-TMA scheduler if TMA is not applicable
   if (rparams == nullptr) {
     rparams = reduction::non_tma::getReductionHeuristics(
@@ -271,7 +328,11 @@ void ReductionScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ReductionScheduler::schedule");
-  if (auto* tma_params = dynamic_cast<const TmaInnerReductionParams*>(params)) {
+  if (auto* outer_tma_params =
+          dynamic_cast<const TmaOuterReductionParams*>(params)) {
+    reduction::outer_tma::scheduleReduction(fusion, outer_tma_params);
+  } else if (
+      auto* tma_params = dynamic_cast<const TmaInnerReductionParams*>(params)) {
     reduction::tma::scheduleReduction(fusion, tma_params);
   } else {
     auto rparams = dynamic_cast<const ReductionParams*>(params);
