@@ -536,27 +536,38 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   // are tv0[i0, i1] and tv1[i2, b3] where i0/i2 and i1/b3 are mapped to each
   // other. However, tv0 and tv1 are in two different groups because of the
   // broadcast. In this case, we should use the pointwise scheduler instead of
-  // the transpose scheduler.
+  // the transpose scheduler. More generally, missing broadcast dimensions
+  // should be allowed when checking domain mapping, e.g. [b0, i1, i2] and [I1,
+  // B2] should be considered as all mapped as long as i1/I1 and b2/B2 are
+  // mapped. The extra b0 dimension is allowed to be missing.
   const auto& ref1_loop = ref1->getMaybeAllocationDomain();
   const auto& ref2_loop = ref2->getMaybeAllocationDomain();
   const auto& ca_map = domain_map.getComputeAtMap();
 
-  // Filter out reduction (and stride) domains before comparing
-  auto ref1_filtered = ref1_loop | TensorDomain::kNoReductions;
-  auto ref2_filtered = ref2_loop | TensorDomain::kNoReductions;
+  // Filter out reduction and broadcast dimensions before comparing. Only
+  // require the common prefix to be mapped; extra dimensions in the longer
+  // sequence are ignored (e.g. ref1 [i1,i2] and ref2 [i1] are all_mapped if
+  // i1/i1 are mapped).
+  auto ref1_filtered =
+      ref1_loop | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts;
+  auto ref2_filtered =
+      ref2_loop | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts;
 
-  const bool all_mapped = std::ranges::equal(
-      ref1_filtered, ref2_filtered, [&](IterDomain* id1, IterDomain* id2) {
-        return ca_map.areMapped(id1, id2, IdMappingMode::PERMISSIVE);
-      });
+  bool all_mapped = true;
+  for (auto [id1, id2] : zip(ref1_filtered, ref2_filtered)) {
+    if (!ca_map.areMapped(id1, id2, IdMappingMode::PERMISSIVE)) {
+      all_mapped = false;
+      break;
+    }
+  }
   if (all_mapped) {
     // Not required, just to validate the assumption that all_mapped implies
     // any_bcast
     const bool any_bcast =
         std::ranges::any_of(
-            ref1_filtered, [](IterDomain* id) { return id->isBroadcast(); }) ||
+            ref1_loop, [](IterDomain* id) { return id->isBroadcast(); }) ||
         std::ranges::any_of(
-            ref2_filtered, [](IterDomain* id) { return id->isBroadcast(); });
+            ref2_loop, [](IterDomain* id) { return id->isBroadcast(); });
     NVF_ERROR(
         any_bcast,
         "all_mapped implies any_bcast, ca_map:\n",
