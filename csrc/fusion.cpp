@@ -157,6 +157,8 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   std::swap(a.magic_zero_val_, b.magic_zero_val_);
   std::swap(a.axioms_, b.axioms_);
   std::swap(a.metadata_, b.metadata_);
+  std::swap(a.val_type_name_map_, b.val_type_name_map_);
+  std::swap(a.expr_name_counter_, b.expr_name_counter_);
 
   // Update Statement::ir_container_ pointers: a's old statements now belong
   // to b, and b's old statements now belong to a
@@ -207,6 +209,16 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   for (auto val : from->deterministic_vals()) {
     ir_cloner.clone(val);
   }
+
+  // Sync per-Fusion name counters from source to dest.
+  // During cloning, registerVal increments the dest Fusion's counter for each
+  // val, then IrBuilder::clone overrides the name with setName(src->name()).
+  // If source names are non-sequential (e.g., {0..10, 22..27} from segmenter
+  // creating intermediate TVs), the dest counter ends up at N (number of vals)
+  // instead of max(name)+1. Copying the source's counter state ensures new
+  // vals created post-copy won't collide with existing names.
+  to->val_type_name_map_ = from->val_type_name_map_;
+  to->expr_name_counter_ = from->expr_name_counter_;
 
   // Wire up definitions and uses on cloned vals
   for (auto val : from->vals()) {
@@ -365,6 +377,9 @@ void Fusion::clear() noexcept {
 
   axioms_.reset();
   metadata_.clear();
+
+  val_type_name_map_.clear();
+  expr_name_counter_ = 0;
 
   invalidateTvsAndUses();
 
@@ -981,7 +996,7 @@ void Fusion::registerVal(Val* val) {
   c->vals_up_.emplace_back(val);
   c->vals_.insert(val);
   c->per_fusion_vals_[this].insert(val);
-  val->setName(IrContainerPasskey(), c->getValName(val->vtype()));
+  val->setName(IrContainerPasskey(), getValName(val->vtype()));
 }
 
 void Fusion::registerExpr(Expr* expr) {
@@ -998,7 +1013,7 @@ void Fusion::registerExpr(Expr* expr) {
   c->exprs_up_.emplace_back(expr);
   c->exprs_.insert(expr);
   c->per_fusion_exprs_[this].insert(expr);
-  expr->setName(IrContainerPasskey(), c->getExprName());
+  expr->setName(IrContainerPasskey(), getExprName());
 
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");
