@@ -8,18 +8,19 @@
 
 #include "host_ir/lower_to_communication.h"
 
-#include "host_ir/container.h"
-#include "ir/all_nodes.h"
-#include "ir/allocation_utils.h"
+#include <algorithm>
+#include <iterator>
+#include <optional>
+#include <vector>
+
 #include "ir/builder.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/iostream.h"
 #include "ir/utils.h"
-#include "kernel_ir.h"
+#include "logical_domain_map.h"
 #include "multidevice/communication.h"
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
-#include "ops/all_ops.h"
 
 namespace nvfuser {
 
@@ -57,10 +58,11 @@ void lowerToScatter(
     const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
-  NVF_ERROR(
-      receiver_mesh.rank() == 1,
+  NVF_ERROR_EQ(
+      receiver_mesh.rank(),
+      1,
       "Gather only supported on a 1D mesh. Given ",
-      receiver_mesh);
+      output_tv);
 
   // Find a common device between input and receiver meshes to be the root
   std::vector<DeviceIdxType> input_devices = input_tv->getDeviceMesh().vector();
@@ -149,8 +151,8 @@ void lowerToBroadcast(
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
 
-  NVF_ERROR_EQ(sender_mesh.rank(), 1, "sender: ", input_tv->toString());
-  NVF_ERROR_EQ(receiver_mesh.rank(), 1, "receiver: ", output_tv->toString());
+  NVF_ERROR_EQ(sender_mesh.rank(), 1, "sender: ", input_tv);
+  NVF_ERROR_EQ(receiver_mesh.rank(), 1, "receiver: ", output_tv);
 
   DeviceIdxType root = sender_mesh.at(0);
   Team team = receiver_mesh.vector();
@@ -214,12 +216,14 @@ void lowerToReduce(
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
-  NVF_ERROR(
-      sender_mesh.rank() == 1,
+  NVF_ERROR_EQ(
+      sender_mesh.rank(),
+      1,
       "Reduce only supported a 1D mesh. Given ",
       sender_mesh);
-  NVF_ERROR(
-      receiver_mesh.rank() == 1,
+  NVF_ERROR_EQ(
+      receiver_mesh.rank(),
+      1,
       "Reduce only supported a 1D mesh. Given ",
       receiver_mesh);
   const auto reduce_op_type = getC10dReduceOpType(op_type);
@@ -323,8 +327,9 @@ void lowerToAllToAll(
 IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
   std::vector<IterDomain*> logical_ids =
       ir_utils::getReachableIds(tv->getLogicalDomain(), {loop_id});
-  NVF_ERROR(
-      logical_ids.size() == 1,
+  NVF_ERROR_EQ(
+      logical_ids.size(),
+      1,
       "Expected exactly one logical ID producing the device dimension ",
       loop_id);
   return logical_ids.front();
@@ -356,9 +361,11 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       "getCommunicationInfo should only be called when `e` is known to be a "
       "communication. Given: ",
       e);
-
+  NVF_ERROR_EQ(e->inputs().size(), 1, "Expected 1 input, but got ", e);
   auto* producer = e->inputs().at(0)->as<TensorView>();
+  NVF_ERROR_EQ(e->outputs().size(), 1, "Expected 1 output, but got ", e);
   auto* consumer = e->outputs().at(0)->as<TensorView>();
+
   std::optional<CommunicationInfo> communication_info = std::nullopt;
 
   // Fill `communication_info` instead of returning the result, so we can catch
@@ -369,7 +376,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
     NVF_ERROR(
         !communication_info.has_value(),
         "Expected at most one sharding change: ",
-        e->toString());
+        e);
     communication_info = CommunicationInfo{type, p_sharded_id, c_sharded_id};
   };
 
@@ -445,7 +452,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
           c_it != p2c_map.end(),
           "Cannot find the mapped consumer logical ID for the producer logical "
           "ID ",
-          p_logical_id->toString());
+          p_logical_id);
       if (!c_it->second->isReduction()) {
         continue;
       }
@@ -492,8 +499,9 @@ Layout getCommunicationLayout(
 
   const int64_t sharded_id_pos =
       posInDomain(layout.allocation_domain(), sharded_id);
-  NVF_ERROR(
-      sharded_id_pos >= 0,
+  NVF_ERROR_GE(
+      sharded_id_pos,
+      0,
       "Sharded ID (",
       sharded_id,
       ") not found in the allocation domain of the tensor view: ",
@@ -566,7 +574,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
   NVF_ERROR(
       isCommunicationLayoutCompliant(e),
       "Resharding on an inner axis is not lowerable ",
-      e->toString());
+      e);
 
   CommunicationInfo communication_info = getCommunicationInfo(e);
 
