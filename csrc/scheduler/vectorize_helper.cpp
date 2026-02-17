@@ -10,10 +10,7 @@
 #include <unordered_set>
 
 #include "compute_at_map.h"
-#include "contiguity.h"
-#include "device_lower/analysis/divisible_split.h"
 #include "expr_evaluator.h"
-#include "expr_simplifier.h"
 #include "id_model/id_model.h"
 #include "instrumentation.h"
 #include "ir/builder.h"
@@ -210,10 +207,6 @@ void ContiguousInnerDimensionsMapper::distributePE(
 std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     const std::vector<IterDomain*>& from,
     const std::vector<IterDomain*>& to) {
-  if (from.empty()) {
-    return {};
-  }
-
   std::vector<IterDomain*> frontier = from;
 
   // Process `merge_or_split` and update `frontier`, where `merge_or_split` must
@@ -453,10 +446,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
           "ProjectDimensions does not support expr type: ", expr->toString());
     } // switch on expr type
   } // For loop on the transform expressions
-
-  if (frontier.empty()) {
-    return {};
-  }
 
   auto forward_exprs = StmtSort::getExprsBetween(
       {frontier.begin(), frontier.end()}, {to.begin(), to.end()});
@@ -736,40 +725,33 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 }
 
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
-    TensorView* of_tv) {
-  FusionGuard fg(of_tv->fusion());
-  Val* product_of_inner_extents = of_tv->container()->oneVal();
-  auto of_tv_alloc = of_tv->getMaybeAllocationDomain();
+    TensorView* tv) {
+  FusionGuard fg(tv->fusion());
+  Val* product_of_inner_extents = tv->container()->oneVal();
+  const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
 
-  NVF_ERROR(hasMappedDims(of_tv));
+  NVF_ERROR(hasMappedDims(tv));
 
-  const std::vector<IterDomain*>& projected_dims = mappedLogicalIds(of_tv);
-  auto of_tv_alloc_no_reductions = TensorDomain::noReductions(of_tv_alloc);
+  const std::vector<IterDomain*>& projected_dims = mappedLogicalIds(tv);
+  auto alloc_no_reductions = TensorDomain::noReductions(alloc);
 
-  auto contiguity = of_tv->domain()->contiguity();
+  std::vector<std::optional<bool>> contiguity = tv->domain()->contiguity();
+  NVF_ERROR_EQ(contiguity.size(), alloc.size());
   // Appears after reductions the reduction domain often has a contiguity entry.
   // This only matters if the result of the reduction is an output
-  if (contiguity.size() == of_tv_alloc.size() &&
-      contiguity.size() != of_tv_alloc_no_reductions.size()) {
+  if (contiguity.size() != alloc_no_reductions.size()) {
     std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : arange(of_tv_alloc.size())) {
-      if (!of_tv_alloc[i]->isReduction()) {
-        new_contiguity.push_back(contiguity[i]);
+    for (auto i : arange(alloc.size())) {
+      if (!alloc[i]->isReduction()) {
+        new_contiguity.push_back(contiguity.at(i));
       }
     }
     contiguity = new_contiguity;
   }
 
-  auto of_tv_alloc_no_reductions_size = of_tv_alloc_no_reductions.size();
+  auto alloc_no_reductions_size = alloc_no_reductions.size();
 
-  // Filter out 0-dim tensors
-  if (of_tv_alloc_no_reductions_size < 1) {
-    return product_of_inner_extents;
-  }
-
-  NVF_ERROR(
-      of_tv_alloc_no_reductions_size == contiguity.size(),
-      "Contiguity mismatch found.");
+  NVF_ERROR_EQ(alloc_no_reductions_size, contiguity.size());
 
   // Order is important, need to make sure dimensions match up correctly with
   // what was propogated through the mapper. The mapper's dimensions is
@@ -778,12 +760,12 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // vectorize dimension.
   size_t projected_dims_i = projected_dims.size();
 
-  for (auto i : arange(of_tv_alloc_no_reductions_size)) {
+  for (auto i : arange(alloc_no_reductions_size)) {
     if (projected_dims_i == 0) {
       break;
     }
-    auto alloc_ii = of_tv_alloc_no_reductions_size - i - 1;
-    auto alloc_iid = of_tv_alloc_no_reductions.at(alloc_ii);
+    auto alloc_ii = alloc_no_reductions_size - i - 1;
+    auto alloc_iid = alloc_no_reductions.at(alloc_ii);
 
     if (alloc_iid->extent()->isOneInt() || alloc_iid->isBroadcast()) {
       if (projected_dims[projected_dims_i - 1] == alloc_iid) {
@@ -804,10 +786,10 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
 
     // Get the logical ID corresponding to the allocation ID.
     auto exprs = DependencyCheck::getAllExprsBetween(
-        {of_tv->getLogicalDomain().begin(), of_tv->getLogicalDomain().end()},
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
         {alloc_iid});
     IterDomain* logical_id = alloc_iid;
-    Val* num_devices = of_tv->container()->oneVal();
+    Val* num_devices = tv->container()->oneVal();
     bool only_valid_device_split = true;
     for (Expr* expr : exprs | std::views::reverse) {
       if (!isValidDeviceSplit(expr)) {
@@ -829,12 +811,17 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       break;
     }
 
-    auto sharded_extent = SimplifyingIrBuilder::divExpr(
-        getProjectedExtent(logical_id), num_devices);
+    Val* sharded_extent;
+    if (logical_id->isDeviceDim()) {
+      sharded_extent = tv->container()->oneVal();
+    } else {
+      sharded_extent = SimplifyingIrBuilder::divExpr(
+          getProjectedExtent(logical_id), num_devices);
+    }
     product_of_inner_extents =
         SimplifyingIrBuilder::mulExpr(product_of_inner_extents, sharded_extent);
   }
-  return simplifyExpr(product_of_inner_extents);
+  return product_of_inner_extents;
 }
 
 std::unordered_map<TensorView*, Val*> ContiguousInnerDimensionsMapper::

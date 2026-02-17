@@ -311,15 +311,31 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
     return;
   }
 
-  // Put new, broadcast dimensions to the end.
+  // Put new, broadcast dimensions to the corresponding positions in the
+  // broadcast dimension. So allocation stays close to logical domain.
   std::vector<IterDomain*> out_allocation = out_layout->allocation_domain();
   std::vector<std::optional<bool>> out_contiguity = out_layout->contiguity();
   const std::vector<IterDomain*> out_logical = out->getLogicalDomain();
-  for (const auto i : arange(out_logical.size())) {
-    if (bcast->isBroadcastDim(i)) {
-      out_allocation.push_back(out_logical[i]);
-      out_contiguity.push_back(std::nullopt);
+  {
+    std::vector<IterDomain*> new_allocation;
+    std::vector<std::optional<bool>> new_contiguity;
+    new_allocation.reserve(out_logical.size());
+    new_contiguity.reserve(out_logical.size());
+
+    size_t alloc_idx = 0;
+    for (const auto i : arange(out_logical.size())) {
+      if (bcast->isBroadcastDim(i)) {
+        new_allocation.push_back(out_logical[i]);
+        new_contiguity.push_back(std::nullopt);
+      } else {
+        new_allocation.push_back(out_allocation.at(alloc_idx));
+        new_contiguity.push_back(out_contiguity.at(alloc_idx));
+        ++alloc_idx;
+      }
     }
+
+    out_allocation = std::move(new_allocation);
+    out_contiguity = std::move(new_contiguity);
   }
 
   aliasIfCompliant(

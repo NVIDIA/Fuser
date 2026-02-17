@@ -14,6 +14,7 @@
 #include "ir/builder.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/iostream.h"
+#include "ir/utils.h"
 #include "kernel_ir.h"
 #include "multidevice/communication.h"
 #include "multidevice/resharding.h"
@@ -320,13 +321,13 @@ void lowerToAllToAll(
 }
 
 IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
-  std::unordered_set<IterDomain*> logical_ids =
-      getInputsInTargetDomain({loop_id}, tv->getLogicalDomain());
+  std::vector<IterDomain*> logical_ids =
+      ir_utils::getReachableIds(tv->getLogicalDomain(), {loop_id});
   NVF_ERROR(
       logical_ids.size() == 1,
       "Expected exactly one logical ID producing the device dimension ",
       loop_id);
-  return *logical_ids.begin();
+  return logical_ids.front();
 }
 
 bool isLocalSizeOne(IterDomain* id) {

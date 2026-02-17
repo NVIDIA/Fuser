@@ -256,8 +256,8 @@ bool haveDifferentShardings(
   for (const auto parallel_type : parallel_types) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
-      for (IterDomain* p_logical_id :
-           getInputsInTargetDomain({p_loop_id}, producer->getLogicalDomain())) {
+      for (IterDomain* p_logical_id : ir_utils::getReachableIds(
+               producer->getLogicalDomain(), {p_loop_id})) {
         if (id_to_index.count(p_logical_id) > 0) {
           continue;
         }
@@ -270,8 +270,8 @@ bool haveDifferentShardings(
   for (const auto parallel_type : parallel_types) {
     if (IterDomain* c_loop_id =
             getOrDefault(c_parallel_type_to_id, parallel_type)) {
-      for (IterDomain* c_root_id : getInputsInTargetDomain(
-               {c_loop_id}, consumer->getMaybeRootDomain())) {
+      for (IterDomain* c_root_id : ir_utils::getReachableIds(
+               consumer->getMaybeRootDomain(), {c_loop_id})) {
         if (id_to_index.count(c_root_id) > 0) {
           continue;
         }

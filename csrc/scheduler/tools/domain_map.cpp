@@ -541,10 +541,9 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   const auto& ref2_loop = ref2->getMaybeAllocationDomain();
   const auto& ca_map = domain_map.getComputeAtMap();
 
-  // Filter out reduction domains before comparing
-  auto is_not_reduction = [](IterDomain* id) { return !id->isReduction(); };
-  auto ref1_filtered = ref1_loop | std::views::filter(is_not_reduction);
-  auto ref2_filtered = ref2_loop | std::views::filter(is_not_reduction);
+  // Filter out reduction (and stride) domains before comparing
+  auto ref1_filtered = ref1_loop | TensorDomain::kNoReductions;
+  auto ref2_filtered = ref2_loop | TensorDomain::kNoReductions;
 
   const bool all_mapped = std::ranges::equal(
       ref1_filtered, ref2_filtered, [&](IterDomain* id1, IterDomain* id2) {
@@ -675,7 +674,7 @@ std::vector<std::vector<TensorView*>> TransposeDomainMap::
       groups.begin(),
       groups.end(),
       [](const std::vector<TensorView*>& v1,
-         const std::vector<TensorView*>& v2) { return v1.size() < v2.size(); });
+         const std::vector<TensorView*>& v2) { return v1.size() > v2.size(); });
   return groups;
 }
 

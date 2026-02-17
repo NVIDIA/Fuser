@@ -321,6 +321,143 @@ std::string P2PCommunication::toString(int indent_size) const {
   return toInlineString(indent_size) + "\n";
 }
 
+MoeDispatch::MoeDispatch(
+    IrBuilderPasskey passkey,
+    TensorView* out_x,
+    TensorView* out_topk_idx,
+    TensorView* out_topk_weights,
+    TensorView* out_src_idx,
+    TensorView* out_n_tokens_to_rank,
+    TensorView* out_n_tokens_from_rank,
+    TensorView* in_x,
+    TensorView* in_topk_idx,
+    TensorView* in_topk_weights,
+    int64_t num_experts,
+    CommunicatorBackend backend)
+    : Expr(passkey) {
+  addInput(in_x);
+  addInput(in_topk_idx);
+  addInput(in_topk_weights);
+  addOutput(out_x);
+  addOutput(out_topk_idx);
+  addOutput(out_topk_weights);
+  addOutput(out_src_idx);
+  addOutput(out_n_tokens_to_rank);
+  addOutput(out_n_tokens_from_rank);
+  addDataAttribute(num_experts);
+  addDataAttribute(backend);
+  validate();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MoeDispatch)
+
+std::string MoeDispatch::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "Dispatch " << name() << " ("
+                          << "num_experts=" << numExperts() << ", "
+                          << "backend=" << backend() << ", "
+                          << "in=" << inX() << ", "
+                          << "topk_idx=" << inTopkIdx() << ", "
+                          << "topk_weights=" << inTopkWeights() << ", "
+                          << "out=" << outX() << ")";
+  return ss.str();
+}
+
+std::string MoeDispatch::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
+}
+
+void MoeDispatch::validate() {
+  NVF_CHECK(numExperts() > 0, "num_experts must be positive.");
+  NVF_CHECK(inX()->isA<TensorView>(), "in_x must be a TensorView.");
+  NVF_CHECK(inTopkIdx()->isA<TensorView>(), "topk_idx must be a TensorView.");
+  NVF_CHECK(
+      inTopkIdx()->getDataType().has_value() &&
+          isIntegralType(*inTopkIdx()->getDataType()),
+      "topk_idx must be integral.");
+  NVF_CHECK(
+      inTopkWeights()->getDataType().has_value() &&
+          isFloatingPointType(*inTopkWeights()->getDataType()),
+      "topk_weights must be floating point.");
+  NVF_CHECK(
+      outTopkIdx()->getDataType().has_value() &&
+          isIntegralType(*outTopkIdx()->getDataType()),
+      "out_topk_idx must be integral.");
+  NVF_CHECK(
+      outTopkWeights()->getDataType().has_value() &&
+          isFloatingPointType(*outTopkWeights()->getDataType()),
+      "out_topk_weights must be floating point.");
+  NVF_CHECK(
+      outSrcIdx()->getDataType().has_value() &&
+          isIntegralType(*outSrcIdx()->getDataType()),
+      "out_src_idx must be integral.");
+  NVF_CHECK(
+      outTokensToRank()->getDataType().has_value() &&
+          isIntegralType(*outTokensToRank()->getDataType()),
+      "out_n_tokens_to_rank must be integral.");
+  NVF_CHECK(
+      outTokensFromRank()->getDataType().has_value() &&
+          isIntegralType(*outTokensFromRank()->getDataType()),
+      "out_n_tokens_from_rank must be integral.");
+}
+
+MoeCombine::MoeCombine(
+    IrBuilderPasskey passkey,
+    TensorView* out_x,
+    TensorView* in_x,
+    TensorView* in_topk_weights,
+    TensorView* in_src_idx,
+    TensorView* in_n_tokens_to_rank,
+    TensorView* in_n_tokens_from_rank,
+    CommunicatorBackend backend)
+    : Expr(passkey) {
+  addInput(in_x);
+  addInput(in_topk_weights);
+  addInput(in_src_idx);
+  addInput(in_n_tokens_to_rank);
+  addInput(in_n_tokens_from_rank);
+  addOutput(out_x);
+  addDataAttribute(backend);
+  validate();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MoeCombine)
+
+std::string MoeCombine::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "Combine " << name() << " ("
+                          << "backend=" << backend() << ", "
+                          << "in=" << inX() << ", "
+                          << "topk_weights=" << inTopkWeights() << ", "
+                          << "src_idx=" << inSrcIdx() << ", "
+                          << "out=" << outX() << ")";
+  return ss.str();
+}
+
+std::string MoeCombine::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
+}
+
+void MoeCombine::validate() {
+  NVF_CHECK(inX()->isA<TensorView>(), "in_x must be a TensorView.");
+  NVF_CHECK(
+      inTopkWeights()->getDataType().has_value() &&
+          isFloatingPointType(*inTopkWeights()->getDataType()),
+      "in_topk_weights must be floating point.");
+  NVF_CHECK(
+      inSrcIdx()->getDataType().has_value() &&
+          isIntegralType(*inSrcIdx()->getDataType()),
+      "in_src_idx must be integral.");
+  NVF_CHECK(
+      inTokensToRank()->getDataType().has_value() &&
+          isIntegralType(*inTokensToRank()->getDataType()),
+      "in_n_tokens_to_rank must be integral.");
+  NVF_CHECK(
+      inTokensFromRank()->getDataType().has_value() &&
+          isIntegralType(*inTokensFromRank()->getDataType()),
+      "in_n_tokens_from_rank must be integral.");
+}
+
 namespace {
 c10::intrusive_ptr<c10d::Work> postBroadcast(
     Communication* communication,
