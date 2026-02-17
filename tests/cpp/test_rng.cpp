@@ -259,7 +259,7 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
 
     auto outputs =
         scheduleAndRun(
-            fusion, SchedulerType::Transpose, {input0, input1}, false)
+            fusion, SchedulerType::PointWise, {input0, input1}, false)
             .outputs;
     auto out = outputs[0].as<at::Tensor>();
 
