@@ -233,8 +233,13 @@ bool mayUseTma(
     return false;
   }
 
-  // Like vectorization, TMA requires 16-bytes alignment
+  // Require that the innermost dim is contiguous.
   if (props.vectorize_factor <= 1) {
+    return false;
+  }
+
+  // TMA requires 16-byte alignment (128 bits) for memory transactions
+  if (prop.vectorize_factor * prop.max_dtype_size_bit % 128 != 0) {
     return false;
   }
 
@@ -268,17 +273,13 @@ bool mayUseTmaOuter(
     return false;
   }
 
-  // TMA requires 16-byte alignment on both dims.
-  // For outer reduction [R, I], both R and I extents (in bytes) must be
-  // multiples of 16. We check the iteration dim via inner_most_dimension_numel.
-  if ((props.inner_most_dimension_numel * dtype_bytes) % 16 != 0) {
-    return false;
-  }
-  if ((props.total_reduction_numel * dtype_bytes) % 16 != 0) {
+  // Require that the innermost dim is contiguous.
+  if (props.vectorize_factor <= 1) {
     return false;
   }
 
-  if (props.vectorize_factor <= 1) {
+  // TMA requires 16-byte alignment (128 bits) for memory transactions
+  if (prop.vectorize_factor * prop.max_dtype_size_bit % 128 != 0) {
     return false;
   }
 
@@ -296,7 +297,6 @@ std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
       fusion, runtime_info, data_cache);
 
   bool tma_enabled = isOptionEnabled(EnableOption::TmaReduction);
-  tma_enabled = true;
 
   std::unique_ptr<HeuristicParams> rparams = nullptr;
 
@@ -304,9 +304,6 @@ std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
   if (tma_enabled && mayUseTmaOuter(props)) {
     rparams = reduction::outer_tma::getReductionHeuristics(
         fusion, runtime_info, data_cache, props);
-    // rparams = nullptr;
-  } else {
-    NVF_ERROR(false);
   }
 
   // Try inner TMA scheduler for inner reductions
