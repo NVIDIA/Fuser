@@ -288,22 +288,12 @@ void AliasFinder::handle(const SliceOp* slice) {
       out, in, Layout(std::move(out_allocation), std::move(out_contiguity)));
 }
 
-// Only consider broadcast aliasing when input is a fusion input and output is
-// a fusion output. Intermediate broadcasts will be fused with other ops and
-// don't need explicit alias handling. Limiting to fusion boundaries avoids
-// unnecessary allocation domain changes on intermediate tensors, which may
-// trigger transpose scheduler when pointwise is preferred. For example, when a
-// normalization kernel is segmented, we prefer reduction + pointwise instead of
-// reduction + transpose. See SmemPersistentNotSupportedIn3DReduction.
 void AliasFinder::handle(const BroadcastOp* bcast) {
   auto* in = dynamic_cast<TensorView*>(bcast->in());
-  if (in == nullptr || !in->isFusionInput()) {
+  if (in == nullptr) {
     return;
   }
   auto* out = bcast->out()->as<TensorView>();
-  if (!out->isFusionOutput()) {
-    return;
-  }
 
   std::optional<Layout> out_layout =
       mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
