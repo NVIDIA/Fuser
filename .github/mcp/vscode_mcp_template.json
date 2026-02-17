@@ -1,0 +1,21 @@
+{
+    "inputs": [
+        {
+            "id": "python",
+            "type": "promptString",
+            "description": "Full path to Python executable if using virtual environment, otherwise simply type \"python\"."
+        }
+    ],
+    "servers": {
+        "nvfuser-dev-mcp": {
+            "type": "stdio",
+            "command": "${input:python}",
+            "args": [
+                "${workspaceFolder}/.github/mcp/mcp_server.py",
+                "--python-path",
+                "${input:python}"
+            ],
+            "env": {}
+        }
+    }
+}
