@@ -647,6 +647,24 @@ class NVF_API Fusion : public PolymorphicBase {
   std::unique_ptr<std::vector<Val*>> axioms_;
 
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
+
+  // Per-Fusion name counters. Each Fusion independently tracks name assignment
+  // so that cloned Fusions get matching names (T0→T0) regardless of whether
+  // they share an IrContainer. This is required by downstream consumers that
+  // use tv->name() as a map key (alias_memory, GreedyParams, etc.).
+  std::unordered_map<ValType, StmtNameType> val_type_name_map_;
+  StmtNameType expr_name_counter_ = 0;
+
+  StmtNameType getValName(ValType vtype) {
+    if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
+      val_type_name_map_[vtype] = 0;
+    }
+    return val_type_name_map_[vtype]++;
+  }
+
+  StmtNameType getExprName() {
+    return expr_name_counter_++;
+  }
 };
 
 // Template implementations for Fusion::manage<T>() that use IrCloner
