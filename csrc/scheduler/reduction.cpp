@@ -239,7 +239,7 @@ bool mayUseTma(
   }
 
   // TMA requires 16-byte alignment (128 bits) for memory transactions
-  if (prop.vectorize_factor * prop.max_dtype_size_bit % 128 != 0) {
+  if (props.vectorize_factor * props.max_dtype_size_bit % 128 != 0) {
     return false;
   }
 
@@ -279,7 +279,7 @@ bool mayUseTmaOuter(
   }
 
   // TMA requires 16-byte alignment (128 bits) for memory transactions
-  if (prop.vectorize_factor * prop.max_dtype_size_bit % 128 != 0) {
+  if (props.vectorize_factor * props.max_dtype_size_bit % 128 != 0) {
     return false;
   }
 
