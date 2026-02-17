@@ -2922,11 +2922,7 @@ TEST_P(TmaOuterReductionManualTest, Basic) {
   int64_t dtype_bytes = dataTypeSizeByte(dtype);
   auto [outer_size, iter_size] = GetParam();
 
-  // TMA requires 16-byte alignment on both dimensions
-  if ((outer_size * dtype_bytes) % 16 != 0) {
-    GTEST_SKIP() << "Outer dimension bytes not divisible by 16, can't use TMA";
-    return;
-  }
+  // TMA requires the stride (iter_size * dtype_bytes) to be 16-byte aligned
   if ((iter_size * dtype_bytes) % 16 != 0) {
     GTEST_SKIP() << "Iter dimension bytes not divisible by 16, can't use TMA";
     return;
@@ -3116,14 +3112,17 @@ class TmaOuterReductionTest
   }
 
   // Check if we expect outer TMA to be used based on mayUseTmaOuter conditions
-  bool expectOuterTmaUsed(int64_t outer_size, int64_t dtype_bytes) {
+  bool expectOuterTmaUsed(
+      int64_t outer_size,
+      int64_t iter_size,
+      int64_t dtype_bytes) {
     uint64_t total_reduction_bytes = outer_size * dtype_bytes;
     uint64_t min_tma_bytes = 16384;
     if (total_reduction_bytes < min_tma_bytes) {
       return false;
     }
-    // Both dims must be 16-byte aligned
-    if ((outer_size * dtype_bytes) % 16 != 0) {
+    // The stride (iter_size * dtype_bytes) must be 16-byte aligned
+    if ((iter_size * dtype_bytes) % 16 != 0) {
       return false;
     }
     return true;
@@ -3138,11 +3137,7 @@ TEST_P(TmaOuterReductionTest, Sum) {
   auto dtype = DataType::Float;
   int64_t dtype_bytes = dataTypeSizeByte(dtype);
 
-  // TMA requires 16-byte alignment on both dimensions
-  if ((outer_size * dtype_bytes) % 16 != 0) {
-    GTEST_SKIP() << "Outer dimension bytes not divisible by 16, can't use TMA";
-    return;
-  }
+  // TMA requires the stride (iter_size * dtype_bytes) to be 16-byte aligned
   if ((iter_size * dtype_bytes) % 16 != 0) {
     GTEST_SKIP() << "Iter dimension bytes not divisible by 16, can't use TMA";
     return;
@@ -3167,7 +3162,7 @@ TEST_P(TmaOuterReductionTest, Sum) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  if (expectOuterTmaUsed(outer_size, dtype_bytes)) {
+  if (expectOuterTmaUsed(outer_size, iter_size, dtype_bytes)) {
     EXPECT_TRUE(tma_reduction_check::isOuterTmaParams(executor_cache))
         << "Expected outer TMA scheduler for outer_size=" << outer_size
         << " iter_size=" << iter_size;
