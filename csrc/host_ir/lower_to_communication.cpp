@@ -18,7 +18,7 @@
 #include "ir/iostream.h"
 #include "ir/utils.h"
 #include "logical_domain_map.h"
-#include "multidevice/communication.h"
+#include "multidevice/post_communication.h"
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
 
