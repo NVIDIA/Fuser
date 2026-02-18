@@ -21,6 +21,7 @@ namespace nvfuser {
 // Passkey for container to register names with statements
 class IrContainerPasskey {
   friend class IrContainer;
+  friend class Fusion;
 
  private:
   explicit IrContainerPasskey() = default;
@@ -92,18 +93,6 @@ class IrContainer {
   // Let Fusion access IrContainer::clear()
   friend class Fusion;
 
-  void removeExpr(Expr* expr);
-
-  //! Completely remove val from the fusion, break all dependencies associated
-  //! with it
-  void removeVal(Val* val);
-
-  //! Register the Val with this container
-  NVF_API void registerVal(Val* val);
-
-  //! Register expr with this container.
-  NVF_API void registerExpr(Expr* expr);
-
   StmtNameType getValName(ValType vtype) {
     if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
       val_type_name_map_[vtype] = 0;
@@ -116,8 +105,6 @@ class IrContainer {
   }
 
   void clear() noexcept;
-
-  friend class StatementGuard;
 
   // Deque of unique pointer is the memory owning data structure
   std::deque<std::unique_ptr<Val>> vals_up_;
