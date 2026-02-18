@@ -104,12 +104,6 @@ T getInitialValue(c10d::ReduceOp::RedOpType op) {
   }
 }
 
-int64_t getRelativeIndex(const Team& team, const DeviceIdxType rank) {
-  auto i = std::find(team.begin(), team.end(), rank);
-  NVF_ERROR(i != team.end(), "Unable to find rank ", rank, " in team ", team);
-  return std::distance(team.begin(), i);
-}
-
 c10::intrusive_ptr<c10d::Work> postBroadcast(
     Communication* communication,
     DeviceIdxType my_device_index,
@@ -135,7 +129,7 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
 
   std::vector<at::Tensor> tensors({output_tensor});
   return backend->broadcast(
-      tensors, {.rootRank = communication->getRootRelativeIndex(root_index)});
+      tensors, {.rootRank = communication->getRelativeIndex(root_index)});
 }
 
 c10::intrusive_ptr<c10d::Work> postGather(
@@ -157,7 +151,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
   }
   std::vector<at::Tensor> input_tensors({input_tensor});
 
-  auto root_relative_index = communication->getRootRelativeIndex(root_index);
+  auto root_relative_index = communication->getRelativeIndex(root_index);
   std::vector<std::vector<at::Tensor>> output_tensors;
   if (my_device_index == root_index) {
     output_tensors.resize(1);
@@ -257,7 +251,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
   return backend->scatter(
       output_tensors,
       input_tensors,
-      {.rootRank = communication->getRootRelativeIndex(root_index)});
+      {.rootRank = communication->getRelativeIndex(root_index)});
 }
 
 c10::intrusive_ptr<c10d::Work> postReduce(
@@ -286,7 +280,7 @@ c10::intrusive_ptr<c10d::Work> postReduce(
 
   c10d::ReduceOptions options = {
       .reduceOp = communication->reduceOp(),
-      .rootRank = communication->getRootRelativeIndex(root_index)};
+      .rootRank = communication->getRelativeIndex(root_index)};
   // TODO: avoid local copy by using out-of-place reduction.
   return backend->reduce(tensors, options);
 }
@@ -384,14 +378,14 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
     tensors = {input_tensor};
     return backend->send(
         tensors,
-        static_cast<int>(getRelativeIndex(communication->team(), receiver)),
+        static_cast<int>(communication->getRelativeIndex(receiver)),
         /*tag=*/0);
   } else {
     NVF_ERROR(my_device_index == receiver);
     tensors = {output_tensor};
     return backend->recv(
         tensors,
-        static_cast<int>(getRelativeIndex(communication->team(), sender)),
+        static_cast<int>(communication->getRelativeIndex(sender)),
         /*tag=*/0);
   }
 }

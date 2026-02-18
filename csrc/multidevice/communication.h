@@ -121,7 +121,7 @@ class Communication : public Expr {
   // PyTorch's process group expects the root to be specified
   // as an integer between 0 and world_size-1. We choose it to be
   // the device's relative index within the team
-  int64_t getRootRelativeIndex(DeviceIdxType root_val);
+  int64_t getRelativeIndex(DeviceIdxType rank);
 
  private:
   void validate();
