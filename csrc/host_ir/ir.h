@@ -14,7 +14,7 @@
 #include "fusion.h"
 #include "ir/base_nodes.h"
 #include "ir/builder.h"
-#include "multidevice/communication.h"
+#include "multidevice/post_communication.h"
 
 namespace nvfuser {
 // This works around a circular dependency: compiled_kernel.h ==>

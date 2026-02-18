@@ -13,8 +13,8 @@
 #include "ir/base_nodes.h"
 #include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
-#include "multidevice/communication.h"
 #include "multidevice/multidevice.h"
+#include "multidevice/post_communication.h"
 
 namespace nvfuser {
 
