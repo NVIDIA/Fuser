@@ -1853,7 +1853,8 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
     SegmentedGroup* sg) const {
   // TODO Optimize cloning step by only copying values and expressions between
   // the fusion segment's inputs and outputs.
-  auto fusion_segment = std::make_unique<Fusion>();
+  auto fusion_segment = std::unique_ptr<Fusion>(
+      new Fusion(completeFusion()->ir_container_ptr()));
 
   IrCloner complete_to_segment_map =
       Fusion::copy(completeFusion(), fusion_segment.get());
