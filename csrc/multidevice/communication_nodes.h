@@ -24,6 +24,18 @@
 
 namespace nvfuser {
 
+enum class CommunicationType {
+  Gather,
+  Allgather,
+  Scatter,
+  Reduce,
+  Allreduce,
+  ReduceScatter,
+  Broadcast,
+  SendRecv,
+  AllToAll
+};
+
 std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
 
 using RedOpType = c10d::ReduceOp::RedOpType;

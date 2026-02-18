@@ -196,8 +196,6 @@ std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type) {
     case P2PCommunicationType::RECV:
       os << "recv";
       break;
-    default:
-      NVF_THROW("unrecognized P2PCommunicationType: ", type);
   }
   return os;
 }
