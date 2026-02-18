@@ -336,6 +336,13 @@ bool isLocalSizeOne(IterDomain* id) {
 
 } // namespace
 
+std::ostream& operator<<(std::ostream& os, const CommunicationInfo& info) {
+  os << "CommunicationInfo(" << info.type
+     << ", p_sharded_id=" << info.p_sharded_id
+     << ", c_sharded_id=" << info.c_sharded_id << ")";
+  return os;
+}
+
 CommunicationInfo getCommunicationInfo(Expr* e) {
   NVF_ERROR(
       isResharding(e),
