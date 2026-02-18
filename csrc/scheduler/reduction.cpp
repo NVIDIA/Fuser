@@ -238,8 +238,11 @@ bool mayUseTma(
     return false;
   }
 
+  uint64_t vect_bits =
+      props.vectorize_factor * props.max_dtype_size_bit_for_vectorization;
+
   // TMA requires 16-byte alignment (128 bits) for memory transactions
-  if (props.vectorize_factor * props.max_dtype_size_bit % 128 != 0) {
+  if (vect_bits % 128 != 0) {
     return false;
   }
 
@@ -278,8 +281,11 @@ bool mayUseTmaOuter(
     return false;
   }
 
+  uint64_t vect_bits =
+      props.vectorize_factor * props.max_dtype_size_bit_for_vectorization;
+
   // TMA requires 16-byte alignment (128 bits) for memory transactions
-  if (props.vectorize_factor * props.max_dtype_size_bit % 128 != 0) {
+  if (vect_bits % 128 != 0) {
     return false;
   }
 
