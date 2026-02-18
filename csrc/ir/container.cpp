@@ -10,14 +10,12 @@
 #include "fusion.h"
 #include "instrumentation.h"
 #include "ir/base_nodes.h"
-#include "ir/builder.h"
-#include "ir/cloner.h"
-#include "ir/internal_nodes.h"
 
 namespace nvfuser {
 
 //! Return values in insertion order
 const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
+  std::shared_lock lock(mutex_);
   std::deque<Val*> vals_deque;
   std::transform(
       vals_up_.begin(),
@@ -29,6 +27,7 @@ const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
 
 //! Return expression in insertion order
 const std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
+  std::shared_lock lock(mutex_);
   std::deque<Expr*> exprs_deque;
   std::transform(
       exprs_up_.begin(),
@@ -41,6 +40,7 @@ const std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
 //! Return mapping from value to integer id
 const std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
     const noexcept {
+  std::shared_lock lock(mutex_);
   std::unordered_map<Val*, int64_t> vals_map;
   int64_t count = 0;
   std::transform(
@@ -56,6 +56,7 @@ const std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
 //! Return mapping from expression to integer id
 const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
     const noexcept {
+  std::shared_lock lock(mutex_);
   std::unordered_map<Expr*, int64_t> exprs_map;
   int64_t count = 0;
   std::transform(
@@ -66,51 +67,6 @@ const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
         return std::make_pair(expr_up.get(), count++);
       });
   return exprs_map;
-}
-
-void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
-  FUSER_PERF_SCOPE("Fusion swap");
-
-  // Swap the content
-  std::swap(a.vals_up_, b.vals_up_);
-  std::swap(a.vals_, b.vals_);
-
-  std::swap(a.exprs_up_, b.exprs_up_);
-  std::swap(a.exprs_, b.exprs_);
-
-  std::swap(a.val_type_name_map_, b.val_type_name_map_);
-  std::swap(a.expr_name_counter_, b.expr_name_counter_);
-
-  std::swap(a.per_fusion_vals_, b.per_fusion_vals_);
-  std::swap(a.per_fusion_exprs_, b.per_fusion_exprs_);
-}
-
-IrCloner IrContainer::copy(
-    const IrContainer* from,
-    IrContainer* to,
-    Fusion* dest_fusion) {
-  to->clear();
-
-  IrCloner ir_cloner(dest_fusion);
-
-  // Copy values in deterministic order
-  for (auto val : from->deterministic_vals()) {
-    if (from->vals().count(val) > 0) {
-      to->vals_.insert(ir_cloner.clone(val));
-    }
-  }
-
-  // Copy expressions in deterministic order
-  for (auto expr : from->deterministic_exprs()) {
-    if (from->unordered_exprs().count(expr) > 0) {
-      to->exprs_.insert(ir_cloner.clone(expr));
-    }
-  }
-
-  to->val_type_name_map_ = from->val_type_name_map_;
-  to->expr_name_counter_ = from->expr_name_counter_;
-
-  return ir_cloner;
 }
 
 IrContainer::IrContainer() = default;
@@ -132,6 +88,11 @@ void IrContainer::clear() noexcept {
 }
 
 bool IrContainer::inContainer(const Statement* const_stmt) const {
+  std::shared_lock lock(mutex_);
+  return inContainerImpl(const_stmt);
+}
+
+bool IrContainer::inContainerImpl(const Statement* const_stmt) const {
   // We don't use dynamic_cast here because `const_stmt` may be an invalid
   // pointer. Specifically a pointer to a Statement owned by another container
   // that has been freed.
@@ -163,33 +124,66 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
   return true;
 }
 
+void IrContainer::assertInContainerImpl(
+    const Statement* stmt,
+    const std::string& msg) const {
+  NVF_CHECK(inContainerImpl(stmt), msg, " it was not found in the active container.");
+}
+
+const std::unordered_set<Expr*>& IrContainer::unordered_exprs() const noexcept {
+  std::shared_lock lock(mutex_);
+  return exprs_;
+}
+
+const std::unordered_set<Val*>& IrContainer::vals() const noexcept {
+  std::shared_lock lock(mutex_);
+  return vals_;
+}
+
+int64_t IrContainer::numExprs() const noexcept {
+  std::shared_lock lock(mutex_);
+  return std::ssize(exprs_);
+}
+
+int64_t IrContainer::numVals() const noexcept {
+  std::shared_lock lock(mutex_);
+  return std::ssize(vals_up_);
+}
+
 void IrContainer::addFusion(Fusion* fusion) {
+  std::unique_lock lock(mutex_);
   sharing_fusions_.insert(fusion);
 }
 
 void IrContainer::removeFusion(Fusion* fusion) {
+  std::unique_lock lock(mutex_);
   sharing_fusions_.erase(fusion);
 }
 
 void IrContainer::transferFusion(Fusion* from, Fusion* to) {
+  std::unique_lock lock(mutex_);
   sharing_fusions_.erase(from);
   sharing_fusions_.insert(to);
 }
 
 size_t IrContainer::sharingCount() const {
+  std::shared_lock lock(mutex_);
   return sharing_fusions_.size();
 }
 
 bool IrContainer::hasMultipleFusions() const {
+  std::shared_lock lock(mutex_);
   return sharing_fusions_.size() > 1;
 }
 
 const std::unordered_set<Fusion*>& IrContainer::sharingFusions() const {
+  std::shared_lock lock(mutex_);
   return sharing_fusions_;
 }
 
 const std::unordered_set<Val*>& IrContainer::valsOwnedBy(
     const Fusion* fusion) const {
+  std::shared_lock lock(mutex_);
   static const std::unordered_set<Val*> empty;
   auto it = per_fusion_vals_.find(fusion);
   return it != per_fusion_vals_.end() ? it->second : empty;
@@ -197,6 +191,7 @@ const std::unordered_set<Val*>& IrContainer::valsOwnedBy(
 
 const std::unordered_set<Expr*>& IrContainer::exprsOwnedBy(
     const Fusion* fusion) const {
+  std::shared_lock lock(mutex_);
   static const std::unordered_set<Expr*> empty;
   auto it = per_fusion_exprs_.find(fusion);
   return it != per_fusion_exprs_.end() ? it->second : empty;
@@ -205,6 +200,7 @@ const std::unordered_set<Expr*>& IrContainer::exprsOwnedBy(
 void IrContainer::transferStatementOwnership(
     const Fusion* from,
     const Fusion* to) {
+  std::unique_lock lock(mutex_);
   auto vals_it = per_fusion_vals_.find(from);
   if (vals_it != per_fusion_vals_.end()) {
     auto& to_vals = per_fusion_vals_[to];
@@ -221,6 +217,7 @@ void IrContainer::transferStatementOwnership(
 }
 
 void IrContainer::removeStatementsOwnedBy(const Fusion* fusion) {
+  std::unique_lock lock(mutex_);
   auto vals_it = per_fusion_vals_.find(fusion);
   if (vals_it != per_fusion_vals_.end()) {
     for (auto it = vals_up_.begin(); it != vals_up_.end();) {
@@ -250,6 +247,7 @@ void IrContainer::removeStatementsOwnedBy(const Fusion* fusion) {
 
 std::deque<Val*> IrContainer::deterministicValsOwnedBy(
     const Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
   std::deque<Val*> result;
   auto it = per_fusion_vals_.find(fusion);
   if (it == per_fusion_vals_.end()) {
@@ -266,6 +264,7 @@ std::deque<Val*> IrContainer::deterministicValsOwnedBy(
 
 std::deque<Expr*> IrContainer::deterministicExprsOwnedBy(
     const Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
   std::deque<Expr*> result;
   auto it = per_fusion_exprs_.find(fusion);
   if (it == per_fusion_exprs_.end()) {
@@ -282,6 +281,7 @@ std::deque<Expr*> IrContainer::deterministicExprsOwnedBy(
 
 std::unordered_map<Val*, int64_t> IrContainer::deterministicValsMapOwnedBy(
     const Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
   std::unordered_map<Val*, int64_t> result;
   auto it = per_fusion_vals_.find(fusion);
   if (it == per_fusion_vals_.end()) {
@@ -299,6 +299,7 @@ std::unordered_map<Val*, int64_t> IrContainer::deterministicValsMapOwnedBy(
 
 std::unordered_map<Expr*, int64_t> IrContainer::deterministicExprsMapOwnedBy(
     const Fusion* fusion) const noexcept {
+  std::shared_lock lock(mutex_);
   std::unordered_map<Expr*, int64_t> result;
   auto it = per_fusion_exprs_.find(fusion);
   if (it == per_fusion_exprs_.end()) {
