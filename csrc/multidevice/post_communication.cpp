@@ -379,7 +379,6 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
       static_cast<int>(sender),
       /*tag=*/0);
 }
-}
 
 c10::intrusive_ptr<c10d::Work> postAllToAll(
     Communication* communication,
