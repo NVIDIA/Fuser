@@ -26,6 +26,8 @@ struct CommunicationInfo {
   IterDomain* c_sharded_id;
 };
 
+std::ostream& operator<<(std::ostream& os, const CommunicationInfo& info);
+
 // Returns whether the communication layout is compliant.
 // ProcessGroup expects contiguous tensors and
 // gathered/scattered axes to be outermost in allocation.
