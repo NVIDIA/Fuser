@@ -340,7 +340,7 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   return rfactor_did_idx;
 }
 
-int64_t getRelativeIndex(Team team, DeviceIdxType rank) {
+int64_t getRelativeIndex(const Team& team, DeviceIdxType rank) {
   auto i = std::find(team.begin(), team.end(), rank);
   NVF_ERROR(i != team.end(), "Unable to find rank ", rank, " in team ", team);
   return std::distance(team.begin(), i);

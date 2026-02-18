@@ -88,6 +88,6 @@ bool isValidDeviceSplit(Expr* expr);
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 
 // Returns the relative index of the rank in the team.
-int64_t getRelativeIndex(Team team, DeviceIdxType rank);
+int64_t getRelativeIndex(const Team& team, DeviceIdxType rank);
 
 } // namespace nvfuser
