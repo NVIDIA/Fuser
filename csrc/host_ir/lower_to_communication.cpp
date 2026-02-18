@@ -402,11 +402,12 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
   const std::unordered_map<ParallelType, IterDomain*>& consumer_pt_to_id =
       mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
 
+  IterDomain* c_stream_id =
+      getOrDefault(consumer_pt_to_id, ParallelType::Stream);
+
   for (ParallelType pt : kParallelTypeDIDs) {
     IterDomain* p_loop_did = getOrDefault(producer_pt_to_id, pt);
     IterDomain* c_loop_did = getOrDefault(consumer_pt_to_id, pt);
-    IterDomain* c_stream_id =
-        getOrDefault(consumer_pt_to_id, ParallelType::Stream);
 
     if (p_loop_did == nullptr && c_loop_did == nullptr) {
       // Not sharded on this parallel type

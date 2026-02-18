@@ -532,8 +532,21 @@ void HostIrEvaluator::handle(hir::ForLoop* for_loop) {
   auto stop = expr_evaluator_.evaluate(for_loop->stop()).as<int64_t>();
 
   for (auto i = start; i < stop; i++) {
+    // Expressions dependent on loop index and all allocations
+    // inside the loop body should be invalidated. We cannot
+    // simply use allConsumerValsOf because the loop index can be an input to
+    // fusion outputs or buffers allocated outside the loop.
+    std::unordered_set<Val*> allocations;
+    for (Expr* e : for_loop->body().exprs()) {
+      if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
+        allocations.insert(alloc->buffer());
+      }
+    }
     expr_evaluator_.invalidate(for_loop->index());
     for (auto consumer : allConsumerValsOf(for_loop->index())) {
+      if (consumer->isA<TensorView>() && !allocations.contains(consumer)) {
+        continue;
+      }
       expr_evaluator_.invalidate(consumer);
     }
     expr_evaluator_.bind(for_loop->index(), i);

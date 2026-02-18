@@ -181,8 +181,8 @@ void lowerSegment(
       // TODO: `replacement_map` should be associated with the scope so
       // ShardByStream across segments in the same for-loop can be reused.
       std::unordered_map<Val*, Val*> replacement_map;
-      for (Expr* c : convertSingleOpToCommunication(
-               e, device_id, innermost.loop->index())) {
+      Val* root = loop_nest.empty() ? nullptr : innermost.loop->index();
+      for (Expr* c : convertSingleOpToCommunication(e, device_id, root)) {
         NVF_ERROR(
             c->isA<Communication>(),
             "Exprs in a Communication group should be Communication: ",
