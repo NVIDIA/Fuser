@@ -61,7 +61,7 @@ void lowerToScatter(
   NVF_ERROR_EQ(
       receiver_mesh.rank(),
       1,
-      "Gather only supported on a 1D mesh. Given ",
+      "Scatter only supported on a 1D mesh. Given ",
       output_tv);
 
   // Find a common device between input and receiver meshes to be the root
