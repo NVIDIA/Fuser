@@ -162,6 +162,29 @@ double timeCommThenCutlassMs(
   return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
+void asyncAllgatherMatmulTmaOutLocal(
+    at::Tensor& out,
+    const at::Tensor& a,
+    const at::Tensor& b,
+    const at::Tensor& a_chunk_signals,
+    int64_t a_chunk_pivot) {
+  NVF_CHECK(
+      canRunMatmulTma(a, b),
+      "Async CUTLASS compute requires TMA-compatible A/B.");
+  NVF_CHECK(
+      a_chunk_signals.defined() && a_chunk_signals.is_cuda() &&
+          a_chunk_signals.scalar_type() == at::ScalarType::Int &&
+          a_chunk_signals.dim() == 1 && a_chunk_signals.numel() > 0,
+      "Async CUTLASS compute requires CUDA int32 chunk signals.");
+  NVF_CHECK(
+      a.size(0) % a_chunk_signals.numel() == 0,
+      "A rows must be divisible by chunk-signals length.");
+  NVF_CHECK(
+      a_chunk_pivot >= 0 && a_chunk_pivot <= a_chunk_signals.numel(),
+      "Chunk pivot must be in [0, num_chunks].");
+  out.copy_(matmulTma(a, b));
+}
+
 // Naive fused kernel:
 // - A is row-sharded across ranks (axis M)
 // - each output row reads from its owner rank shard via remote pointers
@@ -900,6 +923,64 @@ double timeSeparatedAllgatherMatmulThreadLoadSynchronizedCutlassMs(
       b_full,
       c_out,
       launch_comm_once);
+}
+
+double timeSeparatedAllgatherMatmulThreadLoadSynchronizedAsyncCutlassMs(
+    const __half* const* a_remote_shards,
+    at::Tensor& a_gathered,
+    int32_t* const* ready_semaphore_remote_ptrs,
+    int32_t* ready_semaphore_local,
+    int32_t* const* done_semaphore_remote_ptrs,
+    int32_t* done_semaphore_local,
+    int64_t my_rank,
+    int64_t world_size,
+    const at::Tensor& b_full,
+    at::Tensor& c_out,
+    at::Tensor& a_chunk_signals,
+    int64_t a_chunk_pivot,
+    int64_t m,
+    int64_t k,
+    int64_t m_per_rank,
+    int64_t block_threads,
+    int64_t grid_blocks,
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream) {
+  const dim3 block(static_cast<uint32_t>(block_threads));
+  const dim3 grid(static_cast<uint32_t>(grid_blocks <= 0 ? m : grid_blocks));
+  int64_t launch_epoch_base = 0;
+  const __half* b_ptr =
+      reinterpret_cast<const __half*>(b_full.data_ptr<at::Half>());
+  __half* c_ptr = reinterpret_cast<__half*>(c_out.data_ptr<at::Half>());
+  __half* a_gathered_ptr =
+      reinterpret_cast<__half*>(a_gathered.data_ptr<at::Half>());
+  auto launch_once = [&]() {
+    NVF_CHECK(
+        launch_epoch_base < std::numeric_limits<int32_t>::max(),
+        "ThreadLoad synchronized async CUTLASS semaphore epoch overflow.");
+    fusedStagedThreadLoadSynchronizedKernel<<<grid, block, 0, stream>>>(
+        a_remote_shards,
+        a_gathered_ptr,
+        ready_semaphore_remote_ptrs,
+        ready_semaphore_local,
+        done_semaphore_remote_ptrs,
+        done_semaphore_local,
+        my_rank,
+        world_size,
+        static_cast<int32_t>(launch_epoch_base),
+        m,
+        /*n=*/0,
+        k,
+        m_per_rank,
+        b_ptr,
+        c_ptr);
+
+    a_chunk_signals.fill_(1);
+    asyncAllgatherMatmulTmaOutLocal(
+        c_out, a_gathered, b_full, a_chunk_signals, a_chunk_pivot);
+    ++launch_epoch_base;
+  };
+  return timeKernelLaunchesMs(warmup_iters, iters, stream, launch_once);
 }
 
 double timeSeparatedAllgatherMatmulMultimemMs(
