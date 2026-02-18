@@ -380,9 +380,11 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
     communication_info = CommunicationInfo{type, p_sharded_id, c_sharded_id};
   };
 
-  const auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
-  const auto p2c_map = pairwise_map.mapProducerToConsumer();
-  const auto c2p_map = pairwise_map.mapConsumerToProducer();
+  const PairwiseLogicalDomainMap pairwise_map(producer, consumer);
+  const std::unordered_map<IterDomain*, IterDomain*>& p2c =
+      pairwise_map.mapProducerToConsumer();
+  const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+      pairwise_map.mapConsumerToProducer();
 
   // This ignores device dimensions on reduction axis.
   auto producer_pt_to_did =
@@ -408,19 +410,19 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         CommunicationType type = same_mesh ? CommunicationType::Allgather
                                            : CommunicationType::Gather;
-        fill_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
+        fill_communication_info(type, p_logical_id, p2c.at(p_logical_id));
       }
       if (!p_loop_did && c_loop_did) {
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
         fill_communication_info(
-            CommunicationType::Scatter, c2p_map.at(c_logical_id), c_logical_id);
+            CommunicationType::Scatter, c2p.at(c_logical_id), c_logical_id);
       }
       if (p_loop_did && c_loop_did) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
         // TODO(#4604): This is problematic for 2D sharding.
 
-        if (c_logical_id == p2c_map.at(p_logical_id)) {
+        if (c_logical_id == p2c.at(p_logical_id)) {
           fill_communication_info(
               CommunicationType::SendRecv, p_logical_id, c_logical_id);
         } else {
@@ -439,7 +441,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         CommunicationType type = same_mesh ? CommunicationType::Allreduce
                                            : CommunicationType::Reduce;
-        fill_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
+        fill_communication_info(type, p_logical_id, p2c.at(p_logical_id));
         continue;
       }
 
@@ -447,9 +449,9 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
       IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
 
-      auto c_it = p2c_map.find(p_logical_id);
+      auto c_it = p2c.find(p_logical_id);
       NVF_ERROR(
-          c_it != p2c_map.end(),
+          c_it != p2c.end(),
           "Cannot find the mapped consumer logical ID for the producer logical "
           "ID ",
           p_logical_id);
@@ -457,9 +459,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
         continue;
       }
       fill_communication_info(
-          CommunicationType::ReduceScatter,
-          c2p_map.at(c_logical_id),
-          c_logical_id);
+          CommunicationType::ReduceScatter, c2p.at(c_logical_id), c_logical_id);
     }
   }
 
