@@ -79,7 +79,7 @@ void lowerToScatter(
       output_tv,
       input_tv,
       team,
-      root,
+      getRelativeIndex(team, root),
       c10d::ReduceOp::RedOpType::UNUSED,
       backend));
 }
@@ -109,7 +109,7 @@ void lowerToGather(
         output_tv,
         input_tv,
         team,
-        root,
+        getRelativeIndex(team, root),
         c10d::ReduceOp::RedOpType::UNUSED,
         backend));
   }
@@ -162,7 +162,7 @@ void lowerToBroadcast(
       output_tv,
       input_tv,
       team,
-      root,
+      getRelativeIndex(team, root),
       c10d::ReduceOp::RedOpType::UNUSED,
       backend));
 }
@@ -234,7 +234,7 @@ void lowerToReduce(
         output_tv,
         input_tv,
         team,
-        root,
+        getRelativeIndex(team, root),
         reduce_op_type,
         backend));
   }

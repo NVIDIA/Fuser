@@ -117,8 +117,9 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  const Team& team = communication->team();
   if (my_device_index == root_index) {
-    if (communication->out()->getDeviceMesh().has(root_index)) {
+    if (communication->out()->getDeviceMesh().has(team.at(root_index))) {
       // Do a local copy and the subsequent broadcast will be in place. Consider
       // ProcessGroupNCCL::_broadcast_oop so ncclBroadcast doesn't wait for the
       // local copy to complete.
@@ -129,24 +130,24 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
     }
   }
 
-  if (communication->team().size() == 1) {
+  if (team.size() == 1) {
     return nullptr;
   }
 
   std::vector<at::Tensor> tensors({output_tensor});
-  return backend->broadcast(
-      tensors, {.rootRank = communication->getRootRelativeIndex(root_index)});
+  return backend->broadcast(tensors, {.rootRank = root_index});
 }
 
 c10::intrusive_ptr<c10d::Work> postGather(
     Communication* communication,
-    DeviceIdxType my_device_index,
+    DeviceIdxType my_relative_index,
     DeviceIdxType root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  const Team& team = communication->team();
   if (my_device_index == root_index &&
-      !communication->in()->getDeviceMesh().has(root_index)) {
+      !communication->in()->getDeviceMesh().has(team.at(root_index))) {
     // This is likely a suboptimal way to allocate tensors for nccl. To benefit
     // from zero copy
     // (https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/bufferreg.html),
@@ -157,14 +158,13 @@ c10::intrusive_ptr<c10d::Work> postGather(
   }
   std::vector<at::Tensor> input_tensors({input_tensor});
 
-  auto root_relative_index = communication->getRootRelativeIndex(root_index);
   std::vector<std::vector<at::Tensor>> output_tensors;
   if (my_device_index == root_index) {
     output_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : arange(communication->team().size())) {
-      if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->in()->getDeviceMesh().has(root_index)) {
+    for (auto i : arange(team.size())) {
+      if (root_index == static_cast<DeviceIdxType>(i) &&
+          !communication->in()->getDeviceMesh().has(team.at(root_index))) {
         output_tensors[0].push_back(input_tensor);
         continue;
       }
@@ -172,12 +172,12 @@ c10::intrusive_ptr<c10d::Work> postGather(
       j++;
     }
 
-    assertBufferCount(output_tensors[0], communication->team().size());
+    assertBufferCount(output_tensors[0], team.size());
     assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
   }
 
   return backend->gather(
-      output_tensors, input_tensors, {.rootRank = root_relative_index});
+      output_tensors, input_tensors, {.rootRank = root_index});
 }
 
 c10::intrusive_ptr<c10d::Work> postAllgather(
@@ -225,12 +225,13 @@ c10::intrusive_ptr<c10d::Work> postScatter(
   NVF_ERROR(
       isTvContiguous(communication->out()), "Output tensor is not contiguous");
 
+  const Team& team = communication->team();
   auto output_device_mesh = communication->out()->getDeviceMesh();
   NVF_ERROR(
-      output_device_mesh.has(root_index),
-      "root_index ",
-      root_index,
-      " is not in the output device mesh ",
+      output_device_mesh.has(team[root_index]),
+      "root (absolute device ",
+      team[root_index],
+      ") is not in the output device mesh ",
       output_device_mesh,
       ".");
 
@@ -255,9 +256,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
   }
 
   return backend->scatter(
-      output_tensors,
-      input_tensors,
-      {.rootRank = communication->getRootRelativeIndex(root_index)});
+      output_tensors, input_tensors, {.rootRank = root_index});
 }
 
 c10::intrusive_ptr<c10d::Work> postReduce(
@@ -267,9 +266,10 @@ c10::intrusive_ptr<c10d::Work> postReduce(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  const Team& team = communication->team();
   at::Tensor tensor;
   if (my_device_index == root_index) {
-    if (communication->in()->getDeviceMesh().has(root_index)) {
+    if (communication->in()->getDeviceMesh().has(team.at(root_index))) {
       doLocalCopy(output_tensor, input_tensor);
       tensor = output_tensor;
     } else {
@@ -285,8 +285,7 @@ c10::intrusive_ptr<c10d::Work> postReduce(
   std::vector<at::Tensor> tensors({tensor});
 
   c10d::ReduceOptions options = {
-      .reduceOp = communication->reduceOp(),
-      .rootRank = communication->getRootRelativeIndex(root_index)};
+      .reduceOp = communication->reduceOp(), .rootRank = root_index};
   // TODO: avoid local copy by using out-of-place reduction.
   return backend->reduce(tensors, options);
 }
@@ -371,7 +370,7 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
         team.size() == 2,
         "SendRecv's team size is expected to be 1 or 2, however found ",
         team.size());
-    receiver = (team[0] == sender ? team[1] : team[0]);
+    receiver = 1 - sender;
   }
 
   if (sender == receiver) {
@@ -382,17 +381,11 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
   std::vector<at::Tensor> tensors;
   if (my_device_index == sender) {
     tensors = {input_tensor};
-    return backend->send(
-        tensors,
-        static_cast<int>(getRelativeIndex(communication->team(), receiver)),
-        /*tag=*/0);
+    return backend->send(tensors, static_cast<int>(receiver), /*tag=*/0);
   } else {
     NVF_ERROR(my_device_index == receiver);
     tensors = {output_tensor};
-    return backend->recv(
-        tensors,
-        static_cast<int>(getRelativeIndex(communication->team(), sender)),
-        /*tag=*/0);
+    return backend->recv(tensors, static_cast<int>(sender), /*tag=*/0);
   }
 }
 
@@ -477,6 +470,8 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     return nullptr;
   }
   NVF_ERROR(backend != nullptr);
+
+  my_device_index = getRelativeIndex(team, my_device_index);
 
   if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
     debug() << "Posting " << communication->toInlineString()

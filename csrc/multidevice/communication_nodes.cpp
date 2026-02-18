@@ -87,12 +87,6 @@ bool isReduction(CommunicationType type) {
   }
 }
 
-int64_t getRelativeIndex(const Team& team, const DeviceIdxType rank) {
-  auto i = std::find(team.begin(), team.end(), rank);
-  NVF_ERROR(i != team.end(), "Unable to find rank ", rank, " in team ", team);
-  return std::distance(team.begin(), i);
-}
-
 } // namespace
 
 Communication::Communication(
@@ -159,10 +153,6 @@ void Communication::validate() {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
-
-int64_t Communication::getRootRelativeIndex(DeviceIdxType root_val) {
-  return getRelativeIndex(team(), root_val);
-}
 
 std::string Communication::toInlineString(const int indent_size) const {
   std::stringstream ss;
