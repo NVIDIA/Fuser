@@ -20,4 +20,16 @@ using Team = std::vector<DeviceIdxType>;
 
 // Supported backends.
 enum class CommunicatorBackend { kNccl, kUcc, kCuda };
+
+enum class CommunicationType {
+  Gather,
+  Allgather,
+  Scatter,
+  Reduce,
+  Allreduce,
+  ReduceScatter,
+  Broadcast,
+  SendRecv,
+  AllToAll
+};
 } // namespace nvfuser
