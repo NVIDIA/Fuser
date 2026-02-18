@@ -220,10 +220,11 @@ c10::intrusive_ptr<c10d::Work> postScatter(
       isTvContiguous(communication->out()), "Output tensor is not contiguous");
 
   auto output_device_mesh = communication->out()->getDeviceMesh();
+  const Team& team = communication->team();
   NVF_ERROR(
-      output_device_mesh.has(root_index),
+      output_device_mesh.has(team.at(root_index)),
       "root_index ",
-      root_index,
+      team.at(root_index),
       " is not in the output device mesh ",
       output_device_mesh,
       ".");
