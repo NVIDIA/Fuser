@@ -59,6 +59,7 @@ namespace nvfuser {
 //! checks.
 
 class Fusion;
+class NamedScalar;
 class TensorView;
 
 class SegmentCandidateFinder;
@@ -549,63 +550,31 @@ class NVF_API Fusion : public PolymorphicBase {
     return ir_container()->numExprs();
   }
 
-  int64_t numVals(bool include_shortcuts) const noexcept {
-    return ir_container()->numVals(include_shortcuts);
+  int64_t numVals() const noexcept {
+    return ir_container()->numVals();
   }
 
   // Shortcut values (frequently used constants)
-  Val* zeroVal() {
-    return ir_container()->zeroVal();
-  }
+  Val* zeroVal();
+  Val* oneVal();
+  Val* falseVal();
+  Val* trueVal();
+  NamedScalar* magicZeroVal();
+  Val* zeroVal(DataType dtype);
+  Val* oneVal(DataType dtype);
 
-  Val* oneVal() {
-    return ir_container()->oneVal();
-  }
-
-  Val* falseVal() {
-    return ir_container()->falseVal();
-  }
-
-  Val* trueVal() {
-    return ir_container()->trueVal();
-  }
-
-  NamedScalar* magicZeroVal() {
-    return ir_container()->magicZeroVal();
-  }
-
-  Val* zeroVal(DataType dtype) {
-    return ir_container()->zeroVal(dtype);
-  }
-
-  Val* oneVal(DataType dtype) {
-    return ir_container()->oneVal(dtype);
-  }
-
-  Val* metadataOf(Val* val) {
-    return ir_container()->metadataOf(val);
-  }
+  Val* metadataOf(Val* val);
 
   // Axioms (CUDA programming assumptions)
-  const std::vector<Val*>& axioms() {
-    return ir_container()->axioms();
-  }
+  const std::vector<Val*>& axioms();
 
-  void assumePositive(Val* val) {
-    ir_container()->assumePositive(val);
-  }
-
-  void assumeNonNegative(Val* val) {
-    ir_container()->assumeNonNegative(val);
-  }
+  void assumePositive(Val* val);
+  void assumeNonNegative(Val* val);
 
   // Statement removal
   void removeStatementsCreatedAfter(
       int64_t num_exprs_before,
-      int64_t num_vals_before) {
-    ir_container()->removeStatementsCreatedAfter(
-        num_exprs_before, num_vals_before);
-  }
+      int64_t num_vals_before);
 
  protected:
   friend SegmentCandidateFinder;
@@ -667,6 +636,16 @@ class NVF_API Fusion : public PolymorphicBase {
 
   inline static const std::string exact_mappings_key = "exact_mappings";
   std::unique_ptr<IrContainer> ir_container_;
+
+  Val* zero_val_ = nullptr;
+  Val* one_val_ = nullptr;
+  Val* true_val_ = nullptr;
+  Val* false_val_ = nullptr;
+  NamedScalar* magic_zero_val_ = nullptr;
+
+  std::unique_ptr<std::vector<Val*>> axioms_;
+
+  std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 };
 
 // Template implementations for Fusion::manage<T>() that use IrCloner
