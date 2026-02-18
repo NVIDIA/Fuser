@@ -515,6 +515,12 @@ Fusion::Fusion() : ir_container_(std::make_shared<IrContainer>()) {
   ir_container_->addFusion(this);
 }
 
+// Shared-container constructor -- creates empty Fusion using existing container
+Fusion::Fusion(std::shared_ptr<IrContainer> container)
+    : ir_container_(std::move(container)) {
+  ir_container_->addFusion(this);
+}
+
 // Copy constructor -- shares the source's container
 Fusion::Fusion(const Fusion& other) : ir_container_(other.ir_container_) {
   FUSER_PERF_SCOPE("Fusion copy");

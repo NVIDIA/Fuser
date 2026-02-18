@@ -583,6 +583,10 @@ class NVF_API Fusion : public PolymorphicBase {
   friend class TranslateApplicableWelford;
   friend Val;
 
+  //! Constructor that shares an existing container. Creates an empty Fusion
+  //! registered with the shared container. Used by makeFusion for sharing.
+  explicit Fusion(std::shared_ptr<IrContainer> container);
+
   //! Register the Val with this fusion
   virtual void registerVal(Val* val);
 
