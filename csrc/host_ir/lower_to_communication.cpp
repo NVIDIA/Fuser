@@ -381,9 +381,9 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
   };
 
   const PairwiseLogicalDomainMap pairwise_map(producer, consumer);
-  const std::unordered_map<IterDomain*, IterDomain*>& p2c =
+  const std::unordered_map<IterDomain*, IterDomain*> p2c =
       pairwise_map.mapProducerToConsumer();
-  const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+  const std::unordered_map<IterDomain*, IterDomain*> c2p =
       pairwise_map.mapConsumerToProducer();
 
   // This ignores device dimensions on reduction axis.
