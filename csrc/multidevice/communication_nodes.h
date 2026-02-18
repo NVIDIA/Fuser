@@ -19,8 +19,6 @@
 #include "multidevice/communicator.h"
 #include "multidevice/device_mesh.h"
 #include "multidevice/multidevice.h"
-#include "type.h"
-#include "visibility.h"
 
 namespace nvfuser {
 

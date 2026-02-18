@@ -14,7 +14,6 @@
 
 #include "ir/cloner.h"
 #include "ir/iostream.h"
-#include "ir/printer.h"
 
 namespace nvfuser {
 
