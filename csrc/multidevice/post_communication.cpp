@@ -249,9 +249,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
   }
 
   return backend->scatter(
-      output_tensors,
-      input_tensors,
-      {.rootRank = communication->getRelativeIndex(root_index)});
+      output_tensors, input_tensors, {.rootRank = root_index});
 }
 
 c10::intrusive_ptr<c10d::Work> postReduce(
