@@ -176,6 +176,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"tma_pointwise", EnableOption::TmaPointwise},
           {"tma_inner_persistent", EnableOption::TmaInnerPersistent},
           {"tma_reduction", EnableOption::TmaReduction},
+          {"tma_transpose", EnableOption::TmaTranspose},
           {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
           {"host_ir_jit", EnableOption::HostIrJit},

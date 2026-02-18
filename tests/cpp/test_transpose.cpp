@@ -1639,4 +1639,53 @@ INSTANTIATE_TEST_SUITE_P(
     TransposeTMA,
     testing::Bool(),
     testing::PrintToStringParamName());
+
+// dtype, pair of transpose dimensions
+using TmaTransposeTestParams =
+    std::tuple<DataType, std::pair<int64_t, int64_t>>;
+class TmaTransposeTestP
+    : public NVFuserFixtureParamTest<TmaTransposeTestParams> {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    NVFuserFixtureParamTest<ParamType>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaTranspose);
+  }
+};
+
+TEST_P(TmaTransposeTestP, TmaTranspose) {
+  auto dtype = std::get<0>(GetParam());
+  auto [dim1, dim2] = std::get<1>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+  auto tv0 = makeContigTensor(3, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = transpose(tv0, dim1, dim2);
+  fusion.addOutput(tv1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024, 2048, 3072}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TransposeTest,
+    TmaTransposeTestP,
+    testing::Combine(
+        testing::Values(DataType::Float, DataType::BFloat16),
+        testing::Values(
+            std::make_pair(int64_t(0), int64_t(1)),
+            std::make_pair(int64_t(0), int64_t(2)),
+            std::make_pair(int64_t(1), int64_t(2)))),
+    [](const testing::TestParamInfo<TmaTransposeTestParams>& info) {
+      auto dtype = std::get<0>(info.param);
+      auto dims = std::get<1>(info.param);
+      std::ostringstream os;
+      os << dtype << "_transpose_" << dims.first << "_" << dims.second;
+      return os.str();
+    });
 } // namespace nvfuser
