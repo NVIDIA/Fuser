@@ -62,11 +62,21 @@ bool isLowerableToCommunication(Expr* e) {
         PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
 
     IterDomain* reduced_id = nullptr;
-    for (IterDomain* p_id : in->getLogicalDomain()) {
-      if (p_id->isReduction()) {
-        continue;
-      }
-
+    // Consider the following example:
+    // ```
+    //            n
+    //          /  \.
+    // [m, DIDx{d}, r{n/d}]
+    //         |
+    //         | sum
+    //         v
+    //      [m, rDIDx{d}]
+    //     /  \.
+    // DIDx{d} m/d
+    // ```
+    // `reduced_id` will be the `DIDx{d}` in the input.
+    for (IterDomain* p_id :
+         in->getLogicalDomain() | TensorDomain::kNoReductions) {
       IterDomain* c_id = getOrDefault(p2c, p_id);
       if (c_id == nullptr || c_id->isReduction()) {
         if (reduced_id != nullptr) {
