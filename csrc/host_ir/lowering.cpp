@@ -145,7 +145,10 @@ Expr* cloneWithNewOperands(
     return e;
   }
 
-  return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
+  auto* new_e =
+      e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
+  e->container()->removeExpr(e);
+  return new_e;
 }
 
 void lowerSegment(
@@ -178,7 +181,8 @@ void lowerSegment(
       // TODO: `replacement_map` should be associated with the scope so
       // ShardByStream across segments in the same for-loop can be reused.
       std::unordered_map<Val*, Val*> replacement_map;
-      for (Expr* c : convertSingleOpToCommunication(e, device_id)) {
+      Val* root = loop_nest.empty() ? nullptr : innermost.loop->index();
+      for (Expr* c : convertSingleOpToCommunication(e, device_id, root)) {
         NVF_ERROR(
             c->isA<Communication>(),
             "Exprs in a Communication group should be Communication: ",
@@ -186,7 +190,8 @@ void lowerSegment(
         auto* communication = c->as<Communication>();
         TensorView* in = communication->in();
         TensorView* out = communication->out();
-        if (haveDifferentShardings(
+        if (communication->type() != CommunicationType::StreamBroadcast &&
+            haveDifferentShardings(
                 in,
                 DomainType::kAllocation,
                 out,
