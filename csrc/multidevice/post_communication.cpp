@@ -355,27 +355,28 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   const Team& team = communication->team();
-  const DeviceIdxType sender = root_index;
-  if (team.size() == 1) {
+  NVF_ERROR_LE(
+      team.size(), 2, "SendRecv's team size is expected to be atmost 2.");
+
+  if (team.size() == 1 || (team[0] == team[1])) {
     doLocalCopy(output_tensor, input_tensor);
     return nullptr;
   }
-  NVF_ERROR_EQ(
-      team.size(), 2, "SendRecv's team size is expected to be 1 or 2.");
-  DeviceIdxType receiver = 1 - sender;
+  // All indices are relative and not absolute device IDs.
+  DeviceIdxType receiver_index = 1 - root_index;
   std::vector<at::Tensor> tensors;
-  if (my_device_index == sender) {
+  if (my_device_index == root_index) {
     tensors = {input_tensor};
     return backend->send(
         tensors,
-        static_cast<int>(receiver),
+        static_cast<int>(root_index),
         /*tag=*/0);
   }
-  NVF_ERROR_EQ(my_device_index, receiver);
+  NVF_ERROR_EQ(my_device_index, receiver_index);
   tensors = {output_tensor};
   return backend->recv(
       tensors,
-      static_cast<int>(sender),
+      static_cast<int>(receiver_index),
       /*tag=*/0);
 }
 
