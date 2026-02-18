@@ -51,6 +51,8 @@ ReshardPosition whereToReshard(Expr* e) {
 // However, the current implementation, forked from HostIrLower::canLower, is
 // merely a best effort.
 bool isLowerableToCommunication(Expr* e) {
+  NVF_ERROR(e != nullptr);
+
   if (auto* ldst = dynamic_cast<LoadStoreOp*>(e)) {
     return ldst->opType() == LoadStoreOpType::Set;
   }
