@@ -1028,4 +1028,88 @@ TEST_F(SegmentationTest, ReshapeWithCrossSegmentExtent) {
       executor_cache.fusion(), outputs, {t_a, t_b}, __LINE__, __FILE__);
 }
 
+// Stress test: 8 segments sharing one IrContainer via segmenter container
+// sharing. Exercises parallel compilation with 8 concurrent threads all
+// registering vals/exprs into the same shared container.
+TEST_F(SegmentationTest, SharedContainerStress8Segments) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Build a linear chain with 7 segment_set boundaries → 8 segments.
+  // Each segment does a different pointwise op to keep them distinct.
+  auto tv0 = makeContigConcreteTensor({1024, 256}, DataType::Float);
+  fusion->addInput(tv0);
+
+  auto tv = relu(tv0);
+  tv = segment_set(tv);
+  tv = neg(tv);
+  tv = segment_set(tv);
+  tv = sin(tv);
+  tv = segment_set(tv);
+  tv = relu(tv);
+  tv = segment_set(tv);
+  tv = neg(tv);
+  tv = segment_set(tv);
+  tv = sin(tv);
+  tv = segment_set(tv);
+  tv = relu(tv);
+  tv = segment_set(tv);
+  tv = neg(tv);
+  fusion->addOutput(tv);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1024, 256}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(8));
+
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Stress test: 12 parallel branches each producing a segment via independent
+// reductions. Unlike the linear chain above, this creates 12 segments that
+// can all compile simultaneously, maximizing concurrent lock contention on the
+// shared IrContainer.
+TEST_F(SegmentationTest, SharedContainerStress12ParallelBranches) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // 4 inputs, each feeds 3 independent reductions on different axes.
+  // Reductions on different axes cannot be merged → separate segments.
+  std::vector<TensorView*> inputs;
+  for (int i = 0; i < 4; i++) {
+    auto tv = makeContigConcreteTensor({64, 128, 32}, DataType::Float);
+    fusion->addInput(tv);
+    inputs.push_back(tv);
+  }
+
+  for (int i = 0; i < 4; i++) {
+    // Each input → 3 reductions on axes 0, 1, 2
+    for (int axis = 0; axis < 3; axis++) {
+      auto r = sum(inputs[i], {axis});
+      fusion->addOutput(r);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  std::vector<c10::IValue> aten_inputs;
+  for (int i = 0; i < 4; i++) {
+    aten_inputs.push_back(at::randn({64, 128, 32}, options));
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  // Expect at least 6 segments (the segmenter may merge some compatible
+  // reductions, but incompatible reduction axes force separate segments)
+  EXPECT_GE(runtime->fusionSegments()->groups().size(), 6);
+
+  testValidate(
+      executor_cache.fusion(), outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
