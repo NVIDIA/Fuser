@@ -8,6 +8,7 @@
 #pragma once
 
 #include <deque>
+#include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -68,33 +69,20 @@ class IrContainer {
   //! Return the set of Exprs registered with this fusion. Warning: This will
   //! return exprs outside inputs/outputs, so can be unsafe for use with
   //! segmented fusions.
-  const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return exprs_;
-  }
+  const std::unordered_set<Expr*>& unordered_exprs() const noexcept;
 
   //! Return the set of Vals registered with this fusion
-  const std::unordered_set<Val*>& vals() const noexcept {
-    return vals_;
-  }
+  const std::unordered_set<Val*>& vals() const noexcept;
 
-  int64_t numExprs() const noexcept {
-    return std::ssize(exprs_);
-  }
+  int64_t numExprs() const noexcept;
 
-  int64_t numVals() const noexcept {
-    return std::ssize(vals_up_);
-  }
+  int64_t numVals() const noexcept;
 
  protected:
-  static IrCloner copy(
-      const IrContainer* from,
-      IrContainer* to,
-      Fusion* dest_fusion);
-
-  static void swap(IrContainer& a, IrContainer& b) noexcept;
-
-  // Let Fusion access IrContainer::clear()
+  // Let Fusion access IrContainer internals (mutex_, fields, Impl helpers)
   friend class Fusion;
+
+  mutable std::shared_mutex mutex_;
 
   StmtNameType getValName(ValType vtype) {
     if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
@@ -153,6 +141,12 @@ class IrContainer {
       const Fusion* fusion) const noexcept;
 
  private:
+  // Lock-free implementations for use by Fusion (which holds mutex_ directly)
+  bool inContainerImpl(const Statement* stmt) const;
+  void assertInContainerImpl(
+      const Statement* stmt,
+      const std::string& msg) const;
+
   std::unordered_set<Fusion*> sharing_fusions_;
   std::unordered_map<const Fusion*, std::unordered_set<Val*>> per_fusion_vals_;
   std::unordered_map<const Fusion*, std::unordered_set<Expr*>>

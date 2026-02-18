@@ -561,13 +561,7 @@ class NVF_API Fusion : public PolymorphicBase {
   //! since they're singletons that should persist across StatementGuard scopes,
   //! this count excludes them so the LIFO pop-back in
   //! removeStatementsCreatedAfter correctly skips over them.
-  int64_t numValsExcludingShortcuts() const noexcept {
-    int64_t count = std::ssize(ir_container()->valsOwnedBy(this));
-    count -= (zero_val_ != nullptr) + (one_val_ != nullptr) +
-        (true_val_ != nullptr) + (false_val_ != nullptr) +
-        (magic_zero_val_ != nullptr);
-    return count;
-  }
+  int64_t numValsExcludingShortcuts() const noexcept;
 
   // Shortcut values (frequently used constants)
   Val* zeroVal();
@@ -651,6 +645,10 @@ class NVF_API Fusion : public PolymorphicBase {
 
   inline static const std::string exact_mappings_key = "exact_mappings";
   std::shared_ptr<IrContainer> ir_container_;
+
+  // PIMPL for lock-free mutation methods (defined in fusion.cpp)
+  struct ContainerMutator;
+  friend struct ContainerMutator;
 
   Val* zero_val_ = nullptr;
   Val* one_val_ = nullptr;
