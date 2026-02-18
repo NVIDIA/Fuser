@@ -148,7 +148,6 @@ class NVF_API Fusion : public PolymorphicBase {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  protected:
-  // Direct access to underlying container
   IrContainer* ir_container() {
     NVF_ERROR(
         ir_container_.get() != nullptr,
@@ -161,6 +160,10 @@ class NVF_API Fusion : public PolymorphicBase {
         ir_container_.get() != nullptr,
         "Accessing an uninitialized IrContainer!.")
     return ir_container_.get();
+  }
+
+  std::shared_ptr<IrContainer> ir_container_ptr() const {
+    return ir_container_;
   }
 
  public:
@@ -635,7 +638,7 @@ class NVF_API Fusion : public PolymorphicBase {
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 
   inline static const std::string exact_mappings_key = "exact_mappings";
-  std::unique_ptr<IrContainer> ir_container_;
+  std::shared_ptr<IrContainer> ir_container_;
 
   Val* zero_val_ = nullptr;
   Val* one_val_ = nullptr;
