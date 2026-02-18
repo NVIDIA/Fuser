@@ -396,7 +396,6 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
   }
 
   if (!c_loop_id) {
-    IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_id);
     CommunicationType type =
         same_mesh ? CommunicationType::Allreduce : CommunicationType::Reduce;
     return CommunicationInfo{type, p_logical_id, p2c.at(p_logical_id)};

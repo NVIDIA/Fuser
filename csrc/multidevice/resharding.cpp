@@ -117,7 +117,7 @@ bool haveDifferentShardings(
     return false;
   }
 
-  // exit early in the unsharded case for performance if we are
+  // Exit early in the unsharded case for performance if we are
   // not checking for `Stream`.
   if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh() &&
       !parallel_types.count(ParallelType::Stream)) {
