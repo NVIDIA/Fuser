@@ -171,3 +171,32 @@ def test_alltoall(multidevice_test, inp_axis, out_axis):
     inp = multidevice_test.shard_tensor(in_ref, inp_tv)
     (out,) = fd.execute([inp])
     torch.testing.assert_close(out, multidevice_test.shard_tensor(out_ref, out_tv))
+
+
+def test_collective_permute(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    with FusionDefinition() as fd:
+        inp_tv = fd.define_tensor((d * 3,), contiguity=True, dtype=DataType.Float)
+        out_tv = fd.ops.set(inp_tv)
+        fd.add_output(out_tv)
+
+        inp_tv.set_device_mesh(mesh)
+        inp_tv.outer_split(0, d)
+        inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+        out_tv.set_device_mesh(mesh)
+        out_tv.outer_split(0, d)
+        out_tv.swizzle1d(0, nvfuser.ParallelType.mesh_x)
+        out_tv.axis(0).parallelize(nvfuser.ParallelType.stream)
+
+    inp_ref = torch.randn(d * 3)
+    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
+    with torch.profiler.profile() as prof:
+        (out,) = fd.execute([inp], _enable_options=["host_ir_lowering"])
+    torch.testing.assert_close(out.cpu(), inp_ref)
+    collective_permute_events = [
+        event for event in prof.events() if "ncclDevKernel_SendRecv" in event.name
+    ]
+    assert len(collective_permute_events) == (d - 1)

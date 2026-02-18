@@ -14,8 +14,10 @@
 #include <vector>
 
 #include "compute_at_map.h"
+#include "ir/builder.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
+#include "ops/arith.h"
 #include "transform_replay.h"
 #include "type.h"
 
@@ -338,6 +340,23 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   }
 
   return rfactor_did_idx;
+}
+
+std::pair<Val*, Val*> dispatchSwizzle1D(
+    Val* host_loop_index,
+    DeviceIdxType device_id,
+    ParallelType pt,
+    const DeviceMesh& mesh) {
+  int64_t team_size = mesh.size(pt);
+  at::Tensor md_index = mesh.multiDimensionalIndexOf(device_id);
+  auto pt_axis = mesh.parallelTypeToAxis(pt);
+  int64_t team_index = md_index[pt_axis].item<int64_t>();
+  Val* team_size_val = IrBuilder::create<Val>(team_size, DataType::Index);
+  Val* team_index_val = IrBuilder::create<Val>(team_index, DataType::Index);
+  return std::make_pair(
+      mod(add(host_loop_index, team_index_val), team_size_val),
+      mod(add(team_size_val, sub(team_index_val, host_loop_index)),
+          team_size_val));
 }
 
 } // namespace nvfuser
