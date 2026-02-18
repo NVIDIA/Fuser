@@ -16,7 +16,7 @@
 #include "ir/iostream.h"
 #include "ir/utils.h"
 #include "kernel_ir.h"
-#include "multidevice/communication.h"
+#include "multidevice/post_communication.h"
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
 #include "ops/all_ops.h"
@@ -335,6 +335,13 @@ bool isLocalSizeOne(IterDomain* id) {
 }
 
 } // namespace
+
+std::ostream& operator<<(std::ostream& os, const CommunicationInfo& info) {
+  os << "CommunicationInfo(" << info.type
+     << ", p_sharded_id=" << info.p_sharded_id
+     << ", c_sharded_id=" << info.c_sharded_id << ")";
+  return os;
+}
 
 CommunicationInfo getCommunicationInfo(Expr* e) {
   NVF_ERROR(

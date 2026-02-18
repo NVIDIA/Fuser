@@ -233,7 +233,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/allocation_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
-  ${NVFUSER_SRCS_DIR}/multidevice/communication_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/post_communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/cuda_p2p.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/dispatch_combine.cpp

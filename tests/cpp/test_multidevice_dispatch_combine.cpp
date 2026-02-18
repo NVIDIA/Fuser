@@ -14,8 +14,8 @@
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
-#include "multidevice/communication.h"
 #include "multidevice/dispatch_combine.h"
+#include "multidevice/post_communication.h"
 #include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
