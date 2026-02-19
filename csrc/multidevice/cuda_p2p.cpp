@@ -367,15 +367,15 @@ void postBroadcastWithCudaBackend(
     CUstream stream,
     int64_t root) {
   Communicator& communicator = Communicator::getInstance();
-  const int64_t my_device_index = communicator.deviceId();
+  const int64_t my_device = communicator.deviceId();
   const int64_t world_size = communicator.size();
 
-  if (my_device_index != root) {
+  if (my_device != root) {
     // Non-root writes kInProgress to its own semaphore
     NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
         stream,
         reinterpret_cast<CUdeviceptr>(
-            multicast_handle->semaphoreUnicastPtr(my_device_index)),
+            multicast_handle->semaphoreUnicastPtr(my_device)),
         static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
         CU_STREAM_WRITE_VALUE_DEFAULT));
   } else {
@@ -490,14 +490,14 @@ void waitBroadcastWithCudaBackend(
     CUstream stream,
     int64_t root) {
   Communicator& communicator = Communicator::getInstance();
-  const int64_t my_device_index = communicator.deviceId();
+  const int64_t my_device = communicator.deviceId();
 
-  if (my_device_index != root) {
+  if (my_device != root) {
     // Non-root waits for its own semaphore to be kIdle
     NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
         stream,
         reinterpret_cast<CUdeviceptr>(
-            multicast_handle->semaphoreUnicastPtr(my_device_index)),
+            multicast_handle->semaphoreUnicastPtr(my_device)),
         static_cast<cuuint32_t>(IpcSemaphore::kIdle),
         CU_STREAM_WAIT_VALUE_EQ));
   }
@@ -509,7 +509,7 @@ void postAllgatherWithCudaBackend(
     SymMemForAllgather* allgather_handle,
     CUstream stream) {
   Communicator& communicator = Communicator::getInstance();
-  const int64_t my_device_index = communicator.deviceId();
+  const int64_t my_device = communicator.deviceId();
   const int64_t world_size = communicator.size();
 
   // Step 1: Each rank signals it's ready by writing kInProgress to its own
@@ -517,12 +517,12 @@ void postAllgatherWithCudaBackend(
   std::vector<CUstreamBatchMemOpParams> write_ready_ops(world_size - 1);
   int write_op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    if (rank == my_device_index)
+    if (rank == my_device)
       continue;
     write_ready_ops[write_op_idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
     write_ready_ops[write_op_idx].writeValue.address =
         reinterpret_cast<CUdeviceptr>(
-            allgather_handle->semaphoreUnicastPtr(rank, my_device_index));
+            allgather_handle->semaphoreUnicastPtr(rank, my_device));
     write_ready_ops[write_op_idx].writeValue.value =
         static_cast<cuuint32_t>(IpcSemaphore::kInProgress);
     write_ready_ops[write_op_idx].writeValue.flags =
@@ -537,12 +537,12 @@ void postAllgatherWithCudaBackend(
   std::vector<CUstreamBatchMemOpParams> wait_ready_ops(world_size - 1);
   int wait_op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    if (rank == my_device_index)
+    if (rank == my_device)
       continue;
     wait_ready_ops[wait_op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
     wait_ready_ops[wait_op_idx].waitValue.address =
         reinterpret_cast<CUdeviceptr>(
-            allgather_handle->semaphoreUnicastPtr(my_device_index, rank));
+            allgather_handle->semaphoreUnicastPtr(my_device, rank));
     wait_ready_ops[wait_op_idx].waitValue.value =
         static_cast<cuuint32_t>(IpcSemaphore::kInProgress);
     wait_ready_ops[wait_op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
@@ -558,7 +558,7 @@ void postAllgatherWithCudaBackend(
 
   if (protocol == MulticastProtocol::Multimem) {
     launchMulticastKernel(
-        allgather_handle->bufferMulticastPtr(my_device_index),
+        allgather_handle->bufferMulticastPtr(my_device),
         src_ptr,
         count,
         stream);
@@ -575,12 +575,12 @@ void postAllgatherWithCudaBackend(
     std::vector<size_t> attrsIdxs(world_size);
     size_t numAttrs = world_size;
     for (int64_t rank = 0; rank < world_size; ++rank) {
-      dsts[rank] = allgather_handle->bufferUnicastPtr(my_device_index, rank);
+      dsts[rank] = allgather_handle->bufferUnicastPtr(my_device, rank);
       attrsIdxs[rank] = rank;
       struct cudaMemLocation dst_location = {
           .type = cudaMemLocationTypeDevice, .id = (int)rank};
       struct cudaMemLocation src_location = {
-          .type = cudaMemLocationTypeDevice, .id = (int)my_device_index};
+          .type = cudaMemLocationTypeDevice, .id = (int)my_device};
       unsigned int flags = cudaMemcpyFlagPreferOverlapWithCompute;
       attributes[rank].dstLocHint = dst_location;
       attributes[rank].srcLocHint = src_location;
@@ -615,7 +615,7 @@ void postAllgatherWithCudaBackend(
 #endif
   } else {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-        allgather_handle->bufferMulticastPtr(my_device_index),
+        allgather_handle->bufferMulticastPtr(my_device),
         src_ptr,
         count,
         cudaMemcpyDeviceToDevice,
@@ -628,7 +628,7 @@ void postAllgatherWithCudaBackend(
   for (int64_t rank = 0; rank < world_size; ++rank) {
     write_complete_ops[rank].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
     write_complete_ops[rank].writeValue.address = reinterpret_cast<CUdeviceptr>(
-        allgather_handle->semaphoreUnicastPtr(my_device_index, rank));
+        allgather_handle->semaphoreUnicastPtr(my_device, rank));
     write_complete_ops[rank].writeValue.value =
         static_cast<cuuint32_t>(IpcSemaphore::kIdle);
     write_complete_ops[rank].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
@@ -642,18 +642,18 @@ void waitAllgatherWithCudaBackend(
     SymMemForAllgather* allgather_handle,
     CUstream stream) {
   Communicator& communicator = Communicator::getInstance();
-  const int64_t my_device_index = communicator.deviceId();
+  const int64_t my_device = communicator.deviceId();
   const int64_t world_size = communicator.size();
 
   // Wait for all other ranks to complete using batch operations
   std::vector<CUstreamBatchMemOpParams> wait_complete_ops(world_size - 1);
   int op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    if (rank == my_device_index)
+    if (rank == my_device)
       continue;
     wait_complete_ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
     wait_complete_ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
-        allgather_handle->semaphoreUnicastPtr(rank, my_device_index));
+        allgather_handle->semaphoreUnicastPtr(rank, my_device));
     wait_complete_ops[op_idx].waitValue.value =
         static_cast<cuuint32_t>(IpcSemaphore::kIdle);
     wait_complete_ops[op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;

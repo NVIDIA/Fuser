@@ -27,7 +27,7 @@ namespace nvfuser::hir_pass {
 void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
   FusionGuard fg(fusion);
   auto* hic = fusion->as<hir::HostIrContainer>();
-  DeviceIdxType my_device_index = Communicator::getInstance().deviceId();
+  DeviceIdxType my_device = Communicator::getInstance().deviceId();
 
   auto handle_top_level_expr = [&](Expr* top_level_expr,
                                    auto& new_top_level_exprs) {
@@ -35,12 +35,12 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
       return new_top_level_exprs.push_back(top_level_expr);
     }
     for (auto* expr : nvfuser::convertSingleOpToCommunication(
-             top_level_expr, my_device_index, params_.communicator_backend)) {
+             top_level_expr, my_device, params_.communicator_backend)) {
       // Allocate the recv buffers of communications
       if (expr->isA<Communication>()) {
         auto* communication = expr->as<Communication>();
         TensorView* tv = communication->out();
-        if (tv->getDeviceMesh().has(my_device_index)) {
+        if (tv->getDeviceMesh().has(my_device)) {
           auto* allocate =
               IrBuilder::create<kir::Allocate>(tv, tv->getMemoryType());
           new_top_level_exprs.push_back(allocate);

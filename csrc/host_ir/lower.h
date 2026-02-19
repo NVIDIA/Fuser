@@ -32,11 +32,11 @@ class HostIrLower {
       : params_(params) {}
 
   // Lower a sharded Expr into a series of Communication.
-  std::vector<Expr*> lower(Expr* c, DeviceIdxType my_device_index);
+  std::vector<Expr*> lower(Expr* c, DeviceIdxType my_device);
 
   std::unique_ptr<hir::HostIrContainer> lower(
       std::unique_ptr<Fusion> fusion,
-      DeviceIdxType my_device_index);
+      DeviceIdxType my_device);
 
   static bool isLowerableAsStandaloneHostOp(Expr* expr);
 

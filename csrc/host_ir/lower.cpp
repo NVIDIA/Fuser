@@ -93,7 +93,7 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
 
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     std::unique_ptr<Fusion> fusion,
-    DeviceIdxType my_device_index) {
+    DeviceIdxType my_device) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
   // `PropagateShardingsPass` and `ReorderShardedAxisPass` are not run here
@@ -134,7 +134,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
 
   for (auto group : workspace.group_run_order) {
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
-    if (involvedDevices(group->exprs().front()).count(my_device_index) == 0) {
+    if (involvedDevices(group->exprs().front()).count(my_device) == 0) {
       continue;
     }
     // we decide whether to insert the Expr as a standalone op in the
