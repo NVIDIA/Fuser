@@ -1644,11 +1644,12 @@ INSTANTIATE_TEST_SUITE_P(
 using TmaTransposeTestParams =
     std::tuple<DataType, std::pair<int64_t, int64_t>>;
 class TmaTransposeTestP
-    : public NVFuserFixtureParamTest<TmaTransposeTestParams> {
+    : public TransposeTest,
+      public testing::WithParamInterface<TmaTransposeTestParams> {
  protected:
   void SetUp() override {
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-    NVFuserFixtureParamTest<ParamType>::SetUp();
+    TransposeTest::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaTranspose);
   }
 };
