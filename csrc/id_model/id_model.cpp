@@ -502,6 +502,7 @@ void mapSplitOfSplit(ValGraph& graph) {
   // outer', _ = split(root)
   //
   // If outermost_grand and outer' have the same extent, map them.
+  std::vector<std::pair<Val*, Val*>> ids_to_map;
   for (const ValGroup& root : graph.disjointValSets().disjointSets()) {
     if (!graph.hasUses(root)) {
       continue;
@@ -542,10 +543,14 @@ void mapSplitOfSplit(ValGraph& graph) {
         const ValGroup& outer = graph.toGroup(split->outer());
         if (outer->front()->as<IterDomain>()->extent()->sameAs(
                 extent_of_grand)) {
-          graph.mapVals(outermost_grand->front(), outer->front());
+          ids_to_map.emplace_back(outermost_grand->front(), outer->front());
         }
       }
     }
+  }
+
+  for (const auto& [id1, id2] : ids_to_map) {
+    graph.mapVals(id1, id2);
   }
 }
 
