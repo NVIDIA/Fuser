@@ -29,12 +29,14 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   tparams->tag = "TMA Transpose heuristics";
   tparams->cparams.index_type = runtime_info.getIndexType();
   tparams->use_tma_load = true;
-  tparams->use_tma_store = true;
+  tparams->use_tma_store = false;
 
   int64_t max_input_dtype_size = 1;
+  int64_t n_input = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     max_input_dtype_size = std::max(
         max_input_dtype_size, dataTypeSizeByte(inp->getDataType().value()));
+    n_input++;
   }
   tparams->tma_swizzle_bytes = 128;
   // input layout: [I2, I2] -> [tile1, tile2]
@@ -43,11 +45,14 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   // bytes.
   tparams->tile_size2 = tparams->tma_swizzle_bytes / max_input_dtype_size;
   // [Tunable] tile1 is the inner most dim of the output tvs
-  tparams->tile_size1 = 64;
+  tparams->tile_size1 =
+      (n_input == 1) ? tparams->tile_size2 * 2 : tparams->tile_size2;
   // [Tunable] In 128-bytes swizzled tma load, inner most dim is split into 8
   // chunks each with 16 bytes. Each thread many handle multiple chunks along
   // the inner most dim, range is [1, 8]
-  tparams->chunks_per_thread = 2;
+  // bdimx = tile_size1 * 8 / chunks_per_thread
+  const int64_t target_bdimx = (n_input == 1) ? 256 : 128;
+  tparams->chunks_per_thread = tparams->tile_size1 * 8 / target_bdimx;
   tparams->elements_per_chunk = kBytesPerChunk / max_input_dtype_size;
   return tparams;
 }
