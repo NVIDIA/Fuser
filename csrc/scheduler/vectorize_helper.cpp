@@ -786,7 +786,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // Wish I could `zip(alloc, contiguity) | std::views::reverse` here. It
   // doesn't compile.
   NVF_ERROR_EQ(alloc.size(), contiguity.size());
-  for (auto [alloc_id, cont] :
+  for (auto [alloc_id, contig] :
        zip(alloc | std::views::reverse, contiguity | std::views::reverse)) {
     auto is_treated_as_size_one = [](IterDomain* id) {
       return id->isReduction() || id->isBroadcast() || id->isParallelized() ||
@@ -796,8 +796,8 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       continue;
     }
 
-    NVF_ERROR(cont.has_value());
-    if (!cont.value()) {
+    NVF_ERROR(contig.has_value());
+    if (!contig.value()) {
       break;
     }
 
