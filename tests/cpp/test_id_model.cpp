@@ -17,7 +17,6 @@
 #include "id_model/to_string.h"
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
-#include "scheduler/tools/loop_domain_scheduler.h"
 #include "scheduler/tools/resize_utils.h"
 #include "tests/cpp/utils.h"
 #include "transform_iter.h"
