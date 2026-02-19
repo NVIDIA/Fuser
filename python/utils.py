@@ -380,7 +380,6 @@ def run(config, version_tag, relative_path):
             "include/nvfuser/multidevice/*.h",
             "include/nvfuser/ops/*.h",
             "include/nvfuser/ir/*.h",
-            "include/nvfuser/python_frontend/*.h",
             "include/nvfuser/scheduler/*.h",
             "include/nvfuser/serde/*.h",
             "include/nvfuser/flatbuffers/*.h",
