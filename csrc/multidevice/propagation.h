@@ -37,4 +37,12 @@ void shardLoopLike(
     const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction);
 
+// Canonicalizes the loop domain of the given tensor view.
+void canonicalizeLoopDomain(TensorView* tv);
+
+// Removes the given parallel types and canonicalizes the loop domain.
+void unshard(
+    TensorView* tv,
+    const std::unordered_set<ParallelType>& parallel_types);
+
 } // namespace nvfuser

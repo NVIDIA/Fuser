@@ -82,65 +82,6 @@ bool isLowerableToCommunication(Expr* e) {
   return false;
 }
 
-// Canonicalizes tv's loop domain for simplicity and working around schedulers'
-// limitations. Many schedulers panic when seeing the input fusion segment
-// contains non-DID loop splits. For example, an rFactor tensor may look like
-// the following:
-//
-//                            r{k}
-//                            /  \.
-// [i{m}         i{n}    iDIDx{d}  r{k/d}]
-//               /  \.
-//            i{d} i{n/d}
-//
-// The split of i{n} is unnecessary because i{d} and i{n/d} are both
-// ParallelType::Serial. This function replaces the two with i{n} in the loop
-// domain.
-void canonicalizeLoopDomain(TensorView* tv) {
-  LinkedHashMap<IterDomain*, std::monostate> loop;
-  for (IterDomain* id : tv->getLoopDomain()) {
-    loop.pushBack(id, std::monostate());
-  }
-
-  for (Expr* transform :
-       DependencyCheck::getAllExprsBetween(
-           {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-           {tv->getLoopDomain().begin(), tv->getLoopDomain().end()}) |
-           std::views::reverse) {
-    auto* split = dynamic_cast<Split*>(transform);
-    NVF_ERROR(
-        split != nullptr,
-        "Only splits are expected so far, but found: ",
-        transform);
-
-    if (split->outer()->isParallelized() || split->inner()->isParallelized()) {
-      continue;
-    }
-
-    if (!loop.contains(split->outer()) || !loop.contains(split->inner())) {
-      continue;
-    }
-
-    loop.erase(split->outer());
-    const auto inner_i = loop.erase(split->inner()).second;
-    // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
-    // `outer` and `inner` are all serial, `in`'s position in the loop domain
-    // doesn't matter.
-    loop.insert(inner_i, split->in(), std::monostate());
-  }
-
-  auto new_loop = std::views::keys(loop);
-  tv->setLoopDomain({new_loop.begin(), new_loop.end()});
-}
-
-void unshard(TensorView* tv) {
-  tv->setDeviceMesh(DeviceMesh());
-  for (IterDomain* id : tv->getLoopDomain()) {
-    id->parallelize(ParallelType::Serial);
-  }
-  canonicalizeLoopDomain(tv);
-}
-
 void insertReshardingSetsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
@@ -246,7 +187,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
 
     // Remove existing shardings from output so we can shard it like
     // input. `shardLoopLike` does not overwrite existing shardings.
-    unshard(output);
+    unshard(output, deviceAndStreamParallelTypes());
 
     shardLoopLike(
         /*ref=*/resharding_input,
