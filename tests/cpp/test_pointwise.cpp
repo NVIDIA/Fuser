@@ -64,7 +64,7 @@ bool hasVectorizationCache(TensorView* tv) {
 
 class DomainMapUnitTest : public scheduler_tools::DomainMap {
  public:
-  DomainMapUnitTest(Fusion* fusion) : scheduler_tools::DomainMap(fusion) {};
+  DomainMapUnitTest(Fusion* fusion) : scheduler_tools::DomainMap(fusion) {}
   bool testTargetCoverage(TensorView* target_tv, TensorView* reference_tv)
       const {
     return areAllTargetIdsCoveredBy(target_tv, reference_tv);
@@ -88,9 +88,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity2D) {
 
   std::vector<std::pair<int, int>> size_and_vec{{17, 1}, {18, 2}, {32, 4}};
 
-  for (auto pair : size_and_vec) {
-    auto size = pair.first;
-    auto vec = pair.second;
+  for (auto [size, vec] : size_and_vec) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor t0 = at::randn({1000000, size}, options).narrow(1, 0, 16);
     auto cg_outputs = executor_cache.runFusionWithInputs({t0});
@@ -116,9 +114,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity3D) {
 
   std::vector<std::pair<int, int>> size_and_vec{{17, 1}, {10, 2}, {16, 4}};
 
-  for (auto pair : size_and_vec) {
-    auto size = pair.first;
-    auto vec = pair.second;
+  for (auto [size, vec] : size_and_vec) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor t0 = at::randn({1000000, size, 3}, options).narrow(1, 0, 8);
     auto cg_outputs = executor_cache.runFusionWithInputs({t0});

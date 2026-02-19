@@ -7,11 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <device_lower/analysis/index_compute.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
-#include <id_model/id_model.h>
-#include <id_model/to_string.h>
+#include "device_lower/analysis/index_compute.h"
+#include "device_lower/lower2device.h"
+#include "device_lower/utils.h"
+#include "id_model/id_model.h"
+#include "id_model/to_string.h"
 
 namespace nvfuser {
 namespace indexing_utils {
