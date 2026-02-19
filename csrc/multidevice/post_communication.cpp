@@ -363,20 +363,21 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
     return nullptr;
   }
   // All indices are relative and not absolute device IDs.
-  DeviceIdxType receiver_index = 1 - root_index;
+  DeviceIdxType sender_index = root_index;
+  DeviceIdxType receiver_index = 1 - sender_index;
   std::vector<at::Tensor> tensors;
   if (my_device_index == root_index) {
     tensors = {input_tensor};
     return backend->send(
         tensors,
-        static_cast<int>(root_index),
+        static_cast<int>(receiver_index),
         /*tag=*/0);
   }
   NVF_ERROR_EQ(my_device_index, receiver_index);
   tensors = {output_tensor};
   return backend->recv(
       tensors,
-      static_cast<int>(receiver_index),
+      static_cast<int>(sender_index),
       /*tag=*/0);
 }
 
