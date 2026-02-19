@@ -1515,8 +1515,6 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
   // Swizzle parameters: 128-byte TMA swizzle with 16-byte chunks.
   constexpr int64_t tma_swizzle_bytes = 128;
   constexpr int64_t swizzle_chunk_bytes = 16;
-  constexpr int64_t num_swizzle_chunks =
-      tma_swizzle_bytes / swizzle_chunk_bytes;
   const int64_t dtype_bytes =
       dataTypeSizeByte(input_smem_cache->getDataType().value());
   const int64_t elements_per_chunk = swizzle_chunk_bytes / dtype_bytes;
@@ -1572,18 +1570,9 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
   // (the I1/contiguous-in-input dim) is innermost before applying swizzle.
   // [BIDx, tile_i1, tile_i0]
   input_smem_cache->reorder({{-1, -2}});
-  // [BIDx, tile_i0, tile_i1]
-  input_smem_cache->split(2, elements_per_chunk);
-  // [BIDx, tile_i0, tile_i1/chunk, chunk]
-  input_smem_cache->split(1, num_swizzle_chunks);
-  // [BIDx, tile_i0/S, S, tile_i1/chunk, chunk] where S = num_swizzle_chunks
-  input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
-  input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
-  input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
-  input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
-  input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
-  input_smem_cache->setAllocationDomain(
-      input_smem_cache->getLoopDomain(), true);
+  MmaInputSmemSwizzle swizzle_type =
+      mma_utils::tmaSwizzleSharedMemory(input_smem_cache);
+  input_smem_cache->applyMmaSwizzleForTMALoad(swizzle_type);
 
   // Step 4: Schedule register tvs for per-thread access pattern.
   // Each thread handles multiple chunks of tile_i1, which corresponds to
