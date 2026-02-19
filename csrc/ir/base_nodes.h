@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <iosfwd>
 #include <limits>
 #include <unordered_map>
 #include <vector>
@@ -718,5 +719,8 @@ bool Val::isDefinitionType() const {
     return IrBuilder::createInContainer<ClassName>(        \
         container, inputs, outputs, attributes);           \
   }
+
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement& stmt);
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);
 
 } // namespace nvfuser
