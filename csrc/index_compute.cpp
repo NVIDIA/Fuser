@@ -22,7 +22,6 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/arith.h>

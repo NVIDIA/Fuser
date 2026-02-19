@@ -215,7 +215,6 @@ inline std::string toString(Statement* stmt) {
 //!        Scalar::Scalar(const Val* src, IrCloner* ir_cloner)
 //! 2) dispatch.h/.cpp must be updated to include dispatch of the new Val
 //! 3) Default mutator function should be added to mutator.cpp
-//! 4a) Printing functions should be added to ir/iostream.h/.cpp
 //! 4b) Graphviz generation must be added to ir/graphviz.h/.cpp
 //! 5) An enum value must be added to ValType in type.h
 //! 6) A string entry must be added in val_type_string_map
@@ -513,7 +512,6 @@ using newObjectFuncType = Expr*(
 //!      - Implementation of bool sameAs(...)
 //!  2) dispatch.h/.cpp must be updated to include dispatch of the new Expr
 //!  3) Default mutator function should be added to mutator.h/.cpp
-//!  4) Printing functions should be added to ir/iostream.h/.cpp
 //!  5) Lower case convenience functions should be added to arith.h/.cpp (If
 //!     user facing)
 //!  7) A string entry must be added in expr_type_string_map

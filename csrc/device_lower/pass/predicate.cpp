@@ -11,7 +11,6 @@
 #include <device_lower/utils.h>
 #include <index_compute.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>

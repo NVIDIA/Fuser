@@ -15,7 +15,6 @@
 
 #include "ir/builder.h"
 #include "ir/internal_base_nodes.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 #include "logical_domain_map.h"
 #include "multidevice/post_communication.h"

@@ -11,7 +11,6 @@
 #include "host_ir/lower_to_communication.h"
 #include "ir/base_nodes.h"
 #include "ir/interface_nodes.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 #include "linked_hash_map.h"
 #include "multidevice/propagation.h"

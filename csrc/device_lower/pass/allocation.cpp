@@ -16,7 +16,6 @@
 #include <expr_simplifier.h>
 #include <id_model/utils.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
