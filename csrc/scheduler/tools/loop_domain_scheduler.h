@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "bfs.h"
+#include "val_graph.h"
 
 namespace nvfuser {
 
