@@ -465,8 +465,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
         propagateResize(resize, false);
       } else {
-        // TODO: I wonder if we should just remove all inputs instead of
-        // erroring. Seems that would be safe.
         NVF_THROW(
             "ProjectDimensions does not support expr type: ", expr->toString());
       }
@@ -484,8 +482,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
         propagateResize(resize, true);
       } else {
-        // TODO: I wonder if we should just remove all inputs instead of
-        // erroring. Seems that would be safe.
         NVF_THROW(
             "ProjectDimensions does not support expr type: ", expr->toString());
       }
