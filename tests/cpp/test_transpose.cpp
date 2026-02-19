@@ -16,6 +16,7 @@
 #include "runtime/executor.h"
 #include "runtime/fusion_executor_cache.h"
 #include "scheduler/all_schedulers.h"
+#include "scheduler/mma_utils.h"
 #include "scheduler/tools/inlining.h"
 #include "scheduler/transpose.h"
 #include "scheduler/utils.h"
@@ -1558,10 +1559,12 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
 
   // Step 2: Schedule output TMA store (Bulk parallel on tile dims).
   if (use_tma_store) {
-    output->axis(1)->parallelize(ParallelType::Bulk);
-    output->axis(2)->parallelize(ParallelType::Bulk);
-    output_smem_cache->setAllocationDomain(
-        output_smem_cache->getLoopDomain(), true);
+    // The shared memory producer must have the swizzled allocation domain.
+    // The global memory consumer must have the ParallelType::Bulk iterDomains.
+    MmaInputSmemSwizzle swizzle =
+        mma_utils::tmaSwizzleSharedMemory(output_smem_cache);
+    mma_utils::scheduleTMAStoreForMmaOutput(output_smem_cache, swizzle);
+    mma_utils::scheduleTMAStoreForMmaOutput(output, swizzle);
   }
 
   // Step 3: Schedule input shared memory with XOR swizzle.
