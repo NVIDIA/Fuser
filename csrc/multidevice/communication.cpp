@@ -153,13 +153,6 @@ void Communication::validate() {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
 
-int64_t Communication::getRelativeIndex(DeviceIdxType rank) {
-  const Team& t = team();
-  auto i = std::find(t.begin(), t.end(), rank);
-  NVF_ERROR(i != t.end(), "Unable to find rank ", rank, " in team ", t);
-  return std::distance(t.begin(), i);
-}
-
 std::string Communication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Communication " << name() << " ("
