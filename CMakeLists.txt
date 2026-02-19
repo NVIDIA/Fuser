@@ -341,6 +341,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/tools/resize_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/static_repeat.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/expr_eval_sched.cpp
