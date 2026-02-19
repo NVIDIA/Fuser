@@ -10,6 +10,7 @@
 
 #include "ir/utils.h"
 #include "scheduler/runtime_info.h"
+#include "scheduler/tools/domain_map.h"
 #include "scheduler/tools/inlining.h"
 #include "scheduler/utils.h"
 #include "transform_replay.h"
@@ -73,6 +74,8 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
   // always use TMA load for inputs
+  int64_t max_input_dims = 0;
+  TensorView* input_ref = nullptr;
   std::vector<TensorView*> tma_load_tvs;
   for (auto [cached_input, input_idx] : cached_inputs) {
     if (auto load_op = dynamic_cast<LoadStoreOp*>(cached_input->definition())) {
@@ -80,12 +83,17 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
       cached_input->setMemoryType(MemoryType::Shared);
       tma_load_tvs.push_back(cached_input);
     }
+    // find the output with the most logical dimensions
+    if (scheduler_utils::nLogicalDims(cached_input) > max_input_dims) {
+      max_input_dims = scheduler_utils::nLogicalDims(cached_input);
+      input_ref = cached_input;
+    }
   }
   NVF_ERROR(!tma_load_tvs.empty());
 
   // find the output with the most logical dimensions
   TensorView* output_ref = nullptr;
-  int64_t max_dims = 0;
+  int64_t max_output_dims = 0;
   std::vector<TensorView*> tma_store_tvs;
   std::vector<TensorView*> output_tvs;
   for (auto [cached_output, output_idx] : cached_outputs) {
@@ -102,26 +110,52 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
       output_reg_cache = cached_output;
     }
     // find the output with the most logical dimensions
-    if (scheduler_utils::nLogicalDims(output_reg_cache) > max_dims) {
-      max_dims = scheduler_utils::nLogicalDims(output_reg_cache);
+    if (scheduler_utils::nLogicalDims(output_reg_cache) > max_output_dims) {
+      max_output_dims = scheduler_utils::nLogicalDims(output_reg_cache);
       output_ref = output_reg_cache;
     }
   }
-  if (max_dims == 0) {
+  if (max_output_dims == 0 && max_input_dims == 0) {
     return;
   }
 
+  scheduler_tools::TransposeDomainMap domain_map(fusion);
+
   // Step 1: TMA tiling
   // output_ref has output layout [I2, I1], tile with [tile_2, tile_1]
+  // input_ref has input layout [I1, I2], tile with [tile_1, tile_2]
   // Target loop domain: [BIDx, tile_2, tile_1]
-  int64_t out_inner_pos = 1, out_outer_pos = 0;
-  output_ref->split(out_inner_pos, tparams->tile_size1);
-  output_ref->split(out_outer_pos, tparams->tile_size2);
-  // [I2/tile_2, tile_2, I1/tile_1, tile_1]
-  output_ref->reorder({{out_inner_pos + 1, out_outer_pos}});
-  output_ref->merge(out_outer_pos);
+  auto output_inner_id = scheduler_utils::innerMostAllocDim(output_ref);
+  auto input_inner_id = scheduler_utils::innerMostAllocDim(input_ref);
+  int64_t inner_pos = domain_map.getInnerLeafDim(output_ref, output_inner_id);
+  int64_t outer_pos = domain_map.getInnerLeafDim(output_ref, input_inner_id);
+  NVF_ERROR(
+      inner_pos >= 0 && outer_pos >= 0 && inner_pos != outer_pos,
+      "Invalid inner/outer positions for TMA tiling");
+  // [..., I2, ..., I1, ...]
+  output_ref->split(inner_pos, tparams->tile_size1);
+  output_ref->reorder({{inner_pos + 1, -1}});
+  // [..., I2, ..., I1/tile_1, ..., tile_1]
+  output_ref->split(outer_pos, tparams->tile_size2);
+  output_ref->reorder({{outer_pos + 1, -2}});
+  // [..., I2/tile_2, ..., I1/tile_1, ..., tile_2, tile_1]
+  // merge all non-tiled dimensions except reduction and device dimensions
+  int64_t rhs_i = output_ref->nDims() - 3;
+  for (int64_t lhs_i = output_ref->nDims() - 4; lhs_i >= 0; lhs_i--) {
+    if (output_ref->axis(lhs_i)->isReduction() ||
+        output_ref->axis(lhs_i)->isDeviceDim()) {
+      continue;
+    }
+    if (output_ref->axis(rhs_i)->isReduction() ||
+        output_ref->axis(rhs_i)->isDeviceDim()) {
+      rhs_i = lhs_i;
+      continue;
+    }
+    output_ref->merge(lhs_i, rhs_i);
+    rhs_i = lhs_i;
+  }
   // [I1/tile_1 * I2/tile_2, tile_2, tile_1]
-  output_ref->axis(out_outer_pos)->parallelize(ParallelType::BIDx);
+  output_ref->axis(rhs_i)->parallelize(ParallelType::BIDx);
   // [BIDx, tile_2, tile_1]
 
   TransformPropagator propagator(output_ref);
@@ -142,8 +176,8 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
           output_smem_cache->getLoopDomain(), true);
     }
     for (auto output : output_tvs) {
-      output->axis(1)->parallelize(ParallelType::Bulk);
-      output->axis(2)->parallelize(ParallelType::Bulk);
+      output->axis(-1)->parallelize(ParallelType::Bulk);
+      output->axis(-2)->parallelize(ParallelType::Bulk);
     }
   }
 
@@ -155,15 +189,15 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   for (auto input_smem_cache : tma_load_tvs) {
     input_smem_cache->reorder({{-1, -2}});
     // [BIDx, tile_1, tile_2]
-    input_smem_cache->split(2, tparams->elements_per_chunk);
+    input_smem_cache->split(-1, tparams->elements_per_chunk);
     // [BIDx, tile_1, tile_2/chunk, chunk]
-    input_smem_cache->split(1, num_swizzle_chunks);
+    input_smem_cache->split(-3, num_swizzle_chunks);
     // [BIDx, tile_1/S, S, tile_2/chunk, chunk] where S = num_swizzle_chunks
-    input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
-    input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
-    input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
-    input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
-    input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
+    input_smem_cache->swizzle(SwizzleType::XOR, -3, -2);
+    input_smem_cache->axis(-1)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(-2)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(-3)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(-4)->parallelize(ParallelType::Bulk);
     input_smem_cache->setAllocationDomain(
         input_smem_cache->getLoopDomain(), true);
   }
@@ -171,15 +205,15 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   // Each thread handles multiple chunks of tile_2, which corresponds to
   // multiple rows of output and multiple columns of input.
   // [BIDx, tile_2, tile_1]
-  output_ref->split(1, tparams->elements_per_chunk);
+  output_ref->split(-2, tparams->elements_per_chunk);
   // [BIDx, tile_2/chunk, chunk, tile_1]
-  output_ref->split(1, tparams->chunks_per_thread);
+  output_ref->split(-3, tparams->chunks_per_thread);
   // [BIDx, tile_2/chunk/cpt, cpt, chunk, tile_1]
-  output_ref->merge(1, 4);
+  output_ref->merge(-4, -1);
   // [BIDx, tile_2/chunk/cpt * tile_1, cpt, chunk]
-  output_ref->axis(1)->parallelize(ParallelType::TIDx);
+  output_ref->axis(-3)->parallelize(ParallelType::TIDx);
   // [BIDx, TIDx, cpt, chunk]
-  output_ref->axis(3)->parallelize(ParallelType::Unroll);
+  output_ref->axis(-1)->parallelize(ParallelType::Unroll);
 
   {
     // Propagate Step 4 transforms to all tvs except those already
