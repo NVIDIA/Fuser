@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <contiguity.h>
-#include <id_model/id_model.h>
+#include "contiguity.h"
+#include "id_model/id_model.h"
 
 namespace nvfuser {
 
