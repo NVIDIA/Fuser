@@ -809,9 +809,15 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     IterDomain* logical_id = [&]() {
       std::vector<IterDomain*> reachable_ids =
           ir_utils::getReachableIds(tv->getLogicalDomain(), {alloc_id});
-      NVF_ERROR_EQ(reachable_ids.size(), 1);
-      return reachable_ids.front();
+      NVF_ERROR_LE(reachable_ids.size(), 1);
+      return reachable_ids.empty() ? nullptr : reachable_ids.front();
     }();
+
+    if (logical_id == nullptr) {
+      // In LayoutOp, allocation IDs may not be connected to logical IDs; skip
+      // expanding vectorization in that case.
+      break;
+    }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
     if (projected_dim == projected_dims.rend() ||
