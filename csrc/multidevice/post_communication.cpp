@@ -106,8 +106,8 @@ T getInitialValue(c10d::ReduceOp::RedOpType op) {
 
 c10::intrusive_ptr<c10d::Work> postBroadcast(
     Communication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
+    int64_t my_device_index,
+    int64_t root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
@@ -134,8 +134,8 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
 
 c10::intrusive_ptr<c10d::Work> postGather(
     Communication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
+    int64_t my_device_index,
+    int64_t root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
@@ -156,8 +156,8 @@ c10::intrusive_ptr<c10d::Work> postGather(
   if (my_device_index == root_index) {
     output_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : arange(communication->team().size())) {
-      if (root_index == static_cast<DeviceIdxType>(i) &&
+    for (auto i : arange(std::ssize(communication->team()))) {
+      if (root_index == i &&
           !communication->in()->getDeviceMesh().has(team.at(root_index))) {
         output_tensors[0].push_back(input_tensor);
         continue;
@@ -176,8 +176,8 @@ c10::intrusive_ptr<c10d::Work> postGather(
 
 c10::intrusive_ptr<c10d::Work> postAllgather(
     Communication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
+    int64_t my_device_index,
+    int64_t root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
@@ -209,8 +209,8 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
 
 c10::intrusive_ptr<c10d::Work> postScatter(
     Communication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
+    int64_t my_device_index,
+    int64_t root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
@@ -255,8 +255,8 @@ c10::intrusive_ptr<c10d::Work> postScatter(
 
 c10::intrusive_ptr<c10d::Work> postReduce(
     Communication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
+    int64_t my_device_index,
+    int64_t root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
@@ -286,8 +286,8 @@ c10::intrusive_ptr<c10d::Work> postReduce(
 
 c10::intrusive_ptr<c10d::Work> postAllreduce(
     Communication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
+    int64_t my_device_index,
+    int64_t root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
@@ -313,8 +313,8 @@ c10::intrusive_ptr<c10d::Work> postAllreduce(
 
 c10::intrusive_ptr<c10d::Work> postReduceScatter(
     Communication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
+    int64_t my_device_index,
+    int64_t root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
@@ -349,22 +349,21 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(
     Communication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
+    int64_t my_device_index,
+    int64_t root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   const Team& team = communication->team();
-  NVF_ERROR_LE(
-      team.size(), 2, "SendRecv's team size is expected to be atmost 2.");
+  NVF_ERROR_LE(team.size(), 2);
 
-  if (team.size() == 1 || (team[0] == team[1])) {
+  if (team.size() == 1 || team[0] == team[1]) {
     doLocalCopy(output_tensor, input_tensor);
     return nullptr;
   }
   // All indices are relative and not absolute device IDs.
-  DeviceIdxType sender_index = root_index;
-  DeviceIdxType receiver_index = 1 - sender_index;
+  int64_t sender_index = root_index;
+  int64_t receiver_index = 1 - sender_index;
   std::vector<at::Tensor> tensors;
   if (my_device_index == root_index) {
     tensors = {input_tensor};
@@ -383,7 +382,7 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
 
 c10::intrusive_ptr<c10d::Work> postAllToAll(
     Communication* communication,
-    DeviceIdxType my_device_index,
+    int64_t my_device_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
@@ -452,16 +451,16 @@ c10::intrusive_ptr<c10d::Work> postRecv(
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
-    DeviceIdxType my_device_index,
+    DeviceIdxType my_device,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
-    DeviceIdxType root_index) {
+    int64_t root_index) {
   const Team& team = communication->team();
   if (std::find(team.begin(), team.end(), my_device_index) == team.end()) {
     return nullptr;
   }
-  my_device_index = getRelativeIndex(team, my_device_index);
+  int64_t my_device_index = getRelativeIndex(team, my_device);
   NVF_ERROR(backend != nullptr);
 
   if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
@@ -546,17 +545,16 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     P2PCommunication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType peer,
+    DeviceIdxType my_device DeviceIdxType peer,
     c10d::Backend* backend,
     at::Tensor buffer) {
   NVF_ERROR(backend != nullptr);
 
   switch (communication->type()) {
     case P2PCommunicationType::SEND:
-      return postSend(communication, my_device_index, peer, backend, buffer);
+      return postSend(communication, my_device, peer, backend, buffer);
     case P2PCommunicationType::RECV:
-      return postRecv(communication, my_device_index, peer, backend, buffer);
+      return postRecv(communication, my_device, peer, backend, buffer);
     default:
       NVF_THROW("Wrong communication type: ", communication->type());
   }
