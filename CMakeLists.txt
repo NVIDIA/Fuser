@@ -297,7 +297,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/fusion_cache_utils.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_executor_cache.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp
-  ${NVFUSER_SRCS_DIR}/runtime/matmul_tma.cu
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cutlass.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic.cpp
@@ -400,13 +399,6 @@ endif()
 # "private" (not installed) static library.
 add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 
-# Special handling for CUDA files that include CUTLASS headers
-# nvcc doesn't support the same flags as gcc/clang, so we need to wrap them
-set_source_files_properties(
-  ${NVFUSER_SRCS_DIR}/runtime/matmul_tma.cu
-  PROPERTIES
-  COMPILE_OPTIONS "-Xcompiler=-Wall;-Xcompiler=-Wno-unused-function;-Xcompiler=-Werror"
-)
 
 if(NOT MSVC)
   if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
