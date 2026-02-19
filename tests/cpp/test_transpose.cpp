@@ -7,6 +7,7 @@
 // clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+#include <tuple>
 
 #include "exceptions.h"
 #include "ops/all_ops.h"
@@ -1481,8 +1482,10 @@ TEST_F(TransposeTest, NoTransposeMaverick17B) {
 //   TMA store path: gmem->smem->reg->smem->gmem (0.782ms GB200, 69% mem BW SOL)
 //   Reg store path: gmem->smem->reg->gmem       (0.662ms GB200, 82% mem BW SOL)
 // Tile sizes: tile_i0 tiles I0, tile_i1 tiles I1 (128 bytes for TMA swizzle).
-class TransposeTMA : public TransposeTest,
-                     public testing::WithParamInterface<bool> {};
+// With TMA store and output swizzle:  (0.874 ms GB200)
+class TransposeTMA
+    : public TransposeTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {};
 TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
@@ -1494,7 +1497,7 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
   auto output = transpose(input, 0, 1);
   fusion.addOutput(output);
 
-  bool use_tma_store = GetParam();
+  auto [use_tma_store, output_smem_swizzle] = GetParam();
   // Transpose happens during the smem->register read (swizzled smem layout).
   TensorView* input_smem_cache =
       input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
@@ -1515,6 +1518,8 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
   // Swizzle parameters: 128-byte TMA swizzle with 16-byte chunks.
   constexpr int64_t tma_swizzle_bytes = 128;
   constexpr int64_t swizzle_chunk_bytes = 16;
+  constexpr int64_t num_swizzle_chunks =
+      tma_swizzle_bytes / swizzle_chunk_bytes;
   const int64_t dtype_bytes =
       dataTypeSizeByte(input_smem_cache->getDataType().value());
   const int64_t elements_per_chunk = swizzle_chunk_bytes / dtype_bytes;
@@ -1559,10 +1564,18 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
   if (use_tma_store) {
     // The shared memory producer must have the swizzled allocation domain.
     // The global memory consumer must have the ParallelType::Bulk iterDomains.
-    MmaInputSmemSwizzle swizzle =
-        mma_utils::tmaSwizzleSharedMemory(output_smem_cache);
-    mma_utils::scheduleTMAStoreForMmaOutput(output_smem_cache, swizzle);
-    mma_utils::scheduleTMAStoreForMmaOutput(output, swizzle);
+    if (output_smem_swizzle) {
+      MmaInputSmemSwizzle swizzle =
+          mma_utils::tmaSwizzleSharedMemory(output_smem_cache);
+      mma_utils::scheduleTMAStoreForMmaOutput(output_smem_cache, swizzle);
+      mma_utils::scheduleTMAStoreForMmaOutput(output, swizzle);
+    } else {
+      // For this case, no need to swizzle the output.
+      output->axis(1)->parallelize(ParallelType::Bulk);
+      output->axis(2)->parallelize(ParallelType::Bulk);
+      output_smem_cache->setAllocationDomain(
+          output_smem_cache->getLoopDomain(), true);
+    }
   }
 
   // Step 3: Schedule input shared memory with XOR swizzle.
@@ -1570,10 +1583,27 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
   // (the I1/contiguous-in-input dim) is innermost before applying swizzle.
   // [BIDx, tile_i1, tile_i0]
   input_smem_cache->reorder({{-1, -2}});
-  MmaInputSmemSwizzle swizzle_type =
-      mma_utils::tmaSwizzleSharedMemory(input_smem_cache);
-  input_smem_cache->applyMmaSwizzleForTMALoad(swizzle_type);
-
+  // There two branches are identical, just to check swizzle with utils or
+  // manually. has nothing to do with [output_smem_swizzle].
+  const bool use_utils_swizzle = output_smem_swizzle;
+  if (use_utils_swizzle) {
+    MmaInputSmemSwizzle swizzle_type =
+        mma_utils::tmaSwizzleSharedMemory(input_smem_cache);
+    input_smem_cache->applyMmaSwizzleForTMALoad(swizzle_type);
+  } else {
+    // [BIDx, tile_i0, tile_i1]
+    input_smem_cache->split(2, elements_per_chunk);
+    // [BIDx, tile_i0, tile_i1/chunk, chunk]
+    input_smem_cache->split(1, num_swizzle_chunks);
+    // [BIDx, tile_i0/S, S, tile_i1/chunk, chunk] where S = num_swizzle_chunks
+    input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
+    input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
+    input_smem_cache->setAllocationDomain(
+        input_smem_cache->getLoopDomain(), true);
+  }
   // Step 4: Schedule register tvs for per-thread access pattern.
   // Each thread handles multiple chunks of tile_i1, which corresponds to
   // multiple rows of output and multiple columns of input.
@@ -1629,6 +1659,11 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     TransposeTMA,
-    testing::Bool(),
-    testing::PrintToStringParamName());
+    testing::Combine(testing::Bool(), testing::Bool()),
+    ([](const testing::TestParamInfo<std::tuple<bool, bool>>& info) {
+      auto [use_tma_store, output_smem_swizzle] = info.param;
+      return std::string(use_tma_store ? "TMAStore" : "NoTMAStore") + "_" +
+          std::string(
+                 output_smem_swizzle ? "OutputSwizzle" : "NoOutputSwizzle");
+    }));
 } // namespace nvfuser
