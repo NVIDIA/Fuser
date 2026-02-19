@@ -13,6 +13,7 @@
 #include "ir/interface_nodes.h"
 #include "ir/utils.h"
 #include "linked_hash_map.h"
+#include "logical_domain_map.h"
 #include "multidevice/propagation.h"
 #include "multidevice/resharding.h"
 #include "ops/alias.h"

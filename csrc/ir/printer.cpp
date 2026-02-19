@@ -13,7 +13,7 @@
 #include "instrumentation.h"
 #include "ir/iostream.h"
 #include "ir/utils.h"
-#include "kernel_ir.h"
+#include "kernel.h"
 
 namespace nvfuser {
 

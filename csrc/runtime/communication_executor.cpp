@@ -13,6 +13,8 @@
 #include "instrumentation.h"
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
+#include "runtime/allocations.h"
+#include "runtime/executor.h"
 #include "tensor_metadata.h"
 
 namespace nvfuser {

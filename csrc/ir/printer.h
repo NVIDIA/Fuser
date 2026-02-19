@@ -9,16 +9,11 @@
 
 #include <iosfwd>
 
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "kernel.h"
+
 namespace nvfuser {
-
-class Fusion;
-namespace kir {
-class Kernel;
-} // namespace kir
-
-namespace hir {
-class HostIrContainer;
-} // namespace hir
 
 //! Prints computation Fusion IR nodes
 //!
