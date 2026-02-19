@@ -769,6 +769,7 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* tv) {
   FusionGuard fg(tv->fusion());
+
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
   const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
 
@@ -784,6 +785,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   auto projected_dim = projected_dims.rbegin();
   // Wish I could `zip(alloc, contiguity) | std::views::reverse` here. It
   // doesn't compile.
+  NVF_ERROR_EQ(alloc.size(), contiguity.size());
   for (auto [alloc_id, cont] :
        zip(alloc | std::views::reverse, contiguity | std::views::reverse)) {
     auto is_treated_as_size_one = [](IterDomain* id) {
