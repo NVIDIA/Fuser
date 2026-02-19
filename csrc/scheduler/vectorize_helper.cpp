@@ -778,9 +778,9 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
 
   Val* product_of_inner_extents = tv->container()->oneVal();
   // Order is important, need to make sure dimensions match up correctly with
-  // what was propogated through the mapper. The mapper's dimensions is
-  // propogated in the order of the reference, if that order doesn't match the
-  // tensor we're mapping too then a transpose interfered with expanded the
+  // what was propagated through the mapper. The mapper's dimensions are
+  // propagated in the order of the reference. If that order doesn't match the
+  // tensor we're mapping to then a transpose interfered with expanding the
   // vectorize dimension.
   auto projected_dim = projected_dims.rbegin();
   // Wish I could `zip(alloc, contiguity) | std::views::reverse` here. It
