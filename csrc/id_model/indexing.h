@@ -7,19 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <device_lower/analysis/trivial_broadcast.h>
-#include <device_lower/pass/allocation.h>
-#include <device_lower/utils.h>
-#include <id_model/id_model.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <options.h>
-#include <type.h>
-
-// Just for PredicateInfo. Should be moved to its own header file
-#include <index_compute.h>
-
 #include <unordered_map>
+
+#include "device_lower/analysis/trivial_broadcast.h"
+#include "device_lower/pass/allocation.h"
+#include "device_lower/utils.h"
+#include "id_model/id_model.h"
+// Just for PredicateInfo. Should be moved to its own header file
+#include "index_compute.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "options.h"
+#include "type.h"
 
 namespace nvfuser {
 
