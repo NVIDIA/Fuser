@@ -1578,15 +1578,15 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
   // Each thread handles multiple chunks of tile_i1, which corresponds to
   // multiple rows of output and multiple columns of input.
   // [BIDx, tile_i1, tile_i0]
-  ref_tv->split(1, elements_per_chunk);
+  ref_tv->split(-2, elements_per_chunk);
   // [BIDx, tile_i1/chunk, chunk, tile_i0]
-  ref_tv->split(1, chunks_per_thread);
+  ref_tv->split(-3, chunks_per_thread);
   // [BIDx, tile_i1/chunk/cpt, cpt, chunk, tile_i0]
-  ref_tv->merge(1, 4);
+  ref_tv->merge(-4, -1);
   // [BIDx, tile_i1/chunk/cpt * tile_i0, cpt, chunk]
-  ref_tv->axis(1)->parallelize(ParallelType::TIDx);
+  ref_tv->axis(-3)->parallelize(ParallelType::TIDx);
   // [BIDx, TIDx, cpt, chunk]
-  ref_tv->axis(3)->parallelize(ParallelType::Unroll);
+  ref_tv->axis(-1)->parallelize(ParallelType::Unroll);
 
   {
     // Propagate Step 4 transforms to all tvs except those already
