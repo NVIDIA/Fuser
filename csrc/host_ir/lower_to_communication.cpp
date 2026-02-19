@@ -453,8 +453,12 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
 
     NVF_ERROR(
         !communication_info.has_value(),
-        "Expected at most one sharding change: ",
-        e);
+        "Expected at most one sharding change in `e`: ",
+        e,
+        ", but got: ",
+        *communication_info,
+        " and ",
+        *info_per_pt);
     communication_info = *info_per_pt;
   }
 
