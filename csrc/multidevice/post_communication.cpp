@@ -457,7 +457,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     at::Tensor output_tensor,
     int64_t root_index) {
   const Team& team = communication->team();
-  if (std::find(team.begin(), team.end(), my_device_index) == team.end()) {
+  if (std::find(team.begin(), team.end(), my_device) == team.end()) {
     return nullptr;
   }
   int64_t my_device_index = getRelativeIndex(team, my_device);
@@ -545,7 +545,8 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     P2PCommunication* communication,
-    DeviceIdxType my_device DeviceIdxType peer,
+    DeviceIdxType my_device,
+    DeviceIdxType peer,
     c10d::Backend* backend,
     at::Tensor buffer) {
   NVF_ERROR(backend != nullptr);
