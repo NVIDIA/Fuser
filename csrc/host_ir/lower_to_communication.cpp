@@ -402,7 +402,6 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
   }
 
   // Check if the p_logical_ids is reduced in the output.
-  // FIXME: doesn't seem to be used
   auto c_it = p2c.find(p_logical_id);
   NVF_ERROR(
       c_it != p2c.end(),
@@ -461,6 +460,10 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
 
   // I've no ideas what this means.
   if (!communication_info.has_value()) {
+    // This happens when p_loop_id and c_loop_id are both nullptr (therefore
+    // replicated) yet `e` is resharding. This is only possible when `producer`
+    // and `consumer` have different meshes. In this case, we arbitrarily choose
+    // any GPU in the sender mesh to be the root and let it broadcast.
     communication_info =
         CommunicationInfo{CommunicationType::Broadcast, nullptr, nullptr};
   }
