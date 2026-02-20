@@ -39,8 +39,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
         max_input_dtype_size, dataTypeSizeByte(inp->getDataType().value()));
     n_input++;
   }
-  // input layout: [I2, I2] -> [tile1, tile2]
-  // output layout: [I2, I2] -> [tile2, tile1]
+  // input layout: [I1, I2] -> [tile1, tile2]
+  // output layout: [I2, I1] -> [tile2, tile1]
   // tile2 is the inner most dim of the input tvs, it must equals to tma swizzle
   // bytes.
   tparams->tile_size2 = kTmaSwizzleBytes / max_input_dtype_size;
@@ -48,7 +48,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   tparams->tile_size1 =
       (n_input == 1) ? tparams->tile_size2 * 2 : tparams->tile_size2;
   // [Tunable] In 128-bytes swizzled tma load, inner most dim is split into 8
-  // chunks each with 16 bytes. Each thread many handle multiple chunks along
+  // chunks each with 16 bytes. Each thread may handle multiple chunks along
   // the inner most dim, range is [1, 8]
   // bdimx = tile_size1 * 8 / chunks_per_thread
   const int64_t target_bdimx = (n_input == 1) ? 256 : 128;
@@ -99,7 +99,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
       cached_input->setMemoryType(MemoryType::Shared);
       tma_load_tvs.push_back(cached_input);
     }
-    // find the output with the most logical dimensions
+    // find the input with the most logical dimensions
     if (scheduler_utils::nLogicalDims(cached_input) > max_input_dims) {
       max_input_dims = scheduler_utils::nLogicalDims(cached_input);
       input_ref = cached_input;

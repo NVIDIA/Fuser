@@ -42,7 +42,7 @@ class TransposeParams : public HeuristicParams {
   bool use_tma_store = false;
 
   // In 128-bytes swizzled tma load, inner most dim is split into 8 chunks each
-  // with 16 bytes. Each thread many handle multiple chunks along the inner most
+  // with 16 bytes. Each thread may handle multiple chunks along the inner most
   // dim.
   int64_t chunks_per_thread = 1;
   int64_t elements_per_chunk = 1;
