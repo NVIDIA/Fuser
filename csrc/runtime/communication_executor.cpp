@@ -8,6 +8,12 @@
 
 #include "runtime/communication_executor.h"
 
+#include <algorithm>
+#include <iterator>
+#include <memory>
+#include <optional>
+#include <vector>
+
 #include "fusion_profiler.h"
 #include "host_ir/lower_to_communication.h"
 #include "instrumentation.h"
@@ -29,9 +35,9 @@ CommunicationExecutor::CommunicationExecutor(
 bool CommunicationExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("CommunicationExecutor::supported");
   std::vector<Expr*> exprs = fusion->exprs();
-  if (std::any_of(exprs.begin(), exprs.end(), isResharding)) {
+  if (std::ranges::any_of(exprs, isResharding)) {
     NVF_ERROR(
-        std::all_of(exprs.begin(), exprs.end(), isResharding),
+        std::ranges::all_of(exprs, isResharding),
         "Could not execute fusion as all expressions in a host IR container "
         "must be communication based at this point.");
     return true;
