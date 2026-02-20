@@ -250,8 +250,7 @@ std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
   auto props = reduction_scheduler_utils::getFusionRuntimeProperties(
       fusion, runtime_info, data_cache);
 
-  bool use_tma =
-      mayUseTma(props) && isOptionEnabled(EnableOption::TmaReduction);
+  bool use_tma = mayUseTma(props);
 
   std::unique_ptr<HeuristicParams> rparams = nullptr;
   if (use_tma) {
