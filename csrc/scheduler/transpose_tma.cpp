@@ -39,8 +39,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
         max_input_dtype_size, dataTypeSizeByte(inp->getDataType().value()));
     n_input++;
   }
-  // input layout: [I2, I2] -> [tile1, tile2]
-  // output layout: [I2, I2] -> [tile2, tile1]
+  // input layout: [I1, I2] -> [tile1, tile2]
+  // output layout: [I2, I1] -> [tile2, tile1]
   // tile2 is the inner most dim of the input tvs, it must equals to tma swizzle
   // bytes.
   tparams->tile_size2 = kTmaSwizzleBytes / max_input_dtype_size;
