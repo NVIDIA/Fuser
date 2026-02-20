@@ -14,7 +14,6 @@
 #include "fusion.h"
 #include "ir/all_nodes.h"
 #include "ir/cloner.h"
-#include "ir/printer.h"
 #include "runtime/allocations.h"
 #include "runtime/compiled_kernel.h"
 #include "runtime/executor_abstract.h"

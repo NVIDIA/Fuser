@@ -37,7 +37,7 @@ struct CombineResult {
 //   rank = topk_idx / experts_per_rank.
 //   num_experts: Total experts across all ranks (must be divisible by R).
 //   communicator: Communicator for alltoall exchange.
-//   backend: Communication backend (only NCCL is supported for now).
+//   backend: Communication backend (CUDA or NCCL).
 //
 // Returns:
 //   DispatchResult with recv_* tensors on this rank.
@@ -69,8 +69,8 @@ struct CombineResult {
 //       CommunicatorBackend::kNccl);
 NVF_API DispatchResult doMoeDispatch(
     const at::Tensor& x, // [T, H]
-    const at::Tensor& topk_idx, // [T] or [T, 1]
-    const at::Tensor& topk_weights, // [T] or [T, 1]
+    const at::Tensor& topk_idx, // [T, K]
+    const at::Tensor& topk_weights, // [T, K]
     int64_t num_experts,
     Communicator* communicator,
     CommunicatorBackend backend);
@@ -86,7 +86,7 @@ NVF_API DispatchResult doMoeDispatch(
 //   n_tokens_from_rank: Tokens received from each rank (from dispatch), shape
 //   [R].
 //   communicator: Communicator for alltoall exchange.
-//   backend: Communication backend (only NCCL is supported for now).
+//   backend: Communication backend (CUDA or NCCL).
 //
 // Returns:
 //   CombineResult with tokens restored to original order on this rank.

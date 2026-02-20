@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "ir/interface_nodes.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 #include "multidevice/propagation.h"
 #include "scheduler/utils.h"

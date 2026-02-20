@@ -45,7 +45,6 @@
 #include "host_ir/jit_tensor_utils.h"
 #include "instrumentation.h"
 #include "ir/all_nodes.h"
-#include "ir/iostream.h"
 #include "linked_hash_map.h"
 #include "ops/all_ops.h"
 #include "polymorphic_value.h"

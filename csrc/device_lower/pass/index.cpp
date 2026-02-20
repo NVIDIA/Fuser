@@ -11,7 +11,6 @@
 #include <device_lower/utils.h>
 #include <id_model/schedule.h>
 #include <index_compute.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>

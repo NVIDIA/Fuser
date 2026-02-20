@@ -20,7 +20,6 @@
 #include "host_ir/lower_to_communication.h"
 #include "host_ir/pass/convert_op_to_communication.h"
 #include "instrumentation.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 #include "multidevice/allocation_utils.h"
 #include "multidevice/cuda_p2p.h"

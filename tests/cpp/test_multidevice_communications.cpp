@@ -234,8 +234,13 @@ TEST_P(CommunicationTest, SendRecv) {
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
   auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  Team team({receiver, sender});
   auto communication = IrBuilder::create<Communication>(
-      CommunicationType::SendRecv, out, in, Team({sender, receiver}), sender);
+      CommunicationType::SendRecv,
+      out,
+      in,
+      team,
+      getRelativeIndex(team, sender));
 
   at::Tensor input_tensor;
   at::Tensor output_tensor;
