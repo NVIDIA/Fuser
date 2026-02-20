@@ -1640,9 +1640,9 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Bool(),
     testing::PrintToStringParamName());
 
-// dtype, pair of transpose dimensions
+// dtype, pair of transpose dimensions, inner most dim of input tensor
 using TmaTransposeTestParams =
-    std::tuple<DataType, std::pair<int64_t, int64_t>>;
+    std::tuple<DataType, std::pair<int64_t, int64_t>, int64_t>;
 class TmaTransposeTestP
     : public TransposeTest,
       public testing::WithParamInterface<TmaTransposeTestParams> {
@@ -1657,6 +1657,9 @@ class TmaTransposeTestP
 TEST_P(TmaTransposeTestP, TmaTranspose) {
   auto dtype = std::get<0>(GetParam());
   auto [dim1, dim2] = std::get<1>(GetParam());
+  // test handling corner cases with small inner most dim which is rejected by
+  // transpose and pointwise is used.
+  auto inner_dim = std::get<2>(GetParam());
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -1667,7 +1670,7 @@ TEST_P(TmaTransposeTestP, TmaTranspose) {
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({1024, 2048, 3072}, options);
+  auto t0 = at::randn({128, 256, inner_dim}, options);
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
@@ -1680,12 +1683,15 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(DataType::Float, DataType::BFloat16),
         testing::Values(
             std::make_pair(int64_t(0), int64_t(2)),
-            std::make_pair(int64_t(1), int64_t(2)))),
+            std::make_pair(int64_t(1), int64_t(2))),
+        testing::Values(1, 2, 32, 64, 128, 256, 512)),
     [](const testing::TestParamInfo<TmaTransposeTestParams>& info) {
       auto dtype = std::get<0>(info.param);
       auto dims = std::get<1>(info.param);
+      auto inner_dim = std::get<2>(info.param);
       std::ostringstream os;
-      os << dtype << "_transpose_" << dims.first << "_" << dims.second;
+      os << dtype << "_transpose_" << dims.first << "_" << dims.second
+         << "_size_" << inner_dim;
       return os.str();
     });
 } // namespace nvfuser

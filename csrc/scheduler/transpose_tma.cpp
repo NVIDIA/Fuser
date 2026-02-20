@@ -9,6 +9,7 @@
 #include "scheduler/transpose_tma.h"
 
 #include "ir/utils.h"
+#include "scheduler/mma_utils.h"
 #include "scheduler/runtime_info.h"
 #include "scheduler/tools/domain_map.h"
 #include "scheduler/tools/inlining.h"
@@ -20,7 +21,7 @@ namespace nvfuser {
 namespace transpose {
 namespace tma {
 constexpr int64_t kBytesPerChunk = 16;
-
+constexpr int64_t kTmaSwizzleBytes = 128;
 std::unique_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -38,12 +39,11 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
         max_input_dtype_size, dataTypeSizeByte(inp->getDataType().value()));
     n_input++;
   }
-  tparams->tma_swizzle_bytes = 128;
   // input layout: [I2, I2] -> [tile1, tile2]
   // output layout: [I2, I2] -> [tile2, tile1]
   // tile2 is the inner most dim of the input tvs, it must equals to tma swizzle
   // bytes.
-  tparams->tile_size2 = tparams->tma_swizzle_bytes / max_input_dtype_size;
+  tparams->tile_size2 = kTmaSwizzleBytes / max_input_dtype_size;
   // [Tunable] tile1 is the inner most dim of the output tvs
   tparams->tile_size1 =
       (n_input == 1) ? tparams->tile_size2 * 2 : tparams->tile_size2;
@@ -54,6 +54,17 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   const int64_t target_bdimx = (n_input == 1) ? 256 : 128;
   tparams->chunks_per_thread = tparams->tile_size1 * 8 / target_bdimx;
   tparams->elements_per_chunk = kBytesPerChunk / max_input_dtype_size;
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << "\n===== TMA Transpose Stats ========\n"
+            << "inputs: " << ir_utils::toString(fusion->inputs()) << "\n"
+            << "outputs: " << ir_utils::toString(fusion->outputs()) << "\n"
+            << "tile_size1: " << tparams->tile_size1 << "\n"
+            << "tile_size2: " << tparams->tile_size2 << "\n"
+            << "chunks_per_thread: " << tparams->chunks_per_thread << "\n"
+            << "elements_per_chunk: " << tparams->elements_per_chunk << "\n"
+            << std::endl;
+  }
   return tparams;
 }
 
@@ -189,22 +200,13 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   // Step 3: Schedule input shared memory with XOR swizzle.
   // input_smem_cache follows input layout [I1, I2]. Reorder so tile_2
   // (the I2/contiguous-in-input dim) is innermost before applying swizzle.
-  // [BIDx, tile_2, tile_1]
-  int64_t num_swizzle_chunks = tparams->tma_swizzle_bytes / kBytesPerChunk;
   for (auto input_smem_cache : tma_load_tvs) {
+    // [BIDx, tile_2, tile_1]
     input_smem_cache->reorder({{-1, -2}});
     // [BIDx, tile_1, tile_2]
-    input_smem_cache->split(-1, tparams->elements_per_chunk);
-    // [BIDx, tile_1, tile_2/chunk, chunk]
-    input_smem_cache->split(-3, num_swizzle_chunks);
-    // [BIDx, tile_1/S, S, tile_2/chunk, chunk] where S = num_swizzle_chunks
-    input_smem_cache->swizzle(SwizzleType::XOR, -3, -2);
-    input_smem_cache->axis(-1)->parallelize(ParallelType::Bulk);
-    input_smem_cache->axis(-2)->parallelize(ParallelType::Bulk);
-    input_smem_cache->axis(-3)->parallelize(ParallelType::Bulk);
-    input_smem_cache->axis(-4)->parallelize(ParallelType::Bulk);
-    input_smem_cache->setAllocationDomain(
-        input_smem_cache->getLoopDomain(), true);
+    MmaInputSmemSwizzle swizzle_type =
+        mma_utils::tmaSwizzleSharedMemory(input_smem_cache);
+    input_smem_cache->applyMmaSwizzleForTMALoad(swizzle_type);
   }
   // Step 4: Schedule register tvs for per-thread access pattern.
   // Each thread handles multiple chunks of tile_2, which corresponds to

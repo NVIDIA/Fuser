@@ -45,7 +45,6 @@ class TransposeParams : public HeuristicParams {
   // with 16 bytes. Each thread many handle multiple chunks along the inner most
   // dim.
   int64_t chunks_per_thread = 1;
-  int64_t tma_swizzle_bytes = 1;
   int64_t elements_per_chunk = 1;
 
   // Vectorization factor for tensors in the first group
