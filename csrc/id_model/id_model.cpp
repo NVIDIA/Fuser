@@ -12,7 +12,6 @@
 #include <utility>
 
 #include "device_lower/analysis/circular_buffer.h"
-#include "device_lower/analysis/trivial_broadcast.h"
 #include "device_lower/lower2device.h"
 #include "device_lower/utils.h"
 #include "disjoint_set.h"
@@ -25,7 +24,6 @@
 #include "iter_visitor.h"
 #include "logical_domain_map.h"
 #include "transform_iter.h"
-#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
