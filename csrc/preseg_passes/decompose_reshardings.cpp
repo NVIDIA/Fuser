@@ -187,7 +187,8 @@ void insertReshardingSetsAfter(Fusion* fusion) {
 
     // Remove existing shardings from output so we can shard it like
     // input. `shardLoopLike` does not overwrite existing shardings.
-    unshard(output);
+    output->setDeviceMesh(DeviceMesh());
+    unparallelize(output, deviceAndStreamParallelTypes());
 
     shardLoopLike(
         /*ref=*/resharding_input,

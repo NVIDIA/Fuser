@@ -54,8 +54,8 @@ void shardLoopLike(
 void canonicalizeLoopDomain(TensorView* tv);
 
 // Unparallelize tv's loop domain for the given parallel types
-// and canonicalize it.
-void unshard(
+// and canonicalize the loop domain.
+void unparallelize(
     TensorView* tv,
     const std::unordered_set<ParallelType>& parallel_types);
 

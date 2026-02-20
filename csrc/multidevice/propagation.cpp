@@ -377,9 +377,13 @@ void canonicalizeLoopDomain(TensorView* tv) {
   tv->setLoopDomain({new_loop.begin(), new_loop.end()});
 }
 
-void unshard(TensorView* tv) {
-  tv->setDeviceMesh(DeviceMesh());
-  for (IterDomain* id : tv->getLoopDomain()) {
+void unparallelize(
+    TensorView* tv,
+    const std::unordered_set<ParallelType>& parallel_types) {
+  for (IterDomain* id :
+       tv->getLoopDomain() | std::views::filter([&](IterDomain* id) {
+         return parallel_types.contains(id->getParallelType());
+       })) {
     id->parallelize(ParallelType::Serial);
   }
   canonicalizeLoopDomain(tv);
