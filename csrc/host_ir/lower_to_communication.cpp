@@ -339,6 +339,97 @@ bool isLocalSizeOne(IterDomain* id) {
   return id->isParallelized() || id->isBroadcast() || id->isReduction();
 }
 
+std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
+    TensorView* producer,
+    TensorView* consumer,
+    ParallelType pt) {
+  const PairwiseLogicalDomainMap pairwise_map(producer, consumer);
+  const std::unordered_map<IterDomain*, IterDomain*> p2c =
+      pairwise_map.mapProducerToConsumer();
+  const std::unordered_map<IterDomain*, IterDomain*> c2p =
+      pairwise_map.mapConsumerToProducer();
+
+  IterDomain* p_loop_id = getShardedIterDomain(producer, pt, DomainType::kLoop);
+  IterDomain* c_loop_id = getShardedIterDomain(consumer, pt, DomainType::kLoop);
+  if (p_loop_id == nullptr && c_loop_id == nullptr) {
+    // Not sharded on this parallel type
+    return std::nullopt;
+  }
+  IterDomain* p_logical_id =
+      p_loop_id ? getLogicalFromLoopId(producer, p_loop_id) : nullptr;
+  IterDomain* c_logical_id =
+      c_loop_id ? getLogicalFromLoopId(consumer, c_loop_id) : nullptr;
+
+  const DeviceMesh& producer_mesh = producer->getDeviceMesh();
+  const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
+  const bool same_mesh = producer_mesh == consumer_mesh;
+
+  Expr* def = consumer->definition();
+  NVF_ERROR(def != nullptr);
+  if (def->isA<LoadStoreOp>()) {
+    if (p_loop_id && !c_loop_id) {
+      CommunicationType type =
+          same_mesh ? CommunicationType::Allgather : CommunicationType::Gather;
+      return CommunicationInfo{
+          .type = type,
+          .p_sharded_id = p_logical_id,
+          .c_sharded_id = p2c.at(p_logical_id)};
+    }
+
+    if (!p_loop_id && c_loop_id) {
+      return CommunicationInfo{
+          .type = CommunicationType::Scatter,
+          .p_sharded_id = c2p.at(c_logical_id),
+          .c_sharded_id = c_logical_id};
+    }
+
+    NVF_ERROR(p_loop_id && c_loop_id);
+    // TODO(#4604): This is problematic for 2D sharding.
+    if (c_logical_id == p2c.at(p_logical_id)) {
+      return CommunicationInfo{
+          .type = CommunicationType::SendRecv,
+          .p_sharded_id = p_logical_id,
+          .c_sharded_id = c_logical_id};
+    } else {
+      return CommunicationInfo{
+          .type = CommunicationType::AllToAll,
+          .p_sharded_id = p_logical_id,
+          .c_sharded_id = c_logical_id};
+    }
+  }
+
+  NVF_ERROR(def->isA<ReductionOp>() || def->isA<SqueezeOp>());
+  if (!p_loop_id) {
+    // Not a reduction based communication.
+    return std::nullopt;
+  }
+
+  if (!c_loop_id) {
+    CommunicationType type =
+        same_mesh ? CommunicationType::Allreduce : CommunicationType::Reduce;
+    return CommunicationInfo{
+        .type = type,
+        .p_sharded_id = p_logical_id,
+        .c_sharded_id = p2c.at(p_logical_id)};
+  }
+
+  // Check if `p_logical_id` is reduced in the output.
+  auto c_it = p2c.find(p_logical_id);
+  NVF_ERROR(
+      c_it != p2c.end(),
+      "Cannot find the mapped consumer logical ID for the producer logical "
+      "ID ",
+      p_logical_id);
+  if (!c_it->second->isReduction()) {
+    return std::nullopt;
+  }
+
+  return CommunicationInfo{
+      .type = CommunicationType::ReduceScatter,
+      .p_sharded_id = c2p.at(c_logical_id),
+      .c_sharded_id = c_logical_id};
+}
+
 } // namespace
 
 std::ostream& operator<<(std::ostream& os, const CommunicationInfo& info) {
@@ -367,111 +458,41 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
   auto* consumer = e->outputs().at(0)->as<TensorView>();
 
   std::optional<CommunicationInfo> communication_info = std::nullopt;
-
-  // Fill `communication_info` instead of returning the result, so we can catch
-  // errors when more than one DIDs have sharding changes.
-  auto fill_communication_info = [&](CommunicationType type,
-                                     IterDomain* p_sharded_id,
-                                     IterDomain* c_sharded_id) {
-    NVF_ERROR(
-        !communication_info.has_value(),
-        "Expected at most one sharding change: ",
-        e);
-    communication_info = CommunicationInfo{type, p_sharded_id, c_sharded_id};
-  };
-
-  const PairwiseLogicalDomainMap pairwise_map(producer, consumer);
-  const std::unordered_map<IterDomain*, IterDomain*> p2c =
-      pairwise_map.mapProducerToConsumer();
-  const std::unordered_map<IterDomain*, IterDomain*> c2p =
-      pairwise_map.mapConsumerToProducer();
-
-  // This ignores device dimensions on reduction axis.
-  auto producer_pt_to_did =
-      mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
-  auto consumer_pt_to_did =
-      mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
-
   for (ParallelType pt : kParallelTypeDIDs) {
-    IterDomain* p_loop_did = getOrDefault(producer_pt_to_did, pt);
-    IterDomain* c_loop_did = getOrDefault(consumer_pt_to_did, pt);
-
-    if (p_loop_did == nullptr && c_loop_did == nullptr) {
-      // Not sharded on this parallel type
+    std::optional<CommunicationInfo> info_per_pt =
+        getCommunicationInfoForParallelType(producer, consumer, pt);
+    if (!info_per_pt.has_value()) {
       continue;
     }
 
-    const DeviceMesh& producer_mesh = producer->getDeviceMesh();
-    const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
-    const bool same_mesh = producer_mesh == consumer_mesh;
-
-    if (e->isA<LoadStoreOp>()) {
-      if (p_loop_did && !c_loop_did) {
-        IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
-        CommunicationType type = same_mesh ? CommunicationType::Allgather
-                                           : CommunicationType::Gather;
-        fill_communication_info(type, p_logical_id, p2c.at(p_logical_id));
-      }
-      if (!p_loop_did && c_loop_did) {
-        IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
-        fill_communication_info(
-            CommunicationType::Scatter, c2p.at(c_logical_id), c_logical_id);
-      }
-      if (p_loop_did && c_loop_did) {
-        IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
-        IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
-        // TODO(#4604): This is problematic for 2D sharding.
-
-        if (c_logical_id == p2c.at(p_logical_id)) {
-          fill_communication_info(
-              CommunicationType::SendRecv, p_logical_id, c_logical_id);
-        } else {
-          fill_communication_info(
-              CommunicationType::AllToAll, p_logical_id, c_logical_id);
-        }
-      }
-    } else {
-      NVF_ERROR(e->isA<ReductionOp>() || e->isA<SqueezeOp>());
-      if (!p_loop_did) {
-        // Not a reduction based communication.
-        continue;
-      }
-
-      if (!c_loop_did) {
-        IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
-        CommunicationType type = same_mesh ? CommunicationType::Allreduce
-                                           : CommunicationType::Reduce;
-        fill_communication_info(type, p_logical_id, p2c.at(p_logical_id));
-        continue;
-      }
-
-      // Check if the p_logical_ids is reduced in the output.
-      IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
-      IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
-
-      auto c_it = p2c.find(p_logical_id);
-      NVF_ERROR(
-          c_it != p2c.end(),
-          "Cannot find the mapped consumer logical ID for the producer logical "
-          "ID ",
-          p_logical_id);
-      if (!c_it->second->isReduction()) {
-        continue;
-      }
-      fill_communication_info(
-          CommunicationType::ReduceScatter, c2p.at(c_logical_id), c_logical_id);
-    }
+    NVF_ERROR(
+        !communication_info.has_value(),
+        "Expected at most one sharding change in `e`: ",
+        e,
+        ", but got: ",
+        *communication_info,
+        " and ",
+        *info_per_pt);
+    communication_info = *info_per_pt;
   }
 
   if (!communication_info.has_value()) {
-    fill_communication_info(CommunicationType::Broadcast, nullptr, nullptr);
+    // This happens when p_loop_id and c_loop_id are both nullptr (therefore
+    // replicated) yet `e` is resharding. This is only possible when `producer`
+    // and `consumer` have different meshes. In this case, we arbitrarily choose
+    // any GPU in the sender mesh to be the root and let it broadcast.
+    communication_info = CommunicationInfo{
+        .type = CommunicationType::Broadcast,
+        .p_sharded_id = nullptr,
+        .c_sharded_id = nullptr};
   }
+
   return *communication_info;
 }
 
 namespace {
 int64_t posInDomain(const std::vector<IterDomain*>& domain, IterDomain* id) {
-  auto pos = std::find(domain.begin(), domain.end(), id);
+  auto pos = std::ranges::find(domain, id);
   if (pos == domain.end()) {
     return -1;
   }
@@ -483,7 +504,9 @@ Layout getCommunicationLayout(
     TensorView* tv,
     const CommunicationType type,
     IterDomain* sharded_id) {
-  const Layout layout = canonicalizeLayout(tv)->contiguous();
+  std::optional<Layout> canonical_layout = canonicalizeLayout(tv);
+  NVF_ERROR(canonical_layout.has_value());
+  Layout layout = canonical_layout->contiguous();
   // For the following communication types, the sharded_id does not have to be
   // outermost in allocation domain. Nonetheless, `tv` still needs to be
   // contiguous and therefore .contiguous() at the beginning of this function.
@@ -520,29 +543,38 @@ Layout getCommunicationLayout(
       // for simplicity.
       std::vector<IterDomain*> new_allocation = TensorDomain::orderedAs(
           layout.allocation_domain(), {{sharded_id_pos, 0}});
-      return Layout{
+      return Layout(
           new_allocation,
-          TensorDomain::getContiguityFilledWith(new_allocation, true)};
+          TensorDomain::getContiguityFilledWith(new_allocation, true));
     }
   }
   return layout;
 }
 
-bool isCommunicationLayoutCompliant(Expr* expr) {
-  auto* producer = expr->inputs().at(0)->as<TensorView>();
-  auto* consumer = expr->outputs().at(0)->as<TensorView>();
+bool isCommunicationLayoutCompliant(Expr* e) {
+  CommunicationInfo communication_info = getCommunicationInfo(e);
 
-  CommunicationInfo communication_info = getCommunicationInfo(expr);
-
-  Layout p_layout = getCommunicationLayout(
-      producer, communication_info.type, communication_info.p_sharded_id);
-  if (!isCompliantWith(*canonicalizeLayout(producer), p_layout)) {
+  auto* producer = e->inputs().at(0)->as<TensorView>();
+  std::optional<Layout> p_layout = canonicalizeLayout(producer);
+  NVF_ERROR(p_layout.has_value());
+  if (!isCompliantWith(
+          *p_layout,
+          getCommunicationLayout(
+              producer,
+              communication_info.type,
+              communication_info.p_sharded_id))) {
     return false;
   }
 
-  Layout c_layout = getCommunicationLayout(
-      consumer, communication_info.type, communication_info.c_sharded_id);
-  if (!isCompliantWith(*canonicalizeLayout(consumer), c_layout)) {
+  auto* consumer = e->outputs().at(0)->as<TensorView>();
+  std::optional<Layout> c_layout = canonicalizeLayout(consumer);
+  NVF_ERROR(c_layout.has_value());
+  if (!isCompliantWith(
+          *c_layout,
+          getCommunicationLayout(
+              consumer,
+              communication_info.type,
+              communication_info.c_sharded_id))) {
     return false;
   }
 
