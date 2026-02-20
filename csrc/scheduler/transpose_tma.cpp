@@ -99,7 +99,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
       cached_input->setMemoryType(MemoryType::Shared);
       tma_load_tvs.push_back(cached_input);
     }
-    // find the output with the most logical dimensions
+    // find the input with the most logical dimensions
     if (scheduler_utils::nLogicalDims(cached_input) > max_input_dims) {
       max_input_dims = scheduler_utils::nLogicalDims(cached_input);
       input_ref = cached_input;
