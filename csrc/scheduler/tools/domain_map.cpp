@@ -5,8 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/utils.h>
+#include "scheduler/tools/domain_map.h"
+
+#include <ranges>
+
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 namespace scheduler_tools {
@@ -515,10 +518,52 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   if (ref1 == nullptr || ref2 == nullptr) {
     return false;
   }
+
   // reference 1 is the global reference, so it must have dim mapped the
   // innermost dim of both groups
   auto innermost2 = scheduler_utils::innerMostAllocDim(ref2);
-  return domain_map.getMappedAllocDimIn(ref1, innermost2) != nullptr;
+  auto mapped_id = domain_map.getMappedAllocDimIn(ref1, innermost2);
+  if (mapped_id == nullptr) {
+    return false;
+  }
+
+  // For grouping caused by permutation, the corresponding allocation domains
+  // should not be all mapped to each other. If they are, it means the two
+  // groups are due to broadcast. In this case, they are not considered as valid
+  // groups since the broadcast tensor has a smaller size and pointwise
+  // scheduler handles broadcast well through unrolling and caching at all
+  // levels. For example, in TransposeTest.NoTransposeMaverick17B, two inputs
+  // are tv0[i0, i1] and tv1[i2, b3] where i0/i2 and i1/b3 are mapped to each
+  // other. However, tv0 and tv1 are in two different groups because of the
+  // broadcast. In this case, we should use the pointwise scheduler instead of
+  // the transpose scheduler.
+  const auto& ref1_loop = ref1->getMaybeAllocationDomain();
+  const auto& ref2_loop = ref2->getMaybeAllocationDomain();
+  const auto& ca_map = domain_map.getComputeAtMap();
+
+  // Filter out reduction (and stride) domains before comparing
+  auto ref1_filtered = ref1_loop | TensorDomain::kNoReductions;
+  auto ref2_filtered = ref2_loop | TensorDomain::kNoReductions;
+
+  const bool all_mapped = std::ranges::equal(
+      ref1_filtered, ref2_filtered, [&](IterDomain* id1, IterDomain* id2) {
+        return ca_map.areMapped(id1, id2, IdMappingMode::PERMISSIVE);
+      });
+  if (all_mapped) {
+    // Not required, just to validate the assumption that all_mapped implies
+    // any_bcast
+    const bool any_bcast =
+        std::ranges::any_of(
+            ref1_filtered, [](IterDomain* id) { return id->isBroadcast(); }) ||
+        std::ranges::any_of(
+            ref2_filtered, [](IterDomain* id) { return id->isBroadcast(); });
+    NVF_ERROR(
+        any_bcast,
+        "all_mapped implies any_bcast, ca_map:\n",
+        ca_map.toString());
+    return false;
+  }
+  return true;
 }
 
 int64_t TransposeDomainMap::getInnerLeafDim(

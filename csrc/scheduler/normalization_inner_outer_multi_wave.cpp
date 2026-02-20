@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <options.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/inlining.h>
-
 #include <ATen/cuda/CUDAContext.h>
+
+#include "options.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/inlining.h"
 
 namespace nvfuser {
 namespace inner_outer_multi_wave {

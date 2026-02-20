@@ -16,8 +16,6 @@
 #include "host_ir/passes.h"
 #include "instrumentation.h"
 #include "ir/base_nodes.h"
-#include "multidevice/communication.h"
-#include "multidevice/utils.h"
 #include "preseg_passes/pre_segmenter.h"
 #include "python_frontend/fusion_definition.h"
 #include "python_frontend/translation.h"

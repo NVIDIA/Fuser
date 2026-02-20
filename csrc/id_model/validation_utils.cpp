@@ -5,13 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <compute_at_map.h>
-#include <id_model/to_string.h>
-#include <id_model/validation_utils.h>
-#include <ir/utils.h>
-#include "base.h"
+#include "id_model/validation_utils.h"
 
 #include <sstream>
+
+#include "base.h"
+#include "compute_at_map.h"
+#include "id_model/to_string.h"
+#include "ir/utils.h"
 
 namespace nvfuser {
 

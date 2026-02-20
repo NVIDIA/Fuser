@@ -200,7 +200,7 @@ struct SubstituteInExpr : public OptOutMutator {
   }
 
  protected:
-  void removeExpr(IrContainer*, Expr*) const override {}
+  void removeExpr(Fusion*, Expr*) const override {}
 
   void registerNewExpr(Expr* expr) override {
     expr_ = expr;

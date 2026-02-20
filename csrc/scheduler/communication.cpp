@@ -6,15 +6,16 @@
  */
 // clang-format on
 
-#include <alias_analysis.h>
-#include <ir/utils.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <scheduler/communication.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/mark_aliases.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
+#include "scheduler/communication.h"
+
+#include "alias_analysis.h"
+#include "ir/utils.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/mark_aliases.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
 
 namespace nvfuser {
 

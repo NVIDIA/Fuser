@@ -1257,6 +1257,13 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
   // persistent is not supported yet for 3D reduction.
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
+  // expect reduction and pointwise scheduler
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::Reduction)));
+
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -1941,7 +1948,9 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   auto tv2 = sum(tv1, {1});
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 = broadcast(index_tv, {false, true});
-  auto tv5 = gather(tv0, 1, tv4);
+  // Use takeAlongAxis rather than gather as codegen does not support
+  // the latter
+  auto tv5 = takeAlongAxis(tv0, tv4, 1);
   auto tv6 = maybeCastOp(DataType::BFloat16, tv5);
   auto tv7 = add(tv3, tv6);
   auto tv8 = add(tv1, tv7);

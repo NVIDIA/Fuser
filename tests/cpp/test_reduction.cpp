@@ -2563,7 +2563,7 @@ TEST_F(ReductionTest, CrossEntropyGatherPattern) {
   fusion.addInput(labels);
 
   auto tv2 = broadcast(labels, {false, true});
-  auto tv3 = gather(log_probs, 1, tv2);
+  auto tv3 = takeAlongAxis(log_probs, tv2, 1);
   auto tv4 = squeeze(tv3, std::vector<bool>({false, true}));
 
   fusion.addOutput(tv4);
@@ -2809,16 +2809,20 @@ class TmaInnerReductionTest
 
   // Check if we expect TMA to be used based on mayUseTma() conditions
   bool expectTmaUsed(DataType dtype, int64_t reduction_size) {
-    // Skip TMA for small reductions
-    if (reduction_size < 128) {
-      return false;
-    }
-
     // TMA requires 16-byte alignment (vectorize_factor > 1)
     int64_t dtype_size_bit = dataTypeSizeBit(dtype);
     int64_t dtype_bytes = dtype_size_bit / 8;
     int64_t min_elems_for_alignment = 16 / dtype_bytes;
     if (reduction_size % min_elems_for_alignment != 0) {
+      return false;
+    }
+
+    uint64_t total_reduction_bytes = reduction_size * dtype_bytes;
+
+    // Minimum TMA transfer size, below which it seems much slower than non-TMA.
+    uint64_t min_tma_bytes = 16384;
+
+    if (total_reduction_bytes < min_tma_bytes) {
       return false;
     }
 
@@ -2887,6 +2891,207 @@ INSTANTIATE_TEST_SUITE_P(
       std::ostringstream os;
       os << dtype << "_" << reduction_size;
       return os.str();
+    }));
+
+// Test 2D TMA for outer reductions
+using TmaOuterReductionManualTestParams =
+    std::tuple<int64_t, int64_t>; // <outer_size, iter_size>
+
+class TmaOuterReductionManualTest
+    : public NVFuserFixtureParamTest<TmaOuterReductionManualTestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<TmaOuterReductionManualTestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
+  }
+
+ private:
+  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+TEST_P(TmaOuterReductionManualTest, Basic) {
+  auto dtype = DataType::Float;
+  int64_t dtype_bytes = dataTypeSizeByte(dtype);
+  auto [outer_size, iter_size] = GetParam();
+
+  // TMA requires 16-byte alignment on both dimensions
+  if ((outer_size * dtype_bytes) % 16 != 0) {
+    GTEST_SKIP() << "Outer dimension bytes not divisible by 16, can't use TMA";
+    return;
+  }
+  if ((iter_size * dtype_bytes) % 16 != 0) {
+    GTEST_SKIP() << "Iter dimension bytes not divisible by 16, can't use TMA";
+    return;
+  }
+
+  std::vector<int64_t> shape = {outer_size, iter_size};
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Input: [R, I] where R is reduction dim (axis 0), I is iteration dim (axis
+  // 1)
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {0}); // reduce along axis 0 (outer reduction)
+  fusion.addOutput(tv1);
+  auto fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(shape, options);
+
+  const int64_t bdimx = 32;
+  const int64_t bdimy = 16;
+  const int64_t iter_unroll_factor = 4;
+  const int64_t redu_unroll_factor = 8;
+
+  int64_t grdim = std::max<int64_t>(
+      1, std::min<int64_t>(8, scheduler_utils::lastPow2(outer_size / 256)));
+
+  // TMA tile dimensions = thread dims * unroll factors
+  const int64_t tma_tile_i = bdimx * iter_unroll_factor;
+  const int64_t tma_tile_r = bdimy * redu_unroll_factor;
+
+  // Skip if outer_size is too small for meaningful 2D TMA test
+  if (outer_size < tma_tile_r) {
+    GTEST_SKIP() << "outer_size " << outer_size
+                 << " is smaller than tma_tile_r " << tma_tile_r;
+    return;
+  }
+
+  // Skip if iter_size is too small for meaningful 2D TMA test
+  if (iter_size < tma_tile_i) {
+    GTEST_SKIP() << "iter_size " << iter_size << " is smaller than tma_tile_i "
+                 << tma_tile_i;
+    return;
+  }
+
+  // ========== Phase 1: Create TMA cache in shared memory ==========
+  auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0smem->setMemoryType(MemoryType::Shared);
+
+  // Cache before the output for the grid reduction
+  auto redu_tv = tv1->cacheBefore();
+
+  // ========== Phase 2: Schedule TMA tensor with TMA-level tiling ==========
+  // [R, I] -> [R/tma_tile_r, tma_tile_r, I]
+  tv0smem->split(0, tma_tile_r);
+
+  // -> [R/tma_tile_r, tma_tile_r, I/tma_tile_i, tma_tile_i]
+  tv0smem->split(2, tma_tile_i);
+
+  // Split outer reduction for grid parallelization
+  // -> [grdim, R', tma_tile_r, I/tma_tile_i, tma_tile_i]
+  //       0      1    2           3              4
+  tv0smem->split(0, grdim, false);
+
+  // ========== Phase 3: Propagate TMA tiling to all tensors ==========
+  TransformPropagator propagator(tv0smem);
+  MaxLogicalDomainInfoSpanningTree(tv0smem).traverse(&propagator);
+
+  // ========== Phase 4: Parallelize and finalize TMA tensor ==========
+  tv0smem->axis(0)->parallelize(ParallelType::BIDy);
+  tv0smem->axis(1)->parallelize(ParallelType::Serial);
+  tv0smem->axis(2)->parallelize(ParallelType::Bulk); // reduction tile
+  tv0smem->axis(3)->parallelize(ParallelType::BIDx);
+  tv0smem->axis(4)->parallelize(ParallelType::Bulk); // iteration tile
+
+  // ========== Phase 5: Sub-split TMA tiles into thread dims ==========
+  // Split tma_tile_i into [bdimx, iter_unroll]
+  redu_tv->split(4, iter_unroll_factor);
+
+  // Split tma_tile_r into [redu_unroll, bdimy]
+  redu_tv->split(2, bdimy);
+  // Now: [grdim, R', redu_unroll, bdimy, I/tma_tile_i, bdimx, iter_unroll]
+  //       0      1   2            3      4              5      6
+
+  // ========== Phase 6: Parallelize reduction tensor ==========
+  redu_tv->axis(0)->parallelize(ParallelType::BIDy);
+  redu_tv->axis(1)->parallelize(ParallelType::Serial);
+  redu_tv->axis(2)->parallelize(ParallelType::Unroll); // redu_unroll
+  redu_tv->axis(3)->parallelize(ParallelType::TIDy); // bdimy
+  redu_tv->axis(4)->parallelize(ParallelType::BIDx);
+  redu_tv->axis(5)->parallelize(ParallelType::TIDx); // bdimx
+  // Use Vectorize so it gets converted to Group for iterGroupedGridReduce
+  redu_tv->axis(6)->parallelize(ParallelType::Vectorize); // iter_unroll
+
+  // ========== Phase 7: rFactor for grid reduction ==========
+  // The reduction axes that are not thread-parallelized need rFactor
+  std::vector<int64_t> rfactor_axes;
+  for (int64_t i = 0; i < redu_tv->nDims(); i++) {
+    if (redu_tv->axis(i)->isReduction() && !redu_tv->axis(i)->isThread()) {
+      rfactor_axes.push_back(i);
+    }
+  }
+
+  TensorView* ref_tv = redu_tv;
+  if (!rfactor_axes.empty()) {
+    ref_tv = redu_tv->rFactor(rfactor_axes);
+  }
+
+  // ========== Phase 8: Propagate thread-level splits to non-TMA TVs ==========
+  std::vector<TensorView*> non_tma_tvs =
+      ir_utils::allTvsExcept(&fusion, {tv0smem});
+  TransformPropagator non_tma_propagator(ref_tv);
+  SetSelector non_tma_selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(ref_tv, &non_tma_selector)
+      .traverse(&non_tma_propagator);
+
+  // ========== Phase 9: Parallelize with iter-grouped reduction ==========
+  // For outer reduction, use iterGroupedGridReduce which is more efficient
+  // and has fewer bank conflicts than separate gridReduce calls
+  const bool use_iter_grouped_reduction = true; // outer reduction + cross_block
+  std::vector<TensorView*> reduction_tvs = {redu_tv};
+
+  if (ref_tv != redu_tv) {
+    reduction_scheduler_utils::propagateRFactor(ref_tv, redu_tv, reduction_tvs);
+    non_tma_tvs = ir_utils::allTvsExcept(&fusion, {tv0smem});
+  }
+
+  // Use propagateParallelization to set up grouped reduction
+  reduction_scheduler_utils::propagateParallelization(
+      redu_tv,
+      ref_tv,
+      /*is_unroll_or_vectorization=*/true,
+      use_iter_grouped_reduction,
+      reduction_tvs,
+      /*unroll_vectorizable_cached_tvs=*/{tv1},
+      /*selected_tvs=*/non_tma_tvs);
+
+  // ========== Phase 10: Inline ==========
+  inlineMost();
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__, "");
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaOuterReductionManualTest,
+    testing::Combine(
+        testing::ValuesIn([] { // outer_size
+          std::vector<int64_t> vals;
+          for (int64_t v = 256; v <= 65536; v *= 4) {
+            vals.push_back(v);
+          }
+          return vals;
+        }()),
+        testing::ValuesIn([] { // iter_size
+          std::vector<int64_t> vals;
+          for (int64_t v = 256; v <= 65536; v *= 4) {
+            vals.push_back(v);
+          }
+          return vals;
+        }())),
+    ([](const testing::TestParamInfo<TmaOuterReductionManualTestParams>& info) {
+      auto [outer_size, iter_size] = info.param;
+      return "outer_" + std::to_string(outer_size) + "_iter_" +
+          std::to_string(iter_size);
     }));
 
 } // namespace nvfuser

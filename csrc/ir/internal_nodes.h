@@ -1995,7 +1995,41 @@ class Swizzle : public Expr {
   }
 };
 
-//! Applies 2D swizzles on a rectangular tile defined by 2 iterdomains.
+// Swizzle1D is currently only used and handled in HostIr.
+// The main use case is to compute the indexing for ring-based overlap, where
+// `out` is stream-parallel and `in` is a function of the device id and stream
+// index. See `HostIrEvaluator::handle(ShardByStream)` for usage.
+class Swizzle1D : public Expr {
+ public:
+  using Expr::Expr;
+
+  Swizzle1D(
+      IrBuilderPasskey passkey,
+      IterDomain* out,
+      IterDomain* in,
+      ParallelType pt);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Swizzle1D";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  IterDomain* in() const {
+    return inputs().at(0)->as<IterDomain>();
+  }
+
+  IterDomain* out() const {
+    return outputs().at(0)->as<IterDomain>();
+  }
+
+  ParallelType parallelType() const {
+    return attribute<ParallelType>(0);
+  }
+};
 
 //! IterDomain expression to resize
 class Resize : public Expr {

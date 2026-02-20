@@ -5,35 +5,38 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <debug.h>
-#include <device_lower/analysis/index_compute.h>
-#include <device_lower/analysis/non_divisible_split.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/pass/magic_zero.h>
-#include <device_lower/utils.h>
-#include <expr_simplifier.h>
-#include <id_model/circular_buffer_indexing.h>
-#include <id_model/contiguity.h>
-#include <id_model/id_model_index_compute.h>
-#include <id_model/indexing.h>
-#include <id_model/indexing_traversal.h>
-#include <id_model/indexing_utils.h>
-#include <id_model/predicate_indexing.h>
-#include <id_model/to_string.h>
-#include <id_model/utils.h>
-#include <index_compute.h>
-#include <ir/builder.h>
-#include <ir/graphviz.h>
-#include <ir/utils.h>
-#include <kernel_ir_dispatch.h>
-#include <swizzle.h>
-#include <val_graph_visitor.h>
+#include "id_model/indexing.h"
 
 #include <algorithm>
+
+#include "debug.h"
+#include "device_lower/analysis/index_compute.h"
+#include "device_lower/analysis/non_divisible_split.h"
+#include "device_lower/lower2device.h"
+#include "device_lower/pass/magic_zero.h"
+#include "device_lower/utils.h"
+#include "expr_simplifier.h"
+#include "id_model/circular_buffer_indexing.h"
+#include "id_model/contiguity.h"
+#include "id_model/id_model_index_compute.h"
+#include "id_model/indexing_traversal.h"
+#include "id_model/indexing_utils.h"
+#include "id_model/predicate_indexing.h"
+#include "id_model/to_string.h"
+#include "id_model/utils.h"
+#include "index_compute.h"
+#include "ir/builder.h"
+#include "ir/graphviz.h"
+#include "ir/utils.h"
+#include "kernel_ir_dispatch.h"
+#include "swizzle.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
 TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
+  NVF_ERROR(isSupported(id_model.fusion()));
+
   buildLoopIndexMap();
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {

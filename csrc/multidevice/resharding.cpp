@@ -124,13 +124,14 @@ bool haveDifferentShardings(
     return false;
   }
 
-  // If device mesh are different, the Expr is resharding if parallel_types
-  // includes DIDs
-  if (std::any_of(
-          kParallelTypeDIDs.begin(),
-          kParallelTypeDIDs.end(),
-          [&](ParallelType pt) { return parallel_types.count(pt); }) &&
-      producer->getDeviceMesh() != consumer->getDeviceMesh()) {
+  // If the two device meshes are different, the Expr is resharding if any
+  // parallel type in `parallel_types` is in the mesh.
+  if (producer->getDeviceMesh() != consumer->getDeviceMesh() &&
+      std::ranges::any_of(parallel_types, [&](ParallelType pt) {
+        return isParallelTypeDeviceDim(pt) &&
+            (producer->getDeviceMesh().hasParallelType(pt) ||
+             consumer->getDeviceMesh().hasParallelType(pt));
+      })) {
     return true;
   }
 
@@ -256,8 +257,8 @@ bool haveDifferentShardings(
   for (const auto parallel_type : parallel_types) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
-      for (IterDomain* p_logical_id :
-           getInputsInTargetDomain({p_loop_id}, producer->getLogicalDomain())) {
+      for (IterDomain* p_logical_id : ir_utils::getReachableIds(
+               producer->getLogicalDomain(), {p_loop_id})) {
         if (id_to_index.count(p_logical_id) > 0) {
           continue;
         }
@@ -270,8 +271,8 @@ bool haveDifferentShardings(
   for (const auto parallel_type : parallel_types) {
     if (IterDomain* c_loop_id =
             getOrDefault(c_parallel_type_to_id, parallel_type)) {
-      for (IterDomain* c_root_id : getInputsInTargetDomain(
-               {c_loop_id}, consumer->getMaybeRootDomain())) {
+      for (IterDomain* c_root_id : ir_utils::getReachableIds(
+               consumer->getMaybeRootDomain(), {c_loop_id})) {
         if (id_to_index.count(c_root_id) > 0) {
           continue;
         }

@@ -32,7 +32,7 @@ fi
 sudo apt-get -y install cuda-compiler-13-0 cuda-command-line-tools-13-0 cuda-libraries-dev-13-0 libnccl-dev
 
 # llvm-dev are for host IR compilation, which uses LLVM JIT.
-sudo apt-get -y install llvm-dev
+sudo apt-get -y install llvm-19-dev
 
 # PyTorch now relies on <fmt/..> packages
 sudo apt-get -y install libfmt-dev

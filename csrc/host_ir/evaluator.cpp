@@ -23,9 +23,10 @@
 #include "ir/iostream.h"
 #include "ir/utils.h"
 #include "multidevice/allocation_utils.h"
-#include "multidevice/communication.h"
 #include "multidevice/cuda_p2p.h"
+#include "multidevice/dispatch_combine.h"
 #include "multidevice/execution_utils.h"
+#include "multidevice/post_communication.h"
 #include "multidevice/symmetric_tensor.h"
 #include "multidevice/utils.h"
 #include "options.h"
@@ -384,6 +385,59 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
         communicator_->getWorld(communication->backend()),
         buffer);
   }
+}
+
+void HostIrEvaluator::handle(MoeDispatch* dispatch) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  auto x = getKnownConcreteValue(dispatch->inX()).as<at::Tensor>();
+  auto topk_idx = getKnownConcreteValue(dispatch->inTopkIdx()).as<at::Tensor>();
+  auto topk_weights =
+      getKnownConcreteValue(dispatch->inTopkWeights()).as<at::Tensor>();
+
+  auto result = doMoeDispatch(
+      x,
+      topk_idx,
+      topk_weights,
+      dispatch->numExperts(),
+      communicator_,
+      dispatch->backend());
+
+  expr_evaluator_.bind(dispatch->outX(), result.recv_x);
+  expr_evaluator_.bind(dispatch->outTopkIdx(), result.recv_topk_idx);
+  expr_evaluator_.bind(dispatch->outTopkWeights(), result.recv_topk_weights);
+  expr_evaluator_.bind(dispatch->outSrcIdx(), result.recv_src_idx);
+  expr_evaluator_.bind(dispatch->outTokensToRank(), result.n_tokens_to_rank);
+  expr_evaluator_.bind(
+      dispatch->outTokensFromRank(), result.n_tokens_from_rank);
+}
+
+void HostIrEvaluator::handle(MoeCombine* combine) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  auto x = getKnownConcreteValue(combine->inX()).as<at::Tensor>();
+  auto topk_weights =
+      getKnownConcreteValue(combine->inTopkWeights()).as<at::Tensor>();
+  auto src_idx = getKnownConcreteValue(combine->inSrcIdx()).as<at::Tensor>();
+  auto n_tokens_to_rank =
+      getKnownConcreteValue(combine->inTokensToRank()).as<at::Tensor>();
+  auto n_tokens_from_rank =
+      getKnownConcreteValue(combine->inTokensFromRank()).as<at::Tensor>();
+
+  auto result = doMoeCombine(
+      x,
+      topk_weights,
+      src_idx,
+      n_tokens_to_rank,
+      n_tokens_from_rank,
+      communicator_,
+      combine->backend());
+
+  expr_evaluator_.bind(combine->outX(), result.combined_x);
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
@@ -806,14 +860,37 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   IterDomain* stream_id = *i;
 
   auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
-  auto stream_index =
-      expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
+  auto index = expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
+
+  if (stream_id->definition()->isA<Swizzle1D>()) {
+    // If the stream axis is defined by a swizzle, the input to
+    // the swizzle is the index into the `in_tensor`.
+    // Currently, we use cyclic shift swizzle to compute the index:
+    // in_index = (out_index (stream index) + device_id) % num_devices
+    // TODO(prmishra): In the future, the swizzle compute should be done outside
+    // of `shardByStream` such that `add` and `mod` are in the HostIrContainer
+    // similar to
+    // https://github.com/NVIDIA/Fuser/blob/0a6adb140d440cc1b6d5f21dfd05874f9699b2c6/csrc/swizzle.h#L26-L31.
+    auto* swizzle = stream_id->definition()->as<Swizzle1D>();
+    ParallelType pt = swizzle->parallelType();
+
+    auto mesh = out_tv->getDeviceMesh();
+    // Find the index of the current device in the slice of mesh corresponding
+    // to the parallel type
+    auto team_size = mesh.size(pt);
+    at::Tensor md_index =
+        mesh.multiDimensionalIndexOf(communicator_->deviceId());
+    auto pt_axis = mesh.parallelTypeToAxis(pt);
+    int64_t team_index = md_index[pt_axis].item<int64_t>();
+    index = (index + team_index) % team_size;
+  }
+
   at::Tensor out_tensor =
       in_tensor
           .chunk(
               stream_id->extent()->evaluate().as<int64_t>(),
               getShardedLogicalAxis(out_tv, ParallelType::Stream))
-          .at(stream_index);
+          .at(index);
 
   expr_evaluator_.bind(out_tv, out_tensor);
 }

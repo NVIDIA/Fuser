@@ -271,6 +271,37 @@ TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
   EXPECT_EQ(analysis.getRoot(expanded_tv), in);
 }
 
+// Broadcast with input that has a reordered layout (subset of out_logical). The
+// preferred layout should keep that reorder for non-broadcast dims and insert
+// broadcast dims at their logical positions so allocation stays close to
+// logical.
+TEST_F(AliasAnalysisTest, Broadcast_OutLayoutReorderOfSubsetOfOutLogical) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // logical domain: [i0, i1]
+  // allocation domain: [i1, i0]
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  fusion.addInput(in);
+  in->setAllocationDomain({in->axis(1), in->axis(0)}, true);
+
+  // logical domain: [i0, b, i1]
+  TensorView* out = broadcast(in, {false, true, false});
+  fusion.addOutput(out);
+
+  fusion.print();
+
+  // prefered layout for output is [i1, i0]
+  // we want to insert bcast dimension between i1 and i0, to match it original
+  // position in logical domain, so the final allocation domain should be [i1,
+  // b, i0] which is a permutation of its logical domain.
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  auto preferred_layout = analysis.preferredLayout(out);
+  auto allocation_domain = preferred_layout->allocation_domain();
+  EXPECT_THAT(
+      allocation_domain, ElementsAre(out->axis(2), out->axis(1), out->axis(0)));
+}
+
 // See PR: https://github.com/NVIDIA/Fuser/pull/4274
 // for alias analysis for resharding exprs
 TEST_F(AliasAnalysisTest, AliasForReshardingExprs) {

@@ -5,15 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <algorithm>
+#include <optional>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "dynamic_transform.h"
 #include "fusion.h"
-#include "fusion_segmenter.h"
 #include "host_ir/lower_to_communication.h"
-#include "ir/all_nodes.h"
 #include "ir/builder.h"
 #include "multidevice/device_mesh.h"
 #include "multidevice/resharding.h"
@@ -557,6 +557,27 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
       EXPECT_TRUE(isCommunicationLayoutCompliant(expr));
     }
   }
+}
+
+TEST_F(ReshardingTest, DIDsNotInvolved) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* out = set(in);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  // Gather `in` on two GPUs to `out` on one GPU.
+  auto in_mesh = DeviceMesh::createForNumDevices(2);
+  auto out_mesh = DeviceMesh::createForNumDevices(1);
+  in->setDeviceMesh(in_mesh);
+  out->setDeviceMesh(out_mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_TRUE(haveDifferentShardings(in, out, {ParallelType::DIDx}));
+  EXPECT_FALSE(haveDifferentShardings(in, out, {ParallelType::DIDy}));
+  EXPECT_FALSE(haveDifferentShardings(in, out, {ParallelType::DIDz}));
 }
 
 using ReshardingSelectOpTest = NVFuserTest;
