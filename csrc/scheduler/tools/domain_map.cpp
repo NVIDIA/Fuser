@@ -7,6 +7,7 @@
 // clang-format on
 #include "scheduler/tools/domain_map.h"
 
+#include <algorithm>
 #include <ranges>
 
 #include "scheduler/utils.h"
@@ -201,7 +202,7 @@ bool DomainMap::areAllTargetIdsCoveredBy(
     // logical domain of tv.
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         all_producer_sets;
-    std::for_each(ids.begin(), ids.end(), [&](IterDomain* tv_logical_id) {
+    std::ranges::for_each(ids, [&](IterDomain* tv_logical_id) {
       all_producer_sets.pushBack(
           ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
     });
@@ -306,10 +307,8 @@ bool DomainMap::areAllTargetIdsCoveredBy(
 IterDomain* DomainMap::getMappedInputConcreteID(
     const std::unordered_set<IterDomain*>& in_concrete_ids,
     IterDomain* out_id) const {
-  auto in_concrete_id_iter = std::find_if(
-      in_concrete_ids.begin(),
-      in_concrete_ids.end(),
-      [&](IterDomain* in_concrete_id) {
+  auto in_concrete_id_iter =
+      std::ranges::find_if(in_concrete_ids, [&](IterDomain* in_concrete_id) {
         return ca_map_.areMapped(in_concrete_id, out_id, IdMappingMode::EXACT);
       });
   if (in_concrete_id_iter != in_concrete_ids.end()) {
@@ -340,7 +339,7 @@ void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
   // IDs through rfactor exprs
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       exact_sets;
-  std::for_each(ids.begin(), ids.end(), [&](IterDomain* id) {
+  std::ranges::for_each(ids, [&](IterDomain* id) {
     exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
   });
 
@@ -691,9 +690,8 @@ std::vector<std::vector<TensorView*>> TransposeDomainMap::
       }
     }
   }
-  std::stable_sort(
-      groups.begin(),
-      groups.end(),
+  std::ranges::stable_sort(
+      groups,
       [](const std::vector<TensorView*>& v1,
          const std::vector<TensorView*>& v2) { return v1.size() > v2.size(); });
   return groups;
@@ -702,10 +700,8 @@ std::vector<std::vector<TensorView*>> TransposeDomainMap::
 IterDomain* TransposeDomainMap::getMappedInputConcreteID(
     const std::unordered_set<IterDomain*>& in_concrete_ids,
     IterDomain* out_id) const {
-  auto in_concrete_id_iter = std::find_if(
-      in_concrete_ids.begin(),
-      in_concrete_ids.end(),
-      [&](IterDomain* in_concrete_id) {
+  auto in_concrete_id_iter =
+      std::ranges::find_if(in_concrete_ids, [&](IterDomain* in_concrete_id) {
         return ca_map_.areMapped(
             in_concrete_id, out_id, IdMappingMode::PERMISSIVE);
       });
