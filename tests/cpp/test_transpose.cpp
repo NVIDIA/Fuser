@@ -1583,7 +1583,7 @@ TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
   // (the I1/contiguous-in-input dim) is innermost before applying swizzle.
   // [BIDx, tile_i1, tile_i0]
   input_smem_cache->reorder({{-1, -2}});
-  // There two branches are identical, just to check swizzle with utils or
+  // These two branches are identical, just to check swizzle with utils or
   // manually. has nothing to do with [output_smem_swizzle].
   const bool use_utils_swizzle = output_smem_swizzle;
   if (use_utils_swizzle) {
