@@ -15,7 +15,6 @@
 
 #include "ir/builder.h"
 #include "ir/internal_base_nodes.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 #include "logical_domain_map.h"
 #include "multidevice/communication.h"
@@ -81,7 +80,7 @@ void lowerToScatter(
       output_tv,
       input_tv,
       team,
-      root,
+      getRelativeIndex(team, root),
       c10d::ReduceOp::RedOpType::UNUSED,
       backend));
 }
@@ -111,7 +110,7 @@ void lowerToGather(
         output_tv,
         input_tv,
         team,
-        root,
+        getRelativeIndex(team, root),
         c10d::ReduceOp::RedOpType::UNUSED,
         backend));
   }
@@ -164,7 +163,7 @@ void lowerToBroadcast(
       output_tv,
       input_tv,
       team,
-      root,
+      getRelativeIndex(team, root),
       c10d::ReduceOp::RedOpType::UNUSED,
       backend));
 }
@@ -197,12 +196,13 @@ void lowerToSendRecv(
   for (auto i : c10::irange(sender_mesh.size())) {
     const DeviceIdxType sender = sender_mesh.at(i);
     const DeviceIdxType receiver = receiver_mesh.at(i);
+    Team team({sender, receiver});
     comms.push_back(IrBuilder::create<Communication>(
         CommunicationType::SendRecv,
         output_tv,
         input_tv,
-        Team({sender, receiver}),
-        /*root=*/sender,
+        team,
+        /*root=*/getRelativeIndex(team, sender),
         c10d::ReduceOp::RedOpType::UNUSED,
         backend));
   }
@@ -238,7 +238,7 @@ void lowerToReduce(
         output_tv,
         input_tv,
         team,
-        root,
+        getRelativeIndex(team, root),
         reduce_op_type,
         backend));
   }

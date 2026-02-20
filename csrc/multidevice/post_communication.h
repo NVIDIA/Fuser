@@ -72,15 +72,15 @@ namespace nvfuser {
 // It is equivalent to a Broadcast with a team of size == 2
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
-    DeviceIdxType my_device_index,
+    DeviceIdxType my_device,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
-    DeviceIdxType root_index = -1);
+    int64_t root_index = -1);
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     P2PCommunication* communication,
-    DeviceIdxType my_device_index,
+    DeviceIdxType my_device,
     DeviceIdxType peer,
     c10d::Backend* backend,
     at::Tensor buffer);

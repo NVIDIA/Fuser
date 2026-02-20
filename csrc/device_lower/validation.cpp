@@ -12,7 +12,6 @@
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <scheduler/mma_utils.h>

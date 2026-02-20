@@ -516,13 +516,15 @@ void bindKernelExecutor(py::module& nvfuser) {
           [](KernelExecutor& self,
              Fusion* fusion,
              const py::iterable& args,
-             const LaunchParams& launch_constraints,
+             std::optional<LaunchParams> launch_constraints,
              const CompileParams& compile_params,
              SchedulerType scheduler_type) {
+            // launch_constraints is optional to avoid creating default
+            // LaunchParams when importing shared library.
             self.compile(
                 fusion,
                 from_pyiterable(args),
-                launch_constraints,
+                launch_constraints.value_or(LaunchParams()),
                 compile_params,
                 scheduler_type);
           },
@@ -548,17 +550,22 @@ void bindKernelExecutor(py::module& nvfuser) {
             )",
           py::arg("fusion"),
           py::arg("args") = py::list(),
-          py::arg("launch_constraints") = LaunchParams(),
+          py::arg("launch_constraints") = py::none(),
           py::arg("compile_params") = CompileParams(),
           py::arg("scheduler_type") = SchedulerType::None)
       .def(
           "run",
           [](KernelExecutor& self,
              const py::iterable& args,
-             const LaunchParams& launch_constraints,
+             std::optional<LaunchParams> launch_constraints,
              const CompileParams& compile_params) {
+            // launch_constraints is optional to avoid creating default
+            // LaunchParams when importing shared library.
             KernelArgumentHolder outputs = self.run(
-                from_pyiterable(args), {}, launch_constraints, compile_params);
+                from_pyiterable(args),
+                {},
+                launch_constraints.value_or(LaunchParams()),
+                compile_params);
             return to_tensor_vector(outputs);
           },
           R"(
@@ -579,7 +586,7 @@ void bindKernelExecutor(py::module& nvfuser) {
                   The output arguments containing the results.
             )",
           py::arg("args"),
-          py::arg("launch_constraints") = LaunchParams(),
+          py::arg("launch_constraints") = py::none(),
           py::arg("compile_params") = CompileParams())
       .def(
           "is_compiled",
