@@ -401,7 +401,7 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
     return CommunicationInfo{type, p_logical_id, p2c.at(p_logical_id)};
   }
 
-  // Check if the p_logical_ids is reduced in the output.
+  // Check if `p_logical_id` is reduced in the output.
   auto c_it = p2c.find(p_logical_id);
   NVF_ERROR(
       c_it != p2c.end(),
@@ -462,7 +462,6 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
     communication_info = *info_per_pt;
   }
 
-  // I've no ideas what this means.
   if (!communication_info.has_value()) {
     // This happens when p_loop_id and c_loop_id are both nullptr (therefore
     // replicated) yet `e` is resharding. This is only possible when `producer`
