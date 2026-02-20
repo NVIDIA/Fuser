@@ -11,8 +11,8 @@
 #include "fusion_profiler.h"
 #include "host_ir/lower_to_communication.h"
 #include "instrumentation.h"
+#include "multidevice/post_communication.h"
 #include "multidevice/resharding.h"
-#include "multidevice/utils.h"
 #include "tensor_metadata.h"
 
 namespace nvfuser {

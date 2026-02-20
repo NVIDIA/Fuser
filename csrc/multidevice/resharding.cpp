@@ -167,10 +167,8 @@ bool haveDifferentShardings(
         PairwiseLogicalDomainMap(producer, consumer)
             .mapBroadcast(false)
             .mapConsumerToProducer();
-    return !std::all_of(
-        consumer_domain.begin(),
-        consumer_domain.end(),
-        [&c2p, &parallel_types](IterDomain* c_id) {
+    return !std::ranges::all_of(
+        consumer_domain, [&c2p, &parallel_types](IterDomain* c_id) {
           auto p_id = c2p.at(c_id);
           auto p_id_pt = p_id->getParallelType();
           auto c_id_pt = c_id->getParallelType();
