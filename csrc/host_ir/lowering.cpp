@@ -18,6 +18,7 @@
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
 #include "ops/utils.h"
+#include "runtime/executor.h"
 #include "runtime/executor_abstract.h"
 #include "transform_replay.h"
 

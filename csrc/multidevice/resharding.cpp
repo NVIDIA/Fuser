@@ -124,13 +124,14 @@ bool haveDifferentShardings(
     return false;
   }
 
-  // If device mesh are different, the Expr is resharding if parallel_types
-  // includes DIDs
-  if (std::any_of(
-          kParallelTypeDIDs.begin(),
-          kParallelTypeDIDs.end(),
-          [&](ParallelType pt) { return parallel_types.count(pt); }) &&
-      producer->getDeviceMesh() != consumer->getDeviceMesh()) {
+  // If the two device meshes are different, the Expr is resharding if any
+  // parallel type in `parallel_types` is in the mesh.
+  if (producer->getDeviceMesh() != consumer->getDeviceMesh() &&
+      std::ranges::any_of(parallel_types, [&](ParallelType pt) {
+        return isParallelTypeDeviceDim(pt) &&
+            (producer->getDeviceMesh().hasParallelType(pt) ||
+             consumer->getDeviceMesh().hasParallelType(pt));
+      })) {
     return true;
   }
 

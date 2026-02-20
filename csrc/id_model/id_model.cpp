@@ -5,27 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/id_model.h>
-#include <id_model/loop_promotion.h>
-#include <id_model/to_string.h>
-#include <id_model/transform_replay.h>
-#include <id_model/utils.h>
-#include <id_model/validation_utils.h>
-
-#include <device_lower/analysis/circular_buffer.h>
-#include <device_lower/analysis/trivial_broadcast.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
-#include <disjoint_set.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <logical_domain_map.h>
-#include <transform_iter.h>
-#include <val_graph_visitor.h>
+#include "id_model/id_model.h"
 
 #include <memory>
 #include <tuple>
 #include <utility>
+
+#include "device_lower/analysis/circular_buffer.h"
+#include "device_lower/analysis/trivial_broadcast.h"
+#include "device_lower/lower2device.h"
+#include "device_lower/utils.h"
+#include "disjoint_set.h"
+#include "id_model/loop_promotion.h"
+#include "id_model/to_string.h"
+#include "id_model/transform_replay.h"
+#include "id_model/utils.h"
+#include "id_model/validation_utils.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "logical_domain_map.h"
+#include "transform_iter.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 

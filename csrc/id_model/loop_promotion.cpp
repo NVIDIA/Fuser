@@ -5,16 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/id_model.h>
-#include <id_model/loop_promotion.h>
-#include <id_model/to_string.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <logical_domain_map.h>
-#include <options.h>
-#include <val_graph_visitor.h>
+#include "id_model/loop_promotion.h"
 
 #include <algorithm>
+
+#include "id_model/id_model.h"
+#include "id_model/to_string.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "logical_domain_map.h"
+#include "options.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 

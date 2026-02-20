@@ -87,4 +87,7 @@ bool isValidDeviceSplit(Expr* expr);
 // See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 
+// Returns the relative index of the rank in the team.
+int64_t getRelativeIndex(const Team& team, DeviceIdxType rank);
+
 } // namespace nvfuser

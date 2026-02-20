@@ -10,7 +10,6 @@
 #include <fusion.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <linked_hash_map.h>

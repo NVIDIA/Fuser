@@ -233,6 +233,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/allocation_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/post_communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/cuda_p2p.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/dispatch_combine.cpp
@@ -340,6 +341,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/tools/resize_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/static_repeat.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/expr_eval_sched.cpp
@@ -1144,6 +1148,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_alltoallv.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_dispatch_combine.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communicator.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
@@ -1393,6 +1398,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/multicast.cu
+  ${NVFUSER_SRCS_DIR}/multidevice/alltoallv.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu

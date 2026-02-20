@@ -13,7 +13,6 @@
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/indexing.h>

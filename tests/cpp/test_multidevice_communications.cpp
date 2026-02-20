@@ -13,9 +13,9 @@
 #include "driver_api.h"
 #include "fusion.h"
 #include "ir/builder.h"
-#include "multidevice/communication.h"
 #include "multidevice/communicator.h"
 #include "multidevice/cuda_p2p.h"
+#include "multidevice/post_communication.h"
 #include "ops/all_ops.h"
 #include "ops/arith.h"
 #include "ops/utils.h"
@@ -234,8 +234,13 @@ TEST_P(CommunicationTest, SendRecv) {
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
   auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  Team team({receiver, sender});
   auto communication = IrBuilder::create<Communication>(
-      CommunicationType::SendRecv, out, in, Team({sender, receiver}), sender);
+      CommunicationType::SendRecv,
+      out,
+      in,
+      team,
+      getRelativeIndex(team, sender));
 
   at::Tensor input_tensor;
   at::Tensor output_tensor;
