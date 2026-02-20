@@ -17,7 +17,6 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <runtime/executor_utils.h>
 

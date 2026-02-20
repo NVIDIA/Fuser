@@ -11,7 +11,6 @@
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <options.h>

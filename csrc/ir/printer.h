@@ -9,8 +9,9 @@
 
 #include <iosfwd>
 
-#include "ir/iostream.h"
-#include "iter_visitor.h"
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "kernel.h"
 
 namespace nvfuser {
 

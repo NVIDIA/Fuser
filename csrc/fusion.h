@@ -8,6 +8,7 @@
 #pragma once
 
 #include <any>
+#include <iosfwd>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -727,5 +728,8 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
 
   return dest;
 }
+
+NVF_API std::ostream& operator<<(std::ostream& os, const Fusion& f);
+NVF_API std::ostream& operator<<(std::ostream& os, const Fusion* f);
 
 } // namespace nvfuser

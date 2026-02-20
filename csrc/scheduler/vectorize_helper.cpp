@@ -16,7 +16,6 @@
 #include "instrumentation.h"
 #include "ir/builder.h"
 #include "ir/internal_base_nodes.h"
-#include "ir/iostream.h"
 #include "ir/printer.h"
 #include "iter_visitor.h"
 #include "scheduler/registry.h"

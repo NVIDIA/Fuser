@@ -8,6 +8,7 @@
 #include <fusion.h>
 
 #include <iterator>
+#include <ostream>
 #include <ranges>
 
 #include <codegen.h>
@@ -1052,6 +1053,19 @@ void Fusion::resetExactMappings() {
   if (hasRegisteredExactMappings()) {
     stopManaging(exact_mappings_key);
   }
+}
+
+std::ostream& operator<<(std::ostream& os, const Fusion& f) {
+  IrPrinter p(os);
+  p.handle(&f);
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Fusion* f) {
+  if (f == nullptr) {
+    return os << "<null>";
+  }
+  return os << *f;
 }
 
 } // namespace nvfuser
