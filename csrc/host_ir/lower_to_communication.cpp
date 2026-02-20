@@ -369,7 +369,7 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
   Expr* def = consumer->definition();
   NVF_ERROR(def != nullptr);
   if (def->isA<LoadStoreOp>()) {
-    if (p_loop_id == nullptr && c_loop_id == nullptr) {
+    if (!p_loop_id && !c_loop_id) {
       // Given the hasDifferentShardings check at the beginning of this
       // function, this is only possible when `producer` and `consumer` have
       // different meshes. In this case, we arbitrarily choose any GPU in the
@@ -397,7 +397,6 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
     }
 
     NVF_ERROR(p_loop_id && c_loop_id);
-    // TODO(#4604): This is problematic for 2D sharding.
     if (c_logical_id == p2c.at(p_logical_id)) {
       return CommunicationInfo{
           .type = CommunicationType::SendRecv,
@@ -412,11 +411,8 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
   }
 
   NVF_ERROR(def->isA<ReductionOp>() || def->isA<SqueezeOp>());
-  if (!p_loop_id) {
-    // Not a reduction based communication.
-    // FIXME: Is this possible?
-    return std::nullopt;
-  }
+  NVF_ERROR(
+      p_loop_id, "Expected a reduction-based communication. Given: ", def);
 
   if (!c_loop_id) {
     CommunicationType type =
