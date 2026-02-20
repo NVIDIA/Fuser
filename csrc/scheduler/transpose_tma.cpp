@@ -48,7 +48,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   tparams->tile_size1 =
       (n_input == 1) ? tparams->tile_size2 * 2 : tparams->tile_size2;
   // [Tunable] In 128-bytes swizzled tma load, inner most dim is split into 8
-  // chunks each with 16 bytes. Each thread many handle multiple chunks along
+  // chunks each with 16 bytes. Each thread may handle multiple chunks along
   // the inner most dim, range is [1, 8]
   // bdimx = tile_size1 * 8 / chunks_per_thread
   const int64_t target_bdimx = (n_input == 1) ? 256 : 128;
