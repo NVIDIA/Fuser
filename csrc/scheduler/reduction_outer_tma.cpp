@@ -42,7 +42,6 @@ std::unique_ptr<TmaOuterReductionParams> getReductionHeuristics(
   NVF_ERROR(tma_tile_r % bdimy == 0);
 
   const int64_t iter_unroll_factor = tma_tile_i / bdimx;
-  const int64_t redu_unroll_factor = tma_tile_r / bdimy;
 
   // Grid dimension for parallelizing the outer reduction across CTAs.
   // Modeled after the manual test: clamp lastPow2(outer_size / 256) to [1, 8].
@@ -56,7 +55,6 @@ std::unique_ptr<TmaOuterReductionParams> getReductionHeuristics(
   params->tma_tile_i = tma_tile_i;
   params->tma_tile_r = tma_tile_r;
   params->iter_unroll_factor = iter_unroll_factor;
-  params->redu_unroll_factor = redu_unroll_factor;
   params->grdim = grdim;
 
   params->tag = "Outer Reduction TMA heuristics";
@@ -72,7 +70,7 @@ void scheduleReduction(Fusion* fusion, const TmaOuterReductionParams* rparams) {
   const int64_t bdimy = rparams->bdimy;
   const int64_t tma_tile_i = rparams->tma_tile_i;
   const int64_t tma_tile_r = rparams->tma_tile_r;
-  const int64_t iter_unroll_factor = tma_tile_i / bdimx;
+  const int64_t iter_unroll_factor = rparams->iter_unroll_factor;
   const int64_t grdim = rparams->grdim;
 
   NVF_ERROR(tma_tile_i % bdimx == 0);

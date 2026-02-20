@@ -32,10 +32,7 @@ class TmaOuterReductionParams : public HeuristicParams {
   int64_t tma_tile_r = 1;
 
   // Unroll factor for the iteration dimension (within TMA tile)
-  int64_t iter_unroll_factor = 4;
-
-  // Unroll factor for the reduction dimension (within TMA tile)
-  int64_t redu_unroll_factor = 8;
+  int64_t iter_unroll_factor = 1;
 
   // Grid dimension for parallelizing the outer reduction across CTAs
   int64_t grdim = 1;
@@ -49,7 +46,6 @@ class TmaOuterReductionParams : public HeuristicParams {
         other->bdimy == bdimy && other->tma_tile_i == tma_tile_i &&
         other->tma_tile_r == tma_tile_r &&
         other->iter_unroll_factor == iter_unroll_factor &&
-        other->redu_unroll_factor == redu_unroll_factor &&
         other->grdim == grdim;
   }
 
@@ -62,7 +58,6 @@ class TmaOuterReductionParams : public HeuristicParams {
        << "tma_tile_i: " << tma_tile_i << "\n"
        << "tma_tile_r: " << tma_tile_r << "\n"
        << "iter_unroll_factor: " << iter_unroll_factor << "\n"
-       << "redu_unroll_factor: " << redu_unroll_factor << "\n"
        << "grdim: " << grdim << "\n"
        << lparams.toString() << cparams.toString() << "\n"
        << "====================================\n";
@@ -76,8 +71,7 @@ class TmaOuterReductionParams : public HeuristicParams {
         static_cast<size_t>(tma_tile_i) << (bits - 3) ^
         static_cast<size_t>(tma_tile_r) << (bits - 4) ^
         static_cast<size_t>(iter_unroll_factor) << (bits - 5) ^
-        static_cast<size_t>(redu_unroll_factor) << (bits - 6) ^
-        static_cast<size_t>(grdim) << (bits - 7);
+        static_cast<size_t>(grdim) << (bits - 6);
     return attr_hash;
   }
 
