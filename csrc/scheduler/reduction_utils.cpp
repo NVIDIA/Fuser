@@ -12,7 +12,6 @@
 #include "base.h"
 #include "expr_evaluator.h"
 #include "ir/cloner.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 #include "multidevice/utils.h"
 #include "ops/arith.h"
