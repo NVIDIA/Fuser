@@ -410,7 +410,7 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
     }
   }
 
-  NVF_ERROR(def->isA<ReductionOp>() || def->isA<SqueezeOp>());
+  NVF_ERROR((def->isOneOf<ReductionOp, SqueezeOp>()), "But got: ", def);
   NVF_ERROR(
       p_loop_id, "Expected a reduction-based communication. Given: ", def);
 
