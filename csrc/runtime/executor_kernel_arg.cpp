@@ -72,11 +72,9 @@ void KernelArgumentHolder::push(std::optional<at::Tensor> tensor) {
 }
 
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {
-  auto iter = std::remove_if(
-      arguments_.begin(), arguments_.end(), [&](const auto& ref) {
-        return &arg_to_delete == &ref;
-      });
-  arguments_.erase(iter, arguments_.end());
+  auto result = std::ranges::remove_if(
+      arguments_, [&](const auto& ref) { return &arg_to_delete == &ref; });
+  arguments_.erase(result.begin(), result.end());
 }
 
 std::string KernelArgumentHolder::toString() const {
