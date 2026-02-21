@@ -55,13 +55,7 @@ class EVTConverter : OptInDispatch {
   }
 
  private:
-  EVTConverter(Fusion* fusion)
-      : fusion_(fusion),
-        mma_(nullptr),
-        alpha_(nullptr),
-        beta_(nullptr),
-        bias_(nullptr),
-        mma_out_(nullptr) {}
+  EVTConverter(Fusion* fusion) : fusion_(fusion) {}
 
   EVTModel& model() {
     return model_;
@@ -449,11 +443,11 @@ class EVTConverter : OptInDispatch {
 
  private:
   Fusion* fusion_;
-  Expr* mma_;
-  TensorView* alpha_;
-  TensorView* beta_;
-  TensorView* bias_;
-  TensorView* mma_out_;
+  Expr* mma_ = nullptr;
+  TensorView* alpha_ = nullptr;
+  TensorView* beta_ = nullptr;
+  TensorView* bias_ = nullptr;
+  TensorView* mma_out_ = nullptr;
 
   EVTModel model_;
   std::unordered_map<Val*, EVTModel::Node*> val_nodes_;
