@@ -26,6 +26,8 @@ struct CommunicationInfo {
   IterDomain* c_sharded_id;
 };
 
+std::ostream& operator<<(std::ostream& os, const CommunicationInfo& info);
+
 // Returns whether the communication layout is compliant.
 // ProcessGroup expects contiguous tensors and
 // gathered/scattered axes to be outermost in allocation.
@@ -35,8 +37,8 @@ bool isCommunicationLayoutCompliant(Expr* expr);
 
 // Given an Expr that's known to be a communication, returns the communication
 // info: type and sharded IDs. We assume that the expr has been decomposed and
-// represented a single communication. If multiple communications are present or
-// 2D sharding, this function will raise an error.
+// represented a single communication. If multiple communications are present,
+// this function will raise an error.
 CommunicationInfo getCommunicationInfo(Expr* expr);
 
 // Given the input/output TensorView of a communication, returns its layout

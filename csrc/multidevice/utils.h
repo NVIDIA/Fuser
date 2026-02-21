@@ -51,7 +51,8 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId
 // `tv->getLogicalDomain()` map one-to-one modulo reduction. However, a size in
 // `at::Tensor::sizes` is a factor of the corresponding logical IterDomain's
 // extent if that IterDomain is sharded.
-int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
+NVF_API int64_t
+getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
 // Returns the IterDomain that's parallelized on `parallel_type` in the domain
 // of type `domain_type`.
@@ -86,5 +87,8 @@ bool isValidDeviceSplit(Expr* expr);
 // Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
 // See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
+
+// Returns the relative index of the rank in the team.
+int64_t getRelativeIndex(const Team& team, DeviceIdxType rank);
 
 } // namespace nvfuser

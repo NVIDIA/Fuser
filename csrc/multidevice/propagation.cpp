@@ -51,14 +51,13 @@ bool isSplitDivisible(IterDomain* id, Split* ref_split) {
 bool hasRootToLogicalTransform(IterDomain* id, const TensorView* tv) {
   auto logical_ids = IterVisitor::getInputsTo(
       {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-  return std::any_of(
-      logical_ids.begin(), logical_ids.end(), [&](Val* logical_val) {
-        return logical_val->definition() != nullptr;
-      });
+  return std::ranges::any_of(logical_ids, [&](Val* logical_val) {
+    return logical_val->definition() != nullptr;
+  });
 }
 
 bool isInDomain(IterDomain* id, const std::vector<IterDomain*>& domain) {
-  return std::find(domain.begin(), domain.end(), id) != domain.end();
+  return std::ranges::find(domain, id) != domain.end();
 }
 
 // Traverses root-to-logical transforms to find the outermost logical ID.
@@ -262,7 +261,7 @@ void transformLoopDomain(
 
 } // namespace
 
-int numParallelIterDomains(const TensorView* tv) {
+int64_t numParallelIterDomains(const TensorView* tv) {
   return std::ranges::count_if(
       tv->getLoopDomain(), [](IterDomain* id) { return id->isParallelized(); });
 }
@@ -275,7 +274,7 @@ void shardLoopLike(
   if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
     debug() << "Propagating shardings from " << ref->toString() << " to "
             << target->toString() << " in " << direction << " for "
-            << toDelimitedString(selected_parallel_types) << std::endl;
+            << toDelimitedString(selected_parallel_types) << '\n';
   }
 
   std::unordered_set<IterDomain*> device_or_stream_ids;
@@ -340,20 +339,6 @@ void shardLoopLike(
   transformLoopDomain(target, ref, device_or_stream_ids, direction);
 }
 
-// Canonicalizes tv's loop domain for simplicity and working around schedulers'
-// limitations. Many schedulers panic when seeing the input fusion segment
-// contains non-DID loop splits. For example, an rFactor tensor may look like
-// the following:
-//
-//                            r{k}
-//                            /  \.
-// [i{m}         i{n}    iDIDx{d}  r{k/d}]
-//               /  \.
-//            i{d} i{n/d}
-//
-// The split of i{n} is unnecessary because i{d} and i{n/d} are both
-// ParallelType::Serial. This function replaces the two with i{n} in the loop
-// domain.
 void canonicalizeLoopDomain(TensorView* tv) {
   LinkedHashMap<IterDomain*, std::monostate> loop;
   for (IterDomain* id : tv->getLoopDomain()) {
@@ -365,52 +350,39 @@ void canonicalizeLoopDomain(TensorView* tv) {
            {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()}) |
            std::views::reverse) {
-    if (auto* swizzle1d = dynamic_cast<Swizzle1D*>(transform)) {
-      if (swizzle1d->out()->isParallelized()) {
-        continue;
-      }
-      const auto it = loop.erase(swizzle1d->out()).second;
-      loop.insert(it, swizzle1d->in(), std::monostate());
+    auto* split = dynamic_cast<Split*>(transform);
+    NVF_ERROR(
+        split != nullptr,
+        "Only splits are expected so far, but found: ",
+        transform);
+
+    if (split->outer()->isParallelized() || split->inner()->isParallelized()) {
       continue;
     }
-    if (auto* split = dynamic_cast<Split*>(transform)) {
-      NVF_ERROR(
-          split != nullptr,
-          "Only splits are expected so far, but found: ",
-          transform);
 
-      if (split->outer()->isParallelized() ||
-          split->inner()->isParallelized()) {
-        continue;
-      }
-
-      if (!loop.contains(split->outer()) || !loop.contains(split->inner())) {
-        continue;
-      }
-
-      loop.erase(split->outer());
-      const auto inner_i = loop.erase(split->inner()).second;
-      // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
-      // `outer` and `inner` are all serial, `in`'s position in the loop domain
-      // doesn't matter.
-      loop.insert(inner_i, split->in(), std::monostate());
+    if (!loop.contains(split->outer()) || !loop.contains(split->inner())) {
       continue;
     }
-    NVF_THROW("Expected a split or swizzle1d transform. Got: ", transform);
+
+    loop.erase(split->outer());
+    const auto inner_i = loop.erase(split->inner()).second;
+    // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
+    // `outer` and `inner` are all serial, `in`'s position in the loop domain
+    // doesn't matter.
+    loop.insert(inner_i, split->in(), std::monostate());
   }
 
   auto new_loop = std::views::keys(loop);
   tv->setLoopDomain({new_loop.begin(), new_loop.end()});
 }
 
-void unshard(
+void unparallelize(
     TensorView* tv,
     const std::unordered_set<ParallelType>& parallel_types) {
-  tv->setDeviceMesh(DeviceMesh());
-  for (IterDomain* id : tv->getLoopDomain()) {
-    if (parallel_types.count(id->getParallelType()) == 0) {
-      continue;
-    }
+  for (IterDomain* id :
+       tv->getLoopDomain() | std::views::filter([&](IterDomain* id) {
+         return parallel_types.contains(id->getParallelType());
+       })) {
     id->parallelize(ParallelType::Serial);
   }
   canonicalizeLoopDomain(tv);

@@ -19,8 +19,6 @@
 #include "multidevice/communicator.h"
 #include "multidevice/device_mesh.h"
 #include "multidevice/multidevice.h"
-#include "type.h"
-#include "visibility.h"
 
 namespace nvfuser {
 
@@ -120,11 +118,6 @@ class Communication : public Expr {
   CommunicatorBackend backend() const {
     return attribute<CommunicatorBackend>(3);
   }
-
-  // PyTorch's process group expects the root to be specified
-  // as an integer between 0 and world_size-1. We choose it to be
-  // the device's relative index within the team
-  int64_t getRootRelativeIndex(DeviceIdxType root_val);
 
  private:
   void validate();
@@ -332,83 +325,5 @@ class MoeCombine : public Expr {
  private:
   void validate();
 };
-
-// The method "post" triggers the execution of the communication. This call is
-// non-blocking. The communication can be posted multiple times.
-// It is assumed that the current device_index (given by
-// communicator.deviceId()) belongs to the team of the communication,
-// otherwise an error is thrown.
-//
-// NOTE: pytorch's NCCL process group API needs <team_size> buffers on root for
-// scatter/gather operation.
-// (*) Broadcast
-// Copies the root's src buffer to each device's dst buffer
-// Requirements:
-//   - the root is set and belongs to the team
-//   - the root has one src buffer, and no or one dst buffer
-//   - non-roots have no src buffer and one dst buffer
-//   - all buffers have the same size
-// (*) StreamBroadcast
-// Shares the same postBroadcast logic with Broadcast. The difference is the
-// root is the for-loop index. I kept it separate from Broadcast so I don't need
-// to inspect the tensorviews later to distinguish the two.
-// (*) Gather
-// Copies each device's source buffer to the root's respective src
-// buffer. The order of the sender devices matches the order of the
-// root's buffers.
-// Requirements:
-//   - the root is set and belongs to the team
-//   - the root has one src buffer and <team_size> dst buffers
-//   - non-roots have one src buffer and no dst buffer
-//   - all buffers have the same size
-// (*) Allgather
-// Copies each device's src buffer to each device's respective src
-// buffer. The order of the devices matches the order of the
-// buffers
-// Requirements:
-//   - all device have one src buffer and <team_size> dst buffers
-//   - all buffers have the same size
-// (*) Scatter
-// Copies each root's src buffer to each device's dst buffer.
-// The order of the buffers matches the order of the receiver devices
-// Requirements:
-//   - the root is set and belongs to the team
-//   - the root has <team_size> src buffers and one dst buffer
-//   - non-roots have no src buffer and one dst buffer
-//   - all buffers have the same size
-// (*) Reduce
-// Reduce the src buffers to the root's dst buffer.
-// Requirements:
-//   - the root is set and belongs to the team
-//   - the root has one src buffers and one dst buffer
-//   - non-roots have one src buffer and no dst buffer
-//   - all buffers have the same size
-// (*) Allreduce
-// Reduce the src buffers to the dst buffer.
-// Requirements:
-//   - all devices have one src buffer and one dst buffer
-//   - all buffers have the same size
-// (*) ReduceScatter
-// Reduce all the src buffers and shard the result to the dst buffers.
-// Requirements:
-//   - all devices have <team_size> src buffer and one dst buffer
-//   - all buffers have the same size
-// (*) SendRecv
-// Copies the sender's src buffers to the receiver's dst buffer
-// It is equivalent to a Broadcast with a team of size == 2
-c10::intrusive_ptr<c10d::Work> postSingleCommunication(
-    Communication* communication,
-    DeviceIdxType my_device_index,
-    c10d::Backend* backend,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    DeviceIdxType root_index = -1);
-
-c10::intrusive_ptr<c10d::Work> postSingleCommunication(
-    P2PCommunication* communication,
-    DeviceIdxType my_device_index,
-    DeviceIdxType peer,
-    c10d::Backend* backend,
-    at::Tensor buffer);
 
 } // namespace nvfuser

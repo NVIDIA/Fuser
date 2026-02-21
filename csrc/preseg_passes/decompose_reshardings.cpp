@@ -7,13 +7,15 @@
 // clang-format on
 #include "preseg_passes/decompose_reshardings.h"
 
+#include <cstdint>
+
 #include "fusion.h"
 #include "host_ir/lower_to_communication.h"
 #include "ir/base_nodes.h"
 #include "ir/interface_nodes.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 #include "linked_hash_map.h"
+#include "logical_domain_map.h"
 #include "multidevice/propagation.h"
 #include "multidevice/resharding.h"
 #include "ops/alias.h"
@@ -24,7 +26,7 @@
 namespace nvfuser::preseg_passes {
 namespace {
 
-enum class ReshardPosition {
+enum class ReshardPosition : std::uint8_t {
   kBefore,
   kAfter,
 };
@@ -51,32 +53,46 @@ ReshardPosition whereToReshard(Expr* e) {
 // However, the current implementation, forked from HostIrLower::canLower, is
 // merely a best effort.
 bool isLowerableToCommunication(Expr* e) {
-  if (auto* reduction = dynamic_cast<ReductionOp*>(e)) {
-    auto in = reduction->in()->as<TensorView>();
-    auto out = reduction->out()->as<TensorView>();
-    // get the reduced axis
-    std::vector<IterDomain*> reduction_axis;
-    std::copy_if(
-        out->getLogicalDomain().begin(),
-        out->getLogicalDomain().end(),
-        std::back_inserter(reduction_axis),
-        [](IterDomain* id) { return id->isReduction(); });
-    // check whether the reduction involves only one axis
-    if (reduction_axis.size() != 1) {
-      return false;
-    }
-
-    // We check whether the reduced axis is sharded on the input. I think this
-    // can be simplified to check only the output. However, we need to make
-    // sure sharding propagation and unit tests uses `rDID` instead of `r`.
-    const auto c2p_map =
-        PairwiseLogicalDomainMap(in, out).mapConsumerToProducer();
-    auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
-    return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
-  }
+  NVF_ERROR(e != nullptr);
 
   if (auto* ldst = dynamic_cast<LoadStoreOp*>(e)) {
     return ldst->opType() == LoadStoreOpType::Set;
+  }
+
+  if (e->isOneOf<ReductionOp, SqueezeOp>()) {
+    auto* in = e->inputs().at(0)->as<TensorView>();
+    auto* out = e->outputs().at(0)->as<TensorView>();
+    const std::unordered_map<IterDomain*, IterDomain*>& p2c =
+        PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
+
+    IterDomain* reduced_id = nullptr;
+    // Consider the following example:
+    // ```
+    //            n
+    //          /  \.
+    // [m, DIDx{d}, r{n/d}]
+    //         |
+    //         | sum
+    //         v
+    //      [m, rDIDx{d}]
+    //     /  \.
+    // DIDx{d} m/d
+    // ```
+    // `reduced_id` will be the `DIDx{d}` in the input.
+    for (IterDomain* p_id :
+         in->getLogicalDomain() | TensorDomain::kNoReductions) {
+      IterDomain* c_id = getOrDefault(p2c, p_id);
+      if (c_id == nullptr || c_id->isReduction()) {
+        if (reduced_id != nullptr) {
+          // Reduction involved multiple axes.
+          return false;
+        }
+        reduced_id = p_id;
+      }
+    }
+    NVF_ERROR(reduced_id != nullptr, "No reduced axis found in: ", e);
+
+    return reduced_id->isDeviceDim();
   }
 
   return false;
@@ -187,7 +203,8 @@ void insertReshardingSetsAfter(Fusion* fusion) {
 
     // Remove existing shardings from output so we can shard it like
     // input. `shardLoopLike` does not overwrite existing shardings.
-    unshard(output, deviceAndStreamParallelTypes());
+    output->setDeviceMesh(DeviceMesh());
+    unparallelize(output, deviceAndStreamParallelTypes());
 
     shardLoopLike(
         /*ref=*/resharding_input,
@@ -345,7 +362,7 @@ void rFactorLoopSplits(Fusion* fusion) {
       const ParallelType parallel_type = loop_id->getParallelType();
       if (parallel_type == ParallelType::Serial) {
         // rFactor non-parallelized IDs so they get reduced locally.
-        rfactor_axes.push_back(i);
+        rfactor_axes.push_back(static_cast<int64_t>(i));
       } else {
         reduced_parallel_types.insert(parallel_type);
       }

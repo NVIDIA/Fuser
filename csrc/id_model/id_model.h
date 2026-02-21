@@ -7,15 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <disjoint_set.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <val_graph.h>
-
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include "disjoint_set.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "val_graph.h"
 
 namespace nvfuser {
 

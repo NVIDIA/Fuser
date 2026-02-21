@@ -8,12 +8,13 @@
 #include <ops/arith.h>
 
 #include <cfloat>
+#include <optional>
 #include <ranges>
+#include <type_traits>
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/indexing.h>
@@ -23,8 +24,14 @@
 
 namespace nvfuser {
 
+template <typename T>
+T valueOrError(std::optional<T> opt) {
+  NVF_CHECK(opt.has_value());
+  return *opt;
+}
+
 Val* castOp(DataType dtype, Val* v1) {
-  auto orig_dtype = v1->getDataType().value();
+  auto orig_dtype = valueOrError(v1->getDataType());
   if (dtype == orig_dtype) {
     return set(v1);
   }
@@ -74,12 +81,13 @@ TensorView* maybeCastOp(DataType dtype, TensorView* v1) {
 }
 
 Val* bitCastOp(DataType dtype, Val* v1) {
-  if (v1->getDataType().value() == dtype) {
+  if (valueOrError(v1->getDataType()) == dtype) {
     return v1;
   }
 
   NVF_CHECK(
-      dataTypeSizeByte(v1->getDataType().value()) == dataTypeSizeByte(dtype),
+      dataTypeSizeByte(valueOrError(v1->getDataType())) ==
+          dataTypeSizeByte(dtype),
       "BitCast only works for types of the same size");
 
   Val* out = ops::newValLike(v1, dtype);
@@ -92,7 +100,7 @@ TensorView* bitCastOp(DataType dtype, TensorView* v1) {
 }
 
 Val* unaryOp(UnaryOpType type, Val* v1) {
-  Val* out = ops::newValLike(v1, v1->getDataType().value());
+  Val* out = ops::newValLike(v1, valueOrError(v1->getDataType()));
   IrBuilder::create<UnaryOp>(type, out, v1);
   return out;
 }
@@ -397,27 +405,29 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
     step = IrBuilder::create<Val>(1L, dtype);
   }
   NVF_CHECK(
-      isIntegralType(*length->getDataType()),
+      isIntegralType(valueOrError(length->getDataType())),
       "length must be integer, but get dtype ",
-      *length->getDataType());
+      valueOrError(length->getDataType()));
   NVF_CHECK(
-      !isComplexType(*start->getDataType()) &&
-          isIntegralType(*start->getDataType()) == isIntegralType(dtype) &&
-          isFloatingPointType(*start->getDataType()) ==
+      !isComplexType(valueOrError(start->getDataType())) &&
+          isIntegralType(valueOrError(start->getDataType())) ==
+              isIntegralType(dtype) &&
+          isFloatingPointType(valueOrError(start->getDataType())) ==
               isFloatingPointType(dtype),
       "iota: start dtype does not match specified dtype argument, should be ",
       dtype,
       " but get ",
-      *start->getDataType());
+      valueOrError(start->getDataType()));
   NVF_CHECK(
-      !isComplexType(*step->getDataType()) &&
-          isIntegralType(*step->getDataType()) == isIntegralType(dtype) &&
-          isFloatingPointType(*step->getDataType()) ==
+      !isComplexType(valueOrError(step->getDataType())) &&
+          isIntegralType(valueOrError(step->getDataType())) ==
+              isIntegralType(dtype) &&
+          isFloatingPointType(valueOrError(step->getDataType())) ==
               isFloatingPointType(dtype),
       "iota: step dtype does not match specified dtype argument, should be ",
       dtype,
       " but get ",
-      *step->getDataType());
+      valueOrError(step->getDataType()));
 
   start = maybeCastOp(dtype, start);
   step = maybeCastOp(dtype, step);
@@ -652,9 +662,9 @@ TensorView* imag(TensorView* tv) {
 
 // construct complex tensor from real and imag tensors
 Val* complex(Val* r, Val* i) {
-  DataType dtype = r->getDataType().value();
+  DataType dtype = valueOrError(r->getDataType());
   NVF_CHECK(
-      dtype == i->getDataType().value(),
+      dtype == valueOrError(i->getDataType()),
       "real and imag data type should be same in complex().");
   Val* out = ops::newValLike(r, getComplexTypeFromType(dtype));
   IrBuilder::create<BinaryOp>(BinaryOpType::Complex, out, r, i);
@@ -784,7 +794,8 @@ DataType getOutputType(
   if (isLogicalOp(op_type)) {
     return DataType::Bool;
   } else if (common_dtype == DataType::Null) {
-    return promoteType(v1->getDataType().value(), v2->getDataType().value());
+    return promoteType(
+        valueOrError(v1->getDataType()), valueOrError(v2->getDataType()));
   } else {
     return common_dtype;
   }
@@ -794,8 +805,8 @@ DataType getOutputType(
 
 Val* binaryOp(BinaryOpType type, Val* v1, Val* v2, DataType common_dtype) {
   const auto out_dtype = getOutputType(type, v1, v2, common_dtype);
-  const auto out_vtype =
-      promoteType(v1->getValType().value(), v2->getValType().value());
+  const auto out_vtype = promoteType(
+      valueOrError(v1->getValType()), valueOrError(v2->getValType()));
   auto vals = ops::maybeBroadcast({v1, v2});
   Val* out = nullptr;
   if (out_vtype == ValType::TensorView) {
@@ -1100,11 +1111,10 @@ NVFUSER_DEFINE_INT_ONLY_OP(gcd, Gcd)
 // the right shift, and then cast back to the original value. In C++, unsigned
 // integers are shifted with logical right shift.
 template <typename LHS, typename RHS>
-typename std::conditional<
-    std::is_same<LHS, TensorView*>::value ||
-        std::is_same<RHS, TensorView*>::value,
+std::conditional_t<
+    std::is_same_v<LHS, TensorView*> || std::is_same_v<RHS, TensorView*>,
     TensorView*,
-    Val*>::type
+    Val*>
 logical_right_shift_helper(LHS x, RHS shift) {
   auto sizeof_int_dtype = (x->dtype() == PrimDataType::Int) ? 64L : 32L;
 
@@ -1235,7 +1245,7 @@ TensorView* newForReduction(
       new_domain, TensorDomain::getContiguityFilledWith(new_domain, true));
 
   data_type =
-      data_type == DataType::Null ? tv->getDataType().value() : data_type;
+      data_type == DataType::Null ? valueOrError(tv->getDataType()) : data_type;
   auto* out = IrBuilder::create<TensorView>(td, data_type);
   out->setDeviceMesh(tv->getDeviceMesh());
   return out;
@@ -1281,8 +1291,8 @@ TensorView* reductionOpRaw(
       ops::canonicalizeAxes(axes, non_reduction_ndims);
 
   TensorView* out = newForReduction(tv, canonicalized_axes, dtype);
-  const auto out_type = out->getDataType().value();
-  const auto init_type = init->getDataType().value();
+  const auto out_type = valueOrError(out->getDataType());
+  const auto init_type = valueOrError(init->getDataType());
   NVF_CHECK(
       (isFloatingPointType(out_type) && isFloatingPointType(init_type)) ||
           (isComplexType(out_type) && isComplexType(init_type)) ||
@@ -1342,7 +1352,8 @@ TensorView* maybeFullInsteadOfReduction(
       TensorDomain* td = IrBuilder::create<TensorDomain>(
           new_root, TensorDomain::getContiguityFilledWith(new_root, true));
 
-      dtype = (dtype == DataType::Null ? tv->getDataType().value() : dtype);
+      dtype =
+          (dtype == DataType::Null ? valueOrError(tv->getDataType()) : dtype);
       auto output = IrBuilder::create<TensorView>(td, dtype);
       init = maybeCastOp(dtype, init);
       IrBuilder::create<FullOp>(output, init);
@@ -1377,7 +1388,7 @@ TensorView* reductionOp(
   }
 
   std::vector<int64_t> canonicalized_axes = ops::canonicalizeAxes(axes, ndims);
-  std::sort(canonicalized_axes.begin(), canonicalized_axes.end());
+  std::ranges::sort(canonicalized_axes);
 
   // In PyTorch, reduction of a size-0 tensor is effectively creating a tensor
   // filled with the init value.
@@ -1474,7 +1485,7 @@ TensorView* sum(
     bool keep_dim /*=false*/,
     DataType dtype /* DataType::Null */) {
   if (dtype == DataType::Null) {
-    auto initial_v1_dtype = v1->getDataType().value();
+    auto initial_v1_dtype = valueOrError(v1->getDataType());
     if (isBooleanType(initial_v1_dtype) || isIntegralType(initial_v1_dtype)) {
       dtype = DataType::Int;
     }
@@ -1485,7 +1496,8 @@ TensorView* sum(
     v1 = optionalCastStrict(dtype, v1)->as<TensorView>();
   }
 
-  auto init = FusionGuard::getCurFusion()->zeroVal(v1->getDataType().value());
+  auto init =
+      FusionGuard::getCurFusion()->zeroVal(valueOrError(v1->getDataType()));
   return reductionOp(BinaryOpType::Add, axes, init, v1, keep_dim, dtype);
 }
 
@@ -1495,7 +1507,7 @@ TensorView* prod(
     bool keep_dim /*=false*/,
     DataType dtype /* DataType::Null */) {
   if (dtype == DataType::Null) {
-    auto initial_v1_dtype = v1->getDataType().value();
+    auto initial_v1_dtype = valueOrError(v1->getDataType());
     if (isBooleanType(initial_v1_dtype) || isIntegralType(initial_v1_dtype)) {
       dtype = DataType::Int;
     }
@@ -1506,7 +1518,8 @@ TensorView* prod(
     v1 = optionalCastStrict(dtype, v1)->as<TensorView>();
   }
 
-  auto init = FusionGuard::getCurFusion()->oneVal(v1->getDataType().value());
+  auto init =
+      FusionGuard::getCurFusion()->oneVal(valueOrError(v1->getDataType()));
   return reductionOp(BinaryOpType::Mul, axes, init, v1, keep_dim, dtype);
 }
 
@@ -1518,7 +1531,7 @@ TensorView* max(
   NVF_CHECK(
       dtype == DataType::Null,
       "A dtype other than Null is not currently supported.");
-  Val* init = ops::getMinimumValue(v1->getDataType().value());
+  Val* init = ops::getMinimumValue(valueOrError(v1->getDataType()));
   NVF_CHECK(init != nullptr, "Missing initial value");
   return reductionOp(BinaryOpType::Max, axes, init, v1, keep_dim);
 }
@@ -1531,7 +1544,7 @@ TensorView* min(
   NVF_CHECK(
       dtype == DataType::Null,
       "A dtype other than Null is not currently supported.");
-  Val* init = ops::getMaximumValue(v1->getDataType().value());
+  Val* init = ops::getMaximumValue(valueOrError(v1->getDataType()));
   NVF_CHECK(init != nullptr, "Missing initial value");
   return reductionOp(BinaryOpType::Min, axes, init, v1, keep_dim);
 }
@@ -1652,7 +1665,7 @@ WelfordResult Welford(
   const auto& tv_root = TensorDomain::noReductions(tv->getLoopDomain());
   const auto ndims = std::ssize(tv_root);
   std::vector<int64_t> canonicalized_axes = ops::canonicalizeAxes(axes, ndims);
-  std::sort(canonicalized_axes.begin(), canonicalized_axes.end());
+  std::ranges::sort(canonicalized_axes);
 
   // Squeeze before reduction
   std::vector<int64_t> reduction_axes;
@@ -1675,7 +1688,7 @@ WelfordResult Welford(
   }
 
   if (!reduction_axes.empty()) {
-    DataType dtype = tv->getDataType().value();
+    DataType dtype = valueOrError(tv->getDataType());
     if (isComplexType(dtype)) {
       // var of complex number is a real number, calculate real part and image
       // part
@@ -1742,9 +1755,9 @@ WelfordResult::WelfordResult(
 // add_alpha
 Val* add_alpha(Val* v1, Val* v2, Val* s) {
   NVF_CHECK(
-      s->getValType().value() == ValType::Others,
+      valueOrError(s->getValType()) == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
-      s->getValType().value());
+      valueOrError(s->getValType()));
 
   std::vector<Val*> operands = {v1, v2};
   auto common_dtype = computeTypes(TypePromotion::default_op_config, operands);
@@ -1765,9 +1778,9 @@ TensorView* add_alpha(TensorView* v1, TensorView* v2, Val* v3) {
 // sub_alpha
 Val* sub_alpha(Val* v1, Val* v2, Val* s) {
   NVF_CHECK(
-      s->getValType().value() == ValType::Others,
+      valueOrError(s->getValType()) == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
-      s->getValType().value());
+      valueOrError(s->getValType()));
 
   std::vector<Val*> operands = {v1, v2};
   auto common_dtype = computeTypes(TypePromotion::default_op_config, operands);
@@ -1793,10 +1806,10 @@ Val* lerp(Val* start, Val* end, Val* weight) {
   end = cast_values[1];
   weight = cast_values[2];
 
-  auto out_dtype =
-      promoteType(start->getDataType().value(), end->getDataType().value());
-  auto out_vtype =
-      promoteType(start->getValType().value(), end->getValType().value());
+  auto out_dtype = promoteType(
+      valueOrError(start->getDataType()), valueOrError(end->getDataType()));
+  auto out_vtype = promoteType(
+      valueOrError(start->getValType()), valueOrError(end->getValType()));
 
   auto vals = ops::maybeBroadcast({start, end, weight});
   Val* out = nullptr;
@@ -1835,9 +1848,9 @@ TensorView* lerp(TensorView* v1, TensorView* v2, TensorView* v3) {
 // addcmul
 Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s) {
   NVF_CHECK(
-      s->getValType().value() == ValType::Others,
+      valueOrError(s->getValType()) == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
-      s->getValType().value());
+      valueOrError(s->getValType()));
 
   std::vector<Val*> operands = {v1, v2, v3};
   auto common_dtype = computeTypes(TypePromotion::default_op_config, operands);
@@ -1873,9 +1886,9 @@ TensorView* addcmul(TensorView* v1, TensorView* v2, TensorView* v3, Val* v4) {
 // where (c ? v1 : v2)
 Val* where(Val* c, Val* v1, Val* v2) {
   NVF_CHECK(
-      c->getDataType().value() == DataType::Bool,
+      valueOrError(c->getDataType()) == DataType::Bool,
       "Condition should be of DataType Bool, not ",
-      c->getDataType().value());
+      valueOrError(c->getDataType()));
 
   std::vector<Val*> operands = {v1, v2};
   auto common_dtype =
@@ -1884,10 +1897,10 @@ Val* where(Val* c, Val* v1, Val* v2) {
   v1 = cast_values[0];
   v2 = cast_values[1];
 
-  NVF_CHECK(c->getDataType().value() == DataType::Bool);
+  NVF_CHECK(valueOrError(c->getDataType()) == DataType::Bool);
   const auto& out_dtype = common_dtype;
-  auto out_vtype =
-      promoteType(v1->getValType().value(), v2->getValType().value());
+  auto out_vtype = promoteType(
+      valueOrError(v1->getValType()), valueOrError(v2->getValType()));
   // Even when v1 and v2 are scalar, the output is a tensor if the
   // conditional input is a tensor.
   if (c->getValType() == ValType::TensorView) {
@@ -1931,15 +1944,15 @@ TensorView* where(TensorView* v1, TensorView* v2, TensorView* v3) {
 
 Val* threshold(Val* in, Val* thresh, Val* value) {
   NVF_CHECK(
-      (thresh->getValType().value() == ValType::Others ||
-       thresh->getValType().value() == ValType::NamedScalar) &&
-          (value->getValType().value() == ValType::Others ||
-           value->getValType().value() == ValType::NamedScalar),
+      (valueOrError(thresh->getValType()) == ValType::Others ||
+       valueOrError(thresh->getValType()) == ValType::NamedScalar) &&
+          (valueOrError(value->getValType()) == ValType::Others ||
+           valueOrError(value->getValType()) == ValType::NamedScalar),
       "For Threshold operation: Thresh and Value values should be Scalars.");
 
-  thresh = optionalCast(in->getDataType().value(), thresh);
-  value = optionalCast(in->getDataType().value(), value);
-  Val* out = ops::newValLike(in, in->getDataType().value());
+  thresh = optionalCast(valueOrError(in->getDataType()), thresh);
+  value = optionalCast(valueOrError(in->getDataType()), value);
+  Val* out = ops::newValLike(in, valueOrError(in->getDataType()));
 
   IrBuilder::create<TernaryOp>(
       TernaryOpType::Threshold, out, in, thresh, value);
@@ -1952,24 +1965,25 @@ TensorView* threshold(TensorView* in, Val* thresh, Val* value) {
 
 Val* clamp(Val* in, Val* min_val, Val* max_val) {
   NVF_CHECK(
-      (min_val == nullptr || min_val->getValType().value() == ValType::Others ||
-       min_val->getValType().value() == ValType::NamedScalar) &&
+      (min_val == nullptr ||
+       valueOrError(min_val->getValType()) == ValType::Others ||
+       valueOrError(min_val->getValType()) == ValType::NamedScalar) &&
           (max_val == nullptr ||
-           max_val->getValType().value() == ValType::Others ||
-           max_val->getValType().value() == ValType::NamedScalar),
+           valueOrError(max_val->getValType()) == ValType::Others ||
+           valueOrError(max_val->getValType()) == ValType::NamedScalar),
       "For Clamp operation: Min and Max values should be Scalars.");
 
   min_val = (min_val == nullptr)
-      ? ops::getMinimumValue(in->getDataType().value())
-      : optionalCast(in->getDataType().value(), min_val);
+      ? ops::getMinimumValue(valueOrError(in->getDataType()))
+      : optionalCast(valueOrError(in->getDataType()), min_val);
   NVF_CHECK(min_val != nullptr, "Missing minimum value");
 
   max_val = (max_val == nullptr)
-      ? ops::getMaximumValue(in->getDataType().value())
-      : optionalCast(in->getDataType().value(), max_val);
+      ? ops::getMaximumValue(valueOrError(in->getDataType()))
+      : optionalCast(valueOrError(in->getDataType()), max_val);
   NVF_CHECK(max_val != nullptr, "Missing maximum value");
 
-  Val* out = ops::newValLike(in, in->getDataType().value());
+  Val* out = ops::newValLike(in, valueOrError(in->getDataType()));
   IrBuilder::create<TernaryOp>(TernaryOpType::Clamp, out, in, min_val, max_val);
   return out;
 }
@@ -2075,7 +2089,7 @@ TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
 }
 
 TensorView* viewAsScalar(TensorView* inp) {
-  auto inp_type = inp->getDataType().value();
+  auto inp_type = valueOrError(inp->getDataType());
   auto vec_size = std::get<ArrayType>(inp_type.type).size;
   auto out_type = *std::get<ArrayType>(inp_type.type).type;
 
@@ -2185,9 +2199,10 @@ TensorView* fusedMultiplySum(
   //  Add tf32 and other mma data types
   //  Add fallback path for non-mma data types.
   NVF_CHECK(
-      tv_a->getDataType().value() == DataType::Half ||
-      tv_a->getDataType().value() == DataType::BFloat16);
-  NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
+      valueOrError(tv_a->getDataType()) == DataType::Half ||
+      valueOrError(tv_a->getDataType()) == DataType::BFloat16);
+  NVF_CHECK(
+      valueOrError(tv_a->getDataType()) == valueOrError(tv_b->getDataType()));
 
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
@@ -2358,7 +2373,7 @@ ScaledTensorView createGroupedMmaOutput(
   scaled_out.tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      dtype != DataType::Null ? dtype : mat1->getDataType().value());
+      dtype != DataType::Null ? dtype : valueOrError(mat1->getDataType()));
 
   if (out_block_scale_size > 0) {
     std::vector<IterDomain*> block_scaling_factor_domain;
@@ -2551,7 +2566,7 @@ TopKResult topk(
     for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
       auto root_id = inp_domain_ptr->cloneWithoutRFactor();
       values_root.push_back(root_id);
-      if (index != (size_t)dim) {
+      if (index != dim) {
         // Root and logical are the same for non topk dim
         values_logical.push_back(root_id);
         continue;
@@ -2672,11 +2687,11 @@ BlockQuantizationResults blockQuantize(
   // Validate input data type
   // We'll only support FP32 or BF16/FP16
   NVF_CHECK(
-      input->getDataType().value() == DataType::Float ||
-          input->getDataType().value() == DataType::BFloat16 ||
-          input->getDataType().value() == DataType::Half,
+      valueOrError(input->getDataType()) == DataType::Float ||
+          valueOrError(input->getDataType()) == DataType::BFloat16 ||
+          valueOrError(input->getDataType()) == DataType::Half,
       "Block quantization expects floating point input but got ",
-      input->getDataType().value());
+      valueOrError(input->getDataType()));
 
   // Check that if global_scaling_factor in non-null
   // then it is a scalar float TensorView
@@ -2686,7 +2701,7 @@ BlockQuantizationResults blockQuantize(
             .empty(),
         "Global scaling factor for block quantization must be a scalar tensor");
     NVF_CHECK(
-        global_scaling_factor->getDataType().value() == DataType::Float,
+        valueOrError(global_scaling_factor->getDataType()) == DataType::Float,
         "Global scaling factor for block quantization must be of float data "
         "type");
   }
@@ -2795,11 +2810,11 @@ BlockQuantizationResults groupedBlockQuantize(
   // Validate input data type
   // We'll only support FP32 or BF16/FP16
   NVF_CHECK(
-      input->getDataType().value() == DataType::Float ||
-          input->getDataType().value() == DataType::BFloat16 ||
-          input->getDataType().value() == DataType::Half,
+      valueOrError(input->getDataType()) == DataType::Float ||
+          valueOrError(input->getDataType()) == DataType::BFloat16 ||
+          valueOrError(input->getDataType()) == DataType::Half,
       "Grouped block quantization expects floating point input but got ",
-      input->getDataType().value());
+      valueOrError(input->getDataType()));
 
   // Check that if global_scaling_factor in non-null
   // then it is a scalar float TensorView
@@ -2810,7 +2825,7 @@ BlockQuantizationResults groupedBlockQuantize(
         "Global scaling factor for grouped block quantization must be a scalar "
         "tensor");
     NVF_CHECK(
-        global_scaling_factor->getDataType().value() == DataType::Float,
+        valueOrError(global_scaling_factor->getDataType()) == DataType::Float,
         "Global scaling factor for grouped block quantization must be of float "
         "data "
         "type");
