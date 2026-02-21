@@ -34,11 +34,24 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
 
   Layout p_layout = getCommunicationLayout(
       input, communication_info->type, communication_info->p_sharded_id);
-  if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
+  std::optional<Layout> input_layout = canonicalizeLayout(input);
+  NVF_ERROR(
+      input_layout.has_value(),
+      "Expected canonicalized layout for input: ",
+      input);
+  if (!isCompliantWith(*input_layout, p_layout)) {
     TensorView* input_copy = set(input);
     TransformReplay::selfReplay(input->domain(), input_copy->domain());
     ir_utils::replaceValInExprInputs(expr, input, input_copy);
-    p_layout = *mapInLayoutToOutRoot(p_layout, input, input_copy);
+    std::optional<Layout> mapped_layout =
+        mapInLayoutToOutRoot(p_layout, input, input_copy);
+    NVF_ERROR(
+        mapped_layout.has_value(),
+        "Failed to map input layout to output root: ",
+        input,
+        " -> ",
+        input_copy);
+    p_layout = *mapped_layout;
     input = input_copy;
   }
   input->setAllocationDomain(
@@ -51,6 +64,11 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
   // (1) a fusion input with empty allocation is considered to have the
   // major-to-minor stride order, and (2) there was a bug in the reduction
   // scheduler.
+  std::optional<Layout> output_layout = canonicalizeLayout(output);
+  NVF_ERROR(
+      output_layout.has_value(),
+      "Expected canonicalized layout for output: ",
+      output);
   if (output->hasAllocation() &&
       // Unlike for input, `c_layout` is the actual and `output` is the
       // required. This is because `c_layout` is guaranteed by `p_layout` and
@@ -58,7 +76,7 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
       // when `c_layout` and `output` have the same allocation order,
       // `c_layout` is contiguous, `output` is non-contiguous, we don't need an
       // extra copy -- a contiguous tensor can be used as non-contiguous.
-      !isCompliantWith(c_layout, *canonicalizeLayout(output))) {
+      !isCompliantWith(c_layout, *output_layout)) {
     TensorView* output_copy = set(output);
     TransformReplay::selfReplay(output->domain(), output_copy->domain());
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
@@ -84,10 +102,9 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << std::endl
-            << "Fusion Transforms after " << name() << ":" << std::endl;
+    debug() << '\n' << "Fusion Transforms after " << name() << ":\n";
     fusion->printTransforms();
-    debug() << std::endl;
+    debug() << '\n';
   }
 }
 
