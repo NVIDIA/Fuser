@@ -179,6 +179,7 @@ class Allocate : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
   const char* getOpString() const override {
     return "hir::Allocate";
   }

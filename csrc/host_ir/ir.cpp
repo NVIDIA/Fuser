@@ -523,10 +523,18 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(Allocate)
 
 std::string Allocate::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << buffer()->toString() << " = ALLOCATE("
+  indent(ss, indent_size) << in()->toString() << " = ALLOCATE("
                           << "mem_type=" << memoryType() << ", "
                           << "zero_init=" << boolLiteral(zeroInit()) << ")"
                           << std::endl;
+  return ss.str();
+}
+
+std::string Allocate::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << in()->toInlineString() << " = ALLOCATE("
+                          << "mem_type=" << memoryType() << ", "
+                          << "zero_init=" << boolLiteral(zeroInit()) << ")";
   return ss.str();
 }
 
