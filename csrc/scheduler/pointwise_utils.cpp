@@ -153,8 +153,7 @@ std::optional<FusionRuntimeProperties> getFusionRuntimeProperties(
   int64_t min_dtype_size_bit = std::numeric_limits<int64_t>::max();
 
   for (auto tv : prop.vectorizable_inputs_outputs) {
-    int64_t dtype_size_bit =
-        dataTypeSizeBit(tv->getDataType().value(), index_type);
+    int64_t dtype_size_bit = dataTypeSizeBit(tv->getDataType(), index_type);
     max_dtype_size_bit = std::max(max_dtype_size_bit, dtype_size_bit);
     min_dtype_size_bit = std::min(min_dtype_size_bit, dtype_size_bit);
   }
@@ -188,10 +187,10 @@ BreakPointInfo getBreakPoint(
   int64_t dtype_sum_bit = 0;
   const auto index_type = prop.index_type;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    dtype_sum_bit += dataTypeSizeBit(inp->getDataType().value(), index_type);
+    dtype_sum_bit += dataTypeSizeBit(inp->getDataType(), index_type);
   }
   for (auto out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    dtype_sum_bit += dataTypeSizeBit(out->getDataType().value(), index_type);
+    dtype_sum_bit += dataTypeSizeBit(out->getDataType(), index_type);
   }
 
   // Get broadcast information

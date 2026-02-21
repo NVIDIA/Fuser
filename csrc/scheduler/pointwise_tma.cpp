@@ -84,8 +84,7 @@ int64_t getInputBitsPerElement(
   int64_t n_valid_dims = scheduler_utils::nLogicalDims(prop.largest_out);
   for (const auto& tv : prop.vectorizable_inputs_outputs) {
     if (tv->isFusionInput() && isTvSuitableForTma(tv, n_valid_dims)) {
-      bits_per_element +=
-          dataTypeSizeBit(tv->getDataType().value(), prop.index_type);
+      bits_per_element += dataTypeSizeBit(tv->getDataType(), prop.index_type);
     }
   }
   return bits_per_element;
@@ -164,8 +163,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // 128-bit alignment. This limitation affects both TMA and non-TMA pointwise
   // schedulers. See TmaDomainBroadcastIllegal test for an example.
   if (bp_info.break_point > 0) {
-    const int64_t ref_elem_size_bits = dataTypeSizeBit(
-        prop.largest_out->getDataType().value(), prop.index_type);
+    const int64_t ref_elem_size_bits =
+        dataTypeSizeBit(prop.largest_out->getDataType(), prop.index_type);
     const int64_t tma_domain_inner_bits = tma_domain_inner * ref_elem_size_bits;
     if (tma_domain_inner_bits % 128 != 0) {
       return nullptr;

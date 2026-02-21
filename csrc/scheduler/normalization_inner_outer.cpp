@@ -88,7 +88,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     } else {
       max_outer_reduction_dtype_size_bit = std::max(
           max_outer_reduction_dtype_size_bit,
-          dataTypeSizeBit(tv->getDataType().value()));
+          dataTypeSizeBit(tv->getDataType()));
     }
   }
   auto ref_red_tv = first_inner_reduction_tv;

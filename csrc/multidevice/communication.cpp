@@ -267,32 +267,24 @@ void MoeDispatch::validate() {
   NVF_CHECK(inX()->isA<TensorView>(), "in_x must be a TensorView.");
   NVF_CHECK(inTopkIdx()->isA<TensorView>(), "topk_idx must be a TensorView.");
   NVF_CHECK(
-      inTopkIdx()->getDataType().has_value() &&
-          isIntegralType(*inTopkIdx()->getDataType()),
-      "topk_idx must be integral.");
+      isIntegralType(inTopkIdx()->getDataType()), "topk_idx must be integral.");
   NVF_CHECK(
-      inTopkWeights()->getDataType().has_value() &&
-          isFloatingPointType(*inTopkWeights()->getDataType()),
+      isFloatingPointType(inTopkWeights()->getDataType()),
       "topk_weights must be floating point.");
   NVF_CHECK(
-      outTopkIdx()->getDataType().has_value() &&
-          isIntegralType(*outTopkIdx()->getDataType()),
+      isIntegralType(outTopkIdx()->getDataType()),
       "out_topk_idx must be integral.");
   NVF_CHECK(
-      outTopkWeights()->getDataType().has_value() &&
-          isFloatingPointType(*outTopkWeights()->getDataType()),
+      isFloatingPointType(outTopkWeights()->getDataType()),
       "out_topk_weights must be floating point.");
   NVF_CHECK(
-      outSrcIdx()->getDataType().has_value() &&
-          isIntegralType(*outSrcIdx()->getDataType()),
+      isIntegralType(outSrcIdx()->getDataType()),
       "out_src_idx must be integral.");
   NVF_CHECK(
-      outTokensToRank()->getDataType().has_value() &&
-          isIntegralType(*outTokensToRank()->getDataType()),
+      isIntegralType(outTokensToRank()->getDataType()),
       "out_n_tokens_to_rank must be integral.");
   NVF_CHECK(
-      outTokensFromRank()->getDataType().has_value() &&
-          isIntegralType(*outTokensFromRank()->getDataType()),
+      isIntegralType(outTokensFromRank()->getDataType()),
       "out_n_tokens_from_rank must be integral.");
 }
 
@@ -336,20 +328,16 @@ std::string MoeCombine::toString(int indent_size) const {
 void MoeCombine::validate() {
   NVF_CHECK(inX()->isA<TensorView>(), "in_x must be a TensorView.");
   NVF_CHECK(
-      inTopkWeights()->getDataType().has_value() &&
-          isFloatingPointType(*inTopkWeights()->getDataType()),
+      isFloatingPointType(inTopkWeights()->getDataType()),
       "in_topk_weights must be floating point.");
   NVF_CHECK(
-      inSrcIdx()->getDataType().has_value() &&
-          isIntegralType(*inSrcIdx()->getDataType()),
+      isIntegralType(inSrcIdx()->getDataType()),
       "in_src_idx must be integral.");
   NVF_CHECK(
-      inTokensToRank()->getDataType().has_value() &&
-          isIntegralType(*inTokensToRank()->getDataType()),
+      isIntegralType(inTokensToRank()->getDataType()),
       "in_n_tokens_to_rank must be integral.");
   NVF_CHECK(
-      inTokensFromRank()->getDataType().has_value() &&
-          isIntegralType(*inTokensFromRank()->getDataType()),
+      isIntegralType(inTokensFromRank()->getDataType()),
       "in_n_tokens_from_rank must be integral.");
 }
 

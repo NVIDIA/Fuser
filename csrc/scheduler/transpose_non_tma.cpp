@@ -277,8 +277,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   auto scan_max_dtype_size = [&](const auto& vals) {
     for (auto inp : ir_utils::filterByType<TensorView>(vals)) {
       max_io_dtype_size = std::max(
-          max_io_dtype_size,
-          dataTypeSizeByte(inp->getDataType().value(), index_type));
+          max_io_dtype_size, dataTypeSizeByte(inp->getDataType(), index_type));
       n_io_tensors++;
     }
   };

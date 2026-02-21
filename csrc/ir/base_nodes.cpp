@@ -268,7 +268,7 @@ std::string Val::toString(int indent_size) const {
     ss << ir_utils::varName(this);
     return ss.str();
   }
-  auto dtype = getDataType().value();
+  auto dtype = getDataType();
   if (dtype == DataType::Bool) {
     ss << (value() ? "true" : "false");
   } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
@@ -341,7 +341,7 @@ bool Val::isFalse() const {
   return value().hasValue() && value().is<bool>() && !value().as<bool>();
 }
 
-std::optional<DataType> Val::getDataType() const {
+DataType Val::getDataType() const {
   NVF_ERROR(dtype_ != DataType::Null, "Value does not have a data type.");
   return dtype_;
 }

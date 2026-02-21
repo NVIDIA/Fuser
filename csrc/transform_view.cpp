@@ -948,7 +948,7 @@ TensorView* applyViewTransforms(
   TensorView* consumer = IrBuilder::createInContainer<TensorView>(
       orig_tv->container(),
       orig_tv->domain()->view(view_analysis),
-      orig_tv->getDataType().value());
+      orig_tv->getDataType());
   consumer->setDeviceMesh(orig_tv->getDeviceMesh());
 
   IrBuilder::createInContainer<ReshapeOp>(
