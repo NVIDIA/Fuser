@@ -114,8 +114,10 @@ constexpr int64_t alignSharedMemoryBytes(int64_t unaligned_bytes) {
 }
 
 //! Returns the value of an optional, or throws via NVF_ERROR if nullopt.  This
-//! is to satisfy clang-tidy bugprone-unchecked-optional-access.  Use this when
-//! you have already ensured that the optional is engaged.
+//! is to satisfy clang-tidy bugprone-unchecked-optional-access when you have
+//! already ensured that the optional is engaged. If you prefer a better error
+//! message, have the caller check has_value() instead so it can provide more
+//! context.
 template <typename T>
 const T& valueOrError(const std::optional<T>& opt) {
   NVF_ERROR(opt.has_value());
