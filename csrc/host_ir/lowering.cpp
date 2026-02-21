@@ -147,10 +147,7 @@ Expr* cloneWithNewOperands(
     return e;
   }
 
-  auto* new_e =
-      e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
-  e->container()->removeExpr(e);
-  return new_e;
+  return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
 }
 
 void lowerSegment(

@@ -31,7 +31,7 @@ enum class CommunicationType {
   ReduceScatter,
   Broadcast,
   SendRecv,
-  AllToAll,
+  AllToAll
 };
 
 std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
