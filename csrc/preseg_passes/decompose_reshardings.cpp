@@ -7,6 +7,8 @@
 // clang-format on
 #include "preseg_passes/decompose_reshardings.h"
 
+#include <cstdint>
+
 #include "fusion.h"
 #include "host_ir/lower_to_communication.h"
 #include "ir/base_nodes.h"
@@ -24,7 +26,7 @@
 namespace nvfuser::preseg_passes {
 namespace {
 
-enum class ReshardPosition { // NOLINT(performance-enum-size)
+enum class ReshardPosition : std::uint8_t {
   kBefore,
   kAfter,
 };
@@ -130,7 +132,7 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       }
       shardLoopLike(
           /*ref=*/output,
-          /*tv=*/new_input,
+          /*target=*/new_input,
           deviceAndStreamParallelTypes(),
           PropagateDirection::kBackward);
     }
@@ -181,7 +183,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     // output takes input's sharding
     shardLoopLike(
         /*ref=*/output,
-        /*tv=*/new_output,
+        /*target=*/new_output,
         deviceAndStreamParallelTypes(),
         PropagateDirection::kForward);
 
@@ -192,7 +194,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
 
     shardLoopLike(
         /*ref=*/resharding_input,
-        /*tv=*/output,
+        /*target=*/output,
         deviceAndStreamParallelTypes(),
         PropagateDirection::kForward);
 
@@ -221,7 +223,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     // Then, output when sharded like input above will be stream parallelized.
     shardLoopLike(
         /*ref=*/new_output,
-        /*tv=*/output,
+        /*target=*/output,
         {ParallelType::Stream},
         PropagateDirection::kBackward);
   }
@@ -285,7 +287,7 @@ void decomposeRowParallelLinearWithBias(Fusion* fusion) {
         for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
           shardLoopLike(
               /*ref=*/output,
-              /*tv=*/input,
+              /*target=*/input,
               deviceAndStreamParallelTypes(),
               PropagateDirection::kBackward);
         }

@@ -33,7 +33,7 @@ TensorView* findMostParallelTensorView(const R& range) {
 // Propagates the given device/stream ids from ref to target.
 void shardLoopLike(
     const TensorView* ref,
-    TensorView* tv,
+    TensorView* target,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction);
 
