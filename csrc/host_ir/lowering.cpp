@@ -15,6 +15,7 @@
 #include "ir/builder.h"
 #include "ir/iostream.h"
 #include "ir/utils.h"
+#include "iter_visitor.h"
 #include "kernel_ir.h"
 #include "multidevice/propagation.h"
 #include "multidevice/resharding.h"
@@ -176,7 +177,6 @@ void lowerSegment(
       // If a value is already cloned, IrCloner::clone returns the cloned value
       // without cloning the value again.
       Expr* e = ir_cloner.clone(group.exprs().front());
-      debug() << "Cloned e: " << e << std::endl;
 
       // TODO: `replacement_map` should be associated with the scope so
       // ShardByStream across segments in the same for-loop can be reused.
@@ -227,8 +227,19 @@ void lowerSegment(
           innermost_scope.pushBack(allocate);
         }
 
+        if (auto* cp = dynamic_cast<CollectivePermute*>(c)) {
+          auto add_definition_chain = [&innermost_scope](Val* val) -> void {
+            for (Expr* expr : StmtSort::getExprsTo({val})) {
+              innermost_scope.pushBack(expr);
+            }
+          };
+          add_definition_chain(cp->sendPeer());
+          add_definition_chain(cp->recvPeer());
+        }
+
         Expr* new_c = cloneWithNewOperands(c, replacement_map);
         innermost_scope.pushBack(new_c);
+        debug() << "Cloned new_c: " << new_c << std::endl;
 
         auto* wait = IrBuilder::create<hir::Wait>(new_c);
         innermost_scope.pushBack(wait);
