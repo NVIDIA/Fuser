@@ -176,10 +176,8 @@ OperandType getValueType(Val* type) {
         ValueType::Tensor,
         tensor_view->getDataType(),
         tensor_view->getLogicalDomain().size()};
-  } else if (true) {
-    return {ValueType::Scalar, type->getDataType()};
   } else {
-    return {ValueType::None, DataType::Null};
+    return {ValueType::Scalar, type->getDataType()};
   }
 }
 
