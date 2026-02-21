@@ -440,11 +440,10 @@ std::ostream& operator<<(std::ostream& os, const CommunicationInfo& info) {
 
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* e) {
   // `sum` leads to a SqueezeOp when the reduction dimension is size-1.
-  NVF_ERROR(
-      (e->isOneOf<LoadStoreOp, ReductionOp, SqueezeOp>()),
-      "getCommunicationInfo should only be called when `e` is known to be a "
-      "communication. Given: ",
-      e);
+  if (!e->isOneOf<LoadStoreOp, ReductionOp, SqueezeOp>()) {
+    return std::nullopt;
+  }
+
   NVF_ERROR_EQ(e->inputs().size(), 1, "Expected 1 input, but got ", e);
   auto* producer = e->inputs().at(0)->as<TensorView>();
   NVF_ERROR_EQ(e->outputs().size(), 1, "Expected 1 output, but got ", e);
