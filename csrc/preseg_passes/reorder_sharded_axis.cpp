@@ -14,9 +14,7 @@
 #include "ir/interface_nodes.h"
 #include "ir/utils.h"
 #include "multidevice/resharding.h"
-#include "multidevice/utils.h"
 #include "ops/alias.h"
-#include "scheduler/utils.h"
 #include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {
@@ -27,12 +25,15 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
   auto* input = expr->inputs().at(0)->as<TensorView>();
   auto* output = expr->outputs().at(0)->as<TensorView>();
 
-  CommunicationInfo communication_info = getCommunicationInfo(expr);
-  IterDomain* p_sharded_id = communication_info.p_sharded_id;
-  IterDomain* c_sharded_id = communication_info.c_sharded_id;
+  std::optional<CommunicationInfo> communication_info =
+      getCommunicationInfo(expr);
+  NVF_ERROR(
+      communication_info.has_value(),
+      "Expected communication info for resharding expr: ",
+      expr);
 
-  Layout p_layout =
-      getCommunicationLayout(input, communication_info.type, p_sharded_id);
+  Layout p_layout = getCommunicationLayout(
+      input, communication_info->type, communication_info->p_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
     TensorView* input_copy = set(input);
     TransformReplay::selfReplay(input->domain(), input_copy->domain());
@@ -43,8 +44,8 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
   input->setAllocationDomain(
       p_layout.allocation_domain(), p_layout.contiguity());
 
-  Layout c_layout =
-      getCommunicationLayout(output, communication_info.type, c_sharded_id);
+  Layout c_layout = getCommunicationLayout(
+      output, communication_info->type, communication_info->c_sharded_id);
   // When the output doesn't have a specified allocation, we can override it
   // with the communication layout. The same doesn't apply to the input because
   // (1) a fusion input with empty allocation is considered to have the
