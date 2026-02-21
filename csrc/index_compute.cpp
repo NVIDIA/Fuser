@@ -1903,8 +1903,7 @@ Val* Index::getProducerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSizeByte(producer->getDataType()),
-              index->getDataType()));
+              dataTypeSizeByte(producer->getDataType()), index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(producer), index_bytes);
     } else {
@@ -2030,8 +2029,7 @@ Val* Index::getConsumerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSizeByte(consumer->getDataType()),
-              index->getDataType()));
+              dataTypeSizeByte(consumer->getDataType()), index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), index_bytes);
     } else {
