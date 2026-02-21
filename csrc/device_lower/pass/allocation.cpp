@@ -342,9 +342,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
         indexed_alloc_dom.has_value()) {
       allocation_domains = indexed_alloc_dom.value();
       // Make sure the original allocation domains are fully contiguous
-      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-        return b.has_value() && b.value();
-      }));
+      NVF_ERROR(std::ranges::all_of(
+          contiguity, [](auto b) { return b.has_value() && b.value(); }));
       // Set the new allocation domains fully contiguous
       contiguity =
           std::vector<std::optional<bool>>(allocation_domains.size(), true);
@@ -369,10 +368,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
         reordered_domains.has_value()) {
       allocation_domains = reordered_domains.value();
       NVF_ERROR(
-          std::all_of(
-              contiguity.begin(),
-              contiguity.end(),
-              [](auto b) { return b.has_value() && b.value(); }),
+          std::ranges::all_of(
+              contiguity, [](auto b) { return b.has_value() && b.value(); }),
           tv->toString());
     }
 
@@ -385,9 +382,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
         transposed_smem_alloc_dom.has_value()) {
       allocation_domains = transposed_smem_alloc_dom.value();
       // Make sure the original allocation domains are fully contiguous
-      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-        return b.has_value() && b.value();
-      }));
+      NVF_ERROR(std::ranges::all_of(
+          contiguity, [](auto b) { return b.has_value() && b.value(); }));
       // Set the new allocation domains fully contiguous
       contiguity =
           std::vector<std::optional<bool>>(allocation_domains.size(), true);
@@ -480,7 +476,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
     NVF_ERROR(actual_allocation_domains.size() == actual_contiguity.size());
 
     return AllocationDomainInfo{
-        actual_allocation_domains, actual_strides, actual_contiguity};
+        .ids = actual_allocation_domains,
+        .strides = actual_strides,
+        .contiguity = actual_contiguity};
   }
 
   // Reorder non-logical allocation domains to follow the ordering of
@@ -520,8 +518,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       // Find the position to insert the outputs.
       int64_t insertion_pos = -1;
       for (auto inp : expr->inputs()) {
-        auto it =
-            std::find(ordered_domains.begin(), ordered_domains.end(), inp);
+        auto it = std::ranges::find(ordered_domains, inp);
         if (it == ordered_domains.end()) {
           continue;
         }
@@ -545,8 +542,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
       // Delete the inputs
       for (auto inp : expr->inputs()) {
-        auto it =
-            std::find(ordered_domains.begin(), ordered_domains.end(), inp);
+        auto it = std::ranges::find(ordered_domains, inp);
         if (it == ordered_domains.end()) {
           continue;
         }
@@ -557,8 +553,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // At this point, all domains of allocation_domains must exist in
     // domains.
     for (auto alloc_dom : allocation_domains) {
-      auto it =
-          std::find(ordered_domains.begin(), ordered_domains.end(), alloc_dom);
+      auto it = std::ranges::find(ordered_domains, alloc_dom);
       NVF_ERROR(
           it != ordered_domains.end(),
           "Missing allocation domain: ",
