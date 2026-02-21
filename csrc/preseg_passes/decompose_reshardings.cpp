@@ -7,6 +7,8 @@
 // clang-format on
 #include "preseg_passes/decompose_reshardings.h"
 
+#include <cstdint>
+
 #include "fusion.h"
 #include "host_ir/lower_to_communication.h"
 #include "ir/base_nodes.h"
@@ -24,7 +26,7 @@
 namespace nvfuser::preseg_passes {
 namespace {
 
-enum class ReshardPosition {
+enum class ReshardPosition : std::uint8_t {
   kBefore,
   kAfter,
 };
@@ -418,7 +420,7 @@ void rFactorLoopSplits(Fusion* fusion) {
       const ParallelType parallel_type = loop_id->getParallelType();
       if (parallel_type == ParallelType::Serial) {
         // rFactor non-parallelized IDs so they get reduced locally.
-        rfactor_axes.push_back(i);
+        rfactor_axes.push_back(static_cast<int64_t>(i));
       } else {
         reduced_parallel_types.insert(parallel_type);
       }
