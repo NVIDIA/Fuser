@@ -496,9 +496,7 @@ Layout getCommunicationLayout(
     TensorView* tv,
     const CommunicationType type,
     IterDomain* sharded_id) {
-  std::optional<Layout> canonical_layout = canonicalizeLayout(tv);
-  NVF_ERROR(canonical_layout.has_value());
-  Layout layout = canonical_layout->contiguous();
+  Layout layout = valueOrError(canonicalizeLayout(tv)).contiguous();
   // For the following communication types, the sharded_id does not have to be
   // outermost in allocation domain. Nonetheless, `tv` still needs to be
   // contiguous and therefore .contiguous() at the beginning of this function.
@@ -548,9 +546,8 @@ bool isCommunicationLayoutCompliant(Expr* e) {
 
   auto* producer = e->inputs().at(0)->as<TensorView>();
   std::optional<Layout> p_layout = canonicalizeLayout(producer);
-  NVF_ERROR(p_layout.has_value());
   if (!isCompliantWith(
-          *p_layout,
+          valueOrError(p_layout),
           getCommunicationLayout(
               producer,
               communication_info.type,
@@ -560,9 +557,8 @@ bool isCommunicationLayoutCompliant(Expr* e) {
 
   auto* consumer = e->outputs().at(0)->as<TensorView>();
   std::optional<Layout> c_layout = canonicalizeLayout(consumer);
-  NVF_ERROR(c_layout.has_value());
   if (!isCompliantWith(
-          *c_layout,
+          valueOrError(c_layout),
           getCommunicationLayout(
               consumer,
               communication_info.type,
