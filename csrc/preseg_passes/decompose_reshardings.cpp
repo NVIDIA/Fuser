@@ -24,7 +24,7 @@
 namespace nvfuser::preseg_passes {
 namespace {
 
-enum class ReshardPosition {
+enum class ReshardPosition { // NOLINT(performance-enum-size)
   kBefore,
   kAfter,
 };
@@ -130,7 +130,7 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       }
       shardLoopLike(
           /*ref=*/output,
-          /*target=*/new_input,
+          /*tv=*/new_input,
           deviceAndStreamParallelTypes(),
           PropagateDirection::kBackward);
     }
@@ -181,7 +181,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     // output takes input's sharding
     shardLoopLike(
         /*ref=*/output,
-        /*target=*/new_output,
+        /*tv=*/new_output,
         deviceAndStreamParallelTypes(),
         PropagateDirection::kForward);
 
@@ -192,7 +192,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
 
     shardLoopLike(
         /*ref=*/resharding_input,
-        /*target=*/output,
+        /*tv=*/output,
         deviceAndStreamParallelTypes(),
         PropagateDirection::kForward);
 
@@ -221,7 +221,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     // Then, output when sharded like input above will be stream parallelized.
     shardLoopLike(
         /*ref=*/new_output,
-        /*target=*/output,
+        /*tv=*/output,
         {ParallelType::Stream},
         PropagateDirection::kBackward);
   }
@@ -285,7 +285,7 @@ void decomposeRowParallelLinearWithBias(Fusion* fusion) {
         for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
           shardLoopLike(
               /*ref=*/output,
-              /*target=*/input,
+              /*tv=*/input,
               deviceAndStreamParallelTypes(),
               PropagateDirection::kBackward);
         }
@@ -346,7 +346,7 @@ void rFactorLoopSplits(Fusion* fusion) {
       const ParallelType parallel_type = loop_id->getParallelType();
       if (parallel_type == ParallelType::Serial) {
         // rFactor non-parallelized IDs so they get reduced locally.
-        rfactor_axes.push_back(i);
+        rfactor_axes.push_back(static_cast<int64_t>(i));
       } else {
         reduced_parallel_types.insert(parallel_type);
       }

@@ -51,14 +51,13 @@ bool isSplitDivisible(IterDomain* id, Split* ref_split) {
 bool hasRootToLogicalTransform(IterDomain* id, const TensorView* tv) {
   auto logical_ids = IterVisitor::getInputsTo(
       {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-  return std::any_of(
-      logical_ids.begin(), logical_ids.end(), [&](Val* logical_val) {
-        return logical_val->definition() != nullptr;
-      });
+  return std::ranges::any_of(logical_ids, [&](Val* logical_val) {
+    return logical_val->definition() != nullptr;
+  });
 }
 
 bool isInDomain(IterDomain* id, const std::vector<IterDomain*>& domain) {
-  return std::find(domain.begin(), domain.end(), id) != domain.end();
+  return std::ranges::find(domain, id) != domain.end();
 }
 
 // Traverses root-to-logical transforms to find the outermost logical ID.
@@ -262,7 +261,7 @@ void transformLoopDomain(
 
 } // namespace
 
-int numParallelIterDomains(const TensorView* tv) {
+int64_t numParallelIterDomains(const TensorView* tv) {
   return std::ranges::count_if(
       tv->getLoopDomain(), [](IterDomain* id) { return id->isParallelized(); });
 }
@@ -275,7 +274,7 @@ void shardLoopLike(
   if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
     debug() << "Propagating shardings from " << ref->toString() << " to "
             << target->toString() << " in " << direction << " for "
-            << toDelimitedString(selected_parallel_types) << std::endl;
+            << toDelimitedString(selected_parallel_types) << '\n';
   }
 
   std::unordered_set<IterDomain*> device_or_stream_ids;
