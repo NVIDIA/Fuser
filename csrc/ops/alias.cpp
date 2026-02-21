@@ -9,6 +9,7 @@
 
 #include <ranges>
 
+#include "base.h"
 #include "expr_evaluator.h"
 #include "expr_simplifier.h"
 #include "ir/builder.h"
@@ -21,7 +22,7 @@
 namespace nvfuser {
 
 Val* set(Val* v) {
-  Val* out = ops::newValLike(v, v->getDataType().value());
+  Val* out = ops::newValLike(v, valueOrError(v->getDataType()));
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v);
   return out;
 }
@@ -31,7 +32,7 @@ TensorView* set(TensorView* tv) {
 }
 
 Val* segment_set(Val* v) {
-  Val* out = ops::newValLike(v, v->getDataType().value());
+  Val* out = ops::newValLike(v, valueOrError(v->getDataType()));
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterSet, out, v);
   return out;
 }

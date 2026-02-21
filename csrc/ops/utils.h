@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include "exceptions.h"
@@ -18,10 +19,10 @@
 
 namespace nvfuser {
 
-enum class AttnRole { Q = 0, K, V, Mask };
+enum class AttnRole : std::uint8_t { Q = 0, K, V, Mask };
 
 struct ScaledTensorView {
-  TensorView* tv;
+  TensorView* tv = nullptr;
   TensorView* block_scaling_factor = nullptr;
   TensorView* global_scaling_factor = nullptr;
 };
