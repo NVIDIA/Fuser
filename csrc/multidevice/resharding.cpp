@@ -126,6 +126,13 @@ bool haveDifferentShardings(
 
   // If the two device meshes are different, the Expr is resharding if any
   // parallel type in `parallel_types` is in the mesh.
+  //
+  // This code is problematic for multi-dimensional sharding.
+  // ```
+  // x: [iDIDy{2}, iDIDx{2}] on mesh [[0, 1], [2, 3]]
+  // y = set(x): [iDIDy{2}, i{2}] on mesh [[0], [2]]
+  // ```
+  // should be treated as non-resharding on DIDy.
   if (producer->getDeviceMesh() != consumer->getDeviceMesh() &&
       std::ranges::any_of(parallel_types, [&](ParallelType pt) {
         return isParallelTypeDeviceDim(pt) &&
