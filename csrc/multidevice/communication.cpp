@@ -46,9 +46,6 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
     case CommunicationType::AllToAll:
       os << "AllToAll";
       break;
-    case CommunicationType::StreamBroadcast:
-      os << "StreamBroadcast";
-      break;
   }
   return os;
 }
@@ -62,7 +59,6 @@ bool hasRoot(CommunicationType type) {
     case CommunicationType::Reduce:
     case CommunicationType::Broadcast:
     case CommunicationType::SendRecv:
-    case CommunicationType::StreamBroadcast:
       return true;
     case CommunicationType::Allgather:
     case CommunicationType::Allreduce:
@@ -85,7 +81,6 @@ bool isReduction(CommunicationType type) {
     case CommunicationType::Broadcast:
     case CommunicationType::SendRecv:
     case CommunicationType::AllToAll:
-    case CommunicationType::StreamBroadcast:
       return false;
     default:
       NVF_THROW("unrecognized CommunicationType: ", type);

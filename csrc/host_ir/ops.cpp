@@ -39,7 +39,7 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
     // Unparallelize the destination on `ParallelType::Stream` which
     // will be inferred based on the output of the expression.
     TransformReplay::selfReplay(source->domain(), destination->domain());
-    unshard(destination, {ParallelType::Stream});
+    unparallelize(destination, {ParallelType::Stream});
 
     // Propagate ParallelType::Stream from `e` to `destination`. There are two
     // technical challenges:
@@ -69,10 +69,9 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
       out->setDefinition(e);
     }
 
-    // It is possible that destination's loop domain could not be
-    // stream-parallelized. This happens when the corresponding id is already
-    // sharded such as in broadcast or collective-permute based decomposition of
-    // allgather.
+    // Destination's loop domain may not be stream-parallelized if the
+    // corresponding id is already sharded such as in
+    // broadcast/collective-permute based decomposition of allgather.
     if (getShardedIterDomain(
             destination, ParallelType::Stream, DomainType::kLoop) == nullptr) {
       return nullptr;

@@ -671,6 +671,9 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
   auto* tv = allocate->buffer()->as<TensorView>();
+  if (expr_evaluator_.isKnown(tv)) {
+    return;
+  }
 
   // Check the cache if enabled
   if (params_.use_allocation_cache) {

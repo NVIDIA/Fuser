@@ -444,7 +444,7 @@ def column_parallel_linear_forward(h: int, d: int):
         #  d
         # (deviceIdx.x)
         #    |
-        #    | set (lowered to StreamBroadcast. This decomposition is done manually in the definition above. It will later be done by preseg)
+        #    | set (lowered to Broadcast. This decomposition is done manually in the definition above. It will later be done by preseg)
         #    |
         #   [t, h]                                  [4h,  h]
         #   /\                                      /\.
