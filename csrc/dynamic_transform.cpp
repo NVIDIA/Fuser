@@ -920,8 +920,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   // which is what the code below implements. Since T1 includes a Reduction
   // IterDomain, we must ignore it in order to match ?S4{i2} with iS2{i0}.
   auto old_logical = incomplete_out_tv->getLogicalDomain();
-  auto new_logical =
-      TensorDomain::noReductions(concrete_reshape_out_tv->getLogicalDomain());
+  auto new_logical = concrete_reshape_out_tv->getLogicalDomain();
   NVF_ERROR(
       old_logical.size() == new_logical.size(),
       "Concretized reshape logical size does not match symbolic logical size");
