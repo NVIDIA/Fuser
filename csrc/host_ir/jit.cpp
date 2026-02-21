@@ -934,7 +934,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("HostIrJitImpl::runWithInputs");
   // Bind cache id to llvm global variable or align with main function inputs
-  size_t cache_id = valueOrError(args.getCacheId());
+  NVF_ERROR(args.getCacheId().has_value(), "Cache ID is not set");
   NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
 
   std::unordered_set<const at::Tensor*> preserved_tensors;
@@ -959,7 +959,10 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
 
   // Run the main function
   std::vector<void*> output_aten_tensors(container_->outputs().size());
-  main_func_(cache_id, input_aten_tensors.data(), output_aten_tensors.data());
+  main_func_(
+      args.getCacheId().value(),
+      input_aten_tensors.data(),
+      output_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;

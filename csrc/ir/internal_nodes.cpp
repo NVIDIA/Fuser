@@ -1053,11 +1053,12 @@ ArrayConstruct::ArrayConstruct(
   for (auto in : inputs) {
     addInput(in);
     auto in_dtype_opt = in->getDataType();
+    NVF_ERROR(in_dtype_opt.has_value());
     if (input_dtype == DataType::Null) {
-      input_dtype = valueOrError(in_dtype_opt);
+      input_dtype = *in_dtype_opt;
     } else {
       NVF_CHECK(
-          input_dtype == valueOrError(in_dtype_opt),
+          input_dtype == *in_dtype_opt,
           "All inputs to ArrayConstruct must have the same data type");
     }
   }

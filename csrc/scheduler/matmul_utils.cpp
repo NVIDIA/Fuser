@@ -840,7 +840,8 @@ class VectorizationCalculator {
       }
       // Record contiguity of concrete dimensions
       std::optional<bool> contig_opt = tv->getContiguity().at(i);
-      concrete_contig.push_back(valueOrError(contig_opt));
+      NVF_ERROR(contig_opt.has_value());
+      concrete_contig.push_back(contig_opt.value());
 
       PolymorphicValue ext =
           runtime_info_.expressionEvaluator().evaluate(id->extent());
@@ -896,7 +897,8 @@ class VectorizationCalculator {
       remaining_inner_dims.pop_back();
 
       std::optional<bool> c = tv->getContiguity().at(i);
-      if (!valueOrError(c)) {
+      NVF_ERROR(c.has_value());
+      if (!c.value()) {
         // axis is marked discontiguous; can't vectorize
         break;
       } else {

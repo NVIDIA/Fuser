@@ -1856,7 +1856,8 @@ bool hasInnerDim(
 
   // Don't vectorize if inner most dimension is not contiguous
   auto contiguity_opt = contiguity.at(inner_most_dim_pos);
-  if (!valueOrError(contiguity_opt)) {
+  NVF_ERROR(contiguity_opt.has_value());
+  if (!*contiguity_opt) {
     return false;
   }
 

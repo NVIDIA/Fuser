@@ -259,11 +259,12 @@ void KernelExecutor::compile(
   if (!args.empty()) {
     auto expr_eval =
         executor_utils::bindInputs(args, compiled_kernel_->lowered()->kernel());
+    NVF_ERROR(compile_params.index_type.has_value());
     launch_params = computeLaunchParams(
         launch_constraints,
         expr_eval,
         warp_size_,
-        valueOrError(compile_params.index_type));
+        compile_params.index_type.value());
     block_size = launch_params.nThreads();
     dynamic_smem = launch_params.smem();
     NVF_ERROR_GT(*block_size, 0);

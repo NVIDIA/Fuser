@@ -1445,8 +1445,10 @@ class PythonTranslator : public OptInConstDispatch {
   void handlePermute(const LoadStoreOp* lsop) {
     auto* out_tv = lsop->out()->as<TensorView>();
 
-    std::vector<int64_t> new2old = valueOrError(ir_utils::computePermutation(
-        out_tv->getRootDomain(), out_tv->getLogicalDomain()));
+    std::optional<std::vector<int64_t>> new2old_opt =
+        ir_utils::computePermutation(
+            out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(new2old_opt.has_value(), "Expected permutation");
 
     visited_vals_.insert(lsop->out());
     static const std::vector<std::string> argument_names = {"dims"};
@@ -1454,7 +1456,7 @@ class PythonTranslator : public OptInConstDispatch {
         "fd.ops.permute",
         std::make_tuple(lsop->in()),
         argument_names,
-        std::make_tuple(new2old),
+        std::make_tuple(new2old_opt.value()),
         {lsop->out()});
   }
 
