@@ -39,6 +39,13 @@ class TransposeParams : public HeuristicParams {
 
   // Whether to use TMA for loading inputs
   bool use_tma_load = false;
+  bool use_tma_store = false;
+
+  // In 128-bytes swizzled tma load, inner most dim is split into 8 chunks each
+  // with 16 bytes. Each thread may handle multiple chunks along the inner most
+  // dim.
+  int64_t chunks_per_thread = 1;
+  int64_t elements_per_chunk = 1;
 
   // Vectorization factor for tensors in the first group
   int64_t vectorize_factor1 = 1;
@@ -65,6 +72,9 @@ class TransposeParams : public HeuristicParams {
     }
     bool attr_equal = other->cparams == cparams &&
         other->use_tma_load == use_tma_load &&
+        other->use_tma_store == use_tma_store &&
+        other->chunks_per_thread == chunks_per_thread &&
+        other->elements_per_chunk == elements_per_chunk &&
         other->split_before_tiling == split_before_tiling &&
         other->dims_merged_with_1 == dims_merged_with_1 &&
         other->dims_merged_with_2 == dims_merged_with_2 &&
@@ -98,6 +108,12 @@ class TransposeParams : public HeuristicParams {
     int64_t unroll_factor2 = elements_per_thread / vectorize_factor2;
     if (unroll_factor2 > 1) {
       ss << "Unroll group 2, Factor: " << unroll_factor2 << "\n";
+    }
+    if (use_tma_load || use_tma_store) {
+      ss << "TMA: load=" << (use_tma_load ? "true" : "false")
+         << " store=" << (use_tma_store ? "true" : "false")
+         << " chunks_per_thread=" << chunks_per_thread
+         << " elements_per_chunk=" << elements_per_chunk << "\n";
     }
     if (!split_before_tiling.empty() || !dims_merged_with_1.empty() ||
         !dims_merged_with_2.empty()) {
@@ -146,6 +162,9 @@ class TransposeParams : public HeuristicParams {
   size_t hash() const override {
     return c10::get_hash(
         use_tma_load,
+        use_tma_store,
+        chunks_per_thread,
+        elements_per_chunk,
         split_before_tiling,
         dims_merged_with_1,
         dims_merged_with_2,
