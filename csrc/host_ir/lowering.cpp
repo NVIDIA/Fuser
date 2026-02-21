@@ -48,7 +48,7 @@ std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info) {
 
 class LoopNest {
  public:
-  LoopNest(Scope& top_level) : top_level_(top_level) {}
+  LoopNest(Scope* top_level) : top_level_(top_level) {}
 
   int64_t size() const {
     return std::ssize(loop_infos_);
@@ -70,15 +70,15 @@ class LoopNest {
 
   // Returns the scope of the innermost for-loop or the top-level scope if the
   // loop nest is empty.
-  Scope& innermostScope() const {
-    return empty() ? top_level_ : innermost().loop->body();
+  Scope* innermostScope() const {
+    return empty() ? top_level_ : &innermost().loop->body();
   }
 
   hir::ForLoop* openLoop(IterDomain* id) {
-    Scope& parent_scope = innermostScope();
+    Scope* parent_scope = innermostScope();
     auto* for_loop = hir::ForLoop::createFromIterDomain(id);
     loop_infos_.push_back(
-        {for_loop, &parent_scope, parent_scope.pushBack(for_loop)});
+        {for_loop, parent_scope, parent_scope->pushBack(for_loop)});
     return for_loop;
   }
 
@@ -86,8 +86,7 @@ class LoopNest {
 
  private:
   std::vector<LoopInfo> loop_infos_;
-  Scope&
-      top_level_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  Scope* top_level_;
 };
 
 std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
@@ -157,7 +156,7 @@ void lowerSegment(
     hir::HostIrContainer& hic,
     LoopNest& loop_nest,
     IrCloner& ir_cloner) {
-  Scope& innermost_scope = loop_nest.innermostScope();
+  Scope* innermost_scope = loop_nest.innermostScope();
   LoopInfo innermost;
   if (!loop_nest.empty()) {
     innermost = loop_nest.innermost();
@@ -198,7 +197,7 @@ void lowerSegment(
           if (sharded_in == nullptr) {
             sharded_in =
                 hir::shardByStream(in, innermost.loop->index(), communication);
-            innermost_scope.pushBack(sharded_in->definition());
+            innermost_scope->pushBack(sharded_in->definition());
           }
         }
 
@@ -216,16 +215,16 @@ void lowerSegment(
               out,
               hir::shardByStream(out, innermost.loop->index(), communication));
           NVF_ERROR(inserted, "The input segmented fusion should be SSA.");
-          innermost_scope.pushBack(i->second->definition());
+          innermost_scope->pushBack(i->second->definition());
         } else {
-          innermost_scope.pushBack(allocate);
+          innermost_scope->pushBack(allocate);
         }
 
         Expr* new_c = cloneWithNewOperands(c, replacement_map);
-        innermost_scope.pushBack(new_c);
+        innermost_scope->pushBack(new_c);
 
         auto* wait = IrBuilder::create<hir::Wait>(new_c);
-        innermost_scope.pushBack(wait);
+        innermost_scope->pushBack(wait);
       }
       break;
     }
@@ -257,7 +256,7 @@ void lowerSegment(
       // TensorViews.
       if (loop_nest.empty()) {
         for (Expr* e : exprs) {
-          innermost_scope.pushBack(e);
+          innermost_scope->pushBack(e);
         }
         break;
       }
@@ -299,7 +298,7 @@ void lowerSegment(
             TensorView* sharded_in =
                 hir::shardByStream(in, innermost.loop->index(), e);
             replacement_map[in] = sharded_in;
-            innermost_scope.pushBack(sharded_in->definition());
+            innermost_scope->pushBack(sharded_in->definition());
           }
         }
 
@@ -319,12 +318,12 @@ void lowerSegment(
             TensorView* sharded_out =
                 hir::shardByStream(out, innermost.loop->index(), e);
             replacement_map[out] = sharded_out;
-            innermost_scope.pushBack(sharded_out->definition());
+            innermost_scope->pushBack(sharded_out->definition());
           }
         }
 
         Expr* new_e = cloneWithNewOperands(e, replacement_map);
-        innermost_scope.pushBack(new_e);
+        innermost_scope->pushBack(new_e);
       }
       break;
     }
@@ -349,7 +348,7 @@ void lowerSegment(
 
         auto* allocate =
             IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
-        innermost_scope.pushBack(allocate);
+        innermost_scope->pushBack(allocate);
       }
 
       // Add the LaunchKernel instruction.
@@ -365,7 +364,7 @@ void lowerSegment(
           ins,
           outs,
           cache_id);
-      innermost_scope.pushBack(launch_kernel);
+      innermost_scope->pushBack(launch_kernel);
     }
   } // switch
 } // lowerSegment
@@ -410,7 +409,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     hic->addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
   }
 
-  LoopNest loop_nest(hic->topLevel());
+  LoopNest loop_nest(&hic->topLevel());
 
   IdModel id_model(segmented_fusion.completeFusion(), /*build_graphs=*/false);
   id_model.buildExactGraph();
