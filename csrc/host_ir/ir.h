@@ -161,6 +161,41 @@ class LaunchKernel : public Expr {
   CompiledKernel* compiled_kernel_ = nullptr;
 };
 
+class Allocate : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit Allocate(
+      IrBuilderPasskey passkey,
+      TensorView* in,
+      MemoryType memory_type,
+      bool zero_init = false);
+
+  Allocate(const Allocate& other) = delete;
+  Allocate& operator=(const Allocate& other) = delete;
+  Allocate(Allocate&& other) = delete;
+  Allocate& operator=(Allocate&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::Allocate";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0);
+  }
+
+  MemoryType memoryType() const {
+    return attribute<MemoryType>(0);
+  }
+
+  bool zeroInit() const {
+    return attribute<bool>(1);
+  }
+};
+
 class Deallocate : public Expr {
  public:
   using Expr::Expr;

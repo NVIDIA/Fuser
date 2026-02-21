@@ -109,6 +109,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   void handle(MatmulOp*) override;
   void handle(LinearOp*) override;
   void handle(kir::Allocate*) override;
+  void handle(Allocate*) override;
   void handle(LoadStoreOp*) override;
   void handle(BinaryOp*) override;
   void handle(ReductionOp*) override;

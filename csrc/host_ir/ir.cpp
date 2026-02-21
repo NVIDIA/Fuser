@@ -504,4 +504,30 @@ std::string ForLoop::toInlineString(int indent_size) const {
       index, iter_domain->start(), iter_domain->stop());
 }
 
+Allocate::Allocate(
+    IrBuilderPasskey passkey,
+    TensorView* in,
+    MemoryType memory_type,
+    bool zero_init)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(in->isA<TensorView>(), "hir::Allocate input must be a TensorView.");
+
+  addInput(in);
+  addDataAttribute(memory_type);
+  addDataAttribute(zero_init);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Allocate)
+
+std::string Allocate::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << buffer()->toString() << " = ALLOCATE("
+                          << "mem_type=" << memoryType() << ", "
+                          << "zero_init=" << boolLiteral(zeroInit()) << ")"
+                          << std::endl;
+  return ss.str();
+}
+
 } // namespace nvfuser::hir

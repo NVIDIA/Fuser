@@ -714,6 +714,28 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   expr_evaluator_.bind(tv, tensor);
 }
 
+void HostIrEvaluator::handle(hir::Allocate* allocate) {
+  FUSER_PERF_SCOPE("HostIrEvaluator::handle(Allocate)");
+  auto* tv = allocate->in();
+
+  GlobalBufferInfo info =
+      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  c10::Device device =
+      communicator_ ? communicator_->device() : at::Device("cuda:0");
+  at::Tensor tensor = at::native::empty_strided_cuda(
+      info.shape_info.logical_sizes,
+      info.shape_info.logical_strides,
+      info.type,
+      c10::nullopt,
+      device,
+      c10::nullopt);
+
+  if (allocate->zeroInit()) {
+    tensor.zero_();
+  }
+  expr_evaluator_.bind(tv, tensor);
+}
+
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   auto indexed_id =
       hir_alias_select->in()->getLogicalDomain().at(hir_alias_select->axis());
