@@ -512,6 +512,40 @@ TEST_P(LowerCollectiveTest, ReduceScatter_LogicalSplit) {
   EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
 }
 
+TEST_P(LowerCollectiveTest, ReduceScatter_StaticShape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* in = makeContigConcreteTensor({d, -1});
+  TensorView* out = sum(in, {0});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  out->setDeviceMesh(mesh);
+  out->outer_split(-1, d);
+  out->axis(-2)->parallelize(ParallelType::DIDx);
+
+  at::Tensor in_ref = at::randn({d, d * 3}, tensor_options_);
+  at::Tensor out_ref = in_ref.sum(0);
+
+  at::Tensor in_tensor = shardTensor(in_ref, in);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(at::allclose(out_tensor, shardTensor(out_ref, out)));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::Communication)));
+}
+
 TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
   // Allreduce = ReduceScatter + Allgather
   auto fusion = std::make_unique<Fusion>();
