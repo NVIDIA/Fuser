@@ -441,9 +441,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       const std::optional<bool> contig_flag = contiguity.at(dim);
       // Broadcast doesn't have contig flag but it must have been
       // already filtered out
-      NVF_ERROR(contig_flag.has_value());
-
-      if (contig_flag.value()) {
+      if (valueOrError(contig_flag)) {
         strides[dim] = cur_contig_stride;
         cur_contig_stride = SimplifyingIrBuilder::mulExpr(
             cur_contig_stride, promotion_domain->extent());
@@ -472,8 +470,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       actual_allocation_domains.push_back(promotion_domain);
       actual_strides.push_back(stride);
       auto contig = contiguity.at(i);
-      NVF_ERROR(contig.has_value());
-      actual_contiguity.push_back(contig.value());
+      actual_contiguity.push_back(valueOrError(contig));
     }
 
     NVF_ERROR(actual_allocation_domains.size() == actual_strides.size());

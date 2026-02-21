@@ -35,7 +35,7 @@
 #include <C++23/utility>
 
 //! IR header hierarchy
-//! 1. ** utils.h ** - PolymorphicBase and NonCopyable
+//! 1. ** base.h ** - PolymorphicBase and NonCopyable
 //! 2. ir/base_nodes.h - Statement, Expr, and Val
 //! 3. ir/internal_base_nodes.h - IterDomain and TensorDomain
 //! 4. ir/interface_nodes.h - TensorView and Scalar
@@ -111,6 +111,25 @@ constexpr int64_t alignSharedMemoryBits(int64_t unaligned_bits) {
 constexpr int64_t alignSharedMemoryBytes(int64_t unaligned_bytes) {
   constexpr int64_t alignment = kSharedMemoryAlignmentBytes;
   return (unaligned_bytes + (alignment - 1)) & (~(alignment - 1));
+}
+
+//! Returns the value of an optional, or throws via NVF_ERROR if nullopt.  This
+//! is to satisfy clang-tidy bugprone-unchecked-optional-access.  Use this when
+//! you have already ensured that the optional is engaged.
+template <typename T>
+const T& valueOrError(const std::optional<T>& opt) {
+  NVF_ERROR(opt.has_value());
+  return *opt;
+}
+template <typename T>
+T& valueOrError(std::optional<T>& opt) {
+  NVF_ERROR(opt.has_value());
+  return *opt;
+}
+template <typename T>
+T valueOrError(std::optional<T>&& opt) {
+  NVF_ERROR(opt.has_value());
+  return std::move(*opt);
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:

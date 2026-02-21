@@ -1447,7 +1447,7 @@ class PythonTranslator : public OptInConstDispatch {
 
     std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
         out_tv->getRootDomain(), out_tv->getLogicalDomain());
-    NVF_ERROR(new2old.has_value(), "Expected permutation");
+    auto perm = valueOrError(new2old);
 
     visited_vals_.insert(lsop->out());
     static const std::vector<std::string> argument_names = {"dims"};
@@ -1455,7 +1455,7 @@ class PythonTranslator : public OptInConstDispatch {
         "fd.ops.permute",
         std::make_tuple(lsop->in()),
         argument_names,
-        std::make_tuple(new2old.value()),
+        std::make_tuple(perm),
         {lsop->out()});
   }
 

@@ -352,8 +352,7 @@ bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
     return true;
   }
   // Currently only support one warp specialized axis
-  NVF_ERROR(warp_specialized_parallel_type_.has_value());
-  ParallelType ws_pt = warp_specialized_parallel_type_.value();
+  ParallelType ws_pt = valueOrError(warp_specialized_parallel_type_);
 
   // Check that BlockDim.x >= 32 active threads in AsyncWarp
   if (ws_pt != ParallelType::TIDx) {

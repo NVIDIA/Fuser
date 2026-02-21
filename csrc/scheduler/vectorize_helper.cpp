@@ -791,8 +791,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       continue;
     }
 
-    NVF_ERROR(contig.has_value());
-    if (!contig.value()) {
+    if (!valueOrError(contig)) {
       break;
     }
 
