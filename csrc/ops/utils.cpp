@@ -5,13 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "ops/utils.h"
+
 #include <algorithm>
 #include <limits>
+#include <ranges>
 
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/utils.h>
+#include "base.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "ops/alias.h"
 
 namespace nvfuser {
 namespace ops {
@@ -512,7 +515,7 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
   std::vector<Val*> out_vals(vals.size(), nullptr);
   size_t n_dims = 0;
   for (auto val : vals) {
-    if (val->getValType().value() == ValType::TensorView) {
+    if (valueOrError(val->getValType()) == ValType::TensorView) {
       n_dims = std::max(
           n_dims,
           TensorDomain::noReductions(val->as<TensorView>()->getLogicalDomain())
@@ -521,7 +524,7 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
   }
 
   for (const auto i : arange(vals.size())) {
-    if (vals[i]->getValType().value() == ValType::TensorView) {
+    if (valueOrError(vals[i]->getValType()) == ValType::TensorView) {
       auto tv = vals[i]->as<TensorView>();
       out_vals[i] = maybe_broadcast_inner_to_rank(tv, n_dims);
     } else {
@@ -648,11 +651,10 @@ std::vector<int64_t> canonicalizeAxes(
     int64_t ndims) {
   std::vector<int64_t> canonicalized_axes;
   canonicalized_axes.reserve(axes.size());
-  std::transform(
-      axes.begin(),
-      axes.end(),
-      std::back_inserter(canonicalized_axes),
-      [&](int64_t axis) { return wrapDim(axis, ndims); });
+  std::ranges::transform(
+      axes, std::back_inserter(canonicalized_axes), [&](int64_t axis) {
+        return wrapDim(axis, ndims);
+      });
   return canonicalized_axes;
 }
 

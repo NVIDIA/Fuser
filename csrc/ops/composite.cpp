@@ -5,15 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ATen/cuda/CUDAContext.h>
-
-#include <ir/builder.h>
-#include <ir/composite_nodes.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <transform_view.h>
+#include "ops/composite.h"
 
 #include <ranges>
+
+#include <ATen/cuda/CUDAContext.h>
+
+#include "ir/builder.h"
+#include "ir/composite_nodes.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "transform_view.h"
 
 namespace nvfuser {
 

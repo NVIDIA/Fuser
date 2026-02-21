@@ -139,8 +139,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Create Initial Heuristics for Segmented Fusion
   auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
-  NVF_CHECK(maybe_heuristics.has_value());
-  heuristics_ = std::move(maybe_heuristics.value());
+  heuristics_ = valueOrError(std::move(maybe_heuristics));
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
@@ -277,8 +276,7 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
     return PrimDataType::Int;
   }
   auto index_type = schedulers().at(0).get()->cparams.index_type;
-  NVF_ERROR(index_type.has_value());
-  return index_type.value();
+  return valueOrError(index_type);
 }
 
 KernelArgumentHolder FusionKernelRuntime::runWithInputs(

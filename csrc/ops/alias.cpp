@@ -5,23 +5,24 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ops/alias.h>
+#include "ops/alias.h"
 
 #include <ranges>
 
-#include <expr_evaluator.h>
-#include <expr_simplifier.h>
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-#include <transform_view.h>
-#include <type_promotion.h>
+#include "base.h"
+#include "expr_evaluator.h"
+#include "expr_simplifier.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "transform_view.h"
+#include "type_promotion.h"
 
 namespace nvfuser {
 
 Val* set(Val* v) {
-  Val* out = ops::newValLike(v, v->getDataType().value());
+  Val* out = ops::newValLike(v, valueOrError(v->getDataType()));
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v);
   return out;
 }
@@ -31,7 +32,7 @@ TensorView* set(TensorView* tv) {
 }
 
 Val* segment_set(Val* v) {
-  Val* out = ops::newValLike(v, v->getDataType().value());
+  Val* out = ops::newValLike(v, valueOrError(v->getDataType()));
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterSet, out, v);
   return out;
 }

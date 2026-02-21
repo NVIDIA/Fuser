@@ -123,18 +123,18 @@ class GridSerializationSyncInserter : kir::ExprMutator {
 
   void insertSyncs() {
     NVF_ERROR(cur_top_level_expr_ != nullptr);
-    NVF_ERROR(cur_expr_sync_pattern_.has_value());
+    auto sync_pattern = valueOrError(cur_expr_sync_pattern_);
     kir::Allocate* alloc = lower_utils::allocGlobalBufferForGridComm(
-        lower_utils::getGridSyncBufferSize(cur_expr_sync_pattern_.value()),
+        lower_utils::getGridSyncBufferSize(sync_pattern),
         DataType::Int,
         /*zero_init=*/true,
         /*resets_to_zero=*/true);
     auto wait = IrBuilder::create<kir::BlockSerializeWait>(
-        cur_expr_sync_pattern_.value(), alloc->buffer());
+        sync_pattern, alloc->buffer());
     registerInsertBefore(cur_top_level_expr_, alloc);
     registerInsertBefore(cur_top_level_expr_, wait);
     auto release = IrBuilder::create<kir::BlockSerializeRelease>(
-        cur_expr_sync_pattern_.value(), alloc->buffer());
+        sync_pattern, alloc->buffer());
     registerInsertAfter(cur_top_level_expr_, release);
   }
 
