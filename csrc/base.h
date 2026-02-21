@@ -738,8 +738,9 @@ class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
   struct iterator_base {
     using base_iterator = BaseIterator;
     using value_type =
-        std::pair<std::size_t, std::ranges::range_reference_t<V>>;
-    using reference = std::pair<std::size_t, std::ranges::range_reference_t<V>>;
+        std::pair<std::ptrdiff_t, std::ranges::range_reference_t<V>>;
+    using reference =
+        std::pair<std::ptrdiff_t, std::ranges::range_reference_t<V>>;
     using difference_type = std::ranges::range_difference_t<V>;
     using iterator_category = std::conditional_t<
         IsBidirectional,
@@ -747,10 +748,10 @@ class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
         std::forward_iterator_tag>;
 
     base_iterator current_;
-    int64_t index_;
+    std::ptrdiff_t index_;
 
     iterator_base() = default;
-    iterator_base(base_iterator current, std::size_t index)
+    iterator_base(base_iterator current, std::ptrdiff_t index)
         : current_(current), index_(index) {}
 
     reference operator*() const {
