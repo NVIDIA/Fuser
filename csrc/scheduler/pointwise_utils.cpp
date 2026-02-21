@@ -153,8 +153,7 @@ std::optional<FusionRuntimeProperties> getFusionRuntimeProperties(
   int64_t min_dtype_size_bit = std::numeric_limits<int64_t>::max();
 
   for (auto tv : prop.vectorizable_inputs_outputs) {
-    int64_t dtype_size_bit =
-        dataTypeSizeBit(tv->getDataType(), index_type);
+    int64_t dtype_size_bit = dataTypeSizeBit(tv->getDataType(), index_type);
     max_dtype_size_bit = std::max(max_dtype_size_bit, dtype_size_bit);
     min_dtype_size_bit = std::min(min_dtype_size_bit, dtype_size_bit);
   }
