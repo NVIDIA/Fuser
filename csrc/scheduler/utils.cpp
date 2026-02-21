@@ -1031,10 +1031,10 @@ int64_t getPersistentBufferSizeBitOfTensor(
   int64_t dtype_size_bit = 1;
   if (auto upcast_input = getUpCastInputOf(buffer)) {
     dtype_size_bit = dataTypeSizeBit(
-        upcast_input->getDataType().value(), runtime_info.getIndexType());
+        upcast_input->getDataType(), runtime_info.getIndexType());
   } else {
-    dtype_size_bit = dataTypeSizeBit(
-        buffer->getDataType().value(), runtime_info.getIndexType());
+    dtype_size_bit =
+        dataTypeSizeBit(buffer->getDataType(), runtime_info.getIndexType());
   }
 
   buffer_bits = buffer_bits == -1 ? 0 : buffer_bits * dtype_size_bit;
@@ -2094,7 +2094,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
       bool rhs = false;
       bool lhs = false;
       auto dtype_size_bit =
-          dataTypeSizeBit(in_out_tv->getDataType().value(), index_type);
+          dataTypeSizeBit(in_out_tv->getDataType(), index_type);
       for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
@@ -3004,7 +3004,7 @@ int64_t getReductionSmemWorkspaceBit(
   int64_t dtype_size_bit = 1;
   for (auto tv : reduction_tvs) {
     dtype_size_bit =
-        std::max(dtype_size_bit, dataTypeSizeBit(tv->getDataType().value()));
+        std::max(dtype_size_bit, dataTypeSizeBit(tv->getDataType()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is

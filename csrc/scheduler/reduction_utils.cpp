@@ -1132,7 +1132,7 @@ void sharedMemoryConsumerVectorization(
         innermost_extent,
         ", expected: ",
         io_vectorization_factor);
-    auto dtype_bits = dataTypeSizeBit(tv->getDataType().value());
+    auto dtype_bits = dataTypeSizeBit(tv->getDataType());
     auto max_vect_factor = getMaxVectorizationSizeInBit() / dtype_bits;
     // additional split is added if the innermost extent is greater than max
     // vectorization factor.
@@ -1327,8 +1327,8 @@ FusionRuntimeProperties getFusionRuntimeProperties(
   for (auto tv : unrollable_inputs_outputs) {
     max_dtype_size_bit_for_vectorization = std::max(
         max_dtype_size_bit_for_vectorization,
-        static_cast<int64_t>(dataTypeSizeBit(
-            tv->getDataType().value(), runtime_info.getIndexType())));
+        static_cast<int64_t>(
+            dataTypeSizeBit(tv->getDataType(), runtime_info.getIndexType())));
     if (!tv->isFusionInput()) {
       continue;
     }

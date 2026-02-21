@@ -507,7 +507,7 @@ void NaiveValueMachine::makeUnaryOp(UnaryOp* uop) {
   inst_type_[index] = InstructionType::UNARY_OP;
   uop_type_[index] = uop->getUnaryOpType();
   if (uop_type_[index] == UnaryOpType::Cast) {
-    data_type_[index] = uop->out()->getDataType().value();
+    data_type_[index] = uop->out()->getDataType();
   }
   src0_[index] = in;
   dest_[index] = out;

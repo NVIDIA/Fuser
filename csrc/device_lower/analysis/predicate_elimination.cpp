@@ -469,7 +469,7 @@ class PredicateChecker : public IterVisitor {
   // cause exceptions
   bool predicateIntDiv(Expr* expr) const {
     DEBUG_PRINT_SCOPE(expr);
-    auto dt = expr->outputs()[0]->getDataType().value();
+    auto dt = expr->outputs()[0]->getDataType();
     RECORD_AND_RETURN(
         (dt == DataType::Int || dt == DataType::Int32) &&
         expr->isA<BinaryOp>() &&
@@ -1129,7 +1129,7 @@ Val* PredicateElimination::getInitValue(TensorView* tv) const {
   auto init_val = it->second;
   if (init_val == nullptr) {
     // No reduction restriction. Just use zero
-    auto dtype = *tv->getDataType();
+    auto dtype = tv->getDataType();
     if (std::holds_alternative<ArrayType>(dtype.type)) {
       return IrBuilder::create<NamedScalar>("{}", dtype);
     }

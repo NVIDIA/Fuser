@@ -813,7 +813,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =
-      IrBuilder::create<TensorView>(producer_domain, getDataType().value());
+      IrBuilder::create<TensorView>(producer_domain, getDataType());
 
   producer->setDeviceMesh(mesh_);
 
@@ -950,7 +950,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =
-      IrBuilder::create<TensorView>(producer_domain, tv->getDataType().value());
+      IrBuilder::create<TensorView>(producer_domain, tv->getDataType());
 
   // Set domain of consumer
   tv->setDomain(consumer_domain);
@@ -1101,7 +1101,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(container(), domain()),
-      getDataType().value());
+      getDataType());
 
   // Set domain of consumer
   TensorView* consumer = this;
@@ -1193,7 +1193,7 @@ TensorView* TensorView::cacheFork() {
           container(),
           IterDomain::clone(logical_domain),
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
-      getDataType().value());
+      getDataType());
 
   // Create write operation from this TV to new output
   IrBuilder::createInContainer<LoadStoreOp>(
@@ -1292,7 +1292,7 @@ TensorView* TensorView::cacheAfter(
           container(),
           new_logical_domain,
           TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
-      getDataType().value());
+      getDataType());
 
   // Set domain of producer - No Change
   TensorView* producer = this;
@@ -1426,7 +1426,7 @@ void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
 }
 
 void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
-  auto dtype = getDataType().value();
+  auto dtype = getDataType();
   // Input is on the form:
   // [...., K (assume is 16), N (16 .. say dtype is half and swizzle
   // size is 32B]. Here the TMA box is [16,16]. This box could have

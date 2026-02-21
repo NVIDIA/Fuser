@@ -29,12 +29,10 @@ ForwardDropoutResult dropout(TensorView* x, Val* prob) {
 ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   NVF_ERROR(
-      prob != nullptr && prob->getDataType().has_value() &&
-          prob->getDataType().value() == DataType::Double,
+      prob != nullptr && prob->getDataType() == DataType::Double,
       "Probability is not a valid Double.");
   NVF_ERROR(
-      scale != nullptr && scale->getDataType().has_value() &&
-          scale->getDataType().value() == DataType::Double,
+      scale != nullptr && scale->getDataType() == DataType::Double,
       "Scale is not a valid Double.");
 
   auto rand_vals = rand_like(x);
@@ -49,8 +47,7 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
   NVF_ERROR(mask != nullptr, "Mask is invalid");
   NVF_ERROR(
-      scale != nullptr && scale->getDataType().has_value() &&
-          scale->getDataType().value() == DataType::Double,
+      scale != nullptr && scale->getDataType() == DataType::Double,
       "Scale is not a valid Double.");
 
   auto grad_mask = mul(dy, mask);
@@ -61,7 +58,7 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 
 TensorView* triu(TensorView* tv, Val* offset) {
   NVF_CHECK(
-      isIntegralType(offset->getDataType().value()),
+      isIntegralType(offset->getDataType()),
       "offset must have integral type");
 
   // Let's say we want a triu of a 2D tensor of shape [2, 4]
@@ -109,7 +106,7 @@ TensorView* triu(TensorView* tv, Val* offset) {
   auto tv_rows_b = broadcast(tv_rows, {false, true});
   auto tv_cols_b = broadcast(tv_columns, {true, false});
   auto mask = le(tv_rows_b, tv_cols_b);
-  return where(mask, tv, fusion->zeroVal(*tv->getDataType()));
+  return where(mask, tv, fusion->zeroVal(tv->getDataType()));
 }
 
 namespace {
@@ -257,7 +254,7 @@ T* sign(T* x) {
   auto one = IrBuilder::createInContainer<Val>(x->container(), 1.);
   auto minus_one = IrBuilder::createInContainer<Val>(x->container(), -1.);
   auto sign = where(gt(x, zero), one, where(lt(x, zero), minus_one, zero));
-  return castOp(x->getDataType().value(), sign);
+  return castOp(x->getDataType(), sign);
 }
 } // namespace
 
@@ -393,7 +390,7 @@ TensorView* leaky_relu(TensorView* x, Val* negative_slope) {
 }
 
 TensorView* view_as_real(TensorView* x) {
-  auto input_type = x->getDataType().value();
+  auto input_type = x->getDataType();
   NVF_CHECK(
       isComplexType(input_type),
       "Operand of view_as_real must have complex type");

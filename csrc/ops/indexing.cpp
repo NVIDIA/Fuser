@@ -41,7 +41,7 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
 
   auto td = IrBuilder::create<TensorDomain>(
       new_root, TensorDomain::getContiguityFilledWith(new_root, true));
-  auto out = IrBuilder::create<TensorView>(td, *tv->getDataType());
+  auto out = IrBuilder::create<TensorView>(td, tv->getDataType());
   IrBuilder::create<SelectOp>(out, tv, dim, index);
   return out;
 }
@@ -65,7 +65,7 @@ TensorView* indexSelect(
       "Index tensor (index_tv): ",
       index_tv->toString());
 
-  DataType dtype = lookup_tv->getDataType().value();
+  DataType dtype = lookup_tv->getDataType();
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
@@ -129,7 +129,7 @@ TensorView* indexPutAccumulate(
     TensorView* acc_tv,
     TensorView* index_tv,
     TensorView* value_tv) {
-  DataType dtype = acc_tv->getDataType().value();
+  DataType dtype = acc_tv->getDataType();
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
@@ -187,7 +187,7 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
+      inp->getDataType());
 
   IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, false);
   return out_tensor->as<TensorView>();
@@ -284,7 +284,7 @@ TensorView* scatter(
           /*contiguity=*/
           TensorDomain::getContiguityFilledWith(out_logical, true),
           /*skip_loop_validation=*/true),
-      self->getDataType().value());
+      self->getDataType());
 
   if (accumulate_op.has_value()) {
     NVF_ERROR(
@@ -360,7 +360,7 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
+      inp->getDataType());
 
   IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, true);
 
@@ -471,7 +471,7 @@ TensorView* preprocessGroupedMatmulInputSf(
           TensorDomain::getContiguityFilledWith(out_alloc_dom, true),
           /*additional_ids=*/std::vector<IterDomain*>(),
           /*skip_checks=*/true),
-      input->getDataType().value());
+      input->getDataType());
 
   IrBuilder::create<PreprocessGroupedMatmulInputSf>(
       out_tv,

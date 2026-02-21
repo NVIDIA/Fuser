@@ -398,7 +398,7 @@ class IotaOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 
   DataType dtype() const {
-    return *start()->getDataType();
+    return start()->getDataType();
   }
 
   Val* length() const {

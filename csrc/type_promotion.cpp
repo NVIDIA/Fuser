@@ -170,16 +170,14 @@ OperandType getValueType(at::TypePtr type) {
 }
 
 OperandType getValueType(Val* type) {
-  NVF_ERROR(type->getDataType().has_value());
-
   if (type->isA<TensorView>()) {
     auto tensor_view = type->as<TensorView>();
     return {
         ValueType::Tensor,
-        tensor_view->getDataType().value(),
+        tensor_view->getDataType(),
         tensor_view->getLogicalDomain().size()};
-  } else if (type->getDataType().has_value()) {
-    return {ValueType::Scalar, type->getDataType().value()};
+  } else if (true) {
+    return {ValueType::Scalar, type->getDataType()};
   } else {
     return {ValueType::None, DataType::Null};
   }
@@ -231,20 +229,18 @@ std::vector<Val*> promoteValues(
 }
 
 Val* optionalCast(DataType dtype, Val* v) {
-  NVF_ERROR(v->getDataType().has_value());
   // Avoid casting Float/Int/ComplexDouble scalar to any corresponding
   // FloatingPoint/Integral/Double type in fusion. Instead, we cast them
   // directly. The exception is Bool, which is always cast to the desired
   // type.
-  const bool kSameDtype = v->getDataType().value() == dtype;
+  const bool kSameDtype = v->getDataType() == dtype;
   const bool kIsScalarFloat =
       !v->isA<TensorView>() && isFloatingPointType(dtype);
   const bool kIsScalarInt = !v->isA<TensorView>() && isIntegralType(dtype);
   const bool kIsScalarComplex = !v->isA<TensorView>() && isComplexType(dtype);
-  if (kSameDtype ||
-      (kIsScalarFloat && isFloatingPointType(v->getDataType().value())) ||
-      (kIsScalarInt && isIntegralType(v->getDataType().value())) ||
-      (kIsScalarComplex && isComplexType(v->getDataType().value()))) {
+  if (kSameDtype || (kIsScalarFloat && isFloatingPointType(v->getDataType())) ||
+      (kIsScalarInt && isIntegralType(v->getDataType())) ||
+      (kIsScalarComplex && isComplexType(v->getDataType()))) {
     return v;
   } else {
     return castOp(dtype, v);
@@ -252,8 +248,7 @@ Val* optionalCast(DataType dtype, Val* v) {
 }
 
 Val* optionalCastStrict(DataType dtype, Val* v) {
-  NVF_ERROR(v->getDataType().has_value());
-  const bool kSameDtype = v->getDataType().value() == dtype;
+  const bool kSameDtype = v->getDataType() == dtype;
   return (kSameDtype) ? v : castOp(dtype, v);
 }
 
