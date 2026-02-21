@@ -55,7 +55,13 @@ class EVTConverter : OptInDispatch {
   }
 
  private:
-  EVTConverter(Fusion* fusion) : fusion_(fusion) {}
+  EVTConverter(Fusion* fusion)
+      : fusion_(fusion),
+        mma_(nullptr),
+        alpha_(nullptr),
+        beta_(nullptr),
+        bias_(nullptr),
+        mma_out_(nullptr) {}
 
   EVTModel& model() {
     return model_;
@@ -80,9 +86,8 @@ class EVTConverter : OptInDispatch {
       // Check that input is contiguous
       const std::vector<std::optional<bool>>& contig = inp->getContiguity();
       NVF_CUTLASS_REJECT_IF(
-          std::any_of(
-              contig.begin(),
-              contig.end(),
+          std::ranges::any_of(
+              contig,
               [](const std::optional<bool>& c) { return !c.value_or(true); }),
           "Expected all inputs to ScaledMmaOp to be contiguous but found ",
           inp->toString());
@@ -361,14 +366,14 @@ class EVTConverter : OptInDispatch {
 
   using OptInDispatch::dispatch;
 
-  void dispatch(Expr* expr) {
+  void dispatch(Expr* expr) override {
     if (!ir_utils::isTvOp(expr)) {
       return;
     }
     OptInDispatch::dispatch(expr);
   }
 
-  void handle(TensorView* tv) {
+  void handle(TensorView* tv) override {
     const auto it = block_scaling_patterns_.find(tv);
     if (it == block_scaling_patterns_.end()) {
       return;
@@ -413,9 +418,9 @@ class EVTConverter : OptInDispatch {
     val_nodes_[pattern.unquantized_output] = visitor_node;
   }
 
-  void handle(LoadStoreOp* uop) {}
+  void handle(LoadStoreOp* uop) override {}
 
-  void handle(UnaryOp* uop) {
+  void handle(UnaryOp* uop) override {
     val_nodes_.emplace(
         uop->out(),
         makeUnaryOpNode(
@@ -425,7 +430,7 @@ class EVTConverter : OptInDispatch {
             getNodeFor(uop->in())));
   }
 
-  void handle(BinaryOp* bop) {
+  void handle(BinaryOp* bop) override {
     NVF_CUTLASS_REJECT_IF(
         bop->lhs()->dtype() != bop->rhs()->dtype(),
         "We require both inputs to have the same dtype but found ",
@@ -457,7 +462,7 @@ class EVTConverter : OptInDispatch {
 
 } // namespace
 
-EVTModel::EVTModel(const EVTModel& model) {
+EVTModel::EVTModel(const EVTModel& model) : root_(nullptr) {
   std::unordered_map<Node*, Node*> old2new;
 
   for (const auto& node_up : model.nodes_up_) {
@@ -512,7 +517,7 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size);
 
 CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
   if (node->arguments.empty()) {
-    return {"{}", node->name};
+    return {.str = "{}", .comment = node->name};
   }
   std::stringstream ss;
   indent(ss, indent_size) << "{  // " << node->name << "\n";
@@ -525,7 +530,7 @@ CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
     ss << "\n";
   }
   indent(ss, indent_size) << "}";
-  return {ss.str(), ""};
+  return {.str = ss.str(), .comment = ""};
 }
 
 // For nodes with no inputs, we print their args like this:
@@ -546,7 +551,7 @@ CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
     // TODO: We should probably not represent Sm90Compute's template parameters
     // as nodes in the EVT
     indent(ss, indent_size) << "{}";
-    return {ss.str(), node->name};
+    return {.str = ss.str(), .comment = node->name};
   }
 
   indent(ss, indent_size) << "{  // " << node->name << "\n";
@@ -595,12 +600,11 @@ CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
     NVF_ERROR(!node_op_args.str.empty(), "Could not find NodeOp");
     // We have a node op. Print its arguments last
     print_line(false);
-    std::stringstream ss_name;
     prev_cs = node_op_args;
   }
   print_line(true);
   indent(ss, indent_size) << "}";
-  return {ss.str(), ""};
+  return {.str = ss.str(), .comment = ""};
 }
 
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
@@ -609,7 +613,7 @@ CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
     if (node->arguments.empty()) {
       std::stringstream ss;
       indent(ss, indent_size) << "{}";
-      return {ss.str(), node->name};
+      return {.str = ss.str(), .comment = node->name};
     } else {
       return argumentArgString(node, indent_size);
     }

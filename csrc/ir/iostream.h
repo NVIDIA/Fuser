@@ -10,6 +10,7 @@
 #include <iosfwd>
 
 #include "base.h"
+#include "ir/base_nodes.h"
 
 namespace nvfuser {
 
