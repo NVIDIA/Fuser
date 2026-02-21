@@ -5,22 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ops/arith.h>
+#include "ops/arith.h"
 
 #include <cfloat>
 #include <optional>
 #include <ranges>
 #include <type_traits>
 
-#include <expr_evaluator.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/indexing.h>
-#include <ops/utils.h>
-#include <type.h>
-#include <type_promotion.h>
+#include "expr_evaluator.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "ops/alias.h"
+#include "ops/indexing.h"
+#include "ops/utils.h"
+#include "type.h"
+#include "type_promotion.h"
 
 namespace nvfuser {
 
