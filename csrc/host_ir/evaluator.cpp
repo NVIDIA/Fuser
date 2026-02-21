@@ -717,11 +717,16 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   auto indexed_id =
       hir_alias_select->in()->getLogicalDomain().at(hir_alias_select->axis());
-  auto index = indexed_id->isBroadcast()
-      ? 0
-      : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
   auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
                    .as<at::Tensor>();
+
+  // If the axis being selected is a reduction axis, the tensor doesn't have
+  // that dimension (it was skipped during allocation). The select is a no-op -
+  // just bind the input tensor directly to the output.
+  if (indexed_id->isReduction()) {
+    expr_evaluator_.bind(hir_alias_select->out(), input);
+    return;
+  }
 
   // Count reduction axes up to the target axis
   int64_t reduction_count = std::count_if(
@@ -731,6 +736,14 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
       [](const IterDomain* id) { return id->isReduction(); });
   // Adjust the ATen axis by subtracting the number of reduction axes
   int64_t axis = hir_alias_select->axis() - reduction_count;
+
+  // Use index 0 if the IterDomain is marked as broadcast, or if the actual
+  // tensor dimension has size 1 (behaves like broadcast at runtime even if
+  // not marked as such in the IR)
+  auto index = (indexed_id->isBroadcast() || input.size(axis) == 1)
+      ? 0
+      : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
+
   expr_evaluator_.bind(hir_alias_select->out(), input.select(axis, index));
 }
 
