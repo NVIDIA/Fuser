@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <iterator>
+#include <string>
 
 #include <cutlass/block_scaling.h>
 #include <cutlass/codegen.h>
@@ -20,8 +22,6 @@
 #include <ir/utils.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
-
-#include <string>
 
 namespace nvfuser {
 
@@ -519,7 +519,7 @@ CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
 
   for (const auto& [i, kv] : enumerate(node->arguments)) {
     indent(ss, indent_size + 1) << "." << kv.first << "=" << kv.second;
-    if (i < node->arguments.size() - 1) {
+    if (i < std::ssize(node->arguments) - 1) {
       ss << ",";
     }
     ss << "\n";
