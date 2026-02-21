@@ -146,9 +146,9 @@ class SegmentedGroup {
   //! Returns a new scheduler with the same heuristics
   //!  for this group if possible.
   //!  Note that the schedule params can be different.
-  //! Returns a nullopt if this group cannot be scheduled
+  //! Returns nullptr if this group cannot be scheduled
   //!  with the same heuristics.
-  std::optional<std::unique_ptr<HeuristicParams>> getMaybeHeuristicParams(
+  std::unique_ptr<HeuristicParams> getMaybeHeuristicParams(
       SchedulerRuntimeInfo& runtime_info);
 
   //! Get the SegmentedFusion this group belongs to

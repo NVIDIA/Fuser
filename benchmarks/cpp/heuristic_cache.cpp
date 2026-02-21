@@ -39,7 +39,7 @@ static void NvFuserScheduler_LayerNormBackward_HeuristicCache(
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), executor_cache, args, shape, norm_shape);
 
-  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args) != nullptr);
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
@@ -62,7 +62,7 @@ static void NvFuserScheduler_LayerNormForward_HeuristicCache(
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), executor_cache, args, shape, norm_shape);
 
-  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args) != nullptr);
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)

@@ -617,13 +617,9 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         kernel_runtimes.begin(),
         kernel_runtimes.end(),
         [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
-          auto maybe_heuristics =
+          new_heuristics =
               kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
-          if (!maybe_heuristics.has_value()) {
-            return false;
-          }
-          new_heuristics = std::move(maybe_heuristics.value());
-          return true;
+          return new_heuristics != nullptr;
         });
     if (runtime_it != kernel_runtimes.end()) {
       kernel_runtime = runtime_it->get();
