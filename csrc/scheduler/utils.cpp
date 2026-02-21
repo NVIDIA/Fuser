@@ -1265,14 +1265,16 @@ std::vector<TensorView*> getViewTVs(Fusion* fusion) {
 std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
   std::vector<TensorView*> tvs_with_rfactor;
   auto fusion_vals = fusion->usedMathVals();
-  const auto tvs = ir_utils::filterByType<TensorView>(fusion_vals);
-  std::ranges::copy_if(
-      tvs, std::back_inserter(tvs_with_rfactor), [](TensorView* tv) {
-        return tv->hasRoot() &&
-            std::ranges::none_of(tv->getLogicalDomain(), [](auto id) {
-                 return id->isReduction() && id->isRFactorProduct();
-               });
-      });
+  for (auto* tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
+    if (!tv->hasRoot()) {
+      continue;
+    }
+    if (std::ranges::none_of(tv->getLogicalDomain(), [](auto id) {
+          return id->isReduction() && id->isRFactorProduct();
+        })) {
+      tvs_with_rfactor.push_back(tv);
+    }
+  }
   return tvs_with_rfactor;
 }
 
@@ -3598,7 +3600,7 @@ int64_t getMaxActiveClusters(const int64_t cluster_size) {
   attribute[0].value.clusterDim.z = 1;
 
   config.numAttrs = 1;
-  config.attrs = attribute;
+  config.attrs = attribute.data();
   config.blockDimX = 128;
   config.blockDimY = 1;
   config.blockDimZ = 1;
