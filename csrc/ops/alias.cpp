@@ -9,6 +9,7 @@
 
 #include <ranges>
 
+#include "base.h"
 #include "expr_evaluator.h"
 #include "expr_simplifier.h"
 #include "ir/builder.h"
