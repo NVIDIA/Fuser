@@ -4438,8 +4438,9 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
       ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(
-      cg_outputs[0].as<at::Tensor>().allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  auto t3 = cg_outputs[0].as<at::Tensor>();
+  EXPECT_TRUE(t3.allclose(tv3_ref, 1e-6 * K, 1e-6 * K))
+      << "Max absolute diff = " << at::abs(t3 - tv3_ref).max().item<double>();
 }
 
 } // namespace nvfuser
