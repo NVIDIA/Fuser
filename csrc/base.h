@@ -22,7 +22,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <ATen/ATen.h>
+#include <ATen/core/Tensor.h>
 #include <c10/core/thread_pool.h>
 
 #include <debug.h>
