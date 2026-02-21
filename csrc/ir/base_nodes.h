@@ -306,7 +306,8 @@ class NVF_API Val : public Statement {
     return !value_.hasValue();
   }
 
-  // Returns this Val's data type. Throws if dtype is Null (ill-formed Val).
+  // Returns this Val's data type. Unlike `dtype()`, it throws if dtype is Null
+  // (ill-formed Val).
   DataType getDataType() const;
 
   bool isScalar() const {
