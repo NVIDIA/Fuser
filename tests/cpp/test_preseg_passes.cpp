@@ -1249,7 +1249,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
         });
     EXPECT_TRUE(
         expr_iter != new_exprs.end() &&
-        (*(*expr_iter)->input(0)->getDataType() == DataType::Float));
+        ((*expr_iter)->input(0)->getDataType() == DataType::Float));
   }
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kHalf);

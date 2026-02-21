@@ -62,8 +62,7 @@ int64_t partialOuterReductionBufferSizeBit(
     }
     buffer_size_bit = (buffer_size_bit == -1) ? 0
                                               : buffer_size_bit *
-            dataTypeSizeBit(buffer->getDataType().value(),
-                            runtime_info.getIndexType());
+            dataTypeSizeBit(buffer->getDataType(), runtime_info.getIndexType());
     partial_reduction_buffer_size_bit += buffer_size_bit;
   }
   return partial_reduction_buffer_size_bit;
@@ -219,7 +218,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         ? buffer_size_regs_bit
         : roundUpSharedMemory(
               buffer_size_regs_bit,
-              dataTypeSizeBit(buffer->getDataType().value()),
+              dataTypeSizeBit(buffer->getDataType()),
               vectorize_factor,
               threads_per_block_min,
               threads_per_block_max,

@@ -1479,7 +1479,7 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
     }
     TensorDomain* new_domain = fullReplay(old_domain, new_out_root);
     TensorView* new_out_tv =
-        IrBuilder::create<TensorView>(new_domain, *old_out->getDataType());
+        IrBuilder::create<TensorView>(new_domain, old_out->getDataType());
     new_outs.push_back(new_out_tv);
   }
 

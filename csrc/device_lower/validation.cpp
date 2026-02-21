@@ -1353,8 +1353,7 @@ class VectorizeValidator : public OptInDispatch {
 
     auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
     auto vector_size_bit =
-        dataTypeSizeBit(
-            tv->getDataType().value(), GpuLower::current()->indexType()) *
+        dataTypeSizeBit(tv->getDataType(), GpuLower::current()->indexType()) *
         vector_word_size;
     if (tv_def->isA<LoadStoreOp>()) {
       // Except for TMem, allow half2, float2, float4 and same sized vtypes.
@@ -1776,8 +1775,8 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
       break;
     }
   }
-  byte_size *= dataTypeSizeByte(
-      *output->getDataType(), GpuLower::current()->indexType());
+  byte_size *=
+      dataTypeSizeByte(output->getDataType(), GpuLower::current()->indexType());
 
   switch (ldst->cacheOp()) {
     case CacheOp::Global:

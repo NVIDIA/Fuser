@@ -860,7 +860,7 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
   auto fusion = FusionGuard::getCurFusion();
   for (const auto& ext_index : info_->getEmptyExtents()) {
     auto ext = info_->initialInfo()->getMaybeZeroExtents().at(ext_index);
-    auto zero = fusion->zeroVal(ext->getDataType().value());
+    auto zero = fusion->zeroVal(ext->getDataType());
     auto uses = ext->uses();
     for (auto use : uses) {
       ir_utils::replaceValInExprInputs(use, ext, zero);

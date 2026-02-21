@@ -1034,12 +1034,11 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
   os << "group id: " << group->groupId() << std::endl;
   os << "inputs:" << std::endl;
   for (auto input : sort_val_by_name(getAllInputs(group))) {
-    indent(os, 1) << input << " " << input->getDataType().value() << std::endl;
+    indent(os, 1) << input << " " << input->getDataType() << std::endl;
   }
   os << "outputs:" << std::endl;
   for (auto output : sort_val_by_name(getAllOutputs(group))) {
-    indent(os, 1) << output << " " << output->getDataType().value()
-                  << std::endl;
+    indent(os, 1) << output << " " << output->getDataType() << std::endl;
   }
 
   os << std::endl << std::endl;
@@ -5347,7 +5346,7 @@ class ForceHalfAnnotation : public IterVisitor {
         fusion->outputs().end(),
         std::back_inserter(fp16_outputs),
         [&cast_to_type, &other_half_type](auto* val) {
-          auto dtype = val->getDataType().value();
+          auto dtype = val->getDataType();
           if (cast_to_type) {
             NVF_ERROR(
                 other_half_type != dtype,
@@ -5355,9 +5354,8 @@ class ForceHalfAnnotation : public IterVisitor {
                 "supported.");
           }
           return val->template isA<TensorView>() &&
-              val->getDataType().has_value() &&
-              (val->getDataType().value() == DataType::Half ||
-               val->getDataType().value() == DataType::BFloat16);
+              (val->getDataType() == DataType::Half ||
+               val->getDataType() == DataType::BFloat16);
         });
 
     annotation.traverseTo(fp16_outputs);
@@ -5369,8 +5367,8 @@ class ForceHalfAnnotation : public IterVisitor {
 
   void handle(TensorView* tv) override {
     auto dtype = tv->getDataType();
-    if (dtype.has_value() && dtype.value() == DataType::Float &&
-        !tv->isFusionOutput() && !tv->isFusionInput()) {
+    if (dtype == DataType::Float && !tv->isFusionOutput() &&
+        !tv->isFusionInput()) {
       force_fp16_tv_set_.insert(tv);
     }
   }
@@ -5387,7 +5385,7 @@ void SegmentedFusion::annotateFP16IntermediateTensors() {
   for (auto out_tv :
        ir_utils::filterByType<TensorView>(complete_fusion_->outputs())) {
     if (out_tv) {
-      auto dtype = out_tv->getDataType().value();
+      auto dtype = out_tv->getDataType();
       if (dtype == DataType::Half || dtype == DataType::BFloat16) {
         force_half_precision_type_ = dtype;
       }

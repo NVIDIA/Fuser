@@ -185,7 +185,7 @@ class FlattenedAssocCommOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   DataType dtype() const {
-    return *output(0)->getDataType();
+    return output(0)->getDataType();
   }
 
   BinaryOpType getOpType() const {

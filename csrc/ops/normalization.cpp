@@ -100,7 +100,7 @@ VarMeanResult variance_mean(
       correction >= 0, "correction must be non-negative, but got ", correction);
 
   // There are compilation errors for half precision
-  auto dtype = x->getDataType().value();
+  auto dtype = x->getDataType();
   NVF_CHECK(
       !(dtype == DataType::Half || dtype == DataType::BFloat16 ||
         dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2),
@@ -108,7 +108,7 @@ VarMeanResult variance_mean(
       dtype,
       " please upcast to float");
 
-  if (isComplexType(x->getDataType().value())) {
+  if (isComplexType(x->getDataType())) {
     // The variance of a complex tensor is a real number its value equals the
     // sum of real and imaginary variances. The mean of a complex tensor is a
     // complex number its real and image parts equals the mean of real and
@@ -305,8 +305,7 @@ ForwardNormResult layer_norm(
     Val* eps) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   NVF_ERROR(
-      eps != nullptr && eps->getDataType().has_value() &&
-          eps->getDataType().value() == DataType::Double,
+      eps != nullptr && eps->getDataType() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
 
   auto r = norm_properties_from_num_dims(x, kNormShapeNumDims);
@@ -353,8 +352,7 @@ ForwardRMSNormResult rms_norm(
     Val* eps) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   NVF_ERROR(
-      eps != nullptr && eps->getDataType().has_value() &&
-          eps->getDataType().value() == DataType::Double,
+      eps != nullptr && eps->getDataType() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
 
   auto r = norm_properties_from_num_dims(x, kNormShapeNumDims);
@@ -551,13 +549,11 @@ ForwardNormResult batch_norm(
       "running stats should comes in pairs");
 
   NVF_ERROR(
-      momentum != nullptr && momentum->getDataType().has_value() &&
-          momentum->getDataType().value() == DataType::Double,
+      momentum != nullptr && momentum->getDataType() == DataType::Double,
       "Momentum is not a valid Double.");
 
   NVF_ERROR(
-      eps != nullptr && eps->getDataType().has_value() &&
-          eps->getDataType().value() == DataType::Double,
+      eps != nullptr && eps->getDataType() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
 
   // (B, C, H, W, D) tensor
@@ -624,10 +620,7 @@ ForwardNormResult batch_norm(
             "IO_tensor batch_norm::running_stats can only updating input "
             "tensor to fusion");
         auto rm_dtype = input_to_cast->getDataType();
-        NVF_ERROR(
-            rm_dtype.has_value(),
-            "Input running stats must have dtype defined");
-        auto cast_output = castOp(*rm_dtype, aliased_output);
+        auto cast_output = castOp(rm_dtype, aliased_output);
 
         fusion->aliasOutputToInput(
             cast_output, input_to_cast, AllocationType::ReuseBuffer);
@@ -704,8 +697,7 @@ BackwardNormResult batch_norm_backward(
   NVF_ERROR(input != nullptr, "Input is invalid.");
   NVF_ERROR(grad_output != nullptr, "Grad Output is invalid.");
   NVF_ERROR(
-      eps != nullptr && eps->getDataType().has_value() &&
-          eps->getDataType().value() == DataType::Double,
+      eps != nullptr && eps->getDataType() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
 
   // (B, C, H, W, D) tensor
@@ -807,13 +799,11 @@ ForwardNormResult instance_norm(
       "running stats should comes in pairs");
 
   NVF_ERROR(
-      momentum != nullptr && momentum->getDataType().has_value() &&
-          momentum->getDataType().value() == DataType::Double,
+      momentum != nullptr && momentum->getDataType() == DataType::Double,
       "Momentum is not a valid Double.");
 
   NVF_ERROR(
-      eps != nullptr && eps->getDataType().has_value() &&
-          eps->getDataType().value() == DataType::Double,
+      eps != nullptr && eps->getDataType() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
 
   // (B, C, H, W, D) tensor
@@ -856,16 +846,16 @@ ForwardNormResult instance_norm(
     if (running_mean != nullptr && running_var != nullptr) {
       auto _running_mean = running_mean;
       auto _running_var = running_var;
-      if (_running_mean->getDataType().value() == DataType::Half ||
-          _running_mean->getDataType().value() == DataType::BFloat16 ||
-          _running_mean->getDataType().value() == DataType::Float8_e4m3fn ||
-          _running_mean->getDataType().value() == DataType::Float8_e5m2) {
+      if (_running_mean->getDataType() == DataType::Half ||
+          _running_mean->getDataType() == DataType::BFloat16 ||
+          _running_mean->getDataType() == DataType::Float8_e4m3fn ||
+          _running_mean->getDataType() == DataType::Float8_e5m2) {
         _running_mean = castOp(DataType::Float, _running_mean);
       }
-      if (_running_var->getDataType().value() == DataType::Half ||
-          _running_var->getDataType().value() == DataType::BFloat16 ||
-          _running_var->getDataType().value() == DataType::Float8_e4m3fn ||
-          _running_var->getDataType().value() == DataType::Float8_e5m2) {
+      if (_running_var->getDataType() == DataType::Half ||
+          _running_var->getDataType() == DataType::BFloat16 ||
+          _running_var->getDataType() == DataType::Float8_e4m3fn ||
+          _running_var->getDataType() == DataType::Float8_e5m2) {
         _running_var = castOp(DataType::Float, running_var);
       }
       auto rev_momentum =
@@ -878,12 +868,12 @@ ForwardNormResult instance_norm(
       // https://godbolt.org/z/6Prd77xYs
       auto new_mean_sum = sum(new_mean_hat, {static_cast<int>(kBatchDim)});
       auto new_mean_channels_only = mul(new_mean_sum, reciprocal(B));
-      if (running_mean->getDataType().value() == DataType::Half ||
-          running_mean->getDataType().value() == DataType::BFloat16 ||
-          running_mean->getDataType().value() == DataType::Float8_e4m3fn ||
-          running_mean->getDataType().value() == DataType::Float8_e5m2) {
+      if (running_mean->getDataType() == DataType::Half ||
+          running_mean->getDataType() == DataType::BFloat16 ||
+          running_mean->getDataType() == DataType::Float8_e4m3fn ||
+          running_mean->getDataType() == DataType::Float8_e5m2) {
         new_mean_channels_only =
-            castOp(running_mean->getDataType().value(), new_mean_channels_only);
+            castOp(running_mean->getDataType(), new_mean_channels_only);
       }
       fusion->aliasOutputToInput(
           new_mean_channels_only, running_mean, AllocationType::ReuseBuffer);
@@ -899,12 +889,12 @@ ForwardNormResult instance_norm(
       // https://godbolt.org/z/6Prd77xYs
       auto new_var_sum = sum(new_var_hat, {static_cast<int>(kBatchDim)});
       auto new_var_channels_only = mul(new_var_sum, reciprocal(B));
-      if (running_var->getDataType().value() == DataType::Half ||
-          running_var->getDataType().value() == DataType::BFloat16 ||
-          running_var->getDataType().value() == DataType::Float8_e4m3fn ||
-          running_var->getDataType().value() == DataType::Float8_e5m2) {
+      if (running_var->getDataType() == DataType::Half ||
+          running_var->getDataType() == DataType::BFloat16 ||
+          running_var->getDataType() == DataType::Float8_e4m3fn ||
+          running_var->getDataType() == DataType::Float8_e5m2) {
         new_var_channels_only =
-            castOp(running_var->getDataType().value(), new_var_channels_only);
+            castOp(running_var->getDataType(), new_var_channels_only);
       }
       fusion->aliasOutputToInput(
           new_var_channels_only, running_var, AllocationType::ReuseBuffer);
@@ -967,8 +957,7 @@ BackwardNormResult instance_norm_backward(
   NVF_ERROR(input != nullptr, "Input is invalid.");
   NVF_ERROR(grad_output != nullptr, "Grad Output is invalid.");
   NVF_ERROR(
-      eps != nullptr && eps->getDataType().has_value() &&
-          eps->getDataType().value() == DataType::Double,
+      eps != nullptr && eps->getDataType() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
 
   // (B, C, H, W, D) tensor

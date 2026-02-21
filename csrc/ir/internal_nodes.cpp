@@ -143,7 +143,7 @@ std::vector<PolymorphicValue> FullOp::evaluate(
   for (auto i : arange(inputs.size() - 1)) {
     shape.push_back(inputs.at(i).as<int64_t>());
   }
-  DataType dtype = getFillValue()->getDataType().value();
+  DataType dtype = getFillValue()->getDataType();
   const auto options =
       at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype));
   using namespace PolymorphicValue_functions;
@@ -469,7 +469,7 @@ IotaOp::IotaOp(
     Val* start,
     Val* step)
     : Expr(passkey) {
-  NVF_CHECK(isIntegralType(*length->getDataType()));
+  NVF_CHECK(isIntegralType(length->getDataType()));
   addInput(length);
   NVF_CHECK(start->getDataType() == step->getDataType());
   NVF_CHECK(start->getDataType() == out->getDataType());
@@ -585,16 +585,16 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       if (in.is<at::Tensor>()) {
         return {PolymorphicValue(
             in.as<at::Tensor>().to(data_type_to_aten(out()->dtype())))};
-      } else if (isIntegralType(*out()->getDataType())) {
+      } else if (isIntegralType(out()->getDataType())) {
         return {PolymorphicValue((int64_t)in)};
-      } else if (isFloatingPointType(*out()->getDataType())) {
+      } else if (isFloatingPointType(out()->getDataType())) {
         return {PolymorphicValue((double)in)};
       } else if (out()->getDataType() == DataType::Bool) {
         return {PolymorphicValue((bool)in)};
-      } else if (isComplexType(*out()->getDataType())) {
+      } else if (isComplexType(out()->getDataType())) {
         return {PolymorphicValue((std::complex<double>)in)};
       } else {
-        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", out()->getDataType());
       }
     case UnaryOpType::Reciprocal:
       return {1.0 / in};
@@ -626,10 +626,10 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       return {in};
       break;
     case UnaryOpType::Dereference:
-      if (*out()->getDataType() == DataType::Float) {
+      if (out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
       } else {
-        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", out()->getDataType());
       }
       break;
     case UnaryOpType::Sigmoid:
@@ -711,14 +711,13 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
     ss << inline_uop.value() << input;
   } else {
     if (op_type == UnaryOpType::Cast) {
-      std::optional<std::string> cast_str = cast_func_str(std::make_pair(
-          in()->getDataType().value(), out()->getDataType().value()));
+      std::optional<std::string> cast_str = cast_func_str(
+          std::make_pair(in()->getDataType(), out()->getDataType()));
       NVF_ERROR(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
       ss << op_type;
-      if (out()->getDataType().value() == DataType::Float &&
-          needFloatSuffix(op_type)) {
+      if (out()->getDataType() == DataType::Float && needFloatSuffix(op_type)) {
         ss << "f";
       }
     }
@@ -888,8 +887,7 @@ void BinaryOp::printHelper(
     ss << rhs;
   } else {
     ss << op_type;
-    if (out()->getDataType().value() == DataType::Float &&
-        needFloatSuffix(op_type)) {
+    if (out()->getDataType() == DataType::Float && needFloatSuffix(op_type)) {
       ss << "f";
     }
     ss << "(" << lhs;
@@ -1052,13 +1050,12 @@ ArrayConstruct::ArrayConstruct(
   DataType input_dtype = DataType::Null;
   for (auto in : inputs) {
     addInput(in);
-    auto in_dtype_opt = in->getDataType();
-    NVF_ERROR(in_dtype_opt.has_value());
+    auto in_dtype = in->getDataType();
     if (input_dtype == DataType::Null) {
-      input_dtype = *in_dtype_opt;
+      input_dtype = in_dtype;
     } else {
       NVF_CHECK(
-          input_dtype == *in_dtype_opt,
+          input_dtype == in_dtype,
           "All inputs to ArrayConstruct must have the same data type");
     }
   }
@@ -2986,7 +2983,7 @@ std::vector<PolymorphicValue> PadOp::evaluate(
     pad_widths.push_back(right_pad);
   }
 
-  if (isComplexType(*out()->getDataType())) {
+  if (isComplexType(out()->getDataType())) {
     std::complex<double> value =
         static_cast<std::complex<double>>(inputs.at(1));
     auto real = at::real(in);

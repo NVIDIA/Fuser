@@ -113,14 +113,12 @@ bool hasBroadcastOnAny(
 Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
   // replay `CatOp` with series of BinaryOp instead, since we might have
   // pushed `PadOp` out and breaking the codegen if `CatOp` remains.
-  DataType data_type = inputs[0]->getDataType().value();
+  DataType data_type = inputs[0]->getDataType();
   NVF_ERROR(
       std::all_of(
           inputs.begin(),
           inputs.end(),
-          [&data_type](Val* val) {
-            return val->getDataType().value() == data_type;
-          }),
+          [&data_type](Val* val) { return val->getDataType() == data_type; }),
       "all inputs to cat should be of the same datatype");
   NVF_ERROR(!inputs.empty(), "replace cat op expects to have non-empty inputs");
 
@@ -219,7 +217,6 @@ TensorView* replayConcretePad(
     const std::vector<std::vector<Val*>>& vec_pad_widths,
     std::vector<IterDomain*> ref_iter_type) {
   auto* pad_tv = pad_val->as<TensorView>();
-  NVF_ERROR(pad_tv->getDataType().has_value(), "pad source dtype is missing");
   const std::vector<IterDomain*> inp_dom =
       TensorDomain::noReductions(pad_tv->getLogicalDomain());
   const auto rank = inp_dom.size();
@@ -293,13 +290,12 @@ TensorView* replayConcretePad(
           merged_logical_ids,
           merged_logical_ids,
           TensorDomain::getContiguityFilledWith(merged_logical_ids, true)),
-      pad_tv->getDataType().value());
+      pad_tv->getDataType());
   IrBuilder::create<PadOp>(
       new_out,
       pad_tv,
       merged_pad_widths,
-      SimplifyingIrBuilder::maybeCastExpr(
-          pad_tv->getDataType().value(), pad_value));
+      SimplifyingIrBuilder::maybeCastExpr(pad_tv->getDataType(), pad_value));
   return new_out;
 }
 
@@ -458,8 +454,8 @@ void propagatePads(Fusion* fusion) {
         continue;
       }
       // update new outputs.
-      new_out = ops::newValLike(
-          outputs_of_moved_pad[0], uop->out()->getDataType().value());
+      new_out =
+          ops::newValLike(outputs_of_moved_pad[0], uop->out()->getDataType());
       IrBuilder::create<UnaryOp>(
           uop->getUnaryOpType(), new_out, outputs_of_moved_pad[0]);
     } else if (auto* bop = dynamic_cast<BinaryOp*>(def_of_pad_in)) {

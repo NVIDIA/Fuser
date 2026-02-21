@@ -324,12 +324,10 @@ bool PointWiseScheduler::canScheduleRunTime(
         auto data_type_width = op->isA<BlockQuantizationOp>()
             ? dataTypeSizeBit(op->as<BlockQuantizationOp>()
                                   ->quantizedOutput()
-                                  ->getDataType()
-                                  .value())
+                                  ->getDataType())
             : dataTypeSizeBit(op->as<GroupedBlockQuantizationOp>()
                                   ->quantizedOutput()
-                                  ->getDataType()
-                                  .value());
+                                  ->getDataType());
 
         if (data_type_width % 8 != 0) {
           scheduler_debug_utils::canScheduleRejectReason(

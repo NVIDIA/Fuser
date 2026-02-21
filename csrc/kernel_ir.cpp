@@ -420,7 +420,7 @@ TensorIndex::TensorIndex(
     DataType dtype)
     : Val(passkey,
           ValType::TensorIndex,
-          dtype != DataType::Null ? dtype : view->getDataType().value()),
+          dtype != DataType::Null ? dtype : view->getDataType()),
       view_(view),
       index_(index) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -1741,8 +1741,7 @@ int64_t GroupedGridWelford::getSmemBufferSize(
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {
-    return bdimx * bdimy * bdimz *
-        dataTypeSizeByte(out_tv->getDataType().value()) * 2 +
+    return bdimx * bdimy * bdimz * dataTypeSizeByte(out_tv->getDataType()) * 2 +
         bdimx * bdimy * bdimz *
         dataTypeSizeByte(DataType::Index, kernel->indexType());
   }
@@ -1764,8 +1763,8 @@ int64_t GroupedGridWelford::getSmemBufferSize(
   int64_t num_warps = bdimx * bdimy / 32;
   NVF_ERROR((bdimx * bdimy) % 32 == 0);
 
-  int64_t buf_size_for_avg_var = bdimx * num_warps * group_count *
-      dataTypeSizeByte(out_tv->getDataType().value());
+  int64_t buf_size_for_avg_var =
+      bdimx * num_warps * group_count * dataTypeSizeByte(out_tv->getDataType());
   int64_t buf_size_for_N =
       num_warps * dataTypeSizeByte(DataType::Index, kernel->indexType());
 

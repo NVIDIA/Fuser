@@ -950,9 +950,6 @@ void Fusion::aliasOutputToInput(
 
   NVF_ERROR(type == AllocationType::ReuseBuffer);
   NVF_ERROR(input->isFusionInput(), "alias source can only be a fusion input");
-  NVF_ERROR(
-      input->getDataType().has_value() && output->getDataType().has_value(),
-      "requires DataType to be available for aliased output to input");
 
   if (output->isFusionInput()) {
     // ensure that codegen produce a write operation on the buffer.

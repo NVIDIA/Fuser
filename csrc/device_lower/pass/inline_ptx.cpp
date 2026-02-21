@@ -186,7 +186,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
       std::stringstream op_ss;
       op_ss << "mma.sync.aligned.m" << m << "n" << n << "k" << k
             << ".row.col.f32";
-      if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType().value() ==
+      if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType() ==
           DataType::BFloat16) {
         op_ss << ".bf16.bf16";
       } else {
@@ -292,7 +292,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     std::stringstream inst_ss;
     inst_ss << "wgmma.mma_async.sync.aligned.m" << mma->m() << "n" << mma->n()
             << "k" << mma->k() << ".f32";
-    if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType().value() ==
+    if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType() ==
         DataType::BFloat16) {
       inst_ss << ".bf16.bf16";
     } else {

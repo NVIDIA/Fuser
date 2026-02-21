@@ -748,12 +748,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsGridRawSync(ti->view())) {
-      code_ << "*(volatile " << ti->getDataType().value() << "*)&";
+      code_ << "*(volatile " << ti->getDataType() << "*)&";
     }
 
     const bool different_dtype = ti->view()->dtype() != ti->dtype();
     if (different_dtype) {
-      code_ << "(*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
+      code_ << "(*reinterpret_cast<" << ti->getDataType() << "*>(&";
     }
     code_ << genVariableName(ti->view()) << "[" << genInline(ti->index())
           << "]";
@@ -1200,9 +1200,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             } else {
               // Note: currently arraySet option is not vectorized, so it will
               //  rely on auto vectorization pass of cuda compiler.
-              code_ << "arraySet<" << out_tv->getDataType().value() << ", "
+              code_ << "arraySet<" << out_tv->getDataType() << ", "
                     << vector_word_size << ">(&" << gen(top->out()) << ", ("
-                    << out_tv->getDataType().value() << ")" << gen(in) << ")";
+                    << out_tv->getDataType() << ")" << gen(in) << ")";
             }
           } else {
             generateVectorizedLdSt(
@@ -1829,7 +1829,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Validate group size based on input data type
     const auto input_dtype =
-        bqop->in()->as<kir::TensorIndex>()->view()->getDataType().value();
+        bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
     const bool is_half_precision =
         (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half);
     const bool is_valid_group_size = is_half_precision
@@ -1921,11 +1921,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     // Validate group size based on input data type
-    const auto input_dtype = grouped_bqop->in()
-                                 ->as<kir::TensorIndex>()
-                                 ->view()
-                                 ->getDataType()
-                                 .value();
+    const auto input_dtype =
+        grouped_bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
     const bool is_half_precision =
         (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half);
     const bool is_valid_group_size = is_half_precision
@@ -2290,10 +2287,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           } else {
             // Note: currently arraySet option is not vectorized, so it will
             //  rely on auto vectorization pass of cuda compiler.
-            indent() << "arraySet<" << out_tv->getDataType().value() << ", "
+            indent() << "arraySet<" << out_tv->getDataType() << ", "
                      << vector_word_size << ">(&" << gen(ldst->out()) << ", "
-                     << "(" << out_tv->getDataType().value() << ")"
-                     << gen(ldst->in()) << ");\n";
+                     << "(" << out_tv->getDataType() << ")" << gen(ldst->in())
+                     << ");\n";
           }
         } else {
           // Vectorized load
@@ -2498,7 +2495,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     ArgumentBuilder template_args;
-    template_args.arg(out_avg->getDataType().value());
+    template_args.arg(out_avg->getDataType());
     if (is_predicated) {
       template_args.arg(output_gmem);
     }

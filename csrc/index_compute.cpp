@@ -1903,8 +1903,8 @@ Val* Index::getProducerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSizeByte(*producer->getDataType()),
-              *index->getDataType()));
+              dataTypeSizeByte(producer->getDataType()),
+              index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(producer), index_bytes);
     } else {
@@ -1963,12 +1963,10 @@ kir::TensorIndex* Index::getProducerIndex(
       auto address_offset = index;
       if (producer->getMemoryType() == MemoryType::Shared) {
         auto producer_dt = producer->getDataType();
-        NVF_ERROR(producer_dt.has_value());
         auto index_dt = index->getDataType();
-        NVF_ERROR(index_dt.has_value());
         address_offset = SimplifyingIrBuilder::mulExpr(
             address_offset,
-            IrBuilder::create<Val>(dataTypeSizeByte(*producer_dt), *index_dt));
+            IrBuilder::create<Val>(dataTypeSizeByte(producer_dt), index_dt));
       }
       index = SimplifyingIrBuilder::addExpr(
           IrBuilder::baseAddressExpr(producer), address_offset);
@@ -2032,8 +2030,8 @@ Val* Index::getConsumerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSizeByte(*consumer->getDataType()),
-              *index->getDataType()));
+              dataTypeSizeByte(consumer->getDataType()),
+              index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), index_bytes);
     } else {
@@ -2061,12 +2059,10 @@ kir::TensorIndex* Index::getConsumerIndex(
       auto address_offset = index;
       if (consumer->getMemoryType() == MemoryType::Shared) {
         auto consumer_dt = consumer->getDataType();
-        NVF_ERROR(consumer_dt.has_value());
         auto index_dt = index->getDataType();
-        NVF_ERROR(index_dt.has_value());
         address_offset = SimplifyingIrBuilder::mulExpr(
             index,
-            IrBuilder::create<Val>(dataTypeSizeByte(*consumer_dt), *index_dt));
+            IrBuilder::create<Val>(dataTypeSizeByte(consumer_dt), index_dt));
       }
       index = SimplifyingIrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), address_offset);

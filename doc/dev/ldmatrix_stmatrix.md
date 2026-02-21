@@ -254,7 +254,7 @@ AbstractTensor scheduleLdStMatrixBase(
   // (GM, GN, cta_m(2), cta_n(1), m(64), n(256))
 
   // Split by TMA shared memory box
-  DataType dtype = tv->getDataType().value();
+  DataType dtype = tv->getDataType();
   int64_t smem_box_size = getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype);
   abstract_tensor.split(-1, smem_box_size);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});

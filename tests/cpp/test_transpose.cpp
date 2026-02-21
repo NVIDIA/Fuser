@@ -1524,8 +1524,7 @@ TEST_P(TransposeTMA, TransposeInputSmem) {
   constexpr int64_t swizzle_chunk_bytes = 16;
   constexpr int64_t num_swizzle_chunks =
       tma_swizzle_bytes / swizzle_chunk_bytes;
-  const int64_t dtype_bytes =
-      dataTypeSizeByte(input_smem_cache->getDataType().value());
+  const int64_t dtype_bytes = dataTypeSizeByte(input_smem_cache->getDataType());
   const int64_t elements_per_chunk = swizzle_chunk_bytes / dtype_bytes;
   // tile_i1 must equal tma_swizzle_bytes / dtype_bytes.
   const int64_t tile_i1 = 32;

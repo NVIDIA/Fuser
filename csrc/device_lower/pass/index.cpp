@@ -497,7 +497,7 @@ void IndexLowering::handle(const SelectOp* sop) {
   // If the type of the index tensor is different from the kernel
   // index type, promote it to the kernel index type
   if (GpuLower::current()->kernel()->indexType() !=
-      sop->input(1)->getDataType().value()) {
+      sop->input(1)->getDataType()) {
     lowered_index_cast =
         IrBuilder::create<Val>(GpuLower::current()->kernel()->indexType());
     IrBuilder::create<UnaryOp>(
