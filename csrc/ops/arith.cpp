@@ -2550,7 +2550,7 @@ TopKResult topk(
     for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
       auto root_id = inp_domain_ptr->cloneWithoutRFactor();
       values_root.push_back(root_id);
-      if (index != (size_t)dim) {
+      if (index != dim) {
         // Root and logical are the same for non topk dim
         values_logical.push_back(root_id);
         continue;
