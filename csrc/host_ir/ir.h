@@ -167,7 +167,7 @@ class Allocate : public Expr {
 
   explicit Allocate(
       IrBuilderPasskey passkey,
-      TensorView* in,
+      Val* in,
       MemoryType memory_type,
       bool zero_init = false);
 
@@ -185,7 +185,7 @@ class Allocate : public Expr {
   }
 
   TensorView* in() const {
-    return inputs().at(0);
+    return inputs().at(0)->as<TensorView>();
   }
 
   MemoryType memoryType() const {

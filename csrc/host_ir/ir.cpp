@@ -506,7 +506,7 @@ std::string ForLoop::toInlineString(int indent_size) const {
 
 Allocate::Allocate(
     IrBuilderPasskey passkey,
-    TensorView* in,
+    Val* in,
     MemoryType memory_type,
     bool zero_init)
     : Expr(passkey) {
@@ -525,7 +525,7 @@ std::string Allocate::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << in()->toString() << " = ALLOCATE("
                           << "mem_type=" << memoryType() << ", "
-                          << "zero_init=" << boolLiteral(zeroInit()) << ")"
+                          << "zero_init=" << std::boolalpha << zeroInit() << ")"
                           << std::endl;
   return ss.str();
 }
@@ -534,7 +534,8 @@ std::string Allocate::toInlineString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << in()->toInlineString() << " = ALLOCATE("
                           << "mem_type=" << memoryType() << ", "
-                          << "zero_init=" << boolLiteral(zeroInit()) << ")";
+                          << "zero_init=" << std::boolalpha << zeroInit()
+                          << ")";
   return ss.str();
 }
 
