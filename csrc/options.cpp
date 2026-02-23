@@ -139,8 +139,6 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"ptx", DebugDumpOption::Ptx},
       {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
       {"python_definition", DebugDumpOption::PythonDefinition},
-      {"python_definition_segments", DebugDumpOption::PythonDefinitionSegments},
-      {"python_frontend_debug", DebugDumpOption::PythonFrontendDebug},
       {"sass", DebugDumpOption::Sass},
       {"sass_to_file", DebugDumpOption::SassToFile},
       {"segmented_fusion", DebugDumpOption::FusionSegments},

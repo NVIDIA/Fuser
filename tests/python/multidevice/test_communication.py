@@ -34,6 +34,37 @@ def test_allgather(multidevice_test):
 
 
 @pytest.mark.mpi
+def test_allgather_2d(multidevice_test):
+    d = multidevice_test.size
+    tp_size = 2
+    if d % tp_size != 0:
+        pytest.skip(f"Number of devices ({d=}) must be divisible by {tp_size=}")
+    dp_size = d // tp_size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dp_size, tp_size))
+
+    with FusionDefinition() as fd:
+        inp_tv = fd.define_tensor([-1, -1], contiguity=True, dtype=DataType.Float)
+        out_tv = fd.ops.set(inp_tv)
+        fd.add_output(out_tv)
+
+        for tv in [inp_tv, out_tv]:
+            tv.set_device_mesh(mesh)
+            tv.outer_split(0, dp_size)
+            tv.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
+        inp_tv.outer_split(2, tp_size)
+        inp_tv.axis(2).parallelize(nvfuser.ParallelType.mesh_x)
+
+    rows_per_rank, cols_per_rank = 2, 3
+    rows, cols = dp_size * rows_per_rank, tp_size * cols_per_rank
+    inp_ref = torch.randn(rows, cols)
+    out_ref = inp_ref
+
+    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
+    (out,) = fd.execute([inp])
+    torch.testing.assert_close(out, multidevice_test.shard_tensor(out_ref, out_tv))
+
+
+@pytest.mark.mpi
 def test_allgather_expanded_broadcast(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))

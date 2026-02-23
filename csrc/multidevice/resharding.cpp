@@ -117,7 +117,7 @@ bool haveDifferentShardings(
     return false;
   }
 
-  // exit early in the unsharded case for performance if we are
+  // Exit early in the unsharded case for performance if we are
   // not checking for `Stream`.
   if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh() &&
       !parallel_types.count(ParallelType::Stream)) {
@@ -126,6 +126,13 @@ bool haveDifferentShardings(
 
   // If the two device meshes are different, the Expr is resharding if any
   // parallel type in `parallel_types` is in the mesh.
+  //
+  // This code is problematic for multi-dimensional sharding.
+  // ```
+  // x: [iDIDy{2}, iDIDx{2}] on mesh [[0, 1], [2, 3]]
+  // y = set(x): [iDIDy{2}, i{2}] on mesh [[0], [2]]
+  // ```
+  // should be treated as non-resharding on DIDy.
   if (producer->getDeviceMesh() != consumer->getDeviceMesh() &&
       std::ranges::any_of(parallel_types, [&](ParallelType pt) {
         return isParallelTypeDeviceDim(pt) &&
@@ -168,10 +175,8 @@ bool haveDifferentShardings(
         PairwiseLogicalDomainMap(producer, consumer)
             .mapBroadcast(false)
             .mapConsumerToProducer();
-    return !std::all_of(
-        consumer_domain.begin(),
-        consumer_domain.end(),
-        [&c2p, &parallel_types](IterDomain* c_id) {
+    return !std::ranges::all_of(
+        consumer_domain, [&c2p, &parallel_types](IterDomain* c_id) {
           auto p_id = c2p.at(c_id);
           auto p_id_pt = p_id->getParallelType();
           auto c_id_pt = c_id->getParallelType();

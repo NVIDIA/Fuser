@@ -13,8 +13,8 @@
 #include "ir/base_nodes.h"
 #include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
+#include "multidevice/communication.h"
 #include "multidevice/multidevice.h"
-#include "multidevice/post_communication.h"
 
 namespace nvfuser {
 
@@ -37,8 +37,8 @@ bool isCommunicationLayoutCompliant(Expr* expr);
 
 // Given an Expr that's known to be a communication, returns the communication
 // info: type and sharded IDs. We assume that the expr has been decomposed and
-// represented a single communication. If multiple communications are present or
-// 2D sharding, this function will raise an error.
+// represented a single communication. If multiple communications are present,
+// this function will raise an error.
 CommunicationInfo getCommunicationInfo(Expr* expr);
 
 // Given the input/output TensorView of a communication, returns its layout
