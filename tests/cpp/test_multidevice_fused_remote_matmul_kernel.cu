@@ -72,27 +72,31 @@ namespace {
 // is self-contained.
 // =========================================================================
 
-bool hasValidTmaShape(
-    const at::Tensor& a,
-    const at::Tensor& b) {
-  if (!a.defined() || !b.defined()) return false;
-  if (!a.is_cuda() || !b.is_cuda()) return false;
-  if (a.dim() != 2 || b.dim() != 2) return false;
-  if (a.scalar_type() != b.scalar_type()) return false;
+bool hasValidTmaShape(const at::Tensor& a, const at::Tensor& b) {
+  if (!a.defined() || !b.defined())
+    return false;
+  if (!a.is_cuda() || !b.is_cuda())
+    return false;
+  if (a.dim() != 2 || b.dim() != 2)
+    return false;
+  if (a.scalar_type() != b.scalar_type())
+    return false;
   if (!(a.scalar_type() == at::ScalarType::Half ||
         a.scalar_type() == at::ScalarType::BFloat16))
     return false;
-  if (!a.is_contiguous() || !b.is_contiguous()) return false;
-  if (a.size(1) != b.size(0)) return false;
-  if (a.get_device() != b.get_device()) return false;
+  if (!a.is_contiguous() || !b.is_contiguous())
+    return false;
+  if (a.size(1) != b.size(0))
+    return false;
+  if (a.get_device() != b.get_device())
+    return false;
   constexpr int64_t kAlign = 8;
   if (a.size(1) % kAlign != 0 || b.size(1) % kAlign != 0)
     return false;
   return true;
 }
 
-#if defined(NVFUSER_ENABLE_CUTLASS) && \
-    defined(CUTLASS_ARCH_MMA_SM90_SUPPORTED)
+#if defined(NVFUSER_ENABLE_CUTLASS) && defined(CUTLASS_ARCH_MMA_SM90_SUPPORTED)
 using namespace cute;
 
 template <typename ElementT>
@@ -105,14 +109,10 @@ struct TmaSm90Config {
   using LayoutB = cutlass::layout::RowMajor;
   using LayoutC = cutlass::layout::RowMajor;
   using LayoutD = cutlass::layout::RowMajor;
-  static constexpr int kAA =
-      128 / cutlass::sizeof_bits<EA>::value;
-  static constexpr int kAB =
-      128 / cutlass::sizeof_bits<EB>::value;
-  static constexpr int kAC =
-      128 / cutlass::sizeof_bits<EC>::value;
-  static constexpr int kAD =
-      128 / cutlass::sizeof_bits<ED>::value;
+  static constexpr int kAA = 128 / cutlass::sizeof_bits<EA>::value;
+  static constexpr int kAB = 128 / cutlass::sizeof_bits<EB>::value;
+  static constexpr int kAC = 128 / cutlass::sizeof_bits<EC>::value;
+  static constexpr int kAD = 128 / cutlass::sizeof_bits<ED>::value;
   using Acc = float;
   using Arch = cutlass::arch::Sm90;
   using Op = cutlass::arch::OpClassTensorOp;
@@ -120,28 +120,41 @@ struct TmaSm90Config {
   using Cluster = Shape<_1, _1, _1>;
   using SmTile = Shape<_128, _128, _64>;
 
-  using Epi =
-      typename cutlass::epilogue::collective::CollectiveBuilder<
-          Arch, Op, SmTile, Cluster,
-          cutlass::epilogue::collective::EpilogueTileAuto,
-          Acc, Acc, EC, LayoutC, kAC, ED, LayoutD, kAD,
-          cutlass::epilogue::collective::
-              EpilogueScheduleAuto>::CollectiveOp;
+  using Epi = typename cutlass::epilogue::collective::CollectiveBuilder<
+      Arch,
+      Op,
+      SmTile,
+      Cluster,
+      cutlass::epilogue::collective::EpilogueTileAuto,
+      Acc,
+      Acc,
+      EC,
+      LayoutC,
+      kAC,
+      ED,
+      LayoutD,
+      kAD,
+      cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
 
-  using Main =
-      typename cutlass::gemm::collective::CollectiveBuilder<
-          Arch, Op, EA, LayoutA, kAA, EB, LayoutB, kAB,
-          Acc, Tile, Cluster,
-          cutlass::gemm::collective::StageCountAutoCarveout<
-              static_cast<int>(
-                  sizeof(typename Epi::SharedStorage))>,
-          cutlass::gemm::collective::
-              KernelScheduleAuto>::CollectiveOp;
+  using Main = typename cutlass::gemm::collective::CollectiveBuilder<
+      Arch,
+      Op,
+      EA,
+      LayoutA,
+      kAA,
+      EB,
+      LayoutB,
+      kAB,
+      Acc,
+      Tile,
+      Cluster,
+      cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+          sizeof(typename Epi::SharedStorage))>,
+      cutlass::gemm::collective::KernelScheduleAuto>::CollectiveOp;
 
-  using Kernel = cutlass::gemm::kernel::GemmUniversal<
-      Shape<int, int, int, int>, Main, Epi, void>;
-  using Gemm =
-      cutlass::gemm::device::GemmUniversalAdapter<Kernel>;
+  using Kernel = cutlass::gemm::kernel::
+      GemmUniversal<Shape<int, int, int, int>, Main, Epi, void>;
+  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<Kernel>;
   using SA = typename Gemm::GemmKernel::StrideA;
   using SB = typename Gemm::GemmKernel::StrideB;
   using SC = typename Gemm::GemmKernel::StrideC;
@@ -153,36 +166,36 @@ void runGemmSm90(
     at::Tensor& out,
     const at::Tensor& a,
     const at::Tensor& b,
-    int64_t m, int64_t n, int64_t k,
+    int64_t m,
+    int64_t n,
+    int64_t k,
     cudaStream_t stream) {
   using C = TmaSm90Config<ElementT>;
-  auto sa = cutlass::make_cute_packed_stride(
-      typename C::SA{}, {(int)m, (int)k, 1});
-  auto sb = cutlass::make_cute_packed_stride(
-      typename C::SB{}, {(int)k, (int)n, 1});
-  auto sc = cutlass::make_cute_packed_stride(
-      typename C::SC{}, {(int)m, (int)n, 1});
-  auto sd = cutlass::make_cute_packed_stride(
-      typename C::SD{}, {(int)m, (int)n, 1});
+  auto sa =
+      cutlass::make_cute_packed_stride(typename C::SA{}, {(int)m, (int)k, 1});
+  auto sb =
+      cutlass::make_cute_packed_stride(typename C::SB{}, {(int)k, (int)n, 1});
+  auto sc =
+      cutlass::make_cute_packed_stride(typename C::SC{}, {(int)m, (int)n, 1});
+  auto sd =
+      cutlass::make_cute_packed_stride(typename C::SD{}, {(int)m, (int)n, 1});
   typename C::Kernel::Arguments args{
       cutlass::gemm::GemmUniversalMode::kGemm,
       {(int)m, (int)n, (int)k, 1},
-      {static_cast<const typename C::EA*>(a.data_ptr()), sa,
-       static_cast<const typename C::EB*>(b.data_ptr()), sb},
-      {{}, nullptr, sc,
-       static_cast<typename C::ED*>(out.data_ptr()), sd}};
+      {static_cast<const typename C::EA*>(a.data_ptr()),
+       sa,
+       static_cast<const typename C::EB*>(b.data_ptr()),
+       sb},
+      {{}, nullptr, sc, static_cast<typename C::ED*>(out.data_ptr()), sd}};
   typename C::Gemm gemm;
   size_t ws = C::Gemm::get_workspace_size(args);
   auto wt = at::empty(
-      {(int64_t)ws},
-      at::TensorOptions().dtype(at::kByte).device(
-          a.device()));
+      {(int64_t)ws}, at::TensorOptions().dtype(at::kByte).device(a.device()));
   NVF_CHECK(
       gemm.can_implement(args) == cutlass::Status::kSuccess,
       "CUTLASS cannot implement this GEMM.");
   NVF_CHECK(
-      gemm.initialize(args, wt.data_ptr(), stream) ==
-          cutlass::Status::kSuccess,
+      gemm.initialize(args, wt.data_ptr(), stream) == cutlass::Status::kSuccess,
       "CUTLASS init failed.");
   NVF_CHECK(
       gemm.run(args, wt.data_ptr(), stream, nullptr, true) ==
@@ -194,8 +207,13 @@ void runGemmSm90(
 
 template <typename ElementT>
 void runGemmSm90(
-    at::Tensor&, const at::Tensor&, const at::Tensor&,
-    int64_t, int64_t, int64_t, cudaStream_t) {
+    at::Tensor&,
+    const at::Tensor&,
+    const at::Tensor&,
+    int64_t,
+    int64_t,
+    int64_t,
+    cudaStream_t) {
   NVF_THROW("CUTLASS SM90 support required for TMA matmul.");
 }
 
@@ -212,54 +230,74 @@ constexpr int64_t kVecW = 4;
 constexpr int64_t kMaxPoll = 1LL << 26;
 
 __device__ inline void publishToAll(
-    int32_t* const* remote, int32_t* local,
-    int64_t writer, int64_t row, int64_t m,
-    int64_t ws, int32_t epoch) {
+    int32_t* const* remote,
+    int32_t* local,
+    int64_t writer,
+    int64_t row,
+    int64_t m,
+    int64_t ws,
+    int32_t epoch) {
   int32_t* my = local + (writer * m + row) * kVecW;
-  for (int64_t i = 0; i < kVecW; ++i) my[i] = epoch;
+  for (int64_t i = 0; i < kVecW; ++i)
+    my[i] = epoch;
   __threadfence_system();
   for (int64_t p = 0; p < ws; ++p) {
     int32_t* d = remote[p] + (writer * m + row) * kVecW;
-    for (int64_t i = 0; i < kVecW; ++i) d[i] = epoch;
+    for (int64_t i = 0; i < kVecW; ++i)
+      d[i] = epoch;
   }
   __threadfence_system();
 }
 
 __device__ inline void publishToOne(
-    int32_t* target, int64_t writer,
-    int64_t row, int64_t m, int32_t epoch) {
+    int32_t* target,
+    int64_t writer,
+    int64_t row,
+    int64_t m,
+    int32_t epoch) {
   int32_t* d = target + (writer * m + row) * kVecW;
-  for (int64_t i = 0; i < kVecW; ++i) d[i] = epoch;
+  for (int64_t i = 0; i < kVecW; ++i)
+    d[i] = epoch;
   __threadfence_system();
 }
 
 __device__ inline void setLocal(
-    int32_t* local, int64_t writer,
-    int64_t row, int64_t m, int32_t epoch) {
+    int32_t* local,
+    int64_t writer,
+    int64_t row,
+    int64_t m,
+    int32_t epoch) {
   int32_t* d = local + (writer * m + row) * kVecW;
-  for (int64_t i = 0; i < kVecW; ++i) d[i] = epoch;
+  for (int64_t i = 0; i < kVecW; ++i)
+    d[i] = epoch;
   __threadfence_system();
 }
 
 __device__ inline void waitOne(
-    int32_t* local, int64_t row, int64_t m,
-    int64_t writer, int32_t epoch) {
-  auto* p = reinterpret_cast<unsigned int*>(
-      local + (writer * m + row) * kVecW);
+    int32_t* local,
+    int64_t row,
+    int64_t m,
+    int64_t writer,
+    int32_t epoch) {
+  auto* p = reinterpret_cast<unsigned int*>(local + (writer * m + row) * kVecW);
   int64_t s = 0;
   while (atomicAdd(p, 0U) < (unsigned)epoch)
-    if (++s > kMaxPoll) asm volatile("trap;");
+    if (++s > kMaxPoll)
+      asm volatile("trap;");
 }
 
 __device__ inline void waitAll(
-    int32_t* local, int64_t row, int64_t m,
-    int64_t ws, int32_t epoch) {
+    int32_t* local,
+    int64_t row,
+    int64_t m,
+    int64_t ws,
+    int32_t epoch) {
   for (int64_t r = 0; r < ws; ++r) {
-    auto* p = reinterpret_cast<unsigned int*>(
-        local + (r * m + row) * kVecW);
+    auto* p = reinterpret_cast<unsigned int*>(local + (r * m + row) * kVecW);
     int64_t s = 0;
     while (atomicAdd(p, 0U) < (unsigned)epoch)
-      if (++s > kMaxPoll) asm volatile("trap;");
+      if (++s > kMaxPoll)
+        asm volatile("trap;");
   }
 }
 
@@ -272,19 +310,22 @@ __device__ inline void waitAll(
 // owner rank's shard via remote pointers -- no staging, no gather.
 __global__ void naiveRemoteReadKernel(
     const __half* const* a_shards,
-    const __half* b, __half* c,
-    int64_t m, int64_t n, int64_t k,
+    const __half* b,
+    __half* c,
+    int64_t m,
+    int64_t n,
+    int64_t k,
     int64_t m_per_rank) {
   int64_t row = blockIdx.y * blockDim.y + threadIdx.y;
   int64_t col = blockIdx.x * blockDim.x + threadIdx.x;
-  if (row >= m || col >= n) return;
+  if (row >= m || col >= n)
+    return;
   int64_t owner = row / m_per_rank;
   int64_t lr = row - owner * m_per_rank;
   const __half* a = a_shards[owner];
   float acc = 0.f;
   for (int64_t kk = 0; kk < k; ++kk)
-    acc += __half2float(a[lr * k + kk]) *
-        __half2float(b[kk * n + col]);
+    acc += __half2float(a[lr * k + kk]) * __half2float(b[kk * n + col]);
   c[row * n + col] = __float2half(acc);
 }
 
@@ -299,37 +340,40 @@ __global__ void naiveRemoteReadKernel(
 __global__ void threadloadGatherKernel(
     const __half* const* a_shards,
     __half* a_gathered,
-    int32_t* const* ready_r, int32_t* ready_l,
-    int32_t* const* done_r, int32_t* done_l,
-    int64_t rank, int64_t ws, int32_t epoch_base,
-    int64_t m, int64_t n, int64_t k,
+    int32_t* const* ready_r,
+    int32_t* ready_l,
+    int32_t* const* done_r,
+    int32_t* done_l,
+    int64_t rank,
+    int64_t ws,
+    int32_t epoch_base,
+    int64_t m,
+    int64_t n,
+    int64_t k,
     int64_t m_per_rank,
-    const __half* b, __half* c) {
+    const __half* b,
+    __half* c) {
   const int32_t epoch = epoch_base + 1;
-  for (int64_t row = blockIdx.x; row < m;
-       row += gridDim.x) {
+  for (int64_t row = blockIdx.x; row < m; row += gridDim.x) {
     int64_t owner = row / m_per_rank;
     int64_t lr = row - owner * m_per_rank;
     const __half* a = a_shards[owner];
 
     // --- Semaphore: owner signals readiness ---
     if (threadIdx.x == 0 && rank == owner)
-      publishToAll(
-          ready_r, ready_l, rank, row, m, ws, epoch);
+      publishToAll(ready_r, ready_l, rank, row, m, ws, epoch);
     __syncthreads();
     if (threadIdx.x == 0 && rank != owner)
       waitOne(ready_l, row, m, owner, epoch);
     __syncthreads();
 
     // --- Stage 1: P2P gather via thread loads ---
-    for (int64_t kk = threadIdx.x; kk < k;
-         kk += blockDim.x)
+    for (int64_t kk = threadIdx.x; kk < k; kk += blockDim.x)
       a_gathered[row * k + kk] = a[lr * k + kk];
     __syncthreads();
 
     // --- Stage 2: scalar matmul (skip when n==0) ---
-    for (int64_t col = threadIdx.x; col < n;
-         col += blockDim.x) {
+    for (int64_t col = threadIdx.x; col < n; col += blockDim.x) {
       float acc = 0.f;
       for (int64_t kk = 0; kk < k; ++kk)
         acc += __half2float(a_gathered[row * k + kk]) *
@@ -361,13 +405,18 @@ __global__ void threadloadGatherKernel(
 __global__ void multimemGatherKernel(
     const __half* const* a_shards,
     __half* a_mc,
-    int32_t* const* sem_r, int32_t* sem_l,
-    int64_t rank, int64_t ws, int32_t epoch_base,
-    int64_t m, int64_t n, int64_t k,
+    int32_t* const* sem_r,
+    int32_t* sem_l,
+    int64_t rank,
+    int64_t ws,
+    int32_t epoch_base,
+    int64_t m,
+    int64_t n,
+    int64_t k,
     int64_t m_per_rank,
-    const __half* b, __half* c) {
-  for (int64_t row = blockIdx.x; row < m;
-       row += gridDim.x) {
+    const __half* b,
+    __half* c) {
+  for (int64_t row = blockIdx.x; row < m; row += gridDim.x) {
     int64_t owner = row / m_per_rank;
     int64_t lr = row - owner * m_per_rank;
     const __half* a = a_shards[owner];
@@ -377,10 +426,8 @@ __global__ void multimemGatherKernel(
     constexpr int64_t kVec = 8;
     int64_t nvec = k / kVec;
     if (rank == owner) {
-      for (int64_t vi = threadIdx.x; vi < nvec;
-           vi += blockDim.x) {
-        uint4 val = reinterpret_cast<const uint4*>(
-            a + lr * k)[vi];
+      for (int64_t vi = threadIdx.x; vi < nvec; vi += blockDim.x) {
+        uint4 val = reinterpret_cast<const uint4*>(a + lr * k)[vi];
 #if __CUDA_ARCH__ >= 900
         asm volatile(
             "multimem.st.global.v4.f32 [%0],"
@@ -397,8 +444,7 @@ __global__ void multimemGatherKernel(
         asm volatile("trap;");
 #endif
       }
-      for (int64_t kk = nvec * kVec + threadIdx.x;
-           kk < k; kk += blockDim.x)
+      for (int64_t kk = nvec * kVec + threadIdx.x; kk < k; kk += blockDim.x)
         arow[kk] = a[lr * k + kk];
     }
     __syncthreads();
@@ -407,25 +453,25 @@ __global__ void multimemGatherKernel(
 #if __CUDA_ARCH__ >= 900
     const int32_t epoch = epoch_base + 1;
     if (threadIdx.x == 0 && rank == owner)
-      publishToAll(
-          sem_r, sem_l, rank, row, m, ws, epoch);
+      publishToAll(sem_r, sem_l, rank, row, m, ws, epoch);
     __syncthreads();
     if (threadIdx.x == 0 && rank != owner)
       waitOne(sem_l, row, m, owner, epoch);
     __syncthreads();
 #else
-    (void)sem_r; (void)sem_l;
-    (void)rank; (void)ws; (void)epoch_base;
+    (void)sem_r;
+    (void)sem_l;
+    (void)rank;
+    (void)ws;
+    (void)epoch_base;
     asm volatile("trap;");
 #endif
 
     // --- Stage 2: scalar matmul (skip when n==0) ---
-    for (int64_t col = threadIdx.x; col < n;
-         col += blockDim.x) {
+    for (int64_t col = threadIdx.x; col < n; col += blockDim.x) {
       float acc = 0.f;
       for (int64_t kk = 0; kk < k; ++kk)
-        acc += __half2float(arow[kk]) *
-            __half2float(b[kk * n + col]);
+        acc += __half2float(arow[kk]) * __half2float(b[kk * n + col]);
       c[row * n + col] = __float2half(acc);
     }
     __syncthreads();
@@ -444,15 +490,15 @@ __global__ void multimemGatherKernel(
 void launchNaiveRemoteRead(DistributedMatmulContext& ctx) {
   constexpr int64_t kB = 16;
   dim3 block(kB, kB);
-  dim3 grid(
-      (ctx.n + kB - 1) / kB, (ctx.m + kB - 1) / kB);
+  dim3 grid((ctx.n + kB - 1) / kB, (ctx.m + kB - 1) / kB);
   naiveRemoteReadKernel<<<grid, block, 0, ctx.stream>>>(
       ctx.device_remote_ptrs,
-      reinterpret_cast<const __half*>(
-          ctx.b_full_half.data_ptr()),
-      reinterpret_cast<__half*>(
-          ctx.c_out_half.data_ptr()),
-      ctx.m, ctx.n, ctx.k, ctx.m_per_rank);
+      reinterpret_cast<const __half*>(ctx.b_full_half.data_ptr()),
+      reinterpret_cast<__half*>(ctx.c_out_half.data_ptr()),
+      ctx.m,
+      ctx.n,
+      ctx.k,
+      ctx.m_per_rank);
 }
 
 void launchThreadloadGather(
@@ -463,17 +509,20 @@ void launchThreadloadGather(
   dim3 grid(ctx.m);
   threadloadGatherKernel<<<grid, block, 0, ctx.stream>>>(
       ctx.device_remote_ptrs,
-      reinterpret_cast<__half*>(
-          ctx.a_gathered.data_ptr()),
-      ctx.ready_sem_remote, ctx.ready_sem_local,
-      ctx.done_sem_remote, ctx.done_sem_local,
-      ctx.my_rank, ctx.world_size, epoch,
-      ctx.m, compute ? ctx.n : 0,
-      ctx.k, ctx.m_per_rank,
-      reinterpret_cast<const __half*>(
-          ctx.b_full_half.data_ptr()),
-      reinterpret_cast<__half*>(
-          ctx.c_out_half.data_ptr()));
+      reinterpret_cast<__half*>(ctx.a_gathered.data_ptr()),
+      ctx.ready_sem_remote,
+      ctx.ready_sem_local,
+      ctx.done_sem_remote,
+      ctx.done_sem_local,
+      ctx.my_rank,
+      ctx.world_size,
+      epoch,
+      ctx.m,
+      compute ? ctx.n : 0,
+      ctx.k,
+      ctx.m_per_rank,
+      reinterpret_cast<const __half*>(ctx.b_full_half.data_ptr()),
+      reinterpret_cast<__half*>(ctx.c_out_half.data_ptr()));
 }
 
 void launchMultimemGather(
@@ -485,45 +534,40 @@ void launchMultimemGather(
   multimemGatherKernel<<<grid, block, 0, ctx.stream>>>(
       ctx.device_remote_ptrs,
       ctx.multicast_ptr,
-      ctx.stage_sem_remote, ctx.stage_sem_local,
-      ctx.my_rank, ctx.world_size, epoch,
-      ctx.m, compute ? ctx.n : 0,
-      ctx.k, ctx.m_per_rank,
-      reinterpret_cast<const __half*>(
-          ctx.b_full_half.data_ptr()),
-      reinterpret_cast<__half*>(
-          ctx.c_out_half.data_ptr()));
+      ctx.stage_sem_remote,
+      ctx.stage_sem_local,
+      ctx.my_rank,
+      ctx.world_size,
+      epoch,
+      ctx.m,
+      compute ? ctx.n : 0,
+      ctx.k,
+      ctx.m_per_rank,
+      reinterpret_cast<const __half*>(ctx.b_full_half.data_ptr()),
+      reinterpret_cast<__half*>(ctx.c_out_half.data_ptr()));
 }
 
-void matmulTma(
-    at::Tensor& out,
-    const at::Tensor& a,
-    const at::Tensor& b) {
+void matmulTma(at::Tensor& out, const at::Tensor& a, const at::Tensor& b) {
   int64_t m = a.size(0), n = b.size(1), k = a.size(1);
-  cudaStream_t stream =
-      at::cuda::getCurrentCUDAStream(a.get_device());
+  cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());
 #if defined(NVFUSER_ENABLE_CUTLASS)
   if (a.scalar_type() == at::ScalarType::Half)
-    runGemmSm90<cutlass::half_t>(
-        out, a, b, m, n, k, stream);
+    runGemmSm90<cutlass::half_t>(out, a, b, m, n, k, stream);
   else
-    runGemmSm90<cutlass::bfloat16_t>(
-        out, a, b, m, n, k, stream);
+    runGemmSm90<cutlass::bfloat16_t>(out, a, b, m, n, k, stream);
 #else
   NVF_THROW("CUTLASS support required.");
 #endif
 }
 
-bool canRunCutlassCompute(
-    const at::Tensor& a,
-    const at::Tensor& b) {
-  if (!hasValidTmaShape(a, b)) return false;
+bool canRunCutlassCompute(const at::Tensor& a, const at::Tensor& b) {
+  if (!hasValidTmaShape(a, b))
+    return false;
 #if !defined(NVFUSER_ENABLE_CUTLASS) || \
     !defined(CUTLASS_ARCH_MMA_SM90_SUPPORTED)
   return false;
 #else
-  auto* props =
-      at::cuda::getDeviceProperties(a.get_device());
+  auto* props = at::cuda::getDeviceProperties(a.get_device());
   return props->major == 9 && props->minor == 0;
 #endif
 }

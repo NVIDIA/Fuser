@@ -63,17 +63,14 @@ double batchedKernelTimeMs(
   cudaEvent_t start, stop;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaEventRecord(start, stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
   for (int64_t i = 0; i < iters; ++i)
     run_once();
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaEventRecord(stop, stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
   float total_ms;
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaEventElapsedTime(&total_ms, start, stop));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&total_ms, start, stop));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
   return static_cast<double>(total_ms) / iters;
@@ -103,17 +100,13 @@ double benchmarkLoopMs(
     for (int64_t i = 0; i < config.iters; ++i) {
       if (config.barrier_at_each_iteration)
         communicator->barrier();
-      NVFUSER_CUDA_RT_SAFE_CALL(
-          cudaEventRecord(start, stream));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start, stream));
       run_once();
       NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-      NVFUSER_CUDA_RT_SAFE_CALL(
-          cudaEventRecord(stop, stream));
-      NVFUSER_CUDA_RT_SAFE_CALL(
-          cudaEventSynchronize(stop));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop, stream));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
       float ms;
-      NVFUSER_CUDA_RT_SAFE_CALL(
-          cudaEventElapsedTime(&ms, start, stop));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventElapsedTime(&ms, start, stop));
       total_ms += ms;
     }
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
@@ -125,17 +118,13 @@ double benchmarkLoopMs(
   for (int64_t i = 0; i < config.iters; ++i) {
     if (config.barrier_at_each_iteration)
       communicator->barrier();
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaStreamSynchronize(stream));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
     auto t0 = std::chrono::high_resolution_clock::now();
     run_once();
     NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaStreamSynchronize(stream));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
     auto t1 = std::chrono::high_resolution_clock::now();
-    total_ms +=
-        std::chrono::duration<double, std::milli>(t1 - t0)
-            .count();
+    total_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
   }
   return total_ms / config.iters;
 }
@@ -177,7 +166,9 @@ void initResources(
     DistributedMatmulImpl impl,
     Communicator* comm,
     const Team& team,
-    int64_t ws, int64_t m, int64_t k,
+    int64_t ws,
+    int64_t m,
+    int64_t k,
     OwnedResources& res,
     DistributedMatmulContext& ctx) {
   using I = DistributedMatmulImpl;
@@ -185,13 +176,12 @@ void initResources(
 
   if (impl == I::baselineNcclAllgatherMatmul) {
     if (comm->isBackendAvailable(CommunicatorBackend::kNccl))
-      ctx.nccl_backend = comm->getBackendForTeam(
-          team, CommunicatorBackend::kNccl);
+      ctx.nccl_backend =
+          comm->getBackendForTeam(team, CommunicatorBackend::kNccl);
   }
 
   if (impl == I::baselineCudaAllgatherMatmul) {
-    res.cuda_hic =
-        std::make_unique<hir::HostIrContainer>();
+    res.cuda_hic = std::make_unique<hir::HostIrContainer>();
     FusionGuard fg(res.cuda_hic.get());
     auto* itv = makeContigTensor(2);
     auto* otv = makeContigTensor(2);
@@ -199,28 +189,29 @@ void initResources(
     itv->setDeviceMesh(mesh);
     otv->setDeviceMesh(mesh);
     auto* cir = IrBuilder::create<Communication>(
-        CommunicationType::Allgather, otv, itv,
-        team, -1, RedOpType::UNUSED,
+        CommunicationType::Allgather,
+        otv,
+        itv,
+        team,
+        -1,
+        RedOpType::UNUSED,
         CommunicatorBackend::kCuda);
-    ctx.a_allgathered_cuda = SymmetricTensor::allocate(
-        {m, k}, at::ScalarType::Half, dev);
+    ctx.a_allgathered_cuda =
+        SymmetricTensor::allocate({m, k}, at::ScalarType::Half, dev);
     res.cuda_ag_handle =
-        std::make_unique<SymMemForAllgather>(
-            cir, ctx.a_allgathered_cuda);
+        std::make_unique<SymMemForAllgather>(cir, ctx.a_allgathered_cuda);
     ctx.cuda_comm = cir;
     ctx.cuda_handle = res.cuda_ag_handle.get();
   }
 
   if (needsThreadloadRes(impl)) {
-    ctx.a_gathered = at::empty(
-        {m, k},
-        at::TensorOptions().dtype(at::kHalf).device(dev));
+    ctx.a_gathered =
+        at::empty({m, k}, at::TensorOptions().dtype(at::kHalf).device(dev));
 
     auto make_sem = [&](const char* tag)
-        -> std::pair<at::Tensor,
-                     std::unique_ptr<SymmetricTensor>> {
-      at::Tensor t = SymmetricTensor::allocate(
-          {ws, m, 4}, at::ScalarType::Int, dev);
+        -> std::pair<at::Tensor, std::unique_ptr<SymmetricTensor>> {
+      at::Tensor t =
+          SymmetricTensor::allocate({ws, m, 4}, at::ScalarType::Int, dev);
       t.zero_();
       auto s = std::make_unique<SymmetricTensor>(t);
       s->setupRemoteHandles(tag);
@@ -231,57 +222,46 @@ void initResources(
     res.ready_t = rt;
     res.ready_sym = std::move(rs);
     ctx.ready_sem_remote =
-        reinterpret_cast<int32_t* const*>(
-            res.ready_sym->devicePeerPointers());
-    ctx.ready_sem_local = reinterpret_cast<int32_t*>(
-        res.ready_sym->localTensor().data_ptr());
+        reinterpret_cast<int32_t* const*>(res.ready_sym->devicePeerPointers());
+    ctx.ready_sem_local =
+        reinterpret_cast<int32_t*>(res.ready_sym->localTensor().data_ptr());
 
     auto [dt, ds] = make_sem("fused_matmul_done");
     res.done_t = dt;
     res.done_sym = std::move(ds);
     ctx.done_sem_remote =
-        reinterpret_cast<int32_t* const*>(
-            res.done_sym->devicePeerPointers());
-    ctx.done_sem_local = reinterpret_cast<int32_t*>(
-        res.done_sym->localTensor().data_ptr());
+        reinterpret_cast<int32_t* const*>(res.done_sym->devicePeerPointers());
+    ctx.done_sem_local =
+        reinterpret_cast<int32_t*>(res.done_sym->localTensor().data_ptr());
   }
 
   if (needsMultimemRes(impl)) {
-    ctx.a_gathered_multimem = SymmetricTensor::allocate(
-        {m, k}, at::ScalarType::Half, dev);
-    res.multimem_sym = std::make_unique<SymmetricTensor>(
-        ctx.a_gathered_multimem);
-    res.multimem_sym->setupMulticast(
-        0, "fused_matmul_mc");
-    ctx.multicast_ptr = reinterpret_cast<__half*>(
-        res.multimem_sym->multicastPtr());
+    ctx.a_gathered_multimem =
+        SymmetricTensor::allocate({m, k}, at::ScalarType::Half, dev);
+    res.multimem_sym =
+        std::make_unique<SymmetricTensor>(ctx.a_gathered_multimem);
+    res.multimem_sym->setupMulticast(0, "fused_matmul_mc");
+    ctx.multicast_ptr =
+        reinterpret_cast<__half*>(res.multimem_sym->multicastPtr());
 
-    res.stage_t = SymmetricTensor::allocate(
-        {ws, m, 4}, at::ScalarType::Int, dev);
+    res.stage_t =
+        SymmetricTensor::allocate({ws, m, 4}, at::ScalarType::Int, dev);
     res.stage_t.zero_();
-    res.stage_sym =
-        std::make_unique<SymmetricTensor>(res.stage_t);
-    res.stage_sym->setupRemoteHandles(
-        "fused_matmul_stage");
+    res.stage_sym = std::make_unique<SymmetricTensor>(res.stage_t);
+    res.stage_sym->setupRemoteHandles("fused_matmul_stage");
     ctx.stage_sem_remote =
-        reinterpret_cast<int32_t* const*>(
-            res.stage_sym->devicePeerPointers());
-    ctx.stage_sem_local = reinterpret_cast<int32_t*>(
-        res.stage_sym->localTensor().data_ptr());
+        reinterpret_cast<int32_t* const*>(res.stage_sym->devicePeerPointers());
+    ctx.stage_sem_local =
+        reinterpret_cast<int32_t*>(res.stage_sym->localTensor().data_ptr());
   }
 }
 
-double reduceMaxTimeMs(
-    Communicator* comm, double local_ms) {
+double reduceMaxTimeMs(Communicator* comm, double local_ms) {
   at::Tensor t = at::tensor(
       {static_cast<float>(local_ms)},
-      at::TensorOptions()
-          .dtype(at::kFloat)
-          .device(comm->device()));
+      at::TensorOptions().dtype(at::kFloat).device(comm->device()));
   std::vector<at::Tensor> tv = {t};
-  comm->getWorld()
-      ->allreduce(tv, {c10d::ReduceOp::MAX})
-      ->wait();
+  comm->getWorld()->allreduce(tv, {c10d::ReduceOp::MAX})->wait();
   return static_cast<double>(t.item<float>());
 }
 
@@ -301,82 +281,60 @@ double runImplementation(
   const int64_t it = config.iters;
   switch (impl) {
     case I::baselineNcclAllgatherMatmul: {
-      at::Tensor a_full = at::empty(
-          {ctx.m, ctx.k}, ctx.a_local_half.options());
+      at::Tensor a_full = at::empty({ctx.m, ctx.k}, ctx.a_local_half.options());
       auto run = [&]() {
-        ctx.nccl_backend
-            ->_allgather_base(a_full, ctx.a_local_half)
-            ->wait();
-        at::matmul_out(
-            ctx.c_out_half, a_full, ctx.b_full_half);
+        ctx.nccl_backend->_allgather_base(a_full, ctx.a_local_half)->wait();
+        at::matmul_out(ctx.c_out_half, a_full, ctx.b_full_half);
       };
-      return benchmarkLoopMs(
-          config, ctx.communicator, ctx.stream, run);
+      return benchmarkLoopMs(config, ctx.communicator, ctx.stream, run);
     }
     case I::baselineCudaAllgatherMatmul: {
       auto run = [&]() {
         postWithCudaBackend(
-            ctx.cuda_comm, ctx.a_local_half,
+            ctx.cuda_comm,
+            ctx.a_local_half,
             ctx.cuda_handle,
-            (CUstream)ctx.stream, -1);
+            (CUstream)ctx.stream,
+            -1);
         waitWithCudaBackend(
-            ctx.cuda_comm, ctx.cuda_handle,
-            (CUstream)ctx.stream, -1);
-        at::matmul_out(
-            ctx.c_out_half, ctx.a_allgathered_cuda,
-            ctx.b_full_half);
+            ctx.cuda_comm, ctx.cuda_handle, (CUstream)ctx.stream, -1);
+        at::matmul_out(ctx.c_out_half, ctx.a_allgathered_cuda, ctx.b_full_half);
       };
-      return benchmarkLoopMs(
-          config, ctx.communicator, ctx.stream, run);
+      return benchmarkLoopMs(config, ctx.communicator, ctx.stream, run);
     }
     case I::naiveRemoteRead: {
       return batchedKernelTimeMs(
-          wu, it, ctx.stream, [&]() {
-            launchNaiveRemoteRead(ctx);
-          });
+          wu, it, ctx.stream, [&]() { launchNaiveRemoteRead(ctx); });
     }
     case I::threadloadGatherScalarCompute: {
       int64_t epoch = 0;
-      return batchedKernelTimeMs(
-          wu, it, ctx.stream, [&]() {
-            launchThreadloadGather(
-                ctx, static_cast<int32_t>(epoch), true);
-            ++epoch;
-          });
+      return batchedKernelTimeMs(wu, it, ctx.stream, [&]() {
+        launchThreadloadGather(ctx, static_cast<int32_t>(epoch), true);
+        ++epoch;
+      });
     }
     case I::threadloadGatherThenCutlass: {
       int64_t epoch = 0;
-      return batchedKernelTimeMs(
-          wu, it, ctx.stream, [&]() {
-            launchThreadloadGather(
-                ctx, static_cast<int32_t>(epoch), false);
-            matmulTma(
-                ctx.c_out_half,
-                ctx.a_gathered, ctx.b_full_half);
-            ++epoch;
-          });
+      return batchedKernelTimeMs(wu, it, ctx.stream, [&]() {
+        launchThreadloadGather(ctx, static_cast<int32_t>(epoch), false);
+        matmulTma(ctx.c_out_half, ctx.a_gathered, ctx.b_full_half);
+        ++epoch;
+      });
     }
     case I::multimemGatherScalarCompute: {
       int64_t epoch = 0;
-      return batchedKernelTimeMs(
-          wu, it, ctx.stream, [&]() {
-            launchMultimemGather(
-                ctx, static_cast<int32_t>(epoch), true);
-            ++epoch;
-          });
+      return batchedKernelTimeMs(wu, it, ctx.stream, [&]() {
+        launchMultimemGather(ctx, static_cast<int32_t>(epoch), true);
+        ++epoch;
+      });
     }
     case I::multimemGatherThenCutlass: {
       int64_t epoch = 0;
-      return batchedKernelTimeMs(
-          wu, it, ctx.stream, [&]() {
-            launchMultimemGather(
-                ctx, static_cast<int32_t>(epoch), false);
-            matmulTma(
-                ctx.c_out_half,
-                ctx.a_gathered_multimem,
-                ctx.b_full_half);
-            ++epoch;
-          });
+      return batchedKernelTimeMs(wu, it, ctx.stream, [&]() {
+        launchMultimemGather(ctx, static_cast<int32_t>(epoch), false);
+        matmulTma(ctx.c_out_half, ctx.a_gathered_multimem, ctx.b_full_half);
+        ++epoch;
+      });
     }
   }
   NVF_ERROR(false, "Unknown implementation.");
@@ -390,8 +348,7 @@ double runImplementation(
 
 class FusedRemoteMatmulTest
     : public MultiDeviceTest,
-      public testing::WithParamInterface<
-          DistributedMatmulImpl> {
+      public testing::WithParamInterface<DistributedMatmulImpl> {
  protected:
   static constexpr BenchmarkConfig kConfig = {
       /*warmup_iters=*/8,
@@ -410,8 +367,7 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmul) {
   const int64_t rank = communicator_->deviceId();
   const auto impl = GetParam();
 
-  if (needsMultimemRes(impl) &&
-      !isMulticastSupported(rank))
+  if (needsMultimemRes(impl) && !isMulticastSupported(rank))
     GTEST_SKIP() << "Multicast unsupported.";
 
   // ---- Problem shape ----
@@ -424,19 +380,16 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmul) {
   // ---- Inputs ----
   at::manual_seed(0);
   auto cpu_f = at::TensorOptions().dtype(at::kFloat);
-  auto gpu_h = at::TensorOptions()
-                   .dtype(at::kHalf)
-                   .device(communicator_->device());
+  auto gpu_h =
+      at::TensorOptions().dtype(at::kHalf).device(communicator_->device());
   at::Tensor a_full = at::randn({m, k}, cpu_f);
   at::Tensor b_full = at::randn({k, n}, cpu_f);
-  at::Tensor a_local =
-      a_full.slice(0, rank * mpr, (rank + 1) * mpr)
-          .to(gpu_h.device(), at::kHalf);
+  at::Tensor a_local = a_full.slice(0, rank * mpr, (rank + 1) * mpr)
+                           .to(gpu_h.device(), at::kHalf);
   at::Tensor b_gpu = b_full.to(gpu_h.device(), at::kHalf);
 
   at::Tensor a_sym = SymmetricTensor::allocate(
-      {mpr, k}, at::ScalarType::Half,
-      communicator_->device());
+      {mpr, k}, at::ScalarType::Half, communicator_->device());
   a_sym.copy_(a_local);
   OwnedResources res;
   res.a_sym = std::make_unique<SymmetricTensor>(a_sym);
@@ -451,67 +404,51 @@ TEST_P(FusedRemoteMatmulTest, DistributedMatmul) {
   ctx.my_rank = rank;
   ctx.world_size = ws;
   ctx.device_remote_ptrs =
-      reinterpret_cast<const __half* const*>(
-          res.a_sym->devicePeerPointers());
+      reinterpret_cast<const __half* const*>(res.a_sym->devicePeerPointers());
   ctx.a_local_half = a_local;
   ctx.b_full_half = b_gpu;
   ctx.c_out_half = at::zeros({m, n}, gpu_h);
   ctx.communicator = communicator_;
 
-  c10::cuda::CUDAStream test_stream =
-      c10::cuda::getStreamFromPool(
-          false,
-          static_cast<int>(
-              communicator_->device().index()));
+  c10::cuda::CUDAStream test_stream = c10::cuda::getStreamFromPool(
+      false, static_cast<int>(communicator_->device().index()));
   c10::cuda::CUDAStreamGuard guard(test_stream);
   ctx.stream = test_stream.stream();
 
-  initResources(
-      impl, communicator_, team, ws, m, k, res, ctx);
+  initResources(impl, communicator_, team, ws, m, k, res, ctx);
 
   // ---- Capability gates ----
-  if (impl ==
-          DistributedMatmulImpl::
-              baselineNcclAllgatherMatmul &&
+  if (impl == DistributedMatmulImpl::baselineNcclAllgatherMatmul &&
       ctx.nccl_backend == nullptr)
     GTEST_SKIP() << "NCCL backend unavailable.";
 
   if (needsCutlass(impl)) {
-    at::Tensor ref = ctx.a_gathered.defined()
-        ? ctx.a_gathered
-        : ctx.a_gathered_multimem;
+    at::Tensor ref =
+        ctx.a_gathered.defined() ? ctx.a_gathered : ctx.a_gathered_multimem;
     if (!canRunCutlassCompute(ref, b_gpu))
       GTEST_SKIP() << "CUTLASS needs Hopper SM90.";
   }
 
   // ---- Correctness (1 iteration, no warmup) ----
   (void)runImplementation(
-      impl, ctx,
-      {0, 1, TimeMeasurementMode::CpuClock, false});
+      impl, ctx, {0, 1, TimeMeasurementMode::CpuClock, false});
   at::Tensor c_ref = at::matmul(a_full, b_full);
-  EXPECT_TRUE(
-      ctx.c_out_half.cpu().to(at::kFloat).allclose(
-          c_ref, 2e-1, 2e-1))
+  EXPECT_TRUE(ctx.c_out_half.cpu().to(at::kFloat).allclose(c_ref, 2e-1, 2e-1))
       << "Mismatch for " << implName(impl);
 
   // ---- Benchmark ----
   communicator_->barrier();
-  double local_ms =
-      runImplementation(impl, ctx, kConfig);
+  double local_ms = runImplementation(impl, ctx, kConfig);
   communicator_->barrier();
-  double global_ms =
-      reduceMaxTimeMs(communicator_, local_ms);
+  double global_ms = reduceMaxTimeMs(communicator_, local_ms);
 
   // ---- Report ----
-  double tflops =
-      2.0 * m * n * k / (global_ms * 1e9);
+  double tflops = 2.0 * m * n * k / (global_ms * 1e9);
   if (rank == 0) {
     std::cout << "[perf] fused_remote_matmul"
-              << " impl=" << implName(impl)
-              << " M=" << m << " N=" << n << " K=" << k
-              << " world_size=" << ws << " : "
-              << global_ms << " ms/iter, " << tflops
-              << " TFLOP/s" << std::endl;
+              << " impl=" << implName(impl) << " M=" << m << " N=" << n
+              << " K=" << k << " world_size=" << ws << " : " << global_ms
+              << " ms/iter, " << tflops << " TFLOP/s" << std::endl;
   }
 }
 
@@ -526,8 +463,7 @@ INSTANTIATE_TEST_SUITE_P(
         DistributedMatmulImpl::multimemGatherScalarCompute,
         DistributedMatmulImpl::threadloadGatherThenCutlass,
         DistributedMatmulImpl::multimemGatherThenCutlass),
-    [](const testing::TestParamInfo<
-        DistributedMatmulImpl>& info) {
+    [](const testing::TestParamInfo<DistributedMatmulImpl>& info) {
       return implName(info.param);
     });
 

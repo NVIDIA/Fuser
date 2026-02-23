@@ -77,13 +77,13 @@ struct DistributedMatmulContext {
   const __half* const* device_remote_ptrs = nullptr;
 
   // Input / output tensors
-  at::Tensor a_local_half;   // [m_per_rank, k]
-  at::Tensor b_full_half;    // [k, n]
-  at::Tensor c_out_half;     // [m, n]
+  at::Tensor a_local_half; // [m_per_rank, k]
+  at::Tensor b_full_half; // [k, n]
+  at::Tensor c_out_half; // [m, n]
 
   // Staging buffers for gather-then-compute paths
-  at::Tensor a_gathered;           // [m, k] threadload staging
-  at::Tensor a_gathered_multimem;  // [m, k] multicast-backed
+  at::Tensor a_gathered; // [m, k] threadload staging
+  at::Tensor a_gathered_multimem; // [m, k] multicast-backed
   __half* multicast_ptr = nullptr;
 
   // Threadload semaphores (ready / done handshake)
@@ -117,13 +117,8 @@ void launchMultimemGather(
     DistributedMatmulContext& ctx,
     int32_t epoch,
     bool compute);
-void matmulTma(
-    at::Tensor& out,
-    const at::Tensor& a,
-    const at::Tensor& b);
-bool canRunCutlassCompute(
-    const at::Tensor& a,
-    const at::Tensor& b);
+void matmulTma(at::Tensor& out, const at::Tensor& a, const at::Tensor& b);
+bool canRunCutlassCompute(const at::Tensor& a, const at::Tensor& b);
 const char* implName(DistributedMatmulImpl impl);
 bool isMulticastSupported(int64_t device_id);
 
