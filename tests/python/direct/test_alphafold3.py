@@ -28,6 +28,9 @@ class Direction(Enum):
     OUTGOING = auto()  # aka starting node
 
 
+# `def test_triangle_updates` has been moved to tests/python/multidevice.
+
+
 def layer_norm(
     fd: FusionDefinition, x: TensorView, w: TensorView, b: TensorView
 ) -> TensorView:
@@ -44,133 +47,6 @@ def layer_norm(
     y = fd.ops.add(y, b)
     y = fd.ops.cast(y, dtype=io_dtype)
     return y
-
-
-def gating(
-    fd: FusionDefinition,
-    z: TensorView,
-    w_p: TensorView,
-    z_in: TensorView,
-    w_g: TensorView,
-) -> TensorView:
-    io_dtype = z.dtype()
-    p = fd.ops.linear(z, w_p)
-    g = fd.ops.linear(z_in, w_g)
-    g = fd.ops.sigmoid(g)
-    z = fd.ops.mul(p, g)
-    return fd.ops.cast(z, dtype=io_dtype)
-
-
-# https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-updates
-#
-# Jumper, J., Evans, R., Pritzel, A. et al. Highly accurate protein structure
-# prediction with AlphaFold. Nature 596, 583–589 (2021).
-# https://doi.org/10.1038/s41586-021-03819-2
-# (see Supplementary Methods 1.6.5 for details)
-@pytest.mark.parametrize(
-    "direction", [Direction.OUTGOING, Direction.INCOMING], ids=lambda d: d.name.lower()
-)
-def test_triangle_updates(direction):
-    c_z = _DEFAULT_CONFIG.c_z
-
-    with FusionDefinition() as fd:
-        z_in = fd.define_tensor(
-            shape=[-1, -1, -1, c_z],
-            dtype=DataType.BFloat16,
-            contiguity=True,
-        )  # [b, i, j, c_z]
-        w_norm_in = fd.define_tensor(
-            shape=[c_z], dtype=DataType.BFloat16, contiguity=True
-        )
-        b_norm_in = fd.define_tensor(
-            shape=[c_z], dtype=DataType.BFloat16, contiguity=True
-        )
-        w_p_in = fd.define_tensor(
-            shape=[c_z * 2, c_z], dtype=DataType.BFloat16, contiguity=True
-        )
-        w_g_in = fd.define_tensor(
-            shape=[c_z * 2, c_z], dtype=DataType.BFloat16, contiguity=True
-        )
-        w_norm_out = fd.define_tensor(
-            shape=[c_z], dtype=DataType.BFloat16, contiguity=True
-        )
-        b_norm_out = fd.define_tensor(
-            shape=[c_z], dtype=DataType.BFloat16, contiguity=True
-        )
-        w_p_out = fd.define_tensor(
-            shape=[c_z, c_z], dtype=DataType.BFloat16, contiguity=True
-        )
-        w_g_out = fd.define_tensor(
-            shape=[c_z, c_z], dtype=DataType.BFloat16, contiguity=True
-        )
-        # Masking is used in an internal implementation: http://nv/e-4
-        mask = fd.define_tensor(
-            shape=[-1, -1, -1], dtype=DataType.Bool, contiguity=True
-        )  # [b, i, j]
-
-        batch_size = fd.ops.size(z_in, 0)
-        n_tokens = fd.ops.size(z_in, 1)
-
-        z_in = layer_norm(fd, z_in, w_norm_in, b_norm_in)
-        z = gating(fd, z_in, w_p_in, z_in, w_g_in)
-        mask = fd.ops.broadcast_in_dim(
-            mask, shape=[batch_size, n_tokens, n_tokens, c_z], broadcast_dims=[0, 1, 2]
-        )
-        z = fd.ops.where(mask, z, 0.0)
-        a = fd.ops.slice(z, [0, 0, 0, 0], [batch_size, n_tokens, n_tokens, c_z])
-        b = fd.ops.slice(z, [0, 0, 0, c_z], [batch_size, n_tokens, n_tokens, c_z * 2])
-
-        match direction:
-            case Direction.OUTGOING:
-                # z_out = einsum("bikc,bjkc->bijc", a, b)
-                a = fd.ops.permute(a, [0, 3, 1, 2])  # [b, c, i, k]
-                b = fd.ops.permute(b, [0, 3, 2, 1])  # [b, c, k, j]
-            case Direction.INCOMING:
-                # z_out = einsum("bkic,bkjc->bijc", a, b)
-                a = fd.ops.permute(a, [0, 3, 2, 1])  # [b, c, i, k]
-                b = fd.ops.permute(b, [0, 3, 1, 2])  # [b, c, k, j]
-        z = fd.ops.matmul(a, b)  # [b, c, i, j]
-        z = fd.ops.permute(z, [0, 2, 3, 1])  # [b, i, j, c]
-
-        z = layer_norm(fd, z, w_norm_out, b_norm_out)
-        z = gating(fd, z, w_p_out, z_in, w_g_out)
-        fd.add_output(z)
-
-    batch_size = 3
-    n_tokens = 5
-    z_in = torch.testing.make_tensor(
-        batch_size, n_tokens, n_tokens, c_z, dtype=torch.bfloat16, device="cuda"
-    )
-    w_norm_in = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
-    b_norm_in = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
-    w_p_in = torch.testing.make_tensor(
-        c_z * 2, c_z, dtype=torch.bfloat16, device="cuda"
-    )
-    w_g_in = torch.testing.make_tensor(
-        c_z * 2, c_z, dtype=torch.bfloat16, device="cuda"
-    )
-    w_norm_out = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
-    b_norm_out = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
-    w_p_out = torch.testing.make_tensor(c_z, c_z, dtype=torch.bfloat16, device="cuda")
-    w_g_out = torch.testing.make_tensor(c_z, c_z, dtype=torch.bfloat16, device="cuda")
-    mask = torch.testing.make_tensor(
-        batch_size, n_tokens, n_tokens, dtype=torch.bool, device="cuda"
-    )
-    (z_out,) = fd.execute(
-        [
-            z_in,
-            w_norm_in,
-            b_norm_in,
-            w_p_in,
-            w_g_in,
-            w_norm_out,
-            b_norm_out,
-            w_p_out,
-            w_g_out,
-            mask,
-        ]
-    )
-    assert z_out.shape == (batch_size, n_tokens, n_tokens, c_z)
 
 
 # https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention
