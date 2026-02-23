@@ -4,6 +4,14 @@
 cmake_minimum_required(VERSION 3.18)
 project(nvfuser)
 
+# When CXX is clang, ensure nvcc also uses clang as its host compiler.
+# This must be set before enable_language(CUDA) so that CMake configures
+# nvcc with the correct -ccbin. The CUDAHOSTCXX env var should do this,
+# but PyTorch's TorchConfig.cmake can override it, so we also set it here.
+if(NOT CMAKE_CUDA_HOST_COMPILER AND DEFINED ENV{CUDAHOSTCXX})
+  set(CMAKE_CUDA_HOST_COMPILER $ENV{CUDAHOSTCXX})
+endif()
+
 enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
