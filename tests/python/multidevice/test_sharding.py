@@ -155,6 +155,40 @@ class TestShardTensor:
         )
 
     @pytest.mark.mpi
+    def test_2d_alltoall(self, multidevice_test):
+        d = multidevice_test.size
+        dx = 2
+        if d % dx != 0:
+            pytest.skip(f"Number of devices ({d=}) must be divisible by {dx=}")
+        dy = d // dx
+        assert dx == dy
+
+        with nvfuser.FusionDefinition() as fd:
+            inp_tv = fd.define_tensor([-1, -1])
+            out_tv = fd.ops.set(inp_tv)
+            fd.add_output(out_tv)
+
+            mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dy, dx))
+            inp_tv.set_device_mesh(mesh)
+            inp_tv.outer_split(1, dx)
+            inp_tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+            inp_tv.outer_split(0, dy)
+            inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
+            out_tv.set_device_mesh(mesh)
+            out_tv.outer_split(1, dy)
+            out_tv.axis(1).parallelize(nvfuser.ParallelType.mesh_y)
+            out_tv.outer_split(0, dx)
+            out_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+        rows_per_rank, cols_per_rank = 3, 5
+        inp_ref = torch.testing.make_tensor(
+            rows_per_rank * dy, cols_per_rank * dx, dtype=torch.float, device="cpu"
+        )
+
+        inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
+        fd.execute([inp])
+
+    @pytest.mark.mpi
     def test_context_and_tensor_parallel(self, multidevice_test):
         d = multidevice_test.size
         tp_size = 2
