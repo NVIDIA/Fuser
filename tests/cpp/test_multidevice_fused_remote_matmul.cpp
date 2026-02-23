@@ -43,9 +43,43 @@ namespace nvfuser {
 namespace {
 
 // =========================================================================
-// Timing helper
+// Timing helpers
 // =========================================================================
 
+// Batched GPU timing: one cuda-event pair around all iterations.
+// No per-iteration host sync, matching the original kernel timing
+// methodology.  Avoids ~15us cudaStreamSynchronize overhead that
+// dominates sub-100us kernels like CUTLASS TMA matmuls.
+template <typename Fn>
+double batchedKernelTimeMs(
+    int64_t warmup_iters,
+    int64_t iters,
+    cudaStream_t stream,
+    Fn&& run_once) {
+  for (int64_t i = 0; i < warmup_iters; ++i)
+    run_once();
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
+  cudaEvent_t start, stop;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaEventRecord(start, stream));
+  for (int64_t i = 0; i < iters; ++i)
+    run_once();
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetLastError());
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaEventRecord(stop, stream));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop));
+  float total_ms;
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaEventElapsedTime(&total_ms, start, stop));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop));
+  return static_cast<double>(total_ms) / iters;
+}
+
+// Per-iteration timing for baselines with host-blocking waits.
 template <typename Fn>
 double benchmarkLoopMs(
     const BenchmarkConfig& config,
@@ -263,6 +297,8 @@ double runImplementation(
     DistributedMatmulContext& ctx,
     const BenchmarkConfig& config) {
   using I = DistributedMatmulImpl;
+  const int64_t wu = config.warmup_iters;
+  const int64_t it = config.iters;
   switch (impl) {
     case I::baselineNcclAllgatherMatmul: {
       at::Tensor a_full = at::empty(
@@ -294,55 +330,51 @@ double runImplementation(
           config, ctx.communicator, ctx.stream, run);
     }
     case I::naiveRemoteRead: {
-      auto run = [&]() {
-        launchNaiveRemoteRead(ctx);
-      };
-      return benchmarkLoopMs(
-          config, ctx.communicator, ctx.stream, run);
+      return batchedKernelTimeMs(
+          wu, it, ctx.stream, [&]() {
+            launchNaiveRemoteRead(ctx);
+          });
     }
     case I::threadloadGatherScalarCompute: {
       int64_t epoch = 0;
-      auto run = [&]() {
-        launchThreadloadGather(
-            ctx, static_cast<int32_t>(epoch), true);
-        ++epoch;
-      };
-      return benchmarkLoopMs(
-          config, ctx.communicator, ctx.stream, run);
+      return batchedKernelTimeMs(
+          wu, it, ctx.stream, [&]() {
+            launchThreadloadGather(
+                ctx, static_cast<int32_t>(epoch), true);
+            ++epoch;
+          });
     }
     case I::threadloadGatherCutlassCompute: {
       int64_t epoch = 0;
-      auto run = [&]() {
-        launchThreadloadGather(
-            ctx, static_cast<int32_t>(epoch), false);
-        ctx.c_out_half =
-            matmulTma(ctx.a_gathered, ctx.b_full_half);
-        ++epoch;
-      };
-      return benchmarkLoopMs(
-          config, ctx.communicator, ctx.stream, run);
+      return batchedKernelTimeMs(
+          wu, it, ctx.stream, [&]() {
+            launchThreadloadGather(
+                ctx, static_cast<int32_t>(epoch), false);
+            ctx.c_out_half = matmulTma(
+                ctx.a_gathered, ctx.b_full_half);
+            ++epoch;
+          });
     }
     case I::multimemGatherScalarCompute: {
       int64_t epoch = 0;
-      auto run = [&]() {
-        launchMultimemGather(
-            ctx, static_cast<int32_t>(epoch), true);
-        ++epoch;
-      };
-      return benchmarkLoopMs(
-          config, ctx.communicator, ctx.stream, run);
+      return batchedKernelTimeMs(
+          wu, it, ctx.stream, [&]() {
+            launchMultimemGather(
+                ctx, static_cast<int32_t>(epoch), true);
+            ++epoch;
+          });
     }
     case I::multimemGatherCutlassCompute: {
       int64_t epoch = 0;
-      auto run = [&]() {
-        launchMultimemGather(
-            ctx, static_cast<int32_t>(epoch), false);
-        ctx.c_out_half = matmulTma(
-            ctx.a_gathered_multimem, ctx.b_full_half);
-        ++epoch;
-      };
-      return benchmarkLoopMs(
-          config, ctx.communicator, ctx.stream, run);
+      return batchedKernelTimeMs(
+          wu, it, ctx.stream, [&]() {
+            launchMultimemGather(
+                ctx, static_cast<int32_t>(epoch), false);
+            ctx.c_out_half = matmulTma(
+                ctx.a_gathered_multimem,
+                ctx.b_full_half);
+            ++epoch;
+          });
     }
   }
   NVF_ERROR(false, "Unknown implementation.");
