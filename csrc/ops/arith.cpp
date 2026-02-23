@@ -24,12 +24,6 @@
 
 namespace nvfuser {
 
-template <typename T>
-T valueOrError(std::optional<T> opt) {
-  NVF_CHECK(opt.has_value());
-  return *opt;
-}
-
 Val* castOp(DataType dtype, Val* v1) {
   auto orig_dtype = valueOrError(v1->getDataType());
   if (dtype == orig_dtype) {
