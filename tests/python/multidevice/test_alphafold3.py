@@ -122,7 +122,7 @@ def test_triangle_updates(direction, multidevice_test):
         n_tokens = fd.ops.size(z_in_tv, 1)
 
         z_in = layer_norm(fd, z_in_tv, w_norm_in, b_norm_in)
-        z = gating(fd, z_in_tv, w_p_in, z_in, w_g_in)
+        z = gating(fd, z_in, w_p_in, z_in, w_g_in)
         mask = fd.ops.broadcast_in_dim(
             mask_tv,
             shape=[batch_size, n_tokens, n_tokens, c_z],
