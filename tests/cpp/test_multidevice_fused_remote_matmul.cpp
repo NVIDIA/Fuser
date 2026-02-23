@@ -147,19 +147,19 @@ double benchmarkLoopMs(
 bool needsThreadloadRes(DistributedMatmulImpl impl) {
   using I = DistributedMatmulImpl;
   return impl == I::threadloadGatherScalarCompute ||
-      impl == I::threadloadGatherCutlassCompute;
+      impl == I::threadloadGatherThenCutlass;
 }
 
 bool needsMultimemRes(DistributedMatmulImpl impl) {
   using I = DistributedMatmulImpl;
   return impl == I::multimemGatherScalarCompute ||
-      impl == I::multimemGatherCutlassCompute;
+      impl == I::multimemGatherThenCutlass;
 }
 
 bool needsCutlass(DistributedMatmulImpl impl) {
   using I = DistributedMatmulImpl;
-  return impl == I::threadloadGatherCutlassCompute ||
-      impl == I::multimemGatherCutlassCompute;
+  return impl == I::threadloadGatherThenCutlass ||
+      impl == I::multimemGatherThenCutlass;
 }
 
 struct OwnedResources {
@@ -344,7 +344,7 @@ double runImplementation(
             ++epoch;
           });
     }
-    case I::threadloadGatherCutlassCompute: {
+    case I::threadloadGatherThenCutlass: {
       int64_t epoch = 0;
       return batchedKernelTimeMs(
           wu, it, ctx.stream, [&]() {
@@ -365,7 +365,7 @@ double runImplementation(
             ++epoch;
           });
     }
-    case I::multimemGatherCutlassCompute: {
+    case I::multimemGatherThenCutlass: {
       int64_t epoch = 0;
       return batchedKernelTimeMs(
           wu, it, ctx.stream, [&]() {
@@ -524,8 +524,8 @@ INSTANTIATE_TEST_SUITE_P(
         DistributedMatmulImpl::naiveRemoteRead,
         DistributedMatmulImpl::threadloadGatherScalarCompute,
         DistributedMatmulImpl::multimemGatherScalarCompute,
-        DistributedMatmulImpl::threadloadGatherCutlassCompute,
-        DistributedMatmulImpl::multimemGatherCutlassCompute),
+        DistributedMatmulImpl::threadloadGatherThenCutlass,
+        DistributedMatmulImpl::multimemGatherThenCutlass),
     [](const testing::TestParamInfo<
         DistributedMatmulImpl>& info) {
       return implName(info.param);

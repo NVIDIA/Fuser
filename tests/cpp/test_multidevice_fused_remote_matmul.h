@@ -39,8 +39,8 @@ class SymMemForAllgather;
 //   naiveRemoteRead                        |   2.67
 //   threadloadGatherScalarCompute          |   4.05
 //   multimemGatherScalarCompute            |   3.69
-//   threadloadGatherCutlassCompute         |  46.5
-//   multimemGatherCutlassCompute           |  45.6
+//   threadloadGatherThenCutlass            |  50.3
+//   multimemGatherThenCutlass              |  50.1
 // =========================================================================
 
 enum class DistributedMatmulImpl {
@@ -51,9 +51,10 @@ enum class DistributedMatmulImpl {
   naiveRemoteRead,
   threadloadGatherScalarCompute,
   multimemGatherScalarCompute,
-  // -- Two-phase: handwritten comm kernel + CUTLASS TMA matmul --
-  threadloadGatherCutlassCompute,
-  multimemGatherCutlassCompute,
+  // -- Two-kernel: separate comm kernel then CUTLASS TMA matmul
+  //    (NOT truly fused -- two kernel launches on the same stream) --
+  threadloadGatherThenCutlass,
+  multimemGatherThenCutlass,
 };
 
 enum class TimeMeasurementMode { CudaEvents, CpuClock };

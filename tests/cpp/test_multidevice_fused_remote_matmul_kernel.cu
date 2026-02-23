@@ -22,10 +22,17 @@
 //     using multimem.st (Hopper SM90+), synchronized via semaphores.
 //
 // Compute strategies:
-//   - Scalar: each thread accumulates one output element.
-//   - CUTLASS TMA: host-launched Hopper GEMM (in the .cpp file, not
-//     here -- the kernel is launched with n=0 to skip in-kernel compute).
+//   - Scalar: each thread accumulates one output element in-kernel.
+//   - CUTLASS TMA (two-kernel path): the gather kernel is launched
+//     with n=0 to skip in-kernel compute; a separate host-launched
+//     CUTLASS SM90 GEMM then consumes the staged A buffer.  These
+//     are NOT truly fused -- the communication and compute are two
+//     distinct kernel launches on the same stream.  True single-kernel
+//     fusion with Hopper-native WGMMA would require embedding CUTE
+//     MMA atoms and TMA pipelines directly inside the comm kernel.
 //
+// The matmulTma() wrapper at the bottom of this file provides the
+// CUTLASS GEMM used by the two-kernel path.
 // =========================================================================
 
 #include "test_multidevice_fused_remote_matmul.h"
@@ -533,10 +540,10 @@ const char* implName(DistributedMatmulImpl impl) {
       return "threadloadGatherScalarCompute";
     case DistributedMatmulImpl::multimemGatherScalarCompute:
       return "multimemGatherScalarCompute";
-    case DistributedMatmulImpl::threadloadGatherCutlassCompute:
-      return "threadloadGatherCutlassCompute";
-    case DistributedMatmulImpl::multimemGatherCutlassCompute:
-      return "multimemGatherCutlassCompute";
+    case DistributedMatmulImpl::threadloadGatherThenCutlass:
+      return "threadloadGatherThenCutlass";
+    case DistributedMatmulImpl::multimemGatherThenCutlass:
+      return "multimemGatherThenCutlass";
   }
   return "unknown";
 }
