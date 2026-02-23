@@ -35,4 +35,9 @@ if [ -z "$CC" ]; then
     fi
 fi
 
+# Tell nvcc to use clang++ as its host compiler. Without this, nvcc defaults
+# to gcc, which fails on clang-specific flags like -fclang-abi-compat that
+# PyTorch adds to CMAKE_CXX_FLAGS.
+export CUDAHOSTCXX=$CLANGXX_PATH
+
 export TORCH_CUDA_ARCH_LIST="10.0"
