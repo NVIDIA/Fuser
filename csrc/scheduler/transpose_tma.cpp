@@ -36,7 +36,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   int64_t n_input = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     max_input_dtype_size = std::max(
-        max_input_dtype_size, dataTypeSizeByte(inp->getDataType().value()));
+        max_input_dtype_size,
+        dataTypeSizeByte(valueOrError(inp->getDataType())));
     n_input++;
   }
   // input layout: [I1, I2] -> [tile1, tile2]
@@ -63,7 +64,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
             << "tile_size2: " << tparams->tile_size2 << "\n"
             << "chunks_per_thread: " << tparams->chunks_per_thread << "\n"
             << "elements_per_chunk: " << tparams->elements_per_chunk << "\n"
-            << std::endl;
+            << "\n";
   }
   return tparams;
 }
