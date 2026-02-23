@@ -199,10 +199,11 @@ class Options {
  public:
   Options() : options_(getOptionsFromEnv()) {}
 
-  Options(const Options& other) : options_() {
-    std::lock_guard<std::mutex> lock_other(other.mutex_);
-    options_ = other.options_;
-  }
+  Options(const Options& other)
+      : options_([&other]() {
+          std::lock_guard<std::mutex> lock_other(other.mutex_);
+          return other.options_;
+        }()) {}
 
   Options& operator=(const Options& other) {
     std::lock_guard<std::mutex> lock_other(other.mutex_);
