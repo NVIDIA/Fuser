@@ -21,21 +21,18 @@ else
     exit 1
 fi
 
-# Use ccache if available and CC/CXX are not already set
+# Set CC/CXX to the raw compiler paths. Use CMAKE_<LANG>_COMPILER_LAUNCHER
+# for ccache instead of CC="ccache clang", because the "ccache clang" form
+# causes CMake (and PyTorch's TorchConfig.cmake) to resolve the CUDA host
+# compiler (-ccbin) to ccache instead of clang, breaking nvcc.
 if [ -z "$CC" ]; then
+    export CC=$CLANG_PATH
+    export CXX=$CLANGXX_PATH
     if command -v ccache >/dev/null 2>&1; then
-        export CC="ccache $CLANG_PATH"
-        export CXX="ccache $CLANGXX_PATH"
-    else
-        export CC=$CLANG_PATH
-        export CXX=$CLANGXX_PATH
+        export CMAKE_C_COMPILER_LAUNCHER=ccache
+        export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+        export CMAKE_CUDA_COMPILER_LAUNCHER=ccache
     fi
 fi
-
-# Tell CMake to use clang++ as nvcc's host compiler. Without this, nvcc
-# defaults to gcc (or ccache when CC="ccache clang++"), which fails on
-# clang-specific flags like -fclang-abi-compat that PyTorch adds to
-# CMAKE_CXX_FLAGS. We pass the raw compiler path (not the ccache wrapper).
-export CUDAHOSTCXX=$CLANGXX_PATH
 
 export TORCH_CUDA_ARCH_LIST="10.0"

@@ -274,15 +274,6 @@ def cmake(config, relative_path):
         f"-DCMAKE_BUILD_TYPE={config.build_type}",
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={config.cpp_standard}",
-    ]
-    # When using clang, tell nvcc to use clang++ (not gcc or ccache) as its
-    # host compiler. CUDAHOSTCXX alone is insufficient because CMake may
-    # derive CMAKE_CUDA_HOST_COMPILER from CMAKE_CXX_COMPILER (which could
-    # be "ccache clang++", resolving to just "ccache").
-    cuda_host_cxx = os.environ.get("CUDAHOSTCXX")
-    if cuda_host_cxx:
-        cmd_str.append(f"-DCMAKE_CUDA_HOST_COMPILER={cuda_host_cxx}")
-    cmd_str += [
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         f"-DNVFUSER_BUILD_WITH_ASAN={on_or_off(config.build_with_asan)}",
         f"-DNVFUSER_STANDALONE_BUILD_WITH_UCC={on_or_off(config.build_with_ucc)}",
