@@ -26,8 +26,6 @@
 //   - CUTLASS TMA: host-launched Hopper GEMM (in the .cpp file, not
 //     here -- the kernel is launched with n=0 to skip in-kernel compute).
 //
-// The CUTLASS TMA matmul wrapper (matmulTma) is also defined here,
-// moved from csrc/runtime/matmul_tma.cu for self-containment.
 // =========================================================================
 
 #include "test_multidevice_fused_remote_matmul.h"
@@ -490,22 +488,11 @@ void launchMultimemGather(
           ctx.c_out_half.data_ptr()));
 }
 
-at::Tensor matmulTma(
+void matmulTma(
+    at::Tensor& out,
     const at::Tensor& a,
     const at::Tensor& b) {
-  NVF_CHECK(a.is_cuda() && b.is_cuda());
-  NVF_CHECK(a.dim() == 2 && b.dim() == 2);
-  NVF_CHECK(a.size(1) == b.size(0));
-  at::cuda::CUDAGuard guard{a.device()};
-  auto* props =
-      at::cuda::getDeviceProperties(a.get_device());
-  NVF_CHECK(props->major >= 9, "Requires Hopper+.");
   int64_t m = a.size(0), n = b.size(1), k = a.size(1);
-  at::Tensor out = at::empty(
-      {m, n},
-      at::TensorOptions()
-          .dtype(a.scalar_type())
-          .device(a.device()));
   cudaStream_t stream =
       at::cuda::getCurrentCUDAStream(a.get_device());
 #if defined(NVFUSER_ENABLE_CUTLASS)
@@ -518,7 +505,6 @@ at::Tensor matmulTma(
 #else
   NVF_THROW("CUTLASS support required.");
 #endif
-  return out;
 }
 
 bool canRunCutlassCompute(

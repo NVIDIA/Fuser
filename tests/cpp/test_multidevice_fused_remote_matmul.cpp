@@ -350,7 +350,8 @@ double runImplementation(
           wu, it, ctx.stream, [&]() {
             launchThreadloadGather(
                 ctx, static_cast<int32_t>(epoch), false);
-            ctx.c_out_half = matmulTma(
+            matmulTma(
+                ctx.c_out_half,
                 ctx.a_gathered, ctx.b_full_half);
             ++epoch;
           });
@@ -370,7 +371,8 @@ double runImplementation(
           wu, it, ctx.stream, [&]() {
             launchMultimemGather(
                 ctx, static_cast<int32_t>(epoch), false);
-            ctx.c_out_half = matmulTma(
+            matmulTma(
+                ctx.c_out_half,
                 ctx.a_gathered_multimem,
                 ctx.b_full_half);
             ++epoch;

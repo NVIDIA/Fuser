@@ -116,7 +116,8 @@ void launchMultimemGather(
     DistributedMatmulContext& ctx,
     int32_t epoch,
     bool compute);
-at::Tensor matmulTma(
+void matmulTma(
+    at::Tensor& out,
     const at::Tensor& a,
     const at::Tensor& b);
 bool canRunCutlassCompute(
