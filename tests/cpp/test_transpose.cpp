@@ -1666,4 +1666,170 @@ INSTANTIATE_TEST_SUITE_P(
           std::string(
                  output_smem_swizzle ? "OutputSwizzle" : "NoOutputSwizzle");
     }));
+
+TEST_F(TransposeTMA, TransposeTMALoadStore) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto input = makeContigTensor(2);
+  fusion.addInput(input);
+  auto tv2 = add(input, input);
+  auto output = transpose(tv2, 0, 1);
+  fusion.addOutput(output);
+
+  // auto [use_tma_store, output_smem_swizzle] = GetParam();
+  bool use_tma_store = true;
+  bool output_smem_swizzle = true;
+  // Transpose happens during the smem->register read (swizzled smem layout).
+  std::vector<TensorView*> input_smem_caches;
+  TensorView* input_smem_cache =
+      input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  input_smem_cache->setMemoryType(MemoryType::Shared);
+  TensorView* input_reg_cache = input_smem_cache->cacheAfter();
+
+  TensorView* output_smem_cache = nullptr;
+  TensorView* output_reg_cache = nullptr;
+  if (use_tma_store) {
+    output_smem_cache =
+        output->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    output_smem_cache->setMemoryType(MemoryType::Shared);
+    output_reg_cache = output_smem_cache->cacheBefore();
+  } else {
+    output_reg_cache = output->cacheBefore();
+  }
+  TensorView* ref_tv = input_reg_cache;
+  std::cout << "output_reg_cache: " << output_reg_cache->toString()
+            << std::endl;
+
+  // Swizzle parameters: 128-byte TMA swizzle with 16-byte chunks.
+  constexpr int64_t tma_swizzle_bytes = 128;
+  constexpr int64_t swizzle_chunk_bytes = 16;
+  constexpr int64_t num_swizzle_chunks =
+      tma_swizzle_bytes / swizzle_chunk_bytes;
+  std::cout << "num_swizzle_chunks " << num_swizzle_chunks;
+  const int64_t dtype_bytes =
+      dataTypeSizeByte(input_smem_cache->getDataType().value());
+  const int64_t elements_per_chunk = swizzle_chunk_bytes / dtype_bytes;
+  // tile_i1 must equal tma_swizzle_bytes / dtype_bytes.
+  const int64_t tile_i1 = 64;
+  // NVF_ERROR_EQ(
+  //     tile_i1,
+  //     tma_swizzle_bytes / dtype_bytes,
+  //     "tile_i1 should span exactly 128 bytes");
+  // tile_i0 and chunks_per_thread are tunable parameters.
+  const int64_t chunks_per_thread = 2;
+  const int64_t tile_i0 = 32;
+
+  // Step 1: Tile all tvs by tile_i0 (I0 dim) and tile_i1 (I1 dim).
+  // ref_tv has input layout [I0, I1].
+  // Target loop domain: [BIDx, tile_i0, tile_i1]
+  ref_tv->split(1, tile_i1);
+  ref_tv->split(0, tile_i0);
+  // [I0/tile_i0, tile_i0, I1/tile_i1, tile_i1]
+  ref_tv->reorder({{-2, 1}});
+  ref_tv->merge(0);
+  // [I0/tile_i0 * I1/tile_i1, tile_i0, tile_i1]
+  ref_tv->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, tile_i0, tile_i1]
+
+  {
+    TransformPropagator propagator(ref_tv);
+    MaxLogicalDomainInfoSpanningTree entire_dag(ref_tv);
+    entire_dag.traverse(&propagator);
+    scheduler_utils::parallelizeAllLike(
+        ref_tv,
+        /*selected_tvs=*/{},
+        /*selected_parallel_types=*/{},
+        /*propagate_padding=*/true,
+        /*parallelize_inputs_on_did=*/true);
+  }
+  // After propagation, all tvs have loop domain: [BIDx, tile_i0, tile_i1]
+  // ref_tv uses input layout (logical: [I0, I1]).
+  // input_smem_cache uses input layout (logical: [I0, I1]).
+
+  // Step 2: Schedule output TMA store (Bulk parallel on tile dims).
+  if (use_tma_store) {
+    // The shared memory producer must have the swizzled allocation domain.
+    // The global memory consumer must have the ParallelType::Bulk iterDomains.
+    if (output_smem_swizzle) {
+      // output smem has output layout, [I1, I0]
+      // reorder to move inner most alloc dim to innermost position in loop
+      // domain [BIDx, tile_i0, tile_i1]
+      output_smem_cache->reorder({{-1, -2}});
+      // [BIDx, tile_i1, tile_i0]
+      MmaInputSmemSwizzle swizzle =
+          mma_utils::tmaSwizzleSharedMemory(output_smem_cache);
+      std::cout << "swizzle " << swizzle << std::endl;
+      mma_utils::scheduleTMAStoreForMmaOutput(output_smem_cache, swizzle);
+      mma_utils::scheduleTMAStoreForMmaOutput(output, swizzle);
+    } else {
+      // For this case, no need to swizzle the output.
+      output->axis(1)->parallelize(ParallelType::Bulk);
+      output->axis(2)->parallelize(ParallelType::Bulk);
+      output_smem_cache->setAllocationDomain(
+          output_smem_cache->getLoopDomain(), true);
+    }
+  }
+  std::cout << "output_smem_cache: " << output_smem_cache->toString()
+            << std::endl;
+  output_smem_cache->printTransforms();
+  std::cout << "output: " << output->toString() << std::endl;
+  output->printTransforms();
+  // Step 3: Schedule input shared memory
+  // no swizzle, just contiguous load
+  // [BIDx, tile_i0, tile_i1]
+  input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
+  input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
+  input_smem_cache->setAllocationDomain(
+      input_smem_cache->getLoopDomain(), true);
+  // Step 4: Schedule register tvs for per-thread access pattern.
+  // [BIDx, tile_i0, tile_i1]
+  ref_tv->split(-1, elements_per_chunk);
+  // [BIDx, tile_i0, tile_i1/chunk, chunk]
+  ref_tv->split(-2, chunks_per_thread);
+  // [BIDx, tile_i0, tile_i1/chunk/cpt, cpt, chunk]
+  ref_tv->merge(-4, -3);
+  // [BIDx, tile_i1/chunk/cpt * tile_i0, cpt, chunk]
+  ref_tv->axis(-3)->parallelize(ParallelType::TIDx);
+  // [BIDx, TIDx, cpt, chunk]
+  ref_tv->axis(-1)->parallelize(ParallelType::Unroll);
+
+  {
+    // Propagate Step 4 transforms to all tvs except those already
+    // independently scheduled (input_smem_cache and TMA store output).
+    std::unordered_set<TensorView*> skip_tvs{input_smem_cache};
+    if (use_tma_store) {
+      skip_tvs.insert(output);
+    }
+    auto propagate_tvs = ir_utils::allTvsExcept(&fusion, skip_tvs);
+    std::unordered_set<TensorView*> propagate_tvs_set(
+        propagate_tvs.begin(), propagate_tvs.end());
+    SetSelector selector(propagate_tvs_set);
+    MaxLogicalDomainInfoSpanningTree propagate_dag(ref_tv, &selector);
+    TransformPropagator propagator(ref_tv);
+    propagate_dag.traverse(&propagator);
+    scheduler_utils::parallelizeAllLike(
+        ref_tv,
+        /*selected_tvs=*/{propagate_tvs},
+        /*selected_parallel_types=*/{},
+        /*propagate_padding=*/true,
+        /*parallelize_inputs_on_did=*/true);
+  }
+
+  input_reg_cache->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({16384, 32768}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input0});
+  auto outputs = ke.run({input0});
+
+  testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
