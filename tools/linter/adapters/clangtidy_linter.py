@@ -129,13 +129,16 @@ def clang_search_dirs() -> List[str]:
     return search_paths
 
 
-include_args = []
+# NVFUSER_USE_PCH=ON somehow requires the CUDA include dir e.g.
+# "/usr/local/cuda-13.0/targets/x86_64-linux/include". I'll try to add that in
+# a future PR.
 include_dir = [
     "/usr/lib/llvm-11/include/openmp",
     get_python_include_dir(),
     os.path.join(NVFUSER_ROOT, "third_party/pybind11/include"),
-    "/usr/local/cuda-13.0/bin/../targets/x86_64-linux/include",
 ] + clang_search_dirs()
+
+include_args = []
 for dir in include_dir:
     include_args += ["--extra-arg", f"-I{dir}"]
 
