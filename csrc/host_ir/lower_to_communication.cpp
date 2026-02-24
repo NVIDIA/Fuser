@@ -534,9 +534,8 @@ Layout getCommunicationLayout(
 
 bool isCommunicationLayoutCompliant(Expr* e) {
   std::optional<CommunicationInfo> communication_info = getCommunicationInfo(e);
-  if (!communication_info.has_value()) {
-    return false;
-  }
+  NVF_ERROR(
+      communication_info.has_value(), "Expected `e` to be resharding: ", e);
 
   auto* producer = e->inputs().at(0)->as<TensorView>();
   std::optional<Layout> p_layout = canonicalizeLayout(producer);
