@@ -203,53 +203,49 @@ void insertDeallocations(hir::HostIrContainer& hic) {
   });
 
   DominatorTree dom_tree(hic);
-  std::unordered_map<TensorView*, const DominatorTree::Node*>
-      allocation_tv_to_node;
-  std::unordered_map<TensorView*, const DominatorTree::Node*>
-      last_use_of_tv_to_node;
+  std::unordered_map<TensorView*, const DominatorTree::Node*> outermost_scope;
+  std::unordered_map<TensorView*, const DominatorTree::Node*> last_use;
 
   dom_tree.depthFirstTraverse(
       /*pre_fn=*/
       [&](const DominatorTree::Node* node) {
         Expr* e = node->getExpr();
         if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
-          TensorView* allocated_tv = alloc->buffer()->as<TensorView>();
-          if (allocated_tv->isFusionInput()) {
-            return;
-          }
-          if (allocated_tv->isFusionOutput()) {
-            return;
-          }
-          allocation_tv_to_node[allocated_tv] = node;
+          outermost_scope.try_emplace(alloc->buffer()->as<TensorView>(), node);
+        }
+        for (auto* input : ir_utils::filterByType<TensorView>(e->inputs())) {
+          outermost_scope.try_emplace(input, node);
         }
       },
       /*post_fn=*/
       [&](const DominatorTree::Node* node) {
         Expr* e = node->getExpr();
+        if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
+          last_use.try_emplace(alloc->buffer()->as<TensorView>(), node);
+        }
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          if (!allocation_tv_to_node.contains(in)) {
-            continue;
-          }
-          last_use_of_tv_to_node.try_emplace(in, node);
+          last_use.try_emplace(in, node);
         }
       });
 
-  for (const auto& [allocated_tv, allocation_node] : allocation_tv_to_node) {
-    const DominatorTree::Node* last_use_node =
-        last_use_of_tv_to_node.at(allocated_tv);
-    Scope* allocation_scope = allocation_node->scope();
+  for (const auto& [allocated_tv, outermost_scope_node] : outermost_scope) {
+    if (allocated_tv->isFusionInput() || allocated_tv->isFusionOutput()) {
+      continue;
+    }
+    const DominatorTree::Node* last_use_node = last_use.at(allocated_tv);
+    Scope* outermost_scope = outermost_scope_node->scope();
 
     // Insert in allocation_scope, after the node that contains last_use.
     // Walk up from last_use until we reach allocation_scope (no-op when same).
     const DominatorTree::Node* insert_after = last_use_node;
-    while (insert_after->scope() != allocation_scope) {
+    while (insert_after->scope() != outermost_scope) {
       insert_after = insert_after->parent();
       NVF_ERROR(
           insert_after != nullptr, "Allocation scope must dominate last use");
     }
 
     auto* deallocate = IrBuilder::create<hir::Deallocate>(allocated_tv);
-    allocation_scope->insert(std::next(insert_after->iterator()), deallocate);
+    outermost_scope->insert(std::next(insert_after->iterator()), deallocate);
   }
 }
 
