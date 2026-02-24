@@ -17,6 +17,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "fusion.h"
+#include "host_ir/ir.h"
 #include "ir/builder.h"
 #include "ir/utils.h"
 
@@ -192,6 +194,27 @@ void insertAllocations(hir::HostIrContainer& hic) {
       });
 }
 
+bool needsDeallocation(TensorView* tv) {
+  if (tv->isFusionInput()) {
+    return false;
+  }
+  if (tv->isFusionOutput()) {
+    return false;
+  }
+  if (tv->definition()->isA<ShardByStream>()) {
+    return false;
+  }
+  const AliasInfo& alias_info = tv->container()->getOutputAlias(tv);
+  if (alias_info.type == AllocationType::ReuseBuffer) {
+    return false;
+  }
+  if (alias_info.type == AllocationType::Evaluate &&
+      alias_info.aliased_io != nullptr) {
+    return false;
+  }
+  return true;
+}
+
 void insertDeallocations(hir::HostIrContainer& hic) {
   const std::list<Expr*>& top_level_exprs = hic.topLevelExprs();
   std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
@@ -229,7 +252,7 @@ void insertDeallocations(hir::HostIrContainer& hic) {
       });
 
   for (const auto& [allocated_tv, outermost_scope_node] : outermost_scope) {
-    if (allocated_tv->isFusionInput() || allocated_tv->isFusionOutput()) {
+    if (!needsDeallocation(allocated_tv)) {
       continue;
     }
     const DominatorTree::Node* last_use_node = last_use.at(allocated_tv);

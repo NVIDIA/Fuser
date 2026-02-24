@@ -74,13 +74,13 @@ TEST_F(HostIrPassesTest, TwoMatmulsInlinable) {
   });
   ASSERT_NE(it, exprs.end());
   const auto& body = (*it)->as<hir::ForLoop>()->body();
-  EXPECT_NE(
-      std::find_if(
-          body.exprs().begin(),
-          body.exprs().end(),
-          [](Expr* e) { return e->isA<hir::Deallocate>(); }),
-      body.exprs().end())
-      << "Expected for_loop body to contain a Deallocate";
+  int deallocate_count =
+      std::count_if(body.exprs().begin(), body.exprs().end(), [](Expr* e) {
+        return e->isA<hir::Deallocate>();
+      });
+  EXPECT_EQ(deallocate_count, 1)
+      << "Expected for-loop body to have exactly one Deallocate, got "
+      << deallocate_count;
 
   testValidate(
       executor.fusion(),
@@ -126,13 +126,12 @@ TEST_F(HostIrPassesTest, TwoMatmulsNotInlinable) {
   // The intermediate (out1) is fully allocated; its deallocate is at top level.
   FusionKernelRuntime* runtime = executor.getMostRecentKernelRuntime();
   const auto& exprs = runtime->getHostIrContainer().topLevelExprs();
-  EXPECT_NE(
-      std::find_if(
-          exprs.begin(),
-          exprs.end(),
-          [](Expr* e) { return e->isA<hir::Deallocate>(); }),
-      exprs.end())
-      << "Expected top-level exprs to contain a Deallocate";
+  int deallocate_count = std::count_if(exprs.begin(), exprs.end(), [](Expr* e) {
+    return e->isA<hir::Deallocate>();
+  });
+  EXPECT_EQ(deallocate_count, 1)
+      << "Expected exactly one Deallocate at top level, got "
+      << deallocate_count;
 
   testValidate(
       executor.fusion(),
