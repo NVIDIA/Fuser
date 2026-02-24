@@ -53,32 +53,46 @@ ReshardPosition whereToReshard(Expr* e) {
 // However, the current implementation, forked from HostIrLower::canLower, is
 // merely a best effort.
 bool isLowerableToCommunication(Expr* e) {
-  if (auto* reduction = dynamic_cast<ReductionOp*>(e)) {
-    auto in = reduction->in()->as<TensorView>();
-    auto out = reduction->out()->as<TensorView>();
-    // get the reduced axis
-    std::vector<IterDomain*> reduction_axis;
-    std::copy_if(
-        out->getLogicalDomain().begin(),
-        out->getLogicalDomain().end(),
-        std::back_inserter(reduction_axis),
-        [](IterDomain* id) { return id->isReduction(); });
-    // check whether the reduction involves only one axis
-    if (reduction_axis.size() != 1) {
-      return false;
-    }
-
-    // We check whether the reduced axis is sharded on the input. I think this
-    // can be simplified to check only the output. However, we need to make
-    // sure sharding propagation and unit tests uses `rDID` instead of `r`.
-    const auto c2p_map =
-        PairwiseLogicalDomainMap(in, out).mapConsumerToProducer();
-    auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
-    return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
-  }
+  NVF_ERROR(e != nullptr);
 
   if (auto* ldst = dynamic_cast<LoadStoreOp*>(e)) {
     return ldst->opType() == LoadStoreOpType::Set;
+  }
+
+  if (e->isOneOf<ReductionOp, SqueezeOp>()) {
+    auto* in = e->inputs().at(0)->as<TensorView>();
+    auto* out = e->outputs().at(0)->as<TensorView>();
+    const std::unordered_map<IterDomain*, IterDomain*>& p2c =
+        PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
+
+    IterDomain* reduced_id = nullptr;
+    // Consider the following example:
+    // ```
+    //            n
+    //          /  \.
+    // [m, DIDx{d}, r{n/d}]
+    //         |
+    //         | sum
+    //         v
+    //      [m, rDIDx{d}]
+    //     /  \.
+    // DIDx{d} m/d
+    // ```
+    // `reduced_id` will be the `DIDx{d}` in the input.
+    for (IterDomain* p_id :
+         in->getLogicalDomain() | TensorDomain::kNoReductions) {
+      IterDomain* c_id = getOrDefault(p2c, p_id);
+      if (c_id == nullptr || c_id->isReduction()) {
+        if (reduced_id != nullptr) {
+          // Reduction involved multiple axes.
+          return false;
+        }
+        reduced_id = p_id;
+      }
+    }
+    NVF_ERROR(reduced_id != nullptr, "No reduced axis found in: ", e);
+
+    return reduced_id->isDeviceDim();
   }
 
   return false;
@@ -406,9 +420,9 @@ void DecomposeReshardingsPass::runPass(Fusion* fusion) {
 
   // Validate
   for (Expr* e : fusion->exprs()) {
-    if (isResharding(e)) {
-      getCommunicationInfo(e);
-    }
+    // Expect `e` to either be non-resharding or have lowerable to
+    // communication.
+    getCommunicationInfo(e);
   }
 }
 

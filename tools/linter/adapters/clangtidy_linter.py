@@ -7,10 +7,10 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import time
 from enum import Enum
 from pathlib import Path
-from sysconfig import get_paths as gp
 from typing import Any, List, NamedTuple, Optional, Pattern
 
 # Nvfuser directory root
@@ -25,7 +25,7 @@ IS_WINDOWS: bool = os.name == "nt"
 
 # Returns '/usr/local/include/python<version number>'
 def get_python_include_dir() -> str:
-    return gp()["include"]
+    return sysconfig.get_paths()["include"]
 
 
 def eprint(*args: Any, **kwargs: Any) -> None:
@@ -131,7 +131,6 @@ def clang_search_dirs() -> List[str]:
 
 include_args = []
 include_dir = [
-    "/usr/lib/llvm-11/include/openmp",
     get_python_include_dir(),
     os.path.join(NVFUSER_ROOT, "third_party/pybind11/include"),
 ] + clang_search_dirs()

@@ -22,7 +22,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <ATen/ATen.h>
+#include <ATen/core/Tensor.h>
 #include <c10/core/thread_pool.h>
 
 #include <debug.h>
@@ -35,7 +35,7 @@
 #include <C++23/utility>
 
 //! IR header hierarchy
-//! 1. ** utils.h ** - PolymorphicBase and NonCopyable
+//! 1. ** base.h ** - PolymorphicBase and NonCopyable
 //! 2. ir/base_nodes.h - Statement, Expr, and Val
 //! 3. ir/internal_base_nodes.h - IterDomain and TensorDomain
 //! 4. ir/interface_nodes.h - TensorView and Scalar
@@ -111,6 +111,29 @@ constexpr int64_t alignSharedMemoryBits(int64_t unaligned_bits) {
 constexpr int64_t alignSharedMemoryBytes(int64_t unaligned_bytes) {
   constexpr int64_t alignment = kSharedMemoryAlignmentBytes;
   return (unaligned_bytes + (alignment - 1)) & (~(alignment - 1));
+}
+
+//! Returns the value of an optional, or throws via NVF_ERROR if nullopt.  This
+//! is to satisfy clang-tidy bugprone-unchecked-optional-access when you have
+//! already ensured that the optional is engaged. If you prefer a better error
+//! message, have the caller check has_value() instead so it can provide more
+//! context.
+template <typename T>
+const T& valueOrError(const std::optional<T>& opt) {
+  NVF_ERROR(opt.has_value());
+  return *opt;
+}
+template <typename T>
+T& valueOrError(std::optional<T>& opt) {
+  NVF_ERROR(opt.has_value());
+  return *opt;
+}
+template <typename T>
+T valueOrError(std::optional<T>&& opt) {
+  NVF_ERROR(opt.has_value());
+  // Function arguments are lvalues, so `opt` is an lvalue and we need to
+  // std::move it.
+  return *std::move(opt);
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:
@@ -234,7 +257,7 @@ std::vector<KeyType> getSortedKeys(
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
 static auto hasToStringHelper(int)
-    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
+    -> decltype(std::declval<std::remove_pointer_t<T>>().toString(), std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;
@@ -250,7 +273,7 @@ template <typename T>
 struct Printer {
   static std::string toString(const T& value) {
     if constexpr (hasToString<T>()) {
-      if constexpr (std::is_pointer<T>::value) {
+      if constexpr (std::is_pointer_v<T>) {
         return value->toString();
       } else {
         return value.toString();
@@ -423,7 +446,7 @@ class DebugPrintScope {
     if (line_ >= 0) {
       debug() << ":" << line_;
     }
-    debug() << std::endl;
+    debug() << '\n';
   }
 
   template <typename T>
@@ -738,8 +761,9 @@ class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
   struct iterator_base {
     using base_iterator = BaseIterator;
     using value_type =
-        std::pair<std::size_t, std::ranges::range_reference_t<V>>;
-    using reference = std::pair<std::size_t, std::ranges::range_reference_t<V>>;
+        std::pair<std::ptrdiff_t, std::ranges::range_reference_t<V>>;
+    using reference =
+        std::pair<std::ptrdiff_t, std::ranges::range_reference_t<V>>;
     using difference_type = std::ranges::range_difference_t<V>;
     using iterator_category = std::conditional_t<
         IsBidirectional,
@@ -747,10 +771,10 @@ class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
         std::forward_iterator_tag>;
 
     base_iterator current_;
-    int64_t index_;
+    std::ptrdiff_t index_{};
 
     iterator_base() = default;
-    iterator_base(base_iterator current, std::size_t index)
+    iterator_base(base_iterator current, std::ptrdiff_t index)
         : current_(current), index_(index) {}
 
     reference operator*() const {

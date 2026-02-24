@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <iosfwd>
+#include <optional>
 #include <vector>
 
 #include "ir/allocation_utils.h"
@@ -35,11 +37,11 @@ std::ostream& operator<<(std::ostream& os, const CommunicationInfo& info);
 // Composite expressions that are communication + compute are not supported.
 bool isCommunicationLayoutCompliant(Expr* expr);
 
-// Given an Expr that's known to be a communication, returns the communication
-// info: type and sharded IDs. We assume that the expr has been decomposed and
-// represented a single communication. If multiple communications are present or
-// 2D sharding, this function will raise an error.
-CommunicationInfo getCommunicationInfo(Expr* expr);
+// Returns the communication info for `expr` if it represents a single
+// resharding (type and sharded IDs). Returns std::nullopt if `expr` is not
+// resharding. Callers that expect a communication should check has_value().
+// If multiple communications are present, this function will raise an error.
+std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr);
 
 // Given the input/output TensorView of a communication, returns its layout
 // required by the communication backend (e.g. NCCL or UCC). `sharded_id` is the
