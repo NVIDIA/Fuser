@@ -8,6 +8,7 @@
 
 #include "host_ir/allocate_and_deallocate.h"
 
+#include <algorithm>
 #include <functional>
 #include <iterator>
 #include <list>
@@ -212,13 +213,13 @@ bool needsDeallocation(TensorView* tv) {
 
 void insertDeallocations(hir::HostIrContainer& hic) {
   const std::list<Expr*>& top_level_exprs = hic.topLevelExprs();
-  for (Expr* expr : top_level_exprs) {
+  std::ranges::for_each(top_level_exprs, [](Expr* expr) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
         "Expected hostir container to not have deallocate, but found one "
         "anyways: ",
         expr);
-  }
+  });
 
   DominatorTree dom_tree(hic);
   std::unordered_map<TensorView*, const DominatorTree::Node*> outermost_scope;
