@@ -12,7 +12,7 @@
 //   2. VMM-mapped peer device memory (inter-device P2P)
 //   3. NVLS multicast unicast pointers
 //
-// The kernel source lives in test_multidevice_tma_kernel.cu and is
+// The kernel source lives in csrc/multidevice/tma_copy.cu and is
 // stringified at build time. It is compiled at runtime via NVRTC,
 // same pattern as csrc/multidevice/cuda_p2p.cpp.
 
@@ -27,7 +27,7 @@
 #include "exceptions.h"
 #include "multidevice/symmetric_tensor.h"
 #include "multidevice/utils.h"
-#include "nvfuser_resources/test_multidevice_tma_kernel.h"
+#include "nvfuser_resources/tma_copy.h"
 #include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
@@ -104,8 +104,8 @@ CUfunction getTmaCopy1dKernel() {
   return compileAndGetKernel(
       module,
       kernel,
-      nvfuser_resources::test_multidevice_tma_kernel_cu,
-      "test_multidevice_tma_kernel.cu",
+      nvfuser_resources::tma_copy_cu,
+      "tma_copy.cu",
       "tma_copy_1d");
 }
 

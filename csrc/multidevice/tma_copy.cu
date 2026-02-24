@@ -8,10 +8,15 @@
 //
 // TMA 1D bulk copy kernel (SM90+ / Hopper).
 //
-// This file implements the TMA kernel. The build system stringifies it
-// into nvfuser_resources/test_multidevice_tma_kernel.h (a const char*),
-// which test_multidevice_tma.cpp compiles at runtime via NVRTC. The
-// file is never compiled statically by nvcc.
+// This file implements a TMA-based data copy kernel. The build system
+// stringifies it into nvfuser_resources/tma_copy.h (a const char*),
+// which is compiled at runtime via NVRTC. The file is never compiled
+// statically by nvcc.
+//
+// Currently used by tests (test_multidevice_tma.cpp). In a future PR
+// this kernel will be integrated as a P2P and multicast transport
+// alongside the existing SM-based and copy-engine transports in
+// csrc/multidevice/cuda_p2p.cpp.
 //
 // TMA (cp.async.bulk) is a GMEM<->SMEM transfer engine — there is no
 // GMEM-to-GMEM variant. Shared memory staging is inherent to the

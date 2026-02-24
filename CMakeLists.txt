@@ -1032,8 +1032,7 @@ if(BUILD_TEST)
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   target_include_directories(test_multidevice PRIVATE
     "${CMAKE_BINARY_DIR}/include")
-  add_dependencies(test_multidevice
-    nvfuser_rt_test_multidevice_tma_kernel)
+  add_dependencies(test_multidevice nvfuser_rt_tma_copy)
   list(APPEND TEST_BINARIES test_multidevice)
 
   set(MULTIDEVICE_TUTORIAL_SRCS)
@@ -1269,7 +1268,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/multicast.cu
   ${NVFUSER_SRCS_DIR}/multidevice/alltoallv.cu
-  ${NVFUSER_ROOT}/tests/cpp/test_multidevice_tma_kernel.cu
+  ${NVFUSER_SRCS_DIR}/multidevice/tma_copy.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
