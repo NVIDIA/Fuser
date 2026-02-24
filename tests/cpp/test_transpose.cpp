@@ -1786,11 +1786,11 @@ TEST_F(TransposeTMA, TransposeTMALoadStore) {
       input_smem_cache->getLoopDomain(), true);
   // Step 4: Schedule register tvs for per-thread access pattern.
   // [BIDx, tile_i0, tile_i1]
-  ref_tv->split(-1, elements_per_chunk);
-  // [BIDx, tile_i0, tile_i1/chunk, chunk]
-  ref_tv->split(-2, chunks_per_thread);
-  // [BIDx, tile_i0, tile_i1/chunk/cpt, cpt, chunk]
-  ref_tv->merge(-4, -3);
+  ref_tv->split(-2, elements_per_chunk);
+  // [BIDx, tile_i0/chunk, chunk, tile_i1]
+  ref_tv->split(-3, chunks_per_thread);
+  // [BIDx, tile_i0/chunk/cpt, cpt, chunk, tile_i1]
+  ref_tv->merge(-4, -1);
   // [BIDx, tile_i1/chunk/cpt * tile_i0, cpt, chunk]
   ref_tv->axis(-3)->parallelize(ParallelType::TIDx);
   // [BIDx, TIDx, cpt, chunk]
@@ -1818,7 +1818,7 @@ TEST_F(TransposeTMA, TransposeTMALoadStore) {
         /*parallelize_inputs_on_did=*/true);
   }
 
-  input_reg_cache->axis(-1)->parallelize(ParallelType::Vectorize);
+  output_smem_cache->axis(-1)->parallelize(ParallelType::Vectorize);
 
   inlineMost();
 
