@@ -1673,9 +1673,12 @@ INSTANTIATE_TEST_SUITE_P(
 
 // Transpose happens at output cached smem
 // Each thread loads multiple columns from input and write as multiple rows to
-// output. 852 ms on GB200.
+// output.
+// with tma load, 852 ms on GB200.
+// without tma load, 814 ms on GB200.
 TEST_F(TransposeTMA, TransposeOutputSmem) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  const bool use_tma_load = false;
 
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1685,12 +1688,16 @@ TEST_F(TransposeTMA, TransposeOutputSmem) {
   auto output = transpose(input, 0, 1);
   fusion.addOutput(output);
 
-  std::vector<TensorView*> input_smem_caches;
-  TensorView* input_smem_cache =
-      input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
-  input_smem_cache->setMemoryType(MemoryType::Shared);
-  TensorView* input_reg_cache = input_smem_cache->cacheAfter();
-
+  TensorView* input_smem_cache = nullptr;
+  TensorView* input_reg_cache = nullptr;
+  if (use_tma_load) {
+    input_smem_cache =
+        input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+    input_smem_cache->setMemoryType(MemoryType::Shared);
+    input_reg_cache = input_smem_cache->cacheAfter();
+  } else {
+    input_reg_cache = input->cacheAfter();
+  }
   TensorView* output_smem_cache = nullptr;
   output_smem_cache =
       output->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
@@ -1705,7 +1712,7 @@ TEST_F(TransposeTMA, TransposeOutputSmem) {
   constexpr int64_t tma_swizzle_bytes = 128;
   constexpr int64_t swizzle_chunk_bytes = 16;
   const int64_t dtype_bytes =
-      dataTypeSizeByte(input_smem_cache->getDataType().value());
+      dataTypeSizeByte(output_smem_cache->getDataType().value());
   const int64_t elements_per_chunk = swizzle_chunk_bytes / dtype_bytes;
   // tile_i1 must equal tma_swizzle_bytes / dtype_bytes.
   const int64_t tile_i0 = 32;
@@ -1759,11 +1766,12 @@ TEST_F(TransposeTMA, TransposeOutputSmem) {
   // Step 3: Schedule input shared memory
   // no swizzle, just contiguous load
   // [BIDx, tile_i0, tile_i1]
-  input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
-  input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
-  input_smem_cache->setAllocationDomain(
-      input_smem_cache->getLoopDomain(), true);
-
+  if (use_tma_load) {
+    input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
+    input_smem_cache->setAllocationDomain(
+        input_smem_cache->getLoopDomain(), true);
+  }
   // Step 4: Schedule register tvs for per-thread access pattern.
   // [BIDx, tile_i0, tile_i1]
   ref_tv->split(-2, elements_per_chunk);
@@ -1779,7 +1787,10 @@ TEST_F(TransposeTMA, TransposeOutputSmem) {
   {
     // Propagate Step 4 transforms to all tvs except those already
     // independently scheduled (input_smem_cache and TMA store output).
-    std::unordered_set<TensorView*> skip_tvs{input_smem_cache};
+    std::unordered_set<TensorView*> skip_tvs;
+    if (use_tma_load) {
+      skip_tvs.insert(input_smem_cache);
+    }
     skip_tvs.insert(output);
     auto propagate_tvs = ir_utils::allTvsExcept(&fusion, skip_tvs);
     std::unordered_set<TensorView*> propagate_tvs_set(
