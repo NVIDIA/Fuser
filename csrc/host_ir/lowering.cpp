@@ -204,7 +204,7 @@ void lowerSegment(
 
         // Allocate the recv buffers of communications
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+            IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
         if (getShardedIterDomain(
                 out, ParallelType::Stream, DomainType::kLoop) != nullptr &&
             getShardedIterDomain(
@@ -311,7 +311,7 @@ void lowerSegment(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
             auto* allocate =
-                IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+                IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
             innermost.parent_scope->insert(
                 innermost.parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
@@ -348,7 +348,7 @@ void lowerSegment(
             alias);
 
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
+            IrBuilder::create<hir::Allocate>(out_tv, out_tv->getMemoryType());
         innermost_scope.pushBack(allocate);
       }
 

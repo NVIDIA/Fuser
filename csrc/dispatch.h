@@ -181,6 +181,7 @@ class Val;
   f(ShareMemHandles);                 \
   f(HirAliasSelect);                  \
   f(ShardByStream);                   \
+  f(Allocate);                        \
   f(Deallocate);                      \
   f(ForLoop);                         \
   f(SymmetricContiguousView);

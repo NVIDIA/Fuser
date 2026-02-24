@@ -17,6 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "host_ir/ir.h"
 #include "ir/builder.h"
 #include "ir/utils.h"
 
@@ -170,7 +171,7 @@ void insertAllocations(hir::HostIrContainer& hic) {
 
           if (needsOutputPreallocation(e)) {
             auto* allocate =
-                IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+                IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
             node->scope()->insert(node->iterator(), allocate);
           }
 

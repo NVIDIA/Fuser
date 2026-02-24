@@ -55,7 +55,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
     Val* in = ir_cloner.clone(fusion.inputs().at(0));
     Val* out = ir_cloner.clone(fusion.outputs().at(0));
 
-    auto allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+    auto allocate = IrBuilder::create<hir::Allocate>(out, MemoryType::Global);
     auto* cache_id =
         IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
     auto launch_kernel = IrBuilder::create<LaunchKernel>(
@@ -182,8 +182,8 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     hic->addInput(in);
     hic->addOutput(out);
 
-    auto* allocate_out = IrBuilder::create<kir::Allocate>(
-        out, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
+    auto* allocate_out = IrBuilder::create<hir::Allocate>(
+        out, MemoryType::Global, /*zero_init=*/true);
 
     auto* stream_index = IrBuilder::create<Val>(DataType::Index);
     auto* for_loop = IrBuilder::create<ForLoop>(
