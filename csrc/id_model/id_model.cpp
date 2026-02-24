@@ -12,7 +12,6 @@
 #include <utility>
 
 #include "device_lower/analysis/circular_buffer.h"
-#include "device_lower/analysis/trivial_broadcast.h"
 #include "device_lower/lower2device.h"
 #include "device_lower/utils.h"
 #include "disjoint_set.h"
@@ -25,7 +24,6 @@
 #include "iter_visitor.h"
 #include "logical_domain_map.h"
 #include "transform_iter.h"
-#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
@@ -58,14 +56,10 @@ IdModel::IdModel(
     : allow_self_mapping_(allow_self_mapping),
       loop_promotion_map_builder_callback_(
           loop_promotion_map_builder_callback) {
-  std::copy_if(
-      exprs.begin(),
-      exprs.end(),
-      std::back_inserter(tv_exprs_),
-      [](Expr* expr) {
-        NVF_ERROR(expr != nullptr);
-        return ir_utils::isTvOp(expr);
-      });
+  std::ranges::copy_if(exprs, std::back_inserter(tv_exprs_), [](Expr* expr) {
+    NVF_ERROR(expr != nullptr);
+    return ir_utils::isTvOp(expr);
+  });
 
   auto all_tvs = ir_utils::allTvsOfExprs(tv_exprs_);
   all_tvs.pushBack(additional_tvs.begin(), additional_tvs.end());
@@ -96,11 +90,8 @@ IdModel::IdModel(
       loop_promotion_map_builder_callback_(
           loop_promotion_map_builder_callback) {
   auto all_exprs = fusion->exprs();
-  std::copy_if(
-      all_exprs.begin(),
-      all_exprs.end(),
-      std::back_inserter(tv_exprs_),
-      [](Expr* expr) {
+  std::ranges::copy_if(
+      all_exprs, std::back_inserter(tv_exprs_), [](Expr* expr) {
         NVF_ERROR(expr != nullptr);
         return ir_utils::isTvOp(expr);
       });
@@ -160,8 +151,7 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         // domain is marked as an rfactor product and is in the rfactor
         // domain, it's a view like rfactor iteration domain
         const auto& logical_domain = tv->domain()->logical();
-        if (std::find(logical_domain.begin(), logical_domain.end(), id) !=
-            logical_domain.end()) {
+        if (std::ranges::find(logical_domain, id) != logical_domain.end()) {
           view_rfactor_ids_.emplace(id);
         }
       }
@@ -184,13 +174,10 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
       // not include the definition in the model. Note that it is
       // possible that some are included but not all since a single ID
       // may be used by multiple exprs.
-      if (std::any_of(
-              def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
-                return std::find(
-                           all_ids.begin(),
-                           all_ids.end(),
-                           inp->as<IterDomain>()) == all_ids.end();
-              })) {
+      if (std::ranges::any_of(def->inputs(), [&](Val* inp) {
+            return std::ranges::find(all_ids, inp->as<IterDomain>()) ==
+                all_ids.end();
+          })) {
         continue;
       }
 
@@ -220,10 +207,10 @@ std::string IdModel::toString() const {
     ss << "  Disjoint Ids:\n"
        << idGroupsString(idGraph(mode), 2)
        << "\n  Disjoint Expression groups:\n"
-       << exprGroupsString(idGraph(mode), 2) << std::endl;
-    ss << "   } IdGraph\n" << std::endl;
+       << exprGroupsString(idGraph(mode), 2) << '\n';
+    ss << "   } IdGraph\n" << '\n';
   }
-  ss << " } IterDomainGraphs\n" << std::endl;
+  ss << " } IterDomainGraphs\n" << '\n';
   return ss.str();
 }
 
@@ -240,10 +227,9 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
     all_ids.push_back(id);
   }
 
-  std::sort(
-      all_ids.begin(), all_ids.end(), [](IterDomain* id1, IterDomain* id2) {
-        return id1->name() < id2->name();
-      });
+  std::ranges::sort(all_ids, [](IterDomain* id1, IterDomain* id2) {
+    return id1->name() < id2->name();
+  });
 
   for (auto id : all_ids) {
     auto uses_it = id_uses_.find(id);
@@ -785,7 +771,7 @@ void buildAsyncWarpInliningInfo(
   std::vector<AsyncWarp> async_warps = createAsyncWarps(exprs);
 
   // short-circuit: no async operations detected.
-  if (async_warps.size() == 0) {
+  if (async_warps.empty()) {
     return;
   }
   NVF_ERROR(
@@ -1105,13 +1091,10 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
 
   // Replace the provided inputs with IterType::Iteration domains as
   // reduction domains cannot be merged with non-reduction domains.
-  if (std::any_of(
-          new_inputs.begin(),
-          new_inputs.end(),
-          [](IterDomain* id) { return id->isReduction(); }) &&
-      std::any_of(new_inputs.begin(), new_inputs.end(), [](IterDomain* id) {
-        return !id->isReduction();
-      })) {
+  if (std::ranges::any_of(
+          new_inputs, [](IterDomain* id) { return id->isReduction(); }) &&
+      std::ranges::any_of(
+          new_inputs, [](IterDomain* id) { return !id->isReduction(); })) {
     // Inputs have mismatched type, replace new_inputs
     auto tmp_inputs = new_inputs;
     for (const auto i : arange(new_inputs.size())) {
