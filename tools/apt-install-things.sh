@@ -15,6 +15,12 @@ sudo apt-get -y remove llvm-18 gcc-13 libstdc++-13-dev gcc-12 libstdc++-12-dev
 # Install the latest version of clang and gcc.
 sudo apt-get -y install --reinstall clang-19 clang-tidy-19 clang-format-19 gcc-14 nlohmann-json3-dev ninja-build
 
+# llvm provides llvm-config, which downstream scripts use to locate binaries.
+sudo apt-get -y install llvm-19
+
+# llvm-dev are for host IR compilation, which uses LLVM JIT.
+sudo apt-get -y install llvm-19-dev
+
 # Should we use llvm-config to locate clang?
 #
 # Ensure clang-19 and clang++-19 are available and properly linked
@@ -42,9 +48,6 @@ fi
 
 # Install minimal cuda toolkit.
 sudo apt-get -y install cuda-compiler-13-0 cuda-command-line-tools-13-0 cuda-libraries-dev-13-0 libnccl-dev
-
-# llvm-dev are for host IR compilation, which uses LLVM JIT.
-sudo apt-get -y install llvm-19-dev
 
 # PyTorch now relies on <fmt/..> packages
 sudo apt-get -y install libfmt-dev
