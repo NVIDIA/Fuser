@@ -558,7 +558,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
         builder().CreateBitCast(sizes_array, getInt64PtrType(context));
     out_tensor = builder().CreateCall(
         module->getFunction(kReshapeFuncName),
-        {in_tensor, sizes_ptr, builder().getInt64(tensor_sizes.size())});
+        {in_tensor,
+         sizes_ptr,
+         builder().getInt64(static_cast<int64_t>(tensor_sizes.size()))});
     valToValue()[out_tv] = out_tensor;
   }
 
@@ -912,14 +914,15 @@ void HostIrJitImpl::compile() {
 
   // Look up the main function
   auto main_func_addr = throwIfError(jit_->lookup(kMainFuncName));
-  main_func_ = reinterpret_cast<main_func_t>(main_func_addr.getValue());
+  main_func_ = reinterpret_cast<main_func_t>(
+      main_func_addr.getValue()); // NOLINT(performance-no-int-to-ptr)
 }
 
 // Implementation of HostIrJitImpl
 HostIrJitImpl::HostIrJitImpl(
     std::unique_ptr<hir::HostIrContainer> container,
     int num_threads)
-    : container_(std::move(container)) {
+    : container_(std::move(container)), main_func_(nullptr) {
   FUSER_PERF_SCOPE("HostIrJitImpl::HostIrJitImpl");
 
   if (isDebugDumpEnabled(DebugDumpOption::HostIr)) {
@@ -968,7 +971,8 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
     else if (in_val->dtype() == DataType::Index) {
       // Cast int64_t to void* for the mixed array
       auto scalar_value = arg.as<int64_t>();
-      input_aten_tensors.push_back(reinterpret_cast<const void*>(scalar_value));
+      input_aten_tensors.push_back(reinterpret_cast<const void*>(
+          scalar_value)); // NOLINT(performance-no-int-to-ptr)
     } else {
       NVF_THROW("Unsupported argument type: ", arg, " for input ", in_val);
     }
@@ -977,7 +981,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
   // Run the main function
   std::vector<void*> output_aten_tensors(container_->outputs().size());
   main_func_(
-      args.getCacheId().value(),
+      static_cast<int64_t>(valueOrError(args.getCacheId())),
       input_aten_tensors.data(),
       output_aten_tensors.data());
 
