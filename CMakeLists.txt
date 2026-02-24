@@ -919,7 +919,7 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
 
   if(NOT MSVC)
     target_compile_options(${TEST_NAME} PRIVATE
-      -Wall -Wno-unused-function -Werror
+      $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wno-unused-function -Werror>
     )
   endif()
 endfunction()
@@ -1019,6 +1019,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
+    ${NVFUSER_ROOT}/tests/cpp/tma_test_kernels.cu
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication_cuda.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
@@ -1029,6 +1030,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
   )
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
+  set_property(TARGET test_multidevice PROPERTY CUDA_STANDARD ${NVFUSER_CUDA_STANDARD})
   list(APPEND TEST_BINARIES test_multidevice)
 
   set(MULTIDEVICE_TUTORIAL_SRCS)
