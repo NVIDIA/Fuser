@@ -171,11 +171,6 @@ def main() -> None:
         fromfile_prefix_chars="@",
     )
     parser.add_argument(
-        "--binary",
-        required=True,
-        help="clang-format binary path",
-    )
-    parser.add_argument(
         "--retries",
         default=3,
         type=int,
@@ -209,8 +204,10 @@ def main() -> None:
         stream=sys.stderr,
     )
 
-    binary = os.path.normpath(args.binary) if IS_WINDOWS else args.binary
-    binary = os.path.expanduser(binary)
+    llvm_bindir = subprocess.check_output(
+        "llvm-config --bindir", text=True, shell=True
+    ).strip()
+    binary = os.path.join(llvm_bindir, "clang-format")
     if not Path(binary).exists():
         lint_message = LintMessage(
             path=None,
