@@ -28,8 +28,8 @@ class DominatorTree {
  public:
   class Node {
    public:
-    Node(Scope* scope, Scope::Iterator iterator)
-        : scope_(scope), iterator_(iterator) {}
+    Node(Scope* scope, Scope::Iterator iterator, Node* parent)
+        : scope_(scope), iterator_(iterator), parent_(parent) {}
     Node(const Node& other) = delete;
     Node(Node&& other) = delete;
     Node& operator=(const Node& other) = delete;
@@ -51,6 +51,10 @@ class DominatorTree {
       return iterator_;
     }
 
+    const Node* parent() const {
+      return parent_;
+    }
+
     Expr* getExpr() const {
       return *iterator_;
     }
@@ -60,6 +64,7 @@ class DominatorTree {
     // They are only needed when the user wants to modify the host IR.
     Scope* scope_;
     Scope::Iterator iterator_;
+    Node* parent_;
 
     std::vector<Node*> children_;
   };
@@ -108,7 +113,8 @@ class DominatorTree {
     for (auto scope_it = scope.exprs().begin(); scope_it != scope.exprs().end();
          ++scope_it) {
       Expr* e = *scope_it;
-      auto [node_it, inserted] = nodes_.try_emplace(e, &scope, scope_it);
+      auto [node_it, inserted] =
+          nodes_.try_emplace(e, &scope, scope_it, parent);
       NVF_ERROR(inserted);
       Node& node = node_it->second;
       if (parent != nullptr) {
@@ -196,39 +202,54 @@ void insertDeallocations(hir::HostIrContainer& hic) {
         expr);
   });
 
-  // For each input in every expression in the container, find the position of
-  // its last use and insert a deallocate directly after, except for fusion
-  // inputs and outputs.
-  std::unordered_set<TensorView*> last_use_found;
-  for (auto insertion_point = top_level_exprs.end();
-       insertion_point != top_level_exprs.begin();) {
-    auto prev = std::prev(insertion_point);
-    Expr* e = *prev;
+  DominatorTree dom_tree(hic);
+  std::unordered_map<TensorView*, const DominatorTree::Node*>
+      allocation_tv_to_node;
+  std::unordered_map<TensorView*, const DominatorTree::Node*>
+      last_use_of_tv_to_node;
 
-    // Only tensors need to be allocated.
-    for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-      // Fusion inputs are managed by the caller.
-      if (in->isFusionInput()) {
-        continue;
-      }
+  dom_tree.depthFirstTraverse(
+      /*pre_fn=*/
+      [&](const DominatorTree::Node* node) {
+        Expr* e = node->getExpr();
+        if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
+          TensorView* allocated_tv = alloc->buffer()->as<TensorView>();
+          if (allocated_tv->isFusionInput()) {
+            return;
+          }
+          if (allocated_tv->isFusionOutput()) {
+            return;
+          }
+          allocation_tv_to_node[allocated_tv] = node;
+        }
+      },
+      /*post_fn=*/
+      [&](const DominatorTree::Node* node) {
+        Expr* e = node->getExpr();
+        for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
+          if (!allocation_tv_to_node.contains(in)) {
+            continue;
+          }
+          last_use_of_tv_to_node.try_emplace(in, node);
+        }
+      });
 
-      // Fusion outputs need to be kept alive for the caller.
-      if (in->isFusionOutput()) {
-        continue;
-      }
+  for (const auto& [allocated_tv, allocation_node] : allocation_tv_to_node) {
+    const DominatorTree::Node* last_use_node =
+        last_use_of_tv_to_node.at(allocated_tv);
+    Scope* allocation_scope = allocation_node->scope();
 
-      // Skip if `e` is not the last use.
-      if (!last_use_found.insert(in).second) {
-        continue;
-      }
-
-      auto* deallocate = IrBuilder::create<hir::Deallocate>(in);
-      hic.insertExprBefore(insertion_point, deallocate);
+    // Insert in allocation_scope, after the node that contains last_use.
+    // Walk up from last_use until we reach allocation_scope (no-op when same).
+    const DominatorTree::Node* insert_after = last_use_node;
+    while (insert_after->scope() != allocation_scope) {
+      insert_after = insert_after->parent();
+      NVF_ERROR(
+          insert_after != nullptr, "Allocation scope must dominate last use");
     }
 
-    // Don't `--insertion_point;` because we'd like to skip newly inserted
-    // deallocations.
-    insertion_point = prev;
+    auto* deallocate = IrBuilder::create<hir::Deallocate>(allocated_tv);
+    allocation_scope->insert(std::next(insert_after->iterator()), deallocate);
   }
 }
 

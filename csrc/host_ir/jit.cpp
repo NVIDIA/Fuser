@@ -47,6 +47,7 @@
 #include "ir/all_nodes.h"
 #include "linked_hash_map.h"
 #include "ops/all_ops.h"
+#include "options.h"
 #include "polymorphic_value.h"
 #include "runtime/compiled_kernel.h"
 #include "runtime/executor.h"
@@ -908,6 +909,10 @@ HostIrJitImpl::HostIrJitImpl(
     int num_threads)
     : container_(std::move(container)) {
   FUSER_PERF_SCOPE("HostIrJitImpl::HostIrJitImpl");
+
+  if (isDebugDumpEnabled(DebugDumpOption::HostIr)) {
+    container_->print(debug());
+  }
 
   // Initialize LLVM
   llvm::InitializeNativeTarget();

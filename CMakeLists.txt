@@ -1105,6 +1105,7 @@ if(BUILD_TEST)
   list(APPEND HOSTIR_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_evaluator.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_integration.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_host_ir_passes.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_stream_lowering.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp
   )
