@@ -8,7 +8,6 @@
 
 #include "host_ir/allocate_and_deallocate.h"
 
-#include <algorithm>
 #include <functional>
 #include <iterator>
 #include <list>
@@ -71,12 +70,12 @@ class DominatorTree {
     std::vector<Node*> children_;
   };
 
-  explicit DominatorTree(hir::HostIrContainer& hic) : hic_(hic) {
-    build(hic_.topLevel(), /*parent=*/nullptr);
+  explicit DominatorTree(hir::HostIrContainer& hic) : hic_(&hic) {
+    build(hic_->topLevel(), /*parent=*/nullptr);
   }
 
   const Node* getRoot() const {
-    const auto& top_level_exprs = hic_.topLevelExprs();
+    const auto& top_level_exprs = hic_->topLevelExprs();
     NVF_ERROR(!top_level_exprs.empty());
     Expr* root = top_level_exprs.front();
     return &nodes_.at(root);
@@ -139,7 +138,7 @@ class DominatorTree {
     }
   }
 
-  hir::HostIrContainer& hic_;
+  hir::HostIrContainer* hic_;
   std::unordered_map<const Expr*, Node> nodes_;
 };
 
@@ -213,13 +212,13 @@ bool needsDeallocation(TensorView* tv) {
 
 void insertDeallocations(hir::HostIrContainer& hic) {
   const std::list<Expr*>& top_level_exprs = hic.topLevelExprs();
-  std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
+  for (Expr* expr : top_level_exprs) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
         "Expected hostir container to not have deallocate, but found one "
         "anyways: ",
         expr);
-  });
+  }
 
   DominatorTree dom_tree(hic);
   std::unordered_map<TensorView*, const DominatorTree::Node*> outermost_scope;
