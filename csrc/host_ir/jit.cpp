@@ -756,7 +756,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
          smem});
   }
 
-  void handle(kir::Allocate* allocate) final {
+  void handle(hir::Allocate* allocate) final {
     llvm::LLVMContext& context = builder_.getContext();
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
 
@@ -765,14 +765,10 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
     inferTensorShapesAndStrides(
-        allocate->buffer()->as<TensorView>(),
-        val_to_value_,
-        builder_,
-        tensor_sizes,
-        tensor_strides);
+        allocate->in(), val_to_value_, builder_, tensor_sizes, tensor_strides);
 
-    const std::vector<IterDomain*>& logical_domain = TensorDomain::noReductions(
-        allocate->buffer()->as<TensorView>()->getLogicalDomain());
+    const std::vector<IterDomain*>& logical_domain =
+        TensorDomain::noReductions(allocate->in()->getLogicalDomain());
 
     NVF_ERROR_EQ(tensor_sizes.size(), logical_domain.size());
 
@@ -811,9 +807,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     // Create constants for type and device from params
     at::ScalarType data_type = data_type_to_aten(
-        allocate->buffer()->dtype() == DataType::Index
-            ? PrimDataType::Int
-            : allocate->buffer()->dtype());
+        allocate->in()->dtype() == DataType::Index ? PrimDataType::Int
+                                                   : allocate->in()->dtype());
     llvm::Value* dtype_constant =
         builder_.getInt32(static_cast<int32_t>(data_type));
     llvm::Value* device_index_constant =
@@ -833,7 +828,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
          dtype_constant,
          device_index_constant,
          out_tensor});
-    val_to_value_[allocate->buffer()] = out_tensor;
+    val_to_value_[allocate->in()] = out_tensor;
   }
 
   void handle(hir::Deallocate* deallocate) final {
