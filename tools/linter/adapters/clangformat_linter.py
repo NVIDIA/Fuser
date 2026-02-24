@@ -11,9 +11,6 @@ from pathlib import Path
 from typing import Any, List, NamedTuple, Optional
 
 
-IS_WINDOWS: bool = os.name == "nt"
-
-
 def eprint(*args: Any, **kwargs: Any) -> None:
     print(*args, file=sys.stderr, flush=True, **kwargs)
 
@@ -37,10 +34,6 @@ class LintMessage(NamedTuple):
     description: Optional[str]
 
 
-def as_posix(name: str) -> str:
-    return name.replace("\\", "/") if IS_WINDOWS else name
-
-
 def _run_command(
     args: List[str],
     *,
@@ -53,7 +46,7 @@ def _run_command(
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            shell=IS_WINDOWS,  # So batch scripts are found.
+            shell=True,
             timeout=timeout,
             check=True,
         )
@@ -138,7 +131,7 @@ def check_file(
                         "STDOUT\n{stdout}"
                     ).format(
                         returncode=err.returncode,
-                        command=" ".join(as_posix(x) for x in err.cmd),
+                        command=" ".join(err.cmd),
                         stderr=err.stderr.decode("utf-8").strip() or "(empty)",
                         stdout=err.stdout.decode("utf-8").strip() or "(empty)",
                     )
