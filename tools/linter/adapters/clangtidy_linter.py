@@ -134,6 +134,7 @@ include_dir = [
     "/usr/lib/llvm-11/include/openmp",
     get_python_include_dir(),
     os.path.join(NVFUSER_ROOT, "third_party/pybind11/include"),
+    "/usr/local/cuda-13.0/bin/../targets/x86_64-linux/include",
 ] + clang_search_dirs()
 for dir in include_dir:
     include_args += ["--extra-arg", f"-I{dir}"]
@@ -198,11 +199,6 @@ def main() -> None:
         fromfile_prefix_chars="@",
     )
     parser.add_argument(
-        "--binary",
-        required=True,
-        help="clang-tidy binary path",
-    )
-    parser.add_argument(
         "--build-dir",
         "--build_dir",
         required=True,
@@ -233,8 +229,11 @@ def main() -> None:
         stream=sys.stderr,
     )
 
-    args.binary = os.path.expanduser(args.binary)
-    if not os.path.exists(args.binary):
+    llvm_bindir = subprocess.check_output(
+        "llvm-config --bindir", text=True, shell=True
+    ).strip()
+    binary_path = os.path.join(llvm_bindir, "clang-tidy")
+    if not os.path.exists(binary_path):
         err_msg = LintMessage(
             path="<none>",
             line=None,
@@ -245,7 +244,7 @@ def main() -> None:
             original=None,
             replacement=None,
             description=(
-                f"Could not find clang-tidy binary at {args.binary},"
+                f"Could not find clang-tidy binary at {binary_path},"
                 " you may need to run `lintrunner init`."
             ),
         )
@@ -253,14 +252,6 @@ def main() -> None:
         exit(0)
 
     abs_build_dir = Path(args.build_dir).resolve()
-
-    # Get the absolute path to clang-tidy and use this instead of the relative
-    # path such as .lintbin/clang-tidy. The problem here is that os.chdir is
-    # per process, and the linter uses it to move between the current directory
-    # and the build folder. And there is no .lintbin directory in the latter.
-    # When it happens in a race condition, the linter command will fails with
-    # the following no such file or directory error: '.lintbin/clang-tidy'
-    binary_path = os.path.abspath(args.binary)
 
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=os.cpu_count(),
