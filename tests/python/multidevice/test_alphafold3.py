@@ -175,6 +175,10 @@ def test_triangle_updates(direction, multidevice_test):
             tv.outer_split(0, dp_size)
             tv.axis(0).parallelize(nvfuser.ParallelType.mesh_z)
 
+        # TODO(#5901): this can be avoided with a better sharding propagation.
+        #
+        # matmul_out is of shape [b, c, i, j]. We shard `b` by `DIDz`, `i` by
+        # `DIDy`, and `j` by `DIDx`.
         matmul_out.outer_split(-1, cp_size)
         match direction:
             case Direction.OUTGOING:
