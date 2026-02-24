@@ -208,10 +208,6 @@ bool needsDeallocation(TensorView* tv) {
   if (alias_info.type == AllocationType::ReuseBuffer) {
     return false;
   }
-  if (alias_info.type == AllocationType::Evaluate &&
-      alias_info.aliased_io != nullptr) {
-    return false;
-  }
   return true;
 }
 
