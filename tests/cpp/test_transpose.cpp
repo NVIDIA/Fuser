@@ -1486,7 +1486,11 @@ TEST_F(TransposeTest, NoTransposeMaverick17B) {
 class TransposeTMA
     : public TransposeTest,
       public testing::WithParamInterface<std::tuple<bool, bool>> {};
-TEST_P(TransposeTMA, TransposeTMALoadOptionalStore) {
+
+// Transpose happens at input cached smem
+// Each thread loads multiple rows from input and write as multiple columns to
+// output.
+TEST_P(TransposeTMA, TransposeInputSmem) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   Fusion fusion;
@@ -1667,7 +1671,10 @@ INSTANTIATE_TEST_SUITE_P(
                  output_smem_swizzle ? "OutputSwizzle" : "NoOutputSwizzle");
     }));
 
-TEST_F(TransposeTMA, TransposeTMALoadStore) {
+// Transpose happens at output cached smem
+// Each thread loads multiple columns from input and write as multiple rows to
+// output. 852 ms on GB200.
+TEST_F(TransposeTMA, TransposeOutputSmem) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   Fusion fusion;
@@ -1675,14 +1682,9 @@ TEST_F(TransposeTMA, TransposeTMALoadStore) {
 
   auto input = makeContigTensor(2);
   fusion.addInput(input);
-  auto tv2 = add(input, input);
-  auto output = transpose(tv2, 0, 1);
+  auto output = transpose(input, 0, 1);
   fusion.addOutput(output);
 
-  // auto [use_tma_store, output_smem_swizzle] = GetParam();
-  bool use_tma_store = true;
-  bool output_smem_swizzle = true;
-  // Transpose happens during the smem->register read (swizzled smem layout).
   std::vector<TensorView*> input_smem_caches;
   TensorView* input_smem_cache =
       input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
@@ -1690,37 +1692,30 @@ TEST_F(TransposeTMA, TransposeTMALoadStore) {
   TensorView* input_reg_cache = input_smem_cache->cacheAfter();
 
   TensorView* output_smem_cache = nullptr;
-  TensorView* output_reg_cache = nullptr;
-  if (use_tma_store) {
-    output_smem_cache =
-        output->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
-    output_smem_cache->setMemoryType(MemoryType::Shared);
-    output_reg_cache = output_smem_cache->cacheBefore();
-  } else {
-    output_reg_cache = output->cacheBefore();
-  }
+  output_smem_cache =
+      output->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+  output_smem_cache->setMemoryType(MemoryType::Shared);
+  output_smem_cache->cacheBefore();
+
+  // gmem --> smem -> regs
+  // These tvs follow input layout [I0, I1].
   TensorView* ref_tv = input_reg_cache;
-  std::cout << "output_reg_cache: " << output_reg_cache->toString()
-            << std::endl;
 
   // Swizzle parameters: 128-byte TMA swizzle with 16-byte chunks.
   constexpr int64_t tma_swizzle_bytes = 128;
   constexpr int64_t swizzle_chunk_bytes = 16;
-  constexpr int64_t num_swizzle_chunks =
-      tma_swizzle_bytes / swizzle_chunk_bytes;
-  std::cout << "num_swizzle_chunks " << num_swizzle_chunks;
   const int64_t dtype_bytes =
       dataTypeSizeByte(input_smem_cache->getDataType().value());
   const int64_t elements_per_chunk = swizzle_chunk_bytes / dtype_bytes;
   // tile_i1 must equal tma_swizzle_bytes / dtype_bytes.
-  const int64_t tile_i1 = 64;
-  // NVF_ERROR_EQ(
-  //     tile_i1,
-  //     tma_swizzle_bytes / dtype_bytes,
-  //     "tile_i1 should span exactly 128 bytes");
-  // tile_i0 and chunks_per_thread are tunable parameters.
-  const int64_t chunks_per_thread = 2;
   const int64_t tile_i0 = 32;
+  NVF_ERROR_EQ(
+      tile_i0,
+      tma_swizzle_bytes / dtype_bytes,
+      "tile_i0 should span exactly 128 bytes");
+  // tile_i1 and chunks_per_thread are tunable parameters.
+  const int64_t tile_i1 = 64;
+  const int64_t chunks_per_thread = 2;
 
   // Step 1: Tile all tvs by tile_i0 (I0 dim) and tile_i1 (I1 dim).
   // ref_tv has input layout [I0, I1].
@@ -1750,33 +1745,17 @@ TEST_F(TransposeTMA, TransposeTMALoadStore) {
   // input_smem_cache uses input layout (logical: [I0, I1]).
 
   // Step 2: Schedule output TMA store (Bulk parallel on tile dims).
-  if (use_tma_store) {
-    // The shared memory producer must have the swizzled allocation domain.
-    // The global memory consumer must have the ParallelType::Bulk iterDomains.
-    if (output_smem_swizzle) {
-      // output smem has output layout, [I1, I0]
-      // reorder to move inner most alloc dim to innermost position in loop
-      // domain [BIDx, tile_i0, tile_i1]
-      output_smem_cache->reorder({{-1, -2}});
-      // [BIDx, tile_i1, tile_i0]
-      MmaInputSmemSwizzle swizzle =
-          mma_utils::tmaSwizzleSharedMemory(output_smem_cache);
-      std::cout << "swizzle " << swizzle << std::endl;
-      mma_utils::scheduleTMAStoreForMmaOutput(output_smem_cache, swizzle);
-      mma_utils::scheduleTMAStoreForMmaOutput(output, swizzle);
-    } else {
-      // For this case, no need to swizzle the output.
-      output->axis(1)->parallelize(ParallelType::Bulk);
-      output->axis(2)->parallelize(ParallelType::Bulk);
-      output_smem_cache->setAllocationDomain(
-          output_smem_cache->getLoopDomain(), true);
-    }
-  }
-  std::cout << "output_smem_cache: " << output_smem_cache->toString()
-            << std::endl;
-  output_smem_cache->printTransforms();
-  std::cout << "output: " << output->toString() << std::endl;
-  output->printTransforms();
+  // output smem has output layout, [I1, I0]
+  // reorder to move inner most alloc dim to innermost position in loop
+  // domain
+  // [BIDx, tile_i0, tile_i1]
+  output_smem_cache->reorder({{-1, -2}});
+  // [BIDx, tile_i1, tile_i0]
+  MmaInputSmemSwizzle swizzle =
+      mma_utils::tmaSwizzleSharedMemory(output_smem_cache);
+  mma_utils::scheduleTMAStoreForMmaOutput(output_smem_cache, swizzle);
+  mma_utils::scheduleTMAStoreForMmaOutput(output, swizzle);
+
   // Step 3: Schedule input shared memory
   // no swizzle, just contiguous load
   // [BIDx, tile_i0, tile_i1]
@@ -1784,6 +1763,7 @@ TEST_F(TransposeTMA, TransposeTMALoadStore) {
   input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
   input_smem_cache->setAllocationDomain(
       input_smem_cache->getLoopDomain(), true);
+
   // Step 4: Schedule register tvs for per-thread access pattern.
   // [BIDx, tile_i0, tile_i1]
   ref_tv->split(-2, elements_per_chunk);
@@ -1800,9 +1780,7 @@ TEST_F(TransposeTMA, TransposeTMALoadStore) {
     // Propagate Step 4 transforms to all tvs except those already
     // independently scheduled (input_smem_cache and TMA store output).
     std::unordered_set<TensorView*> skip_tvs{input_smem_cache};
-    if (use_tma_store) {
-      skip_tvs.insert(output);
-    }
+    skip_tvs.insert(output);
     auto propagate_tvs = ir_utils::allTvsExcept(&fusion, skip_tvs);
     std::unordered_set<TensorView*> propagate_tvs_set(
         propagate_tvs.begin(), propagate_tvs.end());
