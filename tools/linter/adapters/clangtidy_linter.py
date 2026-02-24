@@ -79,7 +79,8 @@ def run_command(
         return subprocess.run(
             args,
             capture_output=True,
-            check=False,
+            check=True,
+            text=True,
         )
     finally:
         end_time = time.monotonic()
@@ -148,7 +149,7 @@ def check_file(
         proc = run_command(
             [binary, f"-p={build_dir}", *include_args, filename],
         )
-    except OSError as err:
+    except subprocess.CalledProcessError as err:
         return [
             LintMessage(
                 path=filename,
@@ -159,7 +160,9 @@ def check_file(
                 name="command-failed",
                 original=None,
                 replacement=None,
-                description=(f"Failed due to {err.__class__.__name__}:\n{err}"),
+                description=(
+                    f"Failed due to {err}\n\nstdout:\n{err.stdout}\nstderr:\n{err.stderr}"
+                ),
             )
         ]
     lint_messages = []
