@@ -4518,9 +4518,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .arg(bidy)
         .arg(bidz)
         .arg(true) // persistent
-        .arg(has_warp_specialized_ ? false : isAligned()) // aligned
+        .arg(has_warp_specialized_ ? false : isAligned()); // aligned
 
-        auto sync_idx = genCall(
+    auto sync_idx = genCall(
         "index_utils::maskedOffset",
         ArgumentBuilder().arg(!bidx).arg(!bidy).arg(!bidz),
         ArgumentBuilder().arg("blockIdx").arg("gridDim"));
