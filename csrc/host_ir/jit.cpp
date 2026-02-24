@@ -88,7 +88,7 @@ struct HostIrJitImpl {
 
   std::unique_ptr<llvm::orc::LLJIT> jit_;
   std::unique_ptr<hir::HostIrContainer> container_;
-  main_func_t main_func_;
+  main_func_t main_func_{nullptr};
 };
 
 // Helper function to check for and throw errors from LLVM
@@ -914,15 +914,15 @@ void HostIrJitImpl::compile() {
 
   // Look up the main function
   auto main_func_addr = throwIfError(jit_->lookup(kMainFuncName));
-  main_func_ = reinterpret_cast<main_func_t>(
-      main_func_addr.getValue()); // NOLINT(performance-no-int-to-ptr)
+  // NOLINTNEXTLINE(performance-no-int-to-ptr)
+  main_func_ = reinterpret_cast<main_func_t>(main_func_addr.getValue());
 }
 
 // Implementation of HostIrJitImpl
 HostIrJitImpl::HostIrJitImpl(
     std::unique_ptr<hir::HostIrContainer> container,
     int num_threads)
-    : container_(std::move(container)), main_func_(nullptr) {
+    : container_(std::move(container)) {
   FUSER_PERF_SCOPE("HostIrJitImpl::HostIrJitImpl");
 
   if (isDebugDumpEnabled(DebugDumpOption::HostIr)) {
@@ -971,8 +971,8 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
     else if (in_val->dtype() == DataType::Index) {
       // Cast int64_t to void* for the mixed array
       auto scalar_value = arg.as<int64_t>();
-      input_aten_tensors.push_back(reinterpret_cast<const void*>(
-          scalar_value)); // NOLINT(performance-no-int-to-ptr)
+      // NOLINTNEXTLINE(performance-no-int-to-ptr)
+      input_aten_tensors.push_back(reinterpret_cast<const void*>(scalar_value));
     } else {
       NVF_THROW("Unsupported argument type: ", arg, " for input ", in_val);
     }
