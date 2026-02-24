@@ -8,17 +8,23 @@
 //
 // TMA 1D bulk copy kernel (SM90+ / Hopper).
 //
-// This file is the implements the TMA kernel. Like other kernels, the build
-// system stringifies it into nvfuser_resources/test_multidevice_tma_kernel.h
-// (a const char*), which test_multidevice_tma.cpp compiles at runtime
-// via NVRTC. The file is never compiled statically by nvcc.
+// This file implements the TMA kernel. The build system stringifies it
+// into nvfuser_resources/test_multidevice_tma_kernel.h (a const char*),
+// which test_multidevice_tma.cpp compiles at runtime via NVRTC. The
+// file is never compiled statically by nvcc.
 //
-// A single elected thread (thread 0) performs the full round-trip:
+// TMA (cp.async.bulk) is a GMEM<->SMEM transfer engine — there is no
+// GMEM-to-GMEM variant. Shared memory staging is inherent to the
+// hardware, so the kernel performs a two-phase copy:
+//
+//   GMEM(src) --[TMA load]--> SMEM --[TMA store]--> GMEM(dst)
+//
+// A single elected thread (thread 0) drives both phases:
 //   1. mbarrier.init (arrival count = 1)
 //   2. mbarrier.arrive.expect_tx (announce expected bytes)
-//   3. cp.async.bulk GMEM -> SMEM (TMA load, completed via mbarrier)
+//   3. cp.async.bulk.shared::cluster.global  (TMA load, async)
 //   4. mbarrier.try_wait.parity (block until load completes)
-//   5. cp.async.bulk SMEM -> GMEM (TMA store)
+//   5. cp.async.bulk.global.shared::cta      (TMA store)
 //   6. cp.async.bulk.commit_group + wait_group.read 0
 //
 // Dynamic shared memory layout (128-byte aligned):
