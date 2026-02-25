@@ -49,29 +49,24 @@ CUfunction compileAndGetKernel(
   }
 
   nvrtcProgram prog;
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
-      &prog, source, source_name, 0, nullptr, nullptr));
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcCreateProgram(&prog, source, source_name, 0, nullptr, nullptr));
 
   int device = 0;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
   cudaDeviceProp prop;
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaGetDeviceProperties(&prop, device));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
 
   std::string arch_arg = "--gpu-architecture=compute_" +
       std::to_string(prop.major) + std::to_string(prop.minor);
-  std::vector<const char*> opts = {
-      arch_arg.c_str(), "--std=c++17"};
+  std::vector<const char*> opts = {arch_arg.c_str(), "--std=c++17"};
 
-  nvrtcResult res =
-      nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+  nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
   if (res != NVRTC_SUCCESS) {
     size_t logSize;
-    NVFUSER_NVRTC_SAFE_CALL(
-        nvrtcGetProgramLogSize(prog, &logSize));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
     std::vector<char> log(logSize);
-    NVFUSER_NVRTC_SAFE_CALL(
-        nvrtcGetProgramLog(prog, log.data()));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
     NVF_ERROR(
         false,
         "NVRTC compilation of '",
@@ -86,10 +81,8 @@ CUfunction compileAndGetKernel(
   NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
   NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
 
-  NVFUSER_CUDA_SAFE_CALL(
-      cuModuleLoadData(&module, ptx.data()));
-  NVFUSER_CUDA_SAFE_CALL(
-      cuModuleGetFunction(&function, module, kernel_name));
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, ptx.data()));
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&function, module, kernel_name));
 
   return function;
 }
@@ -121,13 +114,7 @@ void launchTmaCopy1D(
   int smem_size = num_bytes + static_cast<int>(sizeof(uint64_t));
   void* args[] = {&dst, &src, &num_bytes};
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-      tma_kernel,
-      1, 1, 1,
-      32, 1, 1,
-      smem_size,
-      stream,
-      args,
-      nullptr));
+      tma_kernel, 1, 1, 1, 32, 1, 1, smem_size, stream, args, nullptr));
 }
 
 } // anonymous namespace
@@ -157,9 +144,8 @@ TEST_F(TmaTest, TmaLocalCopy) {
   constexpr int kSizeBytes = kNumElems * sizeof(uint32_t);
   static_assert(kSizeBytes % 16 == 0);
 
-  auto options = at::TensorOptions()
-                     .dtype(at::kInt)
-                     .device(at::kCUDA, local_rank);
+  auto options =
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, local_rank);
   at::Tensor src = at::arange(kNumElems, options);
   at::Tensor dst = at::zeros({kNumElems}, options);
 
@@ -192,8 +178,8 @@ TEST_F(TmaTest, TmaInterDeviceCopy) {
   constexpr int kSizeBytes = kNumElems * sizeof(int32_t);
   static_assert(kSizeBytes % 16 == 0);
 
-  at::Tensor local = SymmetricTensor::allocate(
-      {kNumElems}, at::kInt, communicator_->device());
+  at::Tensor local =
+      SymmetricTensor::allocate({kNumElems}, at::kInt, communicator_->device());
   local.fill_(static_cast<int>(rank * 10000));
   SymmetricTensor sym(local);
   sym.setupRemoteHandles("tma_p2p");
@@ -244,8 +230,7 @@ TEST_F(TmaTest, TmaMulticastWrite) {
       CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
       local_rank));
   if (is_multicast_supported == 0) {
-    GTEST_SKIP()
-        << "Device does not support Multicast Objects; skipping.";
+    GTEST_SKIP() << "Device does not support Multicast Objects; skipping.";
   }
 
   constexpr int64_t kNumElems = 524288; // 2 MB / sizeof(int32_t)
@@ -257,14 +242,13 @@ TEST_F(TmaTest, TmaMulticastWrite) {
   static_assert(kTmaBytes % 16 == 0);
   constexpr int kTmaElems = kTmaBytes / sizeof(int32_t);
 
-  at::Tensor local = SymmetricTensor::allocate(
-      {kNumElems}, at::kInt, communicator_->device());
+  at::Tensor local =
+      SymmetricTensor::allocate({kNumElems}, at::kInt, communicator_->device());
   local.zero_();
   SymmetricTensor sym(local);
   sym.setupMulticast(root, "tma_mcast");
 
-  auto opts =
-      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, local_rank);
+  auto opts = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, local_rank);
 
   // Root: TMA-write source data to MC pointer (NVLS broadcasts it)
   if (rank == root) {
@@ -279,8 +263,7 @@ TEST_F(TmaTest, TmaMulticastWrite) {
   at::Tensor readback = sym.localTensor().slice(0, 0, kTmaElems).clone();
   at::Tensor expected = at::arange(kTmaElems, opts);
   EXPECT_TRUE(readback.equal(expected))
-      << "Rank " << rank
-      << " did not receive multicast data written by TMA";
+      << "Rank " << rank << " did not receive multicast data written by TMA";
 }
 
 #endif // CUDA_VERSION >= 13000

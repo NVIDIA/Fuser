@@ -36,11 +36,10 @@
 //   [0, num_bytes)           : staging buffer
 //   [num_bytes, num_bytes+8) : mbarrier (uint64_t)
 
-extern "C" __global__ void __launch_bounds__(32, 1)
-    tma_copy_1d(
-        void* __restrict__ dst,
-        const void* __restrict__ src,
-        int num_bytes) {
+extern "C" __global__ void __launch_bounds__(32, 1) tma_copy_1d(
+    void* __restrict__ dst,
+    const void* __restrict__ src,
+    int num_bytes) {
   extern __shared__ __align__(128) unsigned char smem[];
 
   unsigned long long* mbar =
@@ -52,25 +51,26 @@ extern "C" __global__ void __launch_bounds__(32, 1)
 
   if (threadIdx.x == 0) {
     asm volatile(
-        "mbarrier.init.shared::cta.b64 [%0], %1;"
-        ::"r"(mbar_addr), "r"(1));
-    asm volatile(
-        "fence.mbarrier_init.release.cluster;" :::);
+        "mbarrier.init.shared::cta.b64 [%0], %1;" ::"r"(mbar_addr), "r"(1));
+    asm volatile("fence.mbarrier_init.release.cluster;" :::);
   }
   __syncwarp();
 
   if (threadIdx.x == 0) {
     // Announce expected transaction bytes on the mbarrier
     asm volatile(
-        "mbarrier.arrive.expect_tx.shared::cta.b64 _, [%0], %1;"
-        ::"r"(mbar_addr), "r"(num_bytes));
+        "mbarrier.arrive.expect_tx.shared::cta.b64 _, [%0], %1;" ::"r"(
+            mbar_addr),
+        "r"(num_bytes));
 
     // TMA Load: GMEM -> SMEM (async, completed via mbarrier)
     asm volatile(
         "cp.async.bulk.shared::cluster.global"
         ".mbarrier::complete_tx::bytes"
-        " [%0], [%1], %2, [%3];\n"
-        ::"r"(smem_addr), "l"(src), "r"(num_bytes), "r"(mbar_addr)
+        " [%0], [%1], %2, [%3];\n" ::"r"(smem_addr),
+        "l"(src),
+        "r"(num_bytes),
+        "r"(mbar_addr)
         : "memory");
 
     // Block until the mbarrier phase flips (TMA load completed)
@@ -83,21 +83,19 @@ extern "C" __global__ void __launch_bounds__(32, 1)
         "@P1 bra TMA_COPY_LOAD_DONE;\n"
         "bra TMA_COPY_WAIT_LOAD;\n"
         "TMA_COPY_LOAD_DONE:\n"
-        "}"
-        ::"r"(mbar_addr), "r"(0));
+        "}" ::"r"(mbar_addr),
+        "r"(0));
 
     // TMA Store: SMEM -> GMEM
     asm volatile(
         "cp.async.bulk.global.shared::cta.bulk_group"
-        " [%0], [%1], %2;\n"
-        ::"l"(dst), "r"(smem_addr), "r"(num_bytes)
+        " [%0], [%1], %2;\n" ::"l"(dst),
+        "r"(smem_addr),
+        "r"(num_bytes)
         : "memory");
     asm volatile("cp.async.bulk.commit_group;");
-    asm volatile(
-        "cp.async.bulk.wait_group.read 0;" ::: "memory");
+    asm volatile("cp.async.bulk.wait_group.read 0;" ::: "memory");
 
-    asm volatile(
-        "mbarrier.inval.shared::cta.b64 [%0];"
-        ::"r"(mbar_addr));
+    asm volatile("mbarrier.inval.shared::cta.b64 [%0];" ::"r"(mbar_addr));
   }
 }
