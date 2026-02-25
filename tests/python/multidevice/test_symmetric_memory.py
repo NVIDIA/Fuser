@@ -7,11 +7,18 @@ import torch
 import torch.distributed as dist
 import torch.distributed._symmetric_memory as symm_mem
 from torch.distributed.tensor import distribute_tensor, Shard
+from torch._C._autograd import DeviceType
+from torch._C._distributed_c10d import _SymmetricMemory
 
 
 @pytest.mark.mpi
 def test_allgather_linear_symmetric_memory(setup_default_process_group):
     """Allgather input into symmetric buffer, then linear. Same sizes as row_parallel_linear_forward_reference."""
+    if not _SymmetricMemory.has_multicast_support(
+        DeviceType.CUDA, torch.cuda.current_device()
+    ):
+        pytest.skip("multicast not supported on this GPU")
+
     h, s, t = 2, 3, 6
     d = dist.get_world_size()
     if (h * 4) % d != 0:
@@ -30,28 +37,17 @@ def test_allgather_linear_symmetric_memory(setup_default_process_group):
     out_ref = torch.nn.functional.linear(inp_ref.cuda(), weight_ref.cuda()).cpu()
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
-    inp_shard = distribute_tensor(inp_ref, mesh, placements=[Shard(-1)]).to_local()
-    inp_shard = inp_shard.cuda()
-    weight_ref_cuda = weight_ref.cuda()
+    inp = distribute_tensor(inp_ref, mesh, placements=[Shard(-1)]).to_local()
+    weight = weight_ref.cuda()
 
-    # Symmetric buffer for allgathered input: (t, h*4). Prefer symm_mem multimem allgather
-    # (NVLink SHARP) when output has multicast support; else fall back to dist.all_gather.
-    allgathered_symm = symm_mem.empty(t, h * 4, device="cuda", dtype=inp_shard.dtype)
+    # Symmetric buffer for allgathered input: (t, h*4). multimem_all_gather_out requires
+    # multicast support (e.g. NVLink SHARP) on the GPU; skip the test otherwise.
+    allgathered_symm = symm_mem.empty(t, h * 4, device="cuda", dtype=inp.dtype)
     symm_mem.rendezvous(allgathered_symm, group=dist.group.WORLD)
 
-    try:
-        group_name = dist.group.WORLD.group_name
-        torch.ops.symm_mem.multimem_all_gather_out(
-            inp_shard, group_name, allgathered_symm
-        )
-    except RuntimeError as e:
-        if "multicast" in str(e).lower():
-            tensor_list = [torch.empty_like(inp_shard) for _ in range(d)]
-            dist.all_gather(tensor_list, inp_shard, group=dist.group.WORLD)
-            allgathered_symm.copy_(torch.cat(tensor_list, dim=1))
-        else:
-            raise
-    out = torch.nn.functional.linear(allgathered_symm, weight_ref_cuda)
+    group_name = dist.group.WORLD.group_name
+    torch.ops.symm_mem.multimem_all_gather_out(inp, group_name, allgathered_symm)
+    out = torch.nn.functional.linear(allgathered_symm, weight)
 
     torch.testing.assert_close(out.cpu(), out_ref)
 
@@ -59,6 +55,11 @@ def test_allgather_linear_symmetric_memory(setup_default_process_group):
 @pytest.mark.mpi
 def test_linear_reducescatter_symmetric_memory(setup_default_process_group):
     """Partial linear per rank, then reduce_scatter into symmetric buffer. Same sizes as row_parallel_linear_forward_reference."""
+    if not _SymmetricMemory.has_multicast_support(
+        DeviceType.CUDA, torch.cuda.current_device()
+    ):
+        pytest.skip("multicast not supported on this GPU")
+
     h, s, t = 2, 3, 6
     d = dist.get_world_size()
     if (h * 4) % d != 0:
@@ -80,31 +81,15 @@ def test_linear_reducescatter_symmetric_memory(setup_default_process_group):
     ).to(torch.bfloat16)
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
-    inp_shard = (
-        distribute_tensor(inp_ref, mesh, placements=[Shard(-1)]).to_local().cuda()
-    )
-    weight_shard = (
-        distribute_tensor(weight_ref, mesh, placements=[Shard(-1)]).to_local().cuda()
-    )
+    inp = distribute_tensor(inp_ref, mesh, placements=[Shard(-1)]).to_local()
+    weight = distribute_tensor(weight_ref, mesh, placements=[Shard(-1)]).to_local()
 
-    # Partial linear per rank: (t, (h*4)//d) @ (h, (h*4)//d).T -> (t, h)
-    partial = torch.matmul(inp_shard, weight_shard.T)
-
-    # reduce_scatter_tensor splits along dim 0; we want to scatter along last dim (columns).
-    # So transpose: (t, h) -> (h, t), then reduce_scatter -> (1, t) per rank, then transpose -> (t, 1).
-    partial_t = partial.T.contiguous()  # (h, t)
-    out_buf = torch.empty(h // d, t, device="cuda", dtype=partial.dtype)
-    dist.reduce_scatter_tensor(
-        out_buf, partial_t, op=dist.ReduceOp.SUM, group=dist.group.WORLD
+    group_name = dist.group.WORLD.group_name
+    out = torch.ops.symm_mem.fused_matmul_reduce_scatter(
+        inp, weight.T, "sum", 1, group_name
     )
-    out_buf = out_buf.T  # (t, h//d)
-
-    out_shard = symm_mem.empty(t, h // d, device="cuda", dtype=partial.dtype)
-    symm_mem.rendezvous(out_shard, group=dist.group.WORLD)
-    out_shard.copy_(out_buf)
 
     out_ref = torch.nn.functional.linear(inp_ref.cuda(), weight_ref.cuda()).cpu()
-    out_ref_shard = (
-        distribute_tensor(out_ref, mesh, placements=[Shard(-1)]).to_local().cuda()
+    torch.testing.assert_close(
+        out, distribute_tensor(out_ref, mesh, placements=[Shard(-1)]).to_local()
     )
-    torch.testing.assert_close(out_shard, out_ref_shard)
