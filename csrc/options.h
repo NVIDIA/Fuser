@@ -126,7 +126,7 @@ enum class EnableOption {
   P2pProtocol, //! Prescribe P2P protocol: put|get
   P2pTransport, //! Prescribe P2P data transport: ce|tma (default: ce)
   MulticastProtocol, //! Prescribe multicast protocol:
-                     //! memcpy|multimem|batch_memcpy
+                     //! memcpy|multimem|batch_memcpy|tma
   ParallelSerde, //! Enable deserializing FusionExecutorCache in parallel
   EndOfOption //! Placeholder for counting the number of elements
 };

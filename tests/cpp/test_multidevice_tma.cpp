@@ -154,6 +154,122 @@ TEST_F(TmaTest, TmaMulticastWrite) {
       << "Rank " << rank << " did not receive multicast data written by TMA";
 }
 
+// Same as TmaMulticastWrite but with a 128 KB transfer that requires
+// multiple shared-memory chunks (~48 KB each). Validates that the
+// chunked launchTmaCopy correctly handles large MC pointer writes.
+TEST_F(TmaTest, TmaMulticastWriteChunked) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t local_rank = communicator_->local_rank();
+
+  int major;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
+      &major, cudaDevAttrComputeCapabilityMajor, local_rank));
+  if (major < 9) {
+    GTEST_SKIP() << "Requires Hopper (SM90+)";
+  }
+
+  int is_multicast_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_multicast_supported,
+      CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+      local_rank));
+  if (is_multicast_supported == 0) {
+    GTEST_SKIP() << "Device does not support Multicast Objects; skipping.";
+  }
+
+  constexpr int64_t kNumElems = 524288; // 2 MB buffer
+  constexpr int64_t root = 0;
+  constexpr int kTmaBytes = 128 * 1024;
+  static_assert(kTmaBytes % 16 == 0);
+  constexpr int kTmaElems = kTmaBytes / sizeof(int32_t);
+
+  at::Tensor local =
+      SymmetricTensor::allocate({kNumElems}, at::kInt, communicator_->device());
+  local.zero_();
+  SymmetricTensor sym(local);
+  sym.setupMulticast(root, "tma_mcast_chunked");
+
+  auto opts = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, local_rank);
+
+  if (rank == root) {
+    at::Tensor src = at::arange(kTmaElems, opts);
+    launchTmaCopy(sym.multicastPtr(), src.data_ptr(), kTmaBytes, nullptr);
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  }
+
+  communicator_->barrier();
+
+  at::Tensor readback = sym.localTensor().slice(0, 0, kTmaElems).clone();
+  at::Tensor expected = at::arange(kTmaElems, opts);
+  EXPECT_TRUE(readback.equal(expected))
+      << "Rank " << rank
+      << " did not receive chunked multicast data written by TMA";
+}
+
+// Same as TmaMulticastWriteChunked but on a non-default stream.
+// This reproduces a crash seen in the LowerCollective integration
+// tests where the TMA kernel is launched on a PyTorch stream.
+TEST_F(TmaTest, TmaMulticastWriteOnStream) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t local_rank = communicator_->local_rank();
+
+  int major;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
+      &major, cudaDevAttrComputeCapabilityMajor, local_rank));
+  if (major < 9) {
+    GTEST_SKIP() << "Requires Hopper (SM90+)";
+  }
+
+  int is_multicast_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_multicast_supported,
+      CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+      local_rank));
+  if (is_multicast_supported == 0) {
+    GTEST_SKIP() << "Device does not support Multicast Objects; skipping.";
+  }
+
+  constexpr int64_t kNumElems = 524288;
+  constexpr int64_t root = 0;
+  constexpr int kTmaBytes = 128 * 1024;
+  static_assert(kTmaBytes % 16 == 0);
+  constexpr int kTmaElems = kTmaBytes / sizeof(int32_t);
+
+  at::Tensor local =
+      SymmetricTensor::allocate({kNumElems}, at::kInt, communicator_->device());
+  local.zero_();
+  SymmetricTensor sym(local);
+  sym.setupMulticast(root, "tma_mcast_stream");
+
+  c10::cuda::CUDAStream torch_stream =
+      c10::cuda::getStreamFromPool(false, local_rank);
+  CUstream stream = static_cast<CUstream>(torch_stream.stream());
+
+  auto opts = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, local_rank);
+
+  if (rank == root) {
+    at::Tensor src = at::arange(kTmaElems, opts);
+    launchTmaCopy(sym.multicastPtr(), src.data_ptr(), kTmaBytes, stream);
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(torch_stream));
+  }
+
+  communicator_->barrier();
+
+  at::Tensor readback = sym.localTensor().slice(0, 0, kTmaElems).clone();
+  at::Tensor expected = at::arange(kTmaElems, opts);
+  EXPECT_TRUE(readback.equal(expected))
+      << "Rank " << rank
+      << " did not receive multicast data via TMA on non-default stream";
+}
+
 #endif // CUDA_VERSION >= 13000
 
 } // namespace nvfuser

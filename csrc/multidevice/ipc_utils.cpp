@@ -187,6 +187,9 @@ MulticastProtocol getMulticastProtocol() {
     if (hasEnableOptionArgument(EnableOption::MulticastProtocol, "memcpy")) {
       return MulticastProtocol::Memcpy;
     }
+    if (hasEnableOptionArgument(EnableOption::MulticastProtocol, "tma")) {
+      return MulticastProtocol::Tma;
+    }
   }
   return MulticastProtocol::BatchMemcpy;
 }

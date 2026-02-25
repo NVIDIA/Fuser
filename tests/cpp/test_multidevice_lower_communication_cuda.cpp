@@ -29,7 +29,13 @@ namespace nvfuser {
 
 namespace {
 
-enum class CommunicationProtocol { kNccl, kMemcpy, kMultimem, kBatchedMemcpy };
+enum class CommunicationProtocol {
+  kNccl,
+  kMemcpy,
+  kMultimem,
+  kBatchedMemcpy,
+  kTma
+};
 
 // Helper function to get CommunicatorBackend from CommunicationProtocol
 CommunicatorBackend getBackend(CommunicationProtocol protocol) {
@@ -39,6 +45,7 @@ CommunicatorBackend getBackend(CommunicationProtocol protocol) {
     case CommunicationProtocol::kMemcpy:
     case CommunicationProtocol::kMultimem:
     case CommunicationProtocol::kBatchedMemcpy:
+    case CommunicationProtocol::kTma:
       return CommunicatorBackend::kCuda;
   }
   std::unreachable();
@@ -55,6 +62,8 @@ std::string getProtocolString(CommunicationProtocol protocol) {
       return "multimem";
     case CommunicationProtocol::kBatchedMemcpy:
       return "batch_memcpy";
+    case CommunicationProtocol::kTma:
+      return "tma";
   }
   std::unreachable();
 }
@@ -160,6 +169,18 @@ class LowerCollectiveCudaAndNcclTest
             EnableOption::MulticastProtocol, {"multimem"});
         break;
       }
+      case CommunicationProtocol::kTma: {
+        cudaDeviceProp prop;
+        NVFUSER_CUDA_RT_SAFE_CALL(
+            cudaGetDeviceProperties(&prop, communicator_->device().index()));
+        if (prop.major < 9) {
+          GTEST_SKIP()
+              << "TMA requires Compute Capability >= 9.0 (Hopper+)";
+        }
+        EnableOptionsGuard::getCurOptions().set(
+            EnableOption::MulticastProtocol, {"tma"});
+        break;
+      }
       case CommunicationProtocol::kBatchedMemcpy:
         EnableOptionsGuard::getCurOptions().set(
             EnableOption::MulticastProtocol, {"batch_memcpy"});
@@ -189,7 +210,8 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allgather) {
 
   if (!isMulticastSupported() &&
       (protocol_enum == CommunicationProtocol::kMemcpy ||
-       protocol_enum == CommunicationProtocol::kMultimem)) {
+       protocol_enum == CommunicationProtocol::kMultimem ||
+       protocol_enum == CommunicationProtocol::kTma)) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
   }
 
@@ -257,7 +279,8 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Broadcast) {
 
   if (!isMulticastSupported() &&
       (protocol_enum == CommunicationProtocol::kMemcpy ||
-       protocol_enum == CommunicationProtocol::kMultimem)) {
+       protocol_enum == CommunicationProtocol::kMultimem ||
+       protocol_enum == CommunicationProtocol::kTma)) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
   }
 
@@ -358,7 +381,8 @@ INSTANTIATE_TEST_SUITE_P(
             CommunicationProtocol::kMemcpy,
             CommunicationProtocol::kNccl,
             CommunicationProtocol::kMultimem,
-            CommunicationProtocol::kBatchedMemcpy)),
+            CommunicationProtocol::kBatchedMemcpy,
+            CommunicationProtocol::kTma)),
     paramToStringLowerCollectiveCudaAndNcclTest);
 
 } // namespace nvfuser

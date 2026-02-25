@@ -29,7 +29,7 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 
 // IPC Utils for sharing file descriptors
 
-enum class MulticastProtocol { Memcpy, Multimem, BatchMemcpy };
+enum class MulticastProtocol { Memcpy, Multimem, BatchMemcpy, Tma };
 
 MulticastProtocol getMulticastProtocol();
 

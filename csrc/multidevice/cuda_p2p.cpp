@@ -516,7 +516,10 @@ void postBroadcastWithCudaBackend(
     const int64_t count = input.numel() * input.element_size();
 
     MulticastProtocol protocol = getMulticastProtocol();
-    if (protocol == MulticastProtocol::Multimem) {
+    if (protocol == MulticastProtocol::Tma) {
+      launchTmaCopy(
+          multicast_handle->bufferMulticastPtr(), src_ptr, count, stream);
+    } else if (protocol == MulticastProtocol::Multimem) {
       launchMulticastKernel(
           multicast_handle->bufferMulticastPtr(), src_ptr, count, stream);
     } else if (protocol == MulticastProtocol::BatchMemcpy) {
@@ -670,7 +673,13 @@ void postAllgatherWithCudaBackend(
   const void* src_ptr = input.data_ptr();
   const int64_t count = input.numel() * input.element_size();
 
-  if (protocol == MulticastProtocol::Multimem) {
+  if (protocol == MulticastProtocol::Tma) {
+    launchTmaCopy(
+        allgather_handle->bufferMulticastPtr(my_device_index),
+        src_ptr,
+        count,
+        stream);
+  } else if (protocol == MulticastProtocol::Multimem) {
     launchMulticastKernel(
         allgather_handle->bufferMulticastPtr(my_device_index),
         src_ptr,
