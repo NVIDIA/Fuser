@@ -124,6 +124,7 @@ enum class EnableOption {
   InsertReshardingAfter, //! Insert resharding set after the expression
   FastMath, //! Enable fast math optimizations (--use_fast_math)
   P2pProtocol, //! Prescribe P2P protocol: put|get
+  P2pTransport, //! Prescribe P2P data transport: ce|tma (default: ce)
   MulticastProtocol, //! Prescribe multicast protocol:
                      //! memcpy|multimem|batch_memcpy
   ParallelSerde, //! Enable deserializing FusionExecutorCache in parallel

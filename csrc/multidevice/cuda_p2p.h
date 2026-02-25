@@ -20,8 +20,20 @@ P2pProtocol getP2pProtocol();
 
 std::ostream& operator<<(std::ostream& os, P2pProtocol protocol);
 
-// Returns the prescribed P2P protocol based on NVFUSER_ENABLE option
-P2pProtocol getP2pProtocol();
+enum class P2pTransport { CopyEngine, Tma };
+
+P2pTransport getP2pTransport();
+
+std::ostream& operator<<(std::ostream& os, P2pTransport transport);
+
+//! TMA 1D bulk copy: GMEM(src) -> SMEM -> GMEM(dst).
+//! Compiled at runtime via NVRTC from csrc/multidevice/tma_copy.cu.
+//! Handles arbitrarily large sizes by chunking to fit shared memory.
+void launchTmaCopy(
+    void* dst,
+    const void* src,
+    size_t size,
+    CUstream stream);
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream);
 
