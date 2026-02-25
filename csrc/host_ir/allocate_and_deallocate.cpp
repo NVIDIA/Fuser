@@ -12,6 +12,7 @@
 #include <functional>
 #include <iterator>
 #include <list>
+#include <ranges>
 #include <stack>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,51 +27,48 @@ namespace nvfuser::hir {
 
 namespace {
 
+class Node {
+ public:
+  Node(Scope* scope, Expr* expr, const Node* parent)
+      : scope_(scope),
+        expr_(expr),
+        parent_(parent),
+        depth_(parent ? parent->depth() + 1 : 0) {}
+
+  Scope* scope() const {
+    return scope_;
+  }
+
+  Expr* getExpr() const {
+    return expr_;
+  }
+
+  const Node* parent() const {
+    return parent_;
+  }
+
+  int depth() const {
+    return depth_;
+  }
+
+  const std::vector<Node*>& children() const {
+    return children_;
+  }
+
+  void addChild(Node* child) {
+    children_.push_back(child);
+  }
+
+ private:
+  Scope* scope_;
+  Expr* expr_;
+  const Node* parent_;
+  int depth_;
+  std::vector<Node*> children_;
+};
+
 class DominatorTree {
  public:
-  class Node {
-   public:
-    Node(Scope* scope, Scope::Iterator iterator, Node* parent)
-        : scope_(scope), iterator_(iterator), parent_(parent) {}
-    Node(const Node& other) = delete;
-    Node(Node&& other) = delete;
-    Node& operator=(const Node& other) = delete;
-    Node& operator=(Node&& other) = delete;
-
-    const std::vector<Node*>& children() const {
-      return children_;
-    }
-
-    void addChild(Node* child) {
-      children_.push_back(child);
-    }
-
-    Scope* scope() const {
-      return scope_;
-    }
-
-    Scope::Iterator iterator() const {
-      return iterator_;
-    }
-
-    const Node* parent() const {
-      return parent_;
-    }
-
-    Expr* getExpr() const {
-      return *iterator_;
-    }
-
-   private:
-    // Consider putting `scope` and `iterator` into a separate Mutator class.
-    // They are only needed when the user wants to modify the host IR.
-    Scope* scope_;
-    Scope::Iterator iterator_;
-    Node* parent_;
-
-    std::vector<Node*> children_;
-  };
-
   explicit DominatorTree(hir::HostIrContainer& hic) : hic_(&hic) {
     build(hic_->topLevel(), /*parent=*/nullptr);
   }
@@ -82,8 +80,6 @@ class DominatorTree {
     return &nodes_.at(root);
   }
 
-  // `pre_fn` is called before traversing any child of a node.  `post_fn` is
-  // called after traversing all children of a node.
   void depthFirstTraverse(
       const std::function<void(const Node*)>& pre_fn,
       const std::function<void(const Node*)>& post_fn) const {
@@ -112,11 +108,8 @@ class DominatorTree {
 
  private:
   void build(Scope& scope, Node* parent) {
-    for (auto scope_it = scope.exprs().begin(); scope_it != scope.exprs().end();
-         ++scope_it) {
-      Expr* e = *scope_it;
-      auto [node_it, inserted] =
-          nodes_.try_emplace(e, &scope, scope_it, parent);
+    for (Expr* e : scope.exprs()) {
+      auto [node_it, inserted] = nodes_.try_emplace(e, &scope, e, parent);
       NVF_ERROR(inserted);
       Node& node = node_it->second;
       if (parent != nullptr) {
@@ -124,9 +117,6 @@ class DominatorTree {
       }
 
       if (auto* loop = dynamic_cast<hir::ForLoop*>(e)) {
-        // `e`, the ForLoop, dominates its body. However, the body doesn't
-        // dominate the instruction after the loop, because the loop could be
-        // executed zero times.
         build(loop->body(), &node);
       }
 
@@ -137,6 +127,76 @@ class DominatorTree {
 
       parent = &node;
     }
+  }
+
+  hir::HostIrContainer* hic_;
+  std::unordered_map<const Expr*, Node> nodes_;
+};
+
+// Post-dominator tree: node A post-dominates B if every path from B to exit
+// goes through A. Built by traversing from exit toward entry.
+class PostDominatorTree {
+ public:
+  explicit PostDominatorTree(
+      hir::HostIrContainer& hic,
+      std::unordered_map<TensorView*, const Node*>& lca)
+      : hic_(&hic) {
+    build(hic_->topLevel(), /*scope_exit_successor=*/nullptr, lca);
+  }
+
+  const Node* getNode(Expr* expr) const {
+    auto it = nodes_.find(expr);
+    return it != nodes_.end() ? &it->second : nullptr;
+  }
+
+ private:
+  void build(
+      Scope& scope,
+      Node* parent,
+      std::unordered_map<TensorView*, const Node*>& lca) {
+    for (Expr* e : scope.exprs() | std::views::reverse) {
+      auto [node_it, inserted] = nodes_.try_emplace(e, &scope, e, parent);
+      NVF_ERROR(inserted);
+      Node& node = node_it->second;
+
+      if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
+        TensorView* tv = alloc->buffer()->as<TensorView>();
+        lca[tv] = findLCA(lca[tv], &node);
+      }
+      for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
+        lca[in] = findLCA(lca[in], &node);
+      }
+
+      if (auto* loop = dynamic_cast<hir::ForLoop*>(e)) {
+        build(loop->body(), &node, lca);
+      }
+      if (auto* ite = dynamic_cast<kir::IfThenElse*>(e)) {
+        build(ite->thenBody(), &node, lca);
+        build(ite->elseBody(), &node, lca);
+      }
+
+      parent = &node;
+    }
+  }
+
+  const Node* findLCA(const Node* a, const Node* b) const {
+    if (a == nullptr) {
+      return b;
+    }
+    if (b == nullptr) {
+      return a;
+    }
+    while (a->depth() > b->depth()) {
+      a = a->parent();
+    }
+    while (b->depth() > a->depth()) {
+      b = b->parent();
+    }
+    while (a != b) {
+      a = a->parent();
+      b = b->parent();
+    }
+    return a;
   }
 
   hir::HostIrContainer* hic_;
@@ -167,7 +227,7 @@ void insertAllocations(hir::HostIrContainer& hic) {
 
   dom_tree.depthFirstTraverse(
       /*pre_fn=*/
-      [&](const DominatorTree::Node* node) {
+      [&](const Node* node) {
         Expr* e = node->getExpr();
         // If `e`'s output needs preallocation but isn't defined, insert an
         // allocation right before `e`.
@@ -179,14 +239,14 @@ void insertAllocations(hir::HostIrContainer& hic) {
           if (needsOutputPreallocation(e)) {
             auto* allocate =
                 IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
-            node->scope()->insert(node->iterator(), allocate);
+            node->scope()->insert_before(node->getExpr(), allocate);
           }
 
           defined.insert(out);
         }
       },
       /*post_fn=*/
-      [&](const DominatorTree::Node* node) {
+      [&](const Node* node) {
         Expr* e = node->getExpr();
         for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
           defined.erase(out);
@@ -221,50 +281,18 @@ void insertDeallocations(hir::HostIrContainer& hic) {
         expr);
   });
 
-  DominatorTree dom_tree(hic);
-  std::unordered_map<TensorView*, const DominatorTree::Node*> outermost_scope;
-  std::unordered_map<TensorView*, const DominatorTree::Node*> last_use;
+  std::unordered_map<TensorView*, const Node*> lca;
+  PostDominatorTree post_dom_tree(hic, lca);
 
-  dom_tree.depthFirstTraverse(
-      /*pre_fn=*/
-      [&](const DominatorTree::Node* node) {
-        Expr* e = node->getExpr();
-        if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
-          outermost_scope.try_emplace(alloc->buffer()->as<TensorView>(), node);
-        }
-        for (auto* input : ir_utils::filterByType<TensorView>(e->inputs())) {
-          outermost_scope.try_emplace(input, node);
-        }
-      },
-      /*post_fn=*/
-      [&](const DominatorTree::Node* node) {
-        Expr* e = node->getExpr();
-        if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
-          last_use.try_emplace(alloc->buffer()->as<TensorView>(), node);
-        }
-        for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          last_use.try_emplace(in, node);
-        }
-      });
-
-  for (const auto& [allocated_tv, outermost_scope_node] : outermost_scope) {
-    if (!needsDeallocation(allocated_tv)) {
+  // Insert deallocate at LCA for each TV that needs deallocation.
+  for (const auto& [tv, lca_node] : lca) {
+    if (!needsDeallocation(tv)) {
       continue;
     }
-    const DominatorTree::Node* last_use_node = last_use.at(allocated_tv);
-    Scope* outermost_scope = outermost_scope_node->scope();
-
-    // Insert in allocation_scope, after the node that contains last_use.
-    // Walk up from last_use until we reach allocation_scope (no-op when same).
-    const DominatorTree::Node* insert_after = last_use_node;
-    while (insert_after->scope() != outermost_scope) {
-      insert_after = insert_after->parent();
-      NVF_ERROR(
-          insert_after != nullptr, "Allocation scope must dominate last use");
-    }
-
-    auto* deallocate = IrBuilder::create<hir::Deallocate>(allocated_tv);
-    outermost_scope->insert(std::next(insert_after->iterator()), deallocate);
+    NVF_ERROR(
+        lca_node != nullptr, "Could not find post-dominator for tensor ", tv);
+    auto* deallocate = IrBuilder::create<hir::Deallocate>(tv);
+    lca_node->scope()->insert_after(lca_node->getExpr(), deallocate);
   }
 }
 
