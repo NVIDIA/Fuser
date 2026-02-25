@@ -80,6 +80,8 @@ class DominatorTree {
     return &nodes_.at(root);
   }
 
+  // `pre_fn` is called before traversing any child of a node.  `post_fn` is
+  // called after traversing all children of a node.
   void depthFirstTraverse(
       const std::function<void(const Node*)>& pre_fn,
       const std::function<void(const Node*)>& post_fn) const {
@@ -117,6 +119,9 @@ class DominatorTree {
       }
 
       if (auto* loop = dynamic_cast<hir::ForLoop*>(e)) {
+        // `e`, the ForLoop, dominates its body. However, the body doesn't
+        // dominate the instruction after the loop, because the loop could be
+        // executed zero times.
         build(loop->body(), &node);
       }
 
