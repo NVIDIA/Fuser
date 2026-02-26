@@ -199,9 +199,9 @@ def main() -> None:
 
     try:
         llvm_bindir = subprocess.check_output(
-            "llvm-config --bindir", text=True, shell=True
+            ["llvm-config", "--bindir"], text=True
         ).strip()
-    except subprocess.CalledProcessError as err:
+    except FileNotFoundError:
         lint_message = LintMessage(
             path=None,
             line=None,
@@ -211,7 +211,7 @@ def main() -> None:
             name="init-error",
             original=None,
             replacement=None,
-            description=(f"llvm-config --bindir failed (is LLVM installed?): {err}. "),
+            description="llvm-config doesn't exist (is LLVM installed?).",
         )
         print(json.dumps(lint_message._asdict()), flush=True)
         sys.exit(0)
