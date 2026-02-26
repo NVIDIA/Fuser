@@ -22,6 +22,7 @@ class BuildConfig:
     no_benchmark: bool = False
     no_ninja: bool = False
     build_with_ucc: bool = False
+    build_with_nixl: bool = False
     build_with_asan: bool = False
     build_without_distributed: bool = False
     explicit_error_check: bool = False
@@ -97,6 +98,12 @@ def parse_args():
         dest="build_with_ucc",
         action="store_true",
         help="Build nvfuser with UCC support",
+    )
+    parser.add_argument(
+        "--build-with-nixl",
+        dest="build_with_nixl",
+        action="store_true",
+        help="Build nvfuser with NIXL support",
     )
     parser.add_argument(
         "--explicit-error-check",
@@ -200,6 +207,7 @@ def create_build_config():
         no_benchmark=args.no_benchmark,
         no_ninja=args.no_ninja,
         build_with_ucc=args.build_with_ucc,
+        build_with_nixl=args.build_with_nixl,
         build_with_asan=args.build_with_asan,
         build_without_distributed=args.build_without_distributed,
         explicit_error_check=args.explicit_error_check,
@@ -245,6 +253,8 @@ def override_build_config_from_env(config):
         config.no_ninja = get_env_flag_bool("NVFUSER_BUILD_NO_NINJA")
     if "NVFUSER_BUILD_WITH_UCC" in os.environ:
         config.build_with_ucc = get_env_flag_bool("NVFUSER_BUILD_WITH_UCC")
+    if "NVFUSER_BUILD_WITH_NIXL" in os.environ:
+        config.build_with_nixl = get_env_flag_bool("NVFUSER_BUILD_WITH_NIXL")
     if "NVFUSER_BUILD_WITH_ASAN" in os.environ:
         config.build_with_asan = get_env_flag_bool("NVFUSER_BUILD_WITH_ASAN")
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
@@ -442,7 +452,11 @@ def cmake(config, relative_path):
     logger_level = logger.getEffectiveLevel()
     logger.setLevel(logging.CRITICAL)
 
-    pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
+    cmake_prefix_path = get_pytorch_cmake_prefix()
+    llvm_dir = os.environ.get("LLVM_DIR")
+    if llvm_dir:
+        cmake_prefix_path += ";" + llvm_dir
+    pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + cmake_prefix_path
 
     logger.setLevel(logger_level)
 
@@ -469,6 +483,7 @@ def cmake(config, relative_path):
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         f"-DNVFUSER_BUILD_WITH_ASAN={on_or_off(config.build_with_asan)}",
         f"-DNVFUSER_STANDALONE_BUILD_WITH_UCC={on_or_off(config.build_with_ucc)}",
+        f"-DNVFUSER_STANDALONE_BUILD_WITH_NIXL={on_or_off(config.build_with_nixl)}",
         f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
         f"-DBUILD_TEST={on_or_off(not config.no_test)}",
         f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
@@ -480,6 +495,25 @@ def cmake(config, relative_path):
         "-B",
         cmake_build_dir,
     ]
+    cuda_home = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
+    if cuda_home:
+        cmd_str.append(f"-DCUDA_TOOLKIT_ROOT_DIR={cuda_home}")
+        nvcc_path = os.path.join(cuda_home, "bin", "nvcc")
+        if os.path.isfile(nvcc_path):
+            cmd_str.append(f"-DCMAKE_CUDA_COMPILER={nvcc_path}")
+    cudahostcxx = os.environ.get("CUDAHOSTCXX")
+    if cudahostcxx:
+        resolved = shutil.which(cudahostcxx) or cudahostcxx
+        cmd_str.append(f"-DCMAKE_CUDA_HOST_COMPILER={resolved}")
+        os.environ["CUDAHOSTCXX"] = resolved
+    cc = os.environ.get("CC")
+    if cc:
+        resolved = shutil.which(cc) or cc
+        cmd_str.append(f"-DCMAKE_C_COMPILER={resolved}")
+    cxx = os.environ.get("CXX")
+    if cxx:
+        resolved = shutil.which(cxx) or cxx
+        cmd_str.append(f"-DCMAKE_CXX_COMPILER={resolved}")
     if config.cutlass_max_jobs:
         cmd_str.append(f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}")
     if config.nvmmh_include_dir:
