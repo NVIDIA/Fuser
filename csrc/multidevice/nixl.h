@@ -11,7 +11,9 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+#include <cstring>
 
+#include "exceptions.h"
 #include "multidevice/communicator.h"
 #include "visibility.h"
 
@@ -31,6 +33,93 @@ enum class NixlXferStatus {
   kError,
 };
 
+// ------------------------------------------------------------------
+// Todo - those functions should be moved to a more global file
+// Helper functions for serializing and deserializing tensors descriptors for TCP store
+struct TensorDesc {
+  uintptr_t addr;
+  size_t size;
+  uint32_t dev;
+};
+static_assert(std::is_trivially_copyable_v<TensorDesc>,
+  "TensorDesc must be trivially copyable for serialization");
+
+inline TensorDesc toTensorDesc(const at::Tensor& tensor) {
+  return {
+    .addr = reinterpret_cast<uintptr_t>(tensor.data_ptr()),
+    .size = static_cast<size_t>(tensor.numel()) * tensor.element_size(),
+    .dev = static_cast<uint32_t>(tensor.device().index())
+  };
+}
+
+inline at::Tensor fromTensorDesc(const TensorDesc& desc) {
+  /*
+  Tensors must be valid on this device
+  */
+  return at::from_blob(
+    reinterpret_cast<void*>(desc.addr),
+    {static_cast<int64_t>(desc.size)},
+    at::TensorOptions().device(at::Device(at::kCUDA, desc.dev)).dtype(at::kByte)
+  );
+}
+
+inline std::vector<uint8_t> serializeTensorsDescs(
+    const std::vector<TensorDesc>& descs) {
+  size_t count = descs.size();
+  std::vector<uint8_t> buf(sizeof(count) + count * sizeof(TensorDesc));
+  std::memcpy(buf.data(), &count, sizeof(count));
+  if (count == 0)
+    return buf;
+  
+  std::memcpy(
+      buf.data() + sizeof(count),
+      descs.data(),
+      descs.size() * sizeof(TensorDesc));
+  return buf;
+}
+
+inline std::vector<TensorDesc> deserializeTensorsDescs(
+    const std::vector<uint8_t>& buf) {
+  NVF_ERROR(buf.size() >= sizeof(size_t), "Invalid serialized descriptor data");
+  size_t count;
+  std::memcpy(&count, buf.data(), sizeof(count));
+  NVF_ERROR(
+      buf.size() == sizeof(count) + count * sizeof(TensorDesc),
+      "Corrupted serialized descriptor data");
+
+  std::vector<TensorDesc> descs(count);
+  if (count > 0) {
+    std::memcpy(
+        descs.data(),
+        buf.data() + sizeof(count),
+        count * sizeof(TensorDesc));
+  }
+  return descs;
+}
+
+inline void storeTensorDescs(Communicator& communicator, const std::string& key, const std::vector<TensorDesc>& descs) {
+  NVF_CHECK(communicator.is_available(), "Communicator is not available");
+  communicator.getTcpStore()->set(key, serializeTensorsDescs(descs));
+}
+
+inline void storeTensorDescs(Communicator& communicator, const std::string& key, const std::vector<at::Tensor>& tensors) {
+  std::vector<TensorDesc> descs;
+  descs.reserve(tensors.size());
+  for (const auto& tensor : tensors) {
+    descs.push_back(toTensorDesc(tensor));
+  }
+  storeTensorDescs(communicator, key, descs);
+}
+
+inline std::vector<TensorDesc> fetchTensorDescs(Communicator& communicator, const std::string& key) {
+  NVF_CHECK(communicator.is_available(), "Communicator is not available");
+  auto bytes = communicator.getTcpStore()->get(key);
+  return deserializeTensorsDescs(bytes);
+}
+
+// End of Todo - those functions should be moved to a more global file
+// ------------------------------------------------------------------
+
 // -------------------------------------------------------------------
 // NixlTransferHandle: opaque handle for a prepared transfer
 // -------------------------------------------------------------------
@@ -49,7 +138,7 @@ class NVF_API NixlTransferHandle {
   NixlTransferHandle(const NixlTransferHandle&) = delete;
   NixlTransferHandle& operator=(const NixlTransferHandle&) = delete;
 
-  bool isValid() const;
+  [[nodiscard]] bool isValid() const;
 
  private:
   friend class NixlBackend;
@@ -84,7 +173,7 @@ class NixlBackend {
   // exit (same pattern as Communicator::cleanup).
   void cleanup();
 
-  bool isAvailable() const;
+  [[nodiscard]] bool isAvailable() const;
 
   // ------------------------------------------------------------------
   // Memory registration
@@ -114,9 +203,9 @@ class NixlBackend {
   // All tensors must be contiguous CUDA tensors and previously registered.
   // The returned handle can be posted multiple times (preparation is
   // amortized).
-  NixlTransferHandle prepareTransfer(
-      const std::vector<at::Tensor>& local_tensors,
-      const std::vector<at::Tensor>& remote_tensors,
+  [[nodiscard]] NixlTransferHandle prepareTransfer(
+      const std::vector<TensorDesc>& local_descs,
+      const std::vector<TensorDesc>& remote_descs,
       int64_t remote_rank,
       NixlXferOp op);
 
@@ -124,16 +213,20 @@ class NixlBackend {
   void postTransfer(NixlTransferHandle& handle);
 
   // Poll the status of a posted transfer without blocking.
-  NixlXferStatus getTransferStatus(const NixlTransferHandle& handle) const;
+  [[nodiscard]] NixlXferStatus getTransferStatus(const NixlTransferHandle& handle) const;
 
   // Block until the transfer completes (or errors out).
   void waitTransfer(NixlTransferHandle& handle);
 
  private:
   NixlBackend();
+  bool cleaned_up_ = false;
 
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
+
+
+
 
 } // namespace nvfuser
