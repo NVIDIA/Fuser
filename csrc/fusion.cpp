@@ -111,10 +111,9 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   // will only swap the ptrs NOT the contents.
   IrContainer::swap(*(a.ir_container()), *(b.ir_container()));
 
-  // Fix parent pointers after swapping containers
-  // After swap, each Fusion owns a different IrContainer, so we must
-  // update the parent backpointers in those containers to point to their new
-  // owners
+  // After swapping container contents, update Statement::ir_container_
+  // pointers so each Statement points to the Fusion whose container now
+  // holds it.
   if (a.ir_container_) {
     for (auto val : a.vals()) {
       val->ir_container_ = &a;
