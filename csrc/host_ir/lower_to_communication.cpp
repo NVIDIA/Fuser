@@ -438,19 +438,12 @@ std::ostream& operator<<(std::ostream& os, const CommunicationInfo& info) {
   return os;
 }
 
-CommunicationInfo getCommunicationInfo(Expr* e) {
-  NVF_ERROR(
-      isResharding(e),
-      "getCommunicationInfo should only be called when `e` is known to be a "
-      "communication. So `e` should be resharding. Given: ",
-      e);
-
+std::optional<CommunicationInfo> getCommunicationInfo(Expr* e) {
   // `sum` leads to a SqueezeOp when the reduction dimension is size-1.
-  NVF_ERROR(
-      (e->isOneOf<LoadStoreOp, ReductionOp, SqueezeOp>()),
-      "getCommunicationInfo should only be called when `e` is known to be a "
-      "communication. Given: ",
-      e);
+  if (!e->isOneOf<LoadStoreOp, ReductionOp, SqueezeOp>()) {
+    return std::nullopt;
+  }
+
   NVF_ERROR_EQ(e->inputs().size(), 1, "Expected 1 input, but got ", e);
   auto* producer = e->inputs().at(0)->as<TensorView>();
   NVF_ERROR_EQ(e->outputs().size(), 1, "Expected 1 output, but got ", e);
@@ -475,11 +468,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
     communication_info = *info_per_pt;
   }
 
-  NVF_ERROR(
-      communication_info.has_value(),
-      "Expected at least one sharding change in `e`: ",
-      e);
-  return *communication_info;
+  return communication_info;
 }
 
 namespace {
@@ -542,7 +531,9 @@ Layout getCommunicationLayout(
 }
 
 bool isCommunicationLayoutCompliant(Expr* e) {
-  CommunicationInfo communication_info = getCommunicationInfo(e);
+  std::optional<CommunicationInfo> communication_info = getCommunicationInfo(e);
+  NVF_ERROR(
+      communication_info.has_value(), "Expected `e` to be resharding: ", e);
 
   auto* producer = e->inputs().at(0)->as<TensorView>();
   std::optional<Layout> p_layout = canonicalizeLayout(producer);
@@ -550,8 +541,8 @@ bool isCommunicationLayoutCompliant(Expr* e) {
           valueOrError(p_layout),
           getCommunicationLayout(
               producer,
-              communication_info.type,
-              communication_info.p_sharded_id))) {
+              communication_info->type,
+              communication_info->p_sharded_id))) {
     return false;
   }
 
@@ -561,8 +552,8 @@ bool isCommunicationLayoutCompliant(Expr* e) {
           valueOrError(c_layout),
           getCommunicationLayout(
               consumer,
-              communication_info.type,
-              communication_info.c_sharded_id))) {
+              communication_info->type,
+              communication_info->c_sharded_id))) {
     return false;
   }
 
@@ -596,7 +587,11 @@ std::vector<Expr*> convertSingleOpToCommunication(
       "Resharding on an inner axis is not lowerable ",
       e);
 
-  CommunicationInfo communication_info = getCommunicationInfo(e);
+  std::optional<CommunicationInfo> communication_info = getCommunicationInfo(e);
+  NVF_ERROR(
+      communication_info.has_value(),
+      "Expected communication info for resharding expr: ",
+      e);
 
   auto op_type = [](Expr* e) -> BinaryOpType {
     if (auto* reduce = dynamic_cast<ReductionOp*>(e)) {
@@ -611,7 +606,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
     NVF_THROW("Expected a ReductionOp or a SqueezeOp, but got: ", e);
   };
 
-  switch (communication_info.type) {
+  switch (communication_info->type) {
     case CommunicationType::Scatter:
       lowerToScatter(input_tv, output_tv, backend, comms);
       break;
