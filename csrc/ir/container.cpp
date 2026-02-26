@@ -75,6 +75,10 @@ IrContainer::~IrContainer() {
   clear();
 }
 
+// Note: clear() does not acquire mutex_. It is only called from the
+// destructor and Fusion::copy(), both of which guarantee exclusive access.
+// This assumption must be revisited in Phase 3 when containers may be shared
+// across threads.
 void IrContainer::clear() noexcept {
   FUSER_PERF_SCOPE("IrContainer clear");
   vals_.clear();
