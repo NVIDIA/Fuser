@@ -18,8 +18,8 @@ sudo apt-get -y install clang-19 clang-tidy-19 clang-format-19 gcc-14 nlohmann-j
 # llvm provides llvm-config, which downstream scripts use to locate binaries.
 sudo apt-get -y install llvm-19
 
-# llvm-dev are for host IR compilation, which uses LLVM JIT.
-sudo apt-get -y install llvm-19-dev
+# llvm-dev and libzstd-dev are for host IR compilation, which uses LLVM JIT.
+sudo apt-get -y install llvm-19-dev libzstd-dev
 
 # Should we use llvm-config to locate clang?
 #
