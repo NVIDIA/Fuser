@@ -19,7 +19,6 @@
 #include <device_lower/lower2device.h>
 #include <expr_simplifier.h>
 #include <id_model/utils.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
@@ -324,7 +323,7 @@ bool isScalarOp(const Expr* expr) {
 }
 
 bool isIterDomainOp(const Expr* expr) {
-  return expr->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
+  return expr->isOneOf<Split, Merge, Swizzle, Resize>();
 }
 
 std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
@@ -708,23 +707,6 @@ std::vector<Expr*> replaceInputsInExpr(
   return ReplaceExprInput::replace(exprs, replacement_map);
 }
 
-std::vector<Expr*> getAllSwizzlesBetween(
-    std::vector<IterDomain*> from,
-    std::vector<IterDomain*> to) {
-  auto all_expr = DependencyCheck::getAllExprsBetween(
-      {from.begin(), from.end()}, {to.begin(), to.end()});
-
-  std::vector<Expr*> all_swizzles;
-
-  std::copy_if(
-      all_expr.begin(),
-      all_expr.end(),
-      std::back_inserter(all_swizzles),
-      [](Expr* expr) { return expr->isA<Swizzle2D>(); });
-
-  return all_swizzles;
-}
-
 bool isTMAOrMMASmemTv(TensorView* tv) {
   return tv->getMemoryType() == MemoryType::Shared &&
       (ir_utils::isCpAsyncBulkLoad(tv->definition()) ||
@@ -804,6 +786,8 @@ bool containsCircularBufferStage(
 
 namespace lower_utils {
 
+// Returns the number of batchable non-circular TMA loads. The batched path is
+// only enabled by callers when the returned count is > 1.
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
   if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>() ||
       expr->isA<kir::BlockSerializeWait>() ||

@@ -77,3 +77,7 @@ compile_commands.json
 # Skip cursor editor initial prompt
 .cursorrules
 .cursor
+
+# nvFuser environment configuration tool temporary files
+nvfuser_env.sh
+.nvfuser-apply.*.sh

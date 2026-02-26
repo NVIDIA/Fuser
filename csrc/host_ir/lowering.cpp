@@ -18,6 +18,7 @@
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
 #include "ops/utils.h"
+#include "runtime/executor.h"
 #include "runtime/executor_abstract.h"
 #include "transform_replay.h"
 
@@ -47,7 +48,7 @@ std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info) {
 
 class LoopNest {
  public:
-  LoopNest(Scope& top_level) : top_level_(top_level) {}
+  LoopNest(Scope* top_level) : top_level_(top_level) {}
 
   int64_t size() const {
     return std::ssize(loop_infos_);
@@ -70,7 +71,7 @@ class LoopNest {
   // Returns the scope of the innermost for-loop or the top-level scope if the
   // loop nest is empty.
   Scope& innermostScope() const {
-    return empty() ? top_level_ : innermost().loop->body();
+    return empty() ? *top_level_ : innermost().loop->body();
   }
 
   hir::ForLoop* openLoop(IterDomain* id) {
@@ -85,13 +86,13 @@ class LoopNest {
 
  private:
   std::vector<LoopInfo> loop_infos_;
-  Scope& top_level_;
+  Scope* top_level_;
 };
 
 std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
-  os << "LoopNest:" << std::endl;
+  os << "LoopNest:" << "\n";
   for (const auto& loop_info : loop_nest.loop_infos_) {
-    indent(os, 1) << loop_info << std::endl;
+    indent(os, 1) << loop_info << "\n";
   }
   return os;
 }
@@ -101,14 +102,14 @@ std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
 const std::vector<IterDomain*>& findMostParallelLoopDomain(
     const SegmentedGroup& group) {
   TensorView* reference = nullptr;
-  int max_parallel_count = -1;
+  int64_t max_parallel_count = -1;
   for (Expr* expr : group.exprs()) {
     TensorView* tv = findMostParallelTensorView(
         ir_utils::filterByType<TensorView>(expr->outputs()));
     if (tv == nullptr) {
       continue;
     }
-    auto parallel_count = numParallelIterDomains(tv);
+    int64_t parallel_count = numParallelIterDomains(tv);
     if (parallel_count > max_parallel_count) {
       max_parallel_count = parallel_count;
       reference = tv;
@@ -408,7 +409,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     hic->addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
   }
 
-  LoopNest loop_nest(hic->topLevel());
+  LoopNest loop_nest(&hic->topLevel());
 
   IdModel id_model(segmented_fusion.completeFusion(), /*build_graphs=*/false);
   id_model.buildExactGraph();
@@ -444,7 +445,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
         loop_nest,
         ir_cloner);
 
-    prev_ref_loop = std::move(curr_ref_loop);
+    prev_ref_loop = curr_ref_loop;
   }
 
   return hic;

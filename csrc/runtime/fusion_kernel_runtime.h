@@ -7,18 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <c10/util/ArrayRef.h>
-
-#include <fusion_segmenter.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/jit.h>
-#include <polymorphic_value.h>
-#include <runtime/executor.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/fusion_cache_utils.h>
-
 #include <mutex>
 #include <vector>
+
+#include <c10/util/ArrayRef.h>
+
+#include "fusion_segmenter.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/jit.h"
+#include "polymorphic_value.h"
+#include "runtime/executor.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/fusion_cache_utils.h"
 
 namespace nvfuser {
 
@@ -172,6 +172,16 @@ class FusionKernelRuntime {
 
   //! Access the list of schedulers maintained in this runtime instance
   const std::vector<std::unique_ptr<HeuristicParams>>& schedulers() const;
+
+  //! Infer the output shape and stride of the fusion as tensors on Meta device
+  //! If the group is scheduled to be evaluated using ExprEval, the output
+  //! tensors are inferred using the ExprEval on meta device. Otherwise, the
+  //! output tensors are inferred assuming they are contiguous.
+  KernelArgumentHolder inferOutputMetaTensor(
+      HeuristicParamsList* heuristics,
+      SegmentedGroup* group_to_run,
+      const KernelArgumentHolder& group_runtime_inputs,
+      PrecomputedValues* evaluator_precomputed_values = nullptr) const;
 
   // Create KernelArgumentHolders for all of the segments. Sorted in
   // the run order.

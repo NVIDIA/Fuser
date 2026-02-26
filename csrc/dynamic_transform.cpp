@@ -10,6 +10,7 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/alias.h>
@@ -20,7 +21,7 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <transform_view.h>
-#include <utils.h>
+#include "base.h"
 
 #include <optional>
 

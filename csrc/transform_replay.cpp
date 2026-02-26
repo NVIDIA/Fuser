@@ -14,7 +14,6 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/arith.h>
@@ -122,8 +121,29 @@ class ReplaySelf : public ReplayTransformations {
     NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
   }
 
-  void handle(Swizzle2D* swizzle) override {
-    NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
+  void handle(Swizzle1D* swizzle1d) override {
+    auto id_in = swizzle1d->in();
+    auto it = id_map_.find(id_in);
+    if (it == id_map_.end()) {
+      if (!error_on_failure_) {
+        return;
+      }
+      NVF_THROW("Transform traversal failed, dependencies not met.");
+    }
+    auto mapped = it->second;
+
+    NVF_ERROR(
+        loop_ids_.find(mapped) != loop_ids_.end(),
+        "Transform traversal failed, modified a node but it was not a loop "
+        "node.");
+
+    auto replayed_id = IterDomain::swizzle1d(mapped, swizzle1d->parallelType());
+
+    loop_ids_.erase(mapped);
+
+    loop_ids_[replayed_id] = newCounter();
+
+    id_map_[swizzle1d->out()] = replayed_id;
   }
 
   void handle(Resize* resize) override {
@@ -445,9 +465,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
       consumer,
       consumer_pos,
       logical_map,
-      opt.skip_target_swizzle,
-      !opt.replay_swizzle,
-      !opt.replay_resize);
+      /*skip_resize=*/!opt.replay_resize);
 
   // Make a new map based on all the loop ids resulting from best effort replay
   IterDomainMap forwarded_replay_map;
@@ -684,9 +702,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       producer,
       producer_pos,
       logical_map,
-      opt.skip_target_swizzle,
-      !opt.replay_swizzle,
-      !opt.replay_resize);
+      /*skip_resize=*/!opt.replay_resize);
 
   // Track dangling loop ids which can be produced in
   // BestEffortReplay::replayCasP these don't have any equivalent in producer
@@ -999,7 +1015,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
 
   auto disjoint_sets =
       BestEffortReplay::replayPasC(
-          producer, consumer, -1, pairwise_map, true, true, skip_resize)
+          producer, consumer, -1, pairwise_map, /*skip_resize=*/skip_resize)
           .getIterDomainEquivalence();
 
   int64_t mismatched_consumer_pos = 0;
@@ -1075,7 +1091,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
 
   auto disjoint_sets =
       BestEffortReplay::replayPasC(
-          producer, consumer, -1, pairwise_map, true, true, skip_resize)
+          producer, consumer, -1, pairwise_map, /*skip_resize=*/skip_resize)
           .getIterDomainEquivalence();
 
   int64_t mismatched_producer_pos = 0;

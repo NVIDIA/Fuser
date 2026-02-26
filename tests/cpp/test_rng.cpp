@@ -11,7 +11,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
 #include "ops/all_ops.h"
@@ -19,7 +19,7 @@
 #include "scheduler/all_schedulers.h"
 #include "tests/cpp/rng_helper.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -66,11 +66,7 @@ at::Tensor generate_normal(int64_t size, at::ScalarType dtype) {
   return generate_random_numbers(size, dtype, RNGTest_t::Normal);
 }
 
-class RNGTest : public NVFuserTest {
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using RNGTest = NVFuserTest;
 
 TEST_F(RNGTest, ValidateWithCURand) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -272,42 +268,6 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
     NVF_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>())
     NVF_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>())
   }
-}
-
-TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
-  // https://github.com/csarofeen/pytorch/issues/1926
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  TensorView* tv0 = makeConcreteTensor({5, 1});
-  TensorView* tv1 = makeConcreteTensor({5, 5});
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  auto tv2 = rand_like(tv0);
-  auto tv3 = add(tv1, tv2);
-  auto tv4 = add(tv0, tv3);
-  fusion->addOutput(tv4);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::zeros({5, 1}, options);
-  at::Tensor t1 = at::zeros({5, 5}, options);
-
-  TransposeParams tparams;
-  tparams.tile_size1 = 8;
-  tparams.tile_size2 = 4;
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Transpose)
-      ->schedule(fusion, &tparams);
-
-  KernelExecutor ke;
-  ke.compile(fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
-  auto out = cg_outputs[0].as<at::Tensor>();
-
-  NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>());
-  NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>());
-  NVF_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>());
-  NVF_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>());
 }
 
 TEST_F(RNGTest, Uniform) {

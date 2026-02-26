@@ -6,8 +6,9 @@
  */
 // clang-format on
 
-#include <id_model/id_model_index_compute.h>
-#include <swizzle.h>
+#include "id_model/id_model_index_compute.h"
+
+#include "swizzle.h"
 
 namespace nvfuser {
 

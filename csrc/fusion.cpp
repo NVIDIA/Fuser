@@ -8,6 +8,7 @@
 #include <fusion.h>
 
 #include <iterator>
+#include <ostream>
 #include <ranges>
 
 #include <codegen.h>
@@ -101,17 +102,42 @@ bool Fusion::sameDefinition(const Fusion& other) const {
   return true;
 }
 
-void swap(Fusion& a, Fusion& b) noexcept {
+void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
-  using std::swap;
+  // We need to be careful to call IrContainer swap not unique_ptr swap, which
+  // will only swap the ptrs NOT the contents.
+  IrContainer::swap(*(a.ir_container()), *(b.ir_container()));
 
-  swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
+  // Fix parent pointers after swapping containers
+  // After swap, each Fusion owns a different IrContainer, so we must
+  // update the parent backpointers in those containers to point to their new
+  // owners
+  if (a.ir_container_) {
+    // Also update all Statement ir_container_ pointers to point to new owner
+    a.ir_container()->parent_ = &a;
+    for (auto val : a.vals()) {
+      val->ir_container_ = &a;
+    }
+    for (auto expr : a.deterministic_exprs()) {
+      expr->ir_container_ = &a;
+    }
+  }
+  if (b.ir_container_) {
+    // Also update all Statement ir_container_ pointers to point to new owner
+    b.ir_container()->parent_ = &b;
+    for (auto val : b.vals()) {
+      val->ir_container_ = &b;
+    }
+    for (auto expr : b.deterministic_exprs()) {
+      expr->ir_container_ = &b;
+    }
+  }
 
-  swap(a.inputs_, b.inputs_);
-  swap(a.outputs_, b.outputs_);
+  std::swap(a.inputs_, b.inputs_);
+  std::swap(a.outputs_, b.outputs_);
 
-  swap(a.io_alias_, b.io_alias_);
+  std::swap(a.io_alias_, b.io_alias_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -122,9 +148,10 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
-  auto ir_cloner = IrContainer::copy(from, to);
 
-  for (auto val : from->vals_) {
+  auto ir_cloner = IrContainer::copy(from->ir_container(), to->ir_container());
+
+  for (auto val : from->vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
@@ -183,16 +210,19 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   return ir_cloner;
 }
 
-// Clang tidy complains when using default constructor for IrContainer instead
-// of copy constructor. Fusion::copy has a call to IrContainer::copy, so it's
-// redundant to use the IrContainer copy constructor, but it is harmless since
-// Fusion::copy starts by calling clear().
-Fusion::Fusion(const Fusion& other) : IrContainer(other) {
+// Default constructor
+Fusion::Fusion() : ir_container_(std::make_unique<IrContainer>()) {
+  ir_container_->parent_ = this;
+}
+
+// Copy constructor
+Fusion::Fusion(const Fusion& other) : Fusion() {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
 
-Fusion::Fusion(Fusion&& other) noexcept {
+// Move constructor
+Fusion::Fusion(Fusion&& other) noexcept : Fusion() {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
 }
@@ -222,7 +252,10 @@ void Fusion::clear() noexcept {
   // constructor of Trace, which could throw an exception.
   // FUSER_PERF_SCOPE("Fusion clear");
 
-  IrContainer::clear();
+  // Clear container contents instead of destroying it
+  // This preserves the container object so Statement pointers don't become
+  // dangling
+  ir_container()->clear();
 
   inputs_.clear();
   outputs_.clear();
@@ -259,7 +292,7 @@ void Fusion::removeExpr(Expr* expr) {
     }
   }
 
-  IrContainer::removeExpr(expr);
+  ir_container()->removeExpr(expr);
 }
 
 void Fusion::removeVal(Val* val) {
@@ -284,8 +317,13 @@ void Fusion::removeVal(Val* val) {
   // value in its inputs(). In https://github.com/NVIDIA/Fuser/issues/1270 this
   // caused a segfault when the fusion was cloned since that will clone not only
   // live objects but also these dangerous dangling dead ones.
+  //
+  // IMPORTANT: We must use unordered_exprs() instead of exprs() here.
+  // exprs() only returns Exprs reachable from terminating outputs, which means
+  // dead Exprs that still reference the Val won't be found and removed.
+  // This causes use-after-free when copying the Fusion later.
   std::vector<Expr*> exprs_to_remove;
-  for (Expr* e : exprs_) {
+  for (Expr* e : unordered_exprs()) {
     if (!inContainer(e)) {
       continue;
     }
@@ -298,7 +336,7 @@ void Fusion::removeVal(Val* val) {
   for (auto e : exprs_to_remove) {
     removeExpr(e);
   }
-  IrContainer::removeVal(val);
+  ir_container()->removeVal(val);
 
   invalidateTvsAndUses();
 }
@@ -662,7 +700,7 @@ void Fusion::registerVal(Val* val) {
         val->fusion() == this, val, " was not found in the active fusion.");
   }
 
-  IrContainer::registerVal(val);
+  ir_container()->registerVal(val);
 }
 
 void Fusion::registerExpr(Expr* expr) {
@@ -675,7 +713,7 @@ void Fusion::registerExpr(Expr* expr) {
         expr->fusion() == this, expr, " was not found in the active fusion.");
   }
 
-  IrContainer::registerExpr(expr);
+  ir_container()->registerExpr(expr);
 
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");
@@ -718,7 +756,7 @@ void Fusion::resetTvUses() {
   // getExprs only uses definition, so even if we've modified uses already to
   // remove dead exprs, this could reinsert them. getExprs is also boundeds by
   // inputs as registered inputs will return nullptr as their definition.
-  const auto all_tvs = ir_utils::filterByType<TensorView>(vals_);
+  const auto all_tvs = ir_utils::filterByType<TensorView>(vals());
   const auto used_exprs = StmtSort::getExprs(this);
 
   for (auto tv : all_tvs) {
@@ -1015,6 +1053,19 @@ void Fusion::resetExactMappings() {
   if (hasRegisteredExactMappings()) {
     stopManaging(exact_mappings_key);
   }
+}
+
+std::ostream& operator<<(std::ostream& os, const Fusion& f) {
+  IrPrinter p(os);
+  p.handle(&f);
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Fusion* f) {
+  if (f == nullptr) {
+    return os << "<null>";
+  }
+  return os << *f;
 }
 
 } // namespace nvfuser

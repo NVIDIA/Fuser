@@ -5,23 +5,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/analysis/circular_buffer.h>
-#include <instrumentation.h>
-#include <multidevice/utils.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/matmul.h>
-#include <scheduler/matmul_ampere-.h>
-#include <scheduler/matmul_hopper+.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
+#include "scheduler/matmul.h"
 
-// NOTE: included to avoid compilation error caused by missing destructor in
-// 'SchedulerRuntimeInfo'
-#include <runtime/executor_utils.h>
+#include "device_lower/analysis/circular_buffer.h"
+#include "instrumentation.h"
 #include "mma_type.h"
+#include "multidevice/utils.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/matmul_hopper+.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 
@@ -78,7 +75,9 @@ void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       params);
   auto macro = mparams->mma_macro;
   if (isTuring(macro) || isAmpere(macro)) {
-    schedule_matmul::AmpereMinus(fusion, mparams).run();
+    NVF_THROW(
+        "Support for Turing and Ampere was dropped. Scheduling functionality "
+        "should still be largely available except for swizzling");
   } else if (isHopper(macro)) {
     schedule_matmul::Hopper(fusion, mparams).run();
   } else if (isBlackwell(macro)) {

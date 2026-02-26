@@ -178,6 +178,8 @@ int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
       id = merge->outer();
+    } else if (auto* swizzle = dynamic_cast<Swizzle1D*>(def)) {
+      id = swizzle->in();
     } else {
       NVF_THROW(
           "Unexpected transforms from logical to a DID-parallel allocation "
@@ -216,21 +218,6 @@ IterDomain* getShardedIterDomain(
     }
   }
   return nullptr;
-}
-
-std::unordered_set<IterDomain*> getInputsInTargetDomain(
-    const std::vector<IterDomain*>& loop_id,
-    const std::vector<IterDomain*>& target_domain) {
-  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-      {loop_id.begin(), loop_id.end()},
-      {target_domain.begin(), target_domain.end()});
-
-  std::unordered_set<IterDomain*> inputs_as_iter_domains;
-  inputs_as_iter_domains.reserve(inputs_as_vals.size());
-  for (auto val : inputs_as_vals) {
-    inputs_as_iter_domains.insert(val->as<IterDomain>());
-  }
-  return inputs_as_iter_domains;
 }
 
 namespace {
@@ -351,6 +338,12 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   }
 
   return rfactor_did_idx;
+}
+
+int64_t getRelativeIndex(const Team& team, DeviceIdxType rank) {
+  auto i = std::find(team.begin(), team.end(), rank);
+  NVF_ERROR(i != team.end(), "Unable to find rank ", rank, " in team ", team);
+  return std::distance(team.begin(), i);
 }
 
 } // namespace nvfuser

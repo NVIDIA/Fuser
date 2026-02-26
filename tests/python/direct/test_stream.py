@@ -37,7 +37,11 @@ def test_matmul():
     ref = torch.matmul(inp, w)
 
     with torch.profiler.profile(record_shapes=True) as profile:
-        (out,) = fd.execute([inp, w], _enable_options=["host_ir_lowering"])
+        (out,) = fd.execute(
+            [inp, w],
+            _enable_options=["host_ir_lowering"],
+            _disable_options=["infer_contiguity"],
+        )
     torch.testing.assert_close(out, ref)
 
     matmul_events = [event for event in profile.events() if event.name == "aten::mm"]
@@ -87,7 +91,11 @@ def test_two_matmuls_inlinable():
     ref = torch.matmul(torch.matmul(inp, w1), w2)
 
     with torch.profiler.profile(record_shapes=True) as profile:
-        (out,) = fd.execute([inp, w1, w2], _enable_options=["host_ir_lowering"])
+        (out,) = fd.execute(
+            [inp, w1, w2],
+            _enable_options=["host_ir_lowering"],
+            _disable_options=["infer_contiguity"],
+        )
     torch.testing.assert_close(out, ref)
 
     matmul_events = [event for event in profile.events() if event.name == "aten::mm"]

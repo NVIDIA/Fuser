@@ -19,7 +19,7 @@
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "grouped_reduction.h"
 #include "ir/utils.h"
 #include "ops/all_ops.h"
@@ -45,7 +45,6 @@ class CombinedSchedulerTest
  protected:
   void SetUp() override {
     NVFuserFixtureParamTest<CombinedSchedulerParams>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -1820,6 +1819,42 @@ TEST_F(CombinedSchedulerTest, IllegalSizeToUseTMA) {
   auto heuristic_params =
       runtime->schedulerHeuristics()->heuristicsList().at(0).get();
   EXPECT_FALSE(heuristic_params->as<ReductionParams>()->tma_warp_specialized);
+  testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Can't use iteration grouped reduction with irregular iter size.
+// staticWarpAllReduceTIDX will be used instead of
+// iterGroupedStaticWarpAllReduce
+TEST_F(CombinedSchedulerTest, IrregularIterSize) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto dtype = DataType::BFloat16;
+  constexpr auto dim0 = 2049;
+  constexpr auto dim1 = 8192;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv2, tv4);
+  auto tv6 = sum(tv1, {0});
+  tv5 = maybeCastOp(dtype, tv5);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+  auto fusion_copy = *fusion;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  at::Tensor t1 = at::randn({dim0, dim1}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 } // namespace nvfuser

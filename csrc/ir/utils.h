@@ -7,16 +7,17 @@
 // clang-format on
 #pragma once
 
-#include <disjoint_set.h>
-#include <exceptions.h>
-#include <ir/all_nodes.h>
-#include <type.h>
-#include <visibility.h>
-
 #include <algorithm>
 #include <iterator>
 #include <unordered_map>
 #include <vector>
+
+#include "device_lower/utils.h"
+#include "disjoint_set.h"
+#include "exceptions.h"
+#include "ir/all_nodes.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser::MmaOpUtils {
 
@@ -582,7 +583,15 @@ bool isAlignedScopeExpr(const Expr* expr);
 //! Get the only producer of a tensor view. If there are multiple producers,
 //! then throw an error.
 inline TensorView* getSoleProducerTv(const TensorView* tv) {
-  auto producers = producerTvsOf(tv);
+  auto all_producers = producerTvsOf(tv);
+  // Filter out schedule operations used for programmatic dependent launch
+  // because they are not traditional producers
+  std::vector<TensorView*> producers;
+  std::copy_if(
+      all_producers.begin(),
+      all_producers.end(),
+      std::back_inserter(producers),
+      [](TensorView* tv) { return !ir_utils::isScheduleOp(tv); });
   NVF_ERROR(
       producers.size() == 1,
       "Expected only one producer of ",

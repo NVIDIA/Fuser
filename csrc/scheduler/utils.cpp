@@ -5,43 +5,60 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include "utils.h"
-#include <scheduler/utils.h>
+#include "scheduler/utils.h"
 
 #include <algorithm>
+#include <array>
 #include <queue>
 #include <ranges>
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <bfs.h>
-#include <contiguity.h>
-#include <cuda_utils.h>
-#include <expr_evaluator.h>
-#include <id_model/id_model.h>
-#include <id_model/schedule.h>
-#include <instrumentation.h>
-#include <ir/allocation_utils.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <multidevice/allocation_utils.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <scheduler/vectorize_helper.h>
-#include <transform_iter.h>
-#include <transform_replay.h>
-#include <type.h>
-#include <val_graph_visitor.h>
+#include "base.h"
+#include "bfs.h"
+#include "contiguity.h"
+#include "cuda_utils.h"
+#include "expr_evaluator.h"
+#include "id_model/id_model.h"
+#include "id_model/schedule.h"
+#include "instrumentation.h"
+#include "ir/allocation_utils.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "multidevice/allocation_utils.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/registry.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "scheduler/vectorize_helper.h"
+#include "transform_iter.h"
+#include "transform_replay.h"
+#include "type.h"
+#include "val_graph_visitor.h"
+
+namespace nvfuser {
+
+std::ostream& operator<<(std::ostream& os, PropagateDirection direction) {
+  switch (direction) {
+    case PropagateDirection::kForward:
+      os << "Forward";
+      break;
+    case PropagateDirection::kBackward:
+      os << "Backward";
+      break;
+  }
+  return os;
+}
+
+} // namespace nvfuser
 
 namespace nvfuser::scheduler_utils {
 
@@ -166,9 +183,8 @@ void splitDims(
     TensorView* tv,
     std::vector<std::pair<int64_t, int64_t>> to_split, // (dim, size)
     std::vector<int64_t>& to_update) {
-  std::stable_sort(
-      to_split.begin(),
-      to_split.end(),
+  std::ranges::stable_sort(
+      to_split,
       [](const std::pair<int64_t, int64_t>& p1,
          const std::pair<int64_t, int64_t>& p2) {
         return p1.first < p2.first;
@@ -377,10 +393,8 @@ class PersistentBufferResolution : public IterVisitor {
     }
 
     if (tv->hasReduction()) {
-      if (std::any_of(
-              resolution_points_.begin(),
-              resolution_points_.end(),
-              [&tv](TensorView* resolution_point) {
+      if (std::ranges::any_of(
+              resolution_points_, [&tv](TensorView* resolution_point) {
                 return DependencyCheck::isDependencyOf(resolution_point, tv);
               })) {
         // If already resolved, don't start a new reduction path.
@@ -395,28 +409,25 @@ class PersistentBufferResolution : public IterVisitor {
       return;
     }
 
-    bool output_is_reduction =
-        std::any_of(expr->outputs().begin(), expr->outputs().end(), [](Val* v) {
-          if (!v->isA<TensorView>()) {
-            return false;
-          }
-          return v->as<TensorView>()->hasReduction();
-        });
+    bool output_is_reduction = std::ranges::any_of(expr->outputs(), [](Val* v) {
+      if (!v->isA<TensorView>()) {
+        return false;
+      }
+      return v->as<TensorView>()->hasReduction();
+    });
 
     // Persistent buffers cannot be resolved on a reduction expression
     if (output_is_reduction) {
       return;
     }
 
-    bool input_on_reduction_path = std::any_of(
-        expr->inputs().begin(), expr->inputs().end(), [&](Val* inp) {
-          return on_reduction_path_.count(inp);
-        });
+    bool input_on_reduction_path = std::ranges::any_of(
+        expr->inputs(),
+        [&](Val* inp) { return on_reduction_path_.count(inp); });
 
-    auto input_on_persitent_buffer_path_it = std::find_if(
-        expr->inputs().begin(), expr->inputs().end(), [&](Val* inp) {
-          return on_persitent_buffer_path_.count(inp);
-        });
+    auto input_on_persitent_buffer_path_it = std::ranges::find_if(
+        expr->inputs(),
+        [&](Val* inp) { return on_persitent_buffer_path_.count(inp); });
 
     bool input_on_persistent_buffer_path =
         input_on_persitent_buffer_path_it != expr->inputs().end();
@@ -673,10 +684,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
     //  All inputs of the persistent buffer should be cacheable.
     auto all_inputs = ir_utils::inputTvsOf(persistent_buffer);
-    if (std::all_of(
-            all_inputs.begin(),
-            all_inputs.end(),
-            [&reduction_tvs, &id_model](TensorView* input) {
+    if (std::ranges::all_of(
+            all_inputs, [&reduction_tvs, &id_model](TensorView* input) {
               return normalization_scheduler_utils::isCacheableUnmappableTv(
                   input,
                   reduction_tvs,
@@ -911,10 +920,7 @@ getScopePersistenceFactors(
     auto inputs = ir_utils::inputTvsOf(projectable_persistent_buffer);
 
     for (auto input : inputs) {
-      auto input_it = std::find(
-          projectable_buffer_inputs.begin(),
-          projectable_buffer_inputs.end(),
-          input);
+      auto input_it = std::ranges::find(projectable_buffer_inputs, input);
       // If input wasn't recorded as a projectable buffer input, then it doesn't
       // have any persistent dims, so ignore it.
       if (input_it == projectable_buffer_inputs.end()) {
@@ -964,8 +970,8 @@ bool canProjectToPersistentProducer(
   if (buffer->hasReduction() || producers.empty()) {
     return false;
   }
-  if (std::all_of(producers.begin(), producers.end(), [&](auto producer) {
-        return persistent_buffer_set.count(producer) > 0;
+  if (std::ranges::all_of(producers, [&](auto producer) {
+        return persistent_buffer_set.count(producer);
       })) {
     return true;
   } else {
@@ -979,10 +985,9 @@ int64_t getPersistentBufferSizeBitOfTensor(
     const PersistentBufferInfo& persistent_buffer_info) {
   int64_t buffer_bits = -1;
   bool is_input =
-      std::find(
-          persistent_buffer_info.projectable_buffer_inputs.begin(),
-          persistent_buffer_info.projectable_buffer_inputs.end(),
-          buffer) != persistent_buffer_info.projectable_buffer_inputs.end();
+      std::ranges::find(
+          persistent_buffer_info.projectable_buffer_inputs, buffer) !=
+      persistent_buffer_info.projectable_buffer_inputs.end();
 
   for (auto id : buffer->getLogicalDomain()) {
     if (id->isReduction() || id->isBroadcast()) {
@@ -1014,11 +1019,16 @@ int64_t getPersistentBufferSizeBitOfTensor(
   // type before upcast.
   int64_t dtype_size_bit = 1;
   if (auto upcast_input = getUpCastInputOf(buffer)) {
-    dtype_size_bit = dataTypeSizeBit(
-        upcast_input->getDataType().value(), runtime_info.getIndexType());
+    auto upcast_dtype = upcast_input->getDataType();
+    NVF_ERROR(
+        upcast_dtype.has_value(), "Expected upcast input to have a data type.");
+    dtype_size_bit =
+        dataTypeSizeBit(*upcast_dtype, runtime_info.getIndexType());
   } else {
-    dtype_size_bit = dataTypeSizeBit(
-        buffer->getDataType().value(), runtime_info.getIndexType());
+    auto buffer_dtype = buffer->getDataType();
+    NVF_ERROR(buffer_dtype.has_value(), "Expected buffer to have a data type.");
+    dtype_size_bit =
+        dataTypeSizeBit(*buffer_dtype, runtime_info.getIndexType());
   }
 
   buffer_bits = buffer_bits == -1 ? 0 : buffer_bits * dtype_size_bit;
@@ -1076,8 +1086,7 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
   for (auto buffer_i : arange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     // Not a projectable buffer, or an input of a projectable buffer
-    if (std::find(
-            projectable_buffers.begin(), projectable_buffers.end(), buffer) !=
+    if (std::ranges::find(projectable_buffers, buffer) !=
         projectable_buffers.end()) {
       projected_mask[buffer_i] = false;
     }
@@ -1214,9 +1223,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
   std::vector<TensorView*> reduction_tvs;
   for (auto tv : all_tvs) {
     if (!tv->isFusionInput() &&
-        std::any_of(
-            tv->getLoopDomain().begin(),
-            tv->getLoopDomain().end(),
+        std::ranges::any_of(
+            tv->getLoopDomain(),
             [](IterDomain* id) { return id->isReduction(); }) &&
         !isResharding(tv->definition())) {
       reduction_tvs.emplace_back(tv);
@@ -1225,21 +1233,18 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
 
   // Remove multi outputs from reduction tensor views
   std::unordered_set<Expr*> seen_reduction_exprs;
-  reduction_tvs.erase(
-      std::remove_if(
-          reduction_tvs.begin(),
-          reduction_tvs.end(),
-          [&seen_reduction_exprs](TensorView* tv) {
-            NVF_ERROR(
-                tv->definition() != nullptr,
-                "Somehow a tensor view without a definition but a reduction "
-                "snuck into the scheduler reduction list.");
-            if (!seen_reduction_exprs.emplace(tv->definition()).second) {
-              return true;
-            }
-            return false;
-          }),
-      reduction_tvs.end());
+  auto removed = std::ranges::remove_if(
+      reduction_tvs, [&seen_reduction_exprs](TensorView* tv) {
+        NVF_ERROR(
+            tv->definition() != nullptr,
+            "Somehow a tensor view without a definition but a reduction "
+            "snuck into the scheduler reduction list.");
+        if (!seen_reduction_exprs.emplace(tv->definition()).second) {
+          return true;
+        }
+        return false;
+      });
+  reduction_tvs.erase(removed.begin(), reduction_tvs.end());
   return reduction_tvs;
 }
 
@@ -1260,19 +1265,16 @@ std::vector<TensorView*> getViewTVs(Fusion* fusion) {
 std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
   std::vector<TensorView*> tvs_with_rfactor;
   auto fusion_vals = fusion->usedMathVals();
-  std::copy_if(
-      ir_utils::filterByType<TensorView>(fusion_vals).begin(),
-      ir_utils::filterByType<TensorView>(fusion_vals).end(),
-      std::back_inserter(tvs_with_rfactor),
-      [](TensorView* tv) {
-        return tv->hasRoot() &&
-            std::none_of(
-                   tv->getLogicalDomain().begin(),
-                   tv->getLogicalDomain().end(),
-                   [](auto id) {
-                     return id->isReduction() && id->isRFactorProduct();
-                   });
-      });
+  for (auto* tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
+    if (!tv->hasRoot()) {
+      continue;
+    }
+    if (std::ranges::none_of(tv->getLogicalDomain(), [](auto id) {
+          return id->isReduction() && id->isRFactorProduct();
+        })) {
+      tvs_with_rfactor.push_back(tv);
+    }
+  }
   return tvs_with_rfactor;
 }
 
@@ -1284,6 +1286,160 @@ void clearMemorySpace(Fusion* fusion) {
     } else {
       tv->setMemoryType(MemoryType::Local);
     }
+  }
+}
+
+namespace {
+
+// Find first TensorView fusion input based on topologically sorted expressions.
+TensorView* findFirstInput(Fusion* fusion, const std::vector<Expr*>& exprs) {
+  // short-circuit
+  if (fusion->inputs().size() == 1) {
+    Val* v = fusion->inputs().front();
+    return (v->isA<TensorView>()) ? v->as<TensorView>() : nullptr;
+  }
+
+  // Get TensorView fusion inputs
+  std::unordered_set<Val*> tv_inputs;
+  std::ranges::copy_if(
+      fusion->inputs(), std::inserter(tv_inputs, tv_inputs.end()), [](Val* v) {
+        return v->isA<TensorView>();
+      });
+
+  // Find first expression that contains any TensorView Fusion Inputs
+  for (Expr* e : exprs) {
+    auto iter = std::ranges::find_if(
+        e->inputs(), [&](Val* v) { return tv_inputs.count(v) > 0; });
+    if (iter == e->inputs().end()) {
+      continue;
+    }
+    return (*iter)->as<TensorView>();
+  }
+  return nullptr;
+}
+
+// Find last TensorView fusion output based on topologically sorted expressions.
+TensorView* findLastOutput(Fusion* fusion, const std::vector<Expr*>& exprs) {
+  // short-circuit
+  if (fusion->outputs().size() == 1) {
+    Val* v = fusion->outputs().front();
+    return (v->isA<TensorView>()) ? v->as<TensorView>() : nullptr;
+  }
+
+  // Get terminating TensorView fusion outputs
+  std::vector<Val*> terminating_outputs = fusion->getTerminatingOutputs();
+  std::unordered_set<Val*> tv_outputs;
+  std::ranges::copy_if(
+      terminating_outputs,
+      std::inserter(tv_outputs, tv_outputs.end()),
+      [](Val* v) { return v->isA<TensorView>(); });
+
+  // Find last expression that contains any terminating TensorView fusion output
+  for (Expr* e : exprs | std::views::reverse) {
+    auto iter = std::ranges::find_if(
+        e->outputs(), [&](Val* v) { return tv_outputs.count(v) > 0; });
+    if (iter == e->outputs().end()) {
+      continue;
+    }
+    return (*iter)->as<TensorView>();
+  }
+  return nullptr;
+}
+
+// Find first input and last output based on topologically sorted expressions.
+std::pair<TensorView*, TensorView*> findFirstInputAndLastOutput(
+    Fusion* fusion) {
+  // short-circuit: only one input and output
+  if (fusion->inputs().size() == 1 && fusion->outputs().size() == 1) {
+    Val* input = fusion->inputs().front();
+    TensorView* tv_input = nullptr;
+    if (input->isA<TensorView>()) {
+      tv_input = input->as<TensorView>();
+    }
+    Val* output = fusion->outputs().front();
+    TensorView* tv_output = nullptr;
+    if (output->isA<TensorView>()) {
+      tv_output = output->as<TensorView>();
+    }
+    return std::pair(tv_input, tv_output);
+  }
+  // exprs returns StmtSort::getExprs, which returns a topologically sorted list
+  // of expressions.
+  auto toposorted_exprs = fusion->exprs();
+  return std::make_pair(
+      findFirstInput(fusion, toposorted_exprs),
+      findLastOutput(fusion, toposorted_exprs));
+}
+
+// Place wait_for_prior_grid between original_input and cached_input in fusion.
+void addPdlGridWait(TensorView* original_input, TensorView* cached_input) {
+  // PDL is only supported for Hopper+ Devices.
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return;
+  }
+
+  if (original_input == nullptr) {
+    return;
+  }
+
+  if (cached_input == nullptr) {
+    return;
+  }
+
+  // Add grid wait before loading any inputs to cache memory.
+  TensorView* grid_wait = wait_for_prior_grid({original_input});
+  cached_input->addDependency(grid_wait);
+}
+
+// Place launch_dependent_grid between cached_output and original_output in
+// fusion.
+void addPdlGridLaunch(TensorView* original_output, TensorView* cached_output) {
+  // PDL is only supported for Hopper+ Devices.
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return;
+  }
+
+  if (original_output == nullptr) {
+    return;
+  }
+
+  if (cached_output == nullptr) {
+    return;
+  }
+
+  // Add grid launch before storing the cached outputs to global memory.
+  TensorView* grid_launch = launch_dependent_grid({cached_output});
+  original_output->addDependency(grid_launch);
+}
+
+} // namespace
+
+void applyPDL(
+    Fusion* fusion,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
+  // Get first fusion input and last fusion output based on toposort order.
+  auto&& [first_input, last_output] = findFirstInputAndLastOutput(fusion);
+
+  // Find the cached_input that corresponds with the first input.
+  auto input_iter = std::ranges::find_if(cached_inputs, [&](auto cache_input) {
+    return ir_utils::getSoleProducerTv(cache_input.first) == first_input;
+  });
+  if (input_iter != cached_inputs.end()) {
+    addPdlGridWait(first_input, (*input_iter).first);
+  }
+
+  // Find the cached_output that corresponds with the last output.
+  auto output_iter =
+      std::ranges::find_if(cached_outputs, [&](auto cache_output) {
+        auto consumers = ir_utils::consumerTvsOf(cache_output.first);
+        NVF_ERROR(
+            consumers.size() == 1,
+            "Expected cached_output to map to a single fusion output.");
+        return consumers.front() == last_output;
+      });
+  if (output_iter != cached_outputs.end()) {
+    addPdlGridLaunch(last_output, (*output_iter).first);
   }
 }
 
@@ -1662,10 +1818,7 @@ bool hasInnerDim(
 
   auto alloc_dom = tv->getMaybeAllocationDomain();
 
-  auto root_pos_it = std::find_if(
-      alloc_dom.begin(), alloc_dom.end(), [&inner_most_dim](IterDomain* id) {
-        return inner_most_dim == id;
-      });
+  auto root_pos_it = std::ranges::find(alloc_dom, inner_most_dim);
 
   if (root_pos_it == alloc_dom.end()) {
     return false;
@@ -1679,7 +1832,7 @@ bool hasInnerDim(
 
   // Don't vectorize if inner most dimension is not contiguous
   auto contiguity_opt = contiguity.at(inner_most_dim_pos);
-  NVF_ERROR(contiguity_opt.has_value())
+  NVF_ERROR(contiguity_opt.has_value());
   if (!*contiguity_opt) {
     return false;
   }
@@ -1785,17 +1938,13 @@ DisjointLogicalSetInfo getDisjointLogicalSetsOf(
   }
 
   NVF_ERROR(
-      std::none_of(
-          disjoint_group_ids.begin(),
-          disjoint_group_ids.end(),
-          [](int i) { return i == -1; }),
+      std::ranges::none_of(disjoint_group_ids, [](int i) { return i == -1; }),
       "Failed to generate the rfactor disjoint groups of the reference ",
       of->toString());
 
   NVF_ERROR(
-      std::none_of(
-          disjoint_set_of_id.begin(),
-          disjoint_set_of_id.end(),
+      std::ranges::none_of(
+          disjoint_set_of_id,
           [](const VectorOfUniqueEntries<IterDomain*>* ptr) {
             return ptr == nullptr;
           }),
@@ -1866,18 +2015,15 @@ BroadcastMultipleInformation getBroadcastMultiples(
         continue;
       }
 
-      bool ref_id_has_view_transforms = std::count(
-                                            ref_disjoint_set_ids.begin(),
-                                            ref_disjoint_set_ids.end(),
-                                            ref_disjoint_set_ids[ref_i]) > 1;
+      bool ref_id_has_view_transforms =
+          std::ranges::count(
+              ref_disjoint_set_ids, ref_disjoint_set_ids[ref_i]) > 1;
 
       // Could have multiple mappings if there's view transforms
       std::vector<IterDomain*> mapped_ids;
       if (!ref_id_has_view_transforms) {
-        auto mapped_it = std::find_if(
-            in_out_tv_domain.begin(),
-            in_out_tv_domain.end(),
-            [&ref_id, &ca_map](IterDomain* in_out_tv_id) {
+        auto mapped_it = std::ranges::find_if(
+            in_out_tv_domain, [&ref_id, &ca_map](IterDomain* in_out_tv_id) {
               return ca_map.areMapped(
                   in_out_tv_id, ref_id, IdMappingMode::EXACT);
             });
@@ -1897,9 +2043,8 @@ BroadcastMultipleInformation getBroadcastMultiples(
         continue;
       }
 
-      if (std::all_of(mapped_ids.begin(), mapped_ids.end(), [](IterDomain* id) {
-            return id->isBroadcast();
-          })) {
+      if (std::ranges::all_of(
+              mapped_ids, [](IterDomain* id) { return id->isBroadcast(); })) {
         continue;
       }
 
@@ -1916,8 +2061,10 @@ BroadcastMultipleInformation getBroadcastMultiples(
     {
       bool rhs = false;
       bool lhs = false;
-      auto dtype_size_bit =
-          dataTypeSizeBit(in_out_tv->getDataType().value(), index_type);
+      auto dtype_opt = in_out_tv->getDataType();
+      NVF_ERROR(
+          dtype_opt.has_value(), "Expected TensorView to have a data type.");
+      auto dtype_size_bit = dataTypeSizeBit(*dtype_opt, index_type);
       for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
@@ -2053,9 +2200,8 @@ std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
     std::unordered_set<TensorView*> fake_boundary_set;
 
     // Populate the set of fake boundary tvs.
-    std::copy_if(
-        boundary_tvs.begin(),
-        boundary_tvs.end(),
+    std::ranges::copy_if(
+        boundary_tvs,
         std::inserter(fake_boundary_set, fake_boundary_set.end()),
         [&propagate_path_set, direction](TensorView* tv) {
           return isFakeBoundaryTensorview(tv, propagate_path_set, direction);
@@ -2221,7 +2367,7 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
 namespace {
 
 void applySplitTransform(Split* split, std::vector<IterDomain*>& ids) {
-  auto find_it = std::find(ids.begin(), ids.end(), split->in());
+  auto find_it = std::ranges::find(ids, split->in());
   NVF_ERROR(
       find_it != ids.end(),
       "Split input ",
@@ -2234,8 +2380,8 @@ void applySplitTransform(Split* split, std::vector<IterDomain*>& ids) {
 }
 
 void applyMergeTransform(Merge* merge, std::vector<IterDomain*>& ids) {
-  auto find_it_0 = std::find(ids.begin(), ids.end(), merge->outer());
-  auto find_it_1 = std::find(ids.begin(), ids.end(), merge->inner());
+  auto find_it_0 = std::ranges::find(ids, merge->outer());
+  auto find_it_1 = std::ranges::find(ids, merge->inner());
   NVF_ERROR(
       find_it_0 != ids.end(),
       "Merge outer ",
@@ -2264,7 +2410,7 @@ void applyMergeTransform(Merge* merge, std::vector<IterDomain*>& ids) {
 }
 
 void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
-  auto find_it = std::find(ids.begin(), ids.end(), resize->in());
+  auto find_it = std::ranges::find(ids, resize->in());
   NVF_ERROR(
       find_it != ids.end(),
       "Resize input ",
@@ -2329,11 +2475,14 @@ std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
   if (alloc_domain == logical_domain) {
     return {};
   }
-  const std::vector<int64_t> permutation =
-      *ir_utils::computePermutation(logical_domain, alloc_domain);
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(logical_domain, alloc_domain);
+  if (!permutation.has_value()) {
+    return {};
+  }
   std::unordered_map<int64_t, int64_t> reorder_map;
-  reorder_map.reserve(permutation.size());
-  for (auto [new_pos, old_pos] : enumerate(permutation)) {
+  reorder_map.reserve(permutation->size());
+  for (auto [new_pos, old_pos] : enumerate(*permutation)) {
     reorder_map[old_pos] = new_pos;
   }
   return reorder_map;
@@ -2379,17 +2528,17 @@ void propagateReshapeTransforms(Fusion* fusion) {
       id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
 
   if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-    std::cout << "\n=== propagateReshapeTransforms Debug ===" << std::endl;
+    std::cout << "\n=== propagateReshapeTransforms Debug ===\n";
     std::cout << "PERMISSIVE_RESIZE graph disjoint sets: "
               << permissive_resize_graph.disjointValSets().disjointSets().size()
-              << std::endl;
+              << '\n';
     for (const ValGroup& disjoint_set :
          permissive_resize_graph.disjointValSets().disjointSets()) {
       std::cout << "  ValGroup: { ";
       for (auto val : *disjoint_set) {
         std::cout << val->toString() << "; ";
       }
-      std::cout << "}" << std::endl;
+      std::cout << "}\n";
     }
   }
 
@@ -2409,13 +2558,13 @@ void propagateReshapeTransforms(Fusion* fusion) {
 
   if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
     std::cout << "\ntransformed_disjoint_sets (contaminated): "
-              << transformed_disjoint_sets.size() << std::endl;
+              << transformed_disjoint_sets.size() << '\n';
     for (const auto& disjoint_set : transformed_disjoint_sets) {
       std::cout << "  transformed_disjoint_sets: { ";
       for (auto val : *disjoint_set) {
         std::cout << val->toString() << "; ";
       }
-      std::cout << "}" << std::endl;
+      std::cout << "}\n";
     }
   }
 
@@ -2425,11 +2574,12 @@ void propagateReshapeTransforms(Fusion* fusion) {
   std::unordered_set<IterDomain*> terminating_reshape_dims;
   for (const ValGroup& disjoint_set :
        permissive_resize_graph.disjointValSets().disjointSets()) {
-    if (std::none_of(disjoint_set->begin(), disjoint_set->end(), [](Val* val) {
-          auto id = val->as<IterDomain>();
-          return id->isRFactorProduct() && id->definition() &&
-              !id->definition()->isA<Resize>();
-        })) {
+    if (std::ranges::none_of(
+            disjoint_set->begin(), disjoint_set->end(), [](Val* val) {
+              auto id = val->as<IterDomain>();
+              return id->isRFactorProduct() && id->definition() &&
+                  !id->definition()->isA<Resize>();
+            })) {
       continue;
     }
     if (transformed_disjoint_sets.find(disjoint_set) !=
@@ -2444,11 +2594,11 @@ void propagateReshapeTransforms(Fusion* fusion) {
 
   if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
     std::cout << "\nterminating_reshape_dims: "
-              << terminating_reshape_dims.size() << std::endl;
+              << terminating_reshape_dims.size() << '\n';
     for (auto id : terminating_reshape_dims) {
-      std::cout << "  terminating_reshape_dim: " << id->toString() << std::endl;
+      std::cout << "  terminating_reshape_dim: " << id->toString() << '\n';
     }
-    std::cout << "=== End propagateReshapeTransforms Debug ===\n" << std::endl;
+    std::cout << "=== End propagateReshapeTransforms Debug ===\n";
   }
 
   // If iter domains are involved in any transformation from root domains to
@@ -2736,10 +2886,8 @@ void promoteProducerMemoryTypes(
         continue;
       }
 
-      auto consumer_exact_map_id_it = std::find_if(
-          consumer->getLoopDomain().begin(),
-          consumer->getLoopDomain().end(),
-          [&](IterDomain* consumer_loop_id) {
+      auto consumer_exact_map_id_it = std::ranges::find_if(
+          consumer->getLoopDomain(), [&](IterDomain* consumer_loop_id) {
             auto it = c2p_exact_map.find(consumer_loop_id);
             return it != c2p_exact_map.end() &&
                 it->second == producer_non_ca_id;
@@ -2826,8 +2974,10 @@ int64_t getReductionSmemWorkspaceBit(
   // (1) part-1, space for the reduction broadcast.
   int64_t dtype_size_bit = 1;
   for (auto tv : reduction_tvs) {
-    dtype_size_bit =
-        std::max(dtype_size_bit, dataTypeSizeBit(tv->getDataType().value()));
+    auto dtype_opt = tv->getDataType();
+    NVF_ERROR(
+        dtype_opt.has_value(), "Expected TensorView to have a data type.");
+    dtype_size_bit = std::max(dtype_size_bit, dataTypeSizeBit(*dtype_opt));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
@@ -2844,8 +2994,7 @@ int64_t getReductionSmemWorkspaceBit(
 
 bool isResharding(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
-  return std::any_of(
-      exprs.begin(), exprs.end(), [](Expr* e) { return isResharding(e); });
+  return std::ranges::any_of(exprs, [](Expr* e) { return isResharding(e); });
 }
 
 void moveNonConcretizedBroadcastInnermost(
@@ -2896,7 +3045,7 @@ void moveNonConcretizedBroadcastInnermost(
       // broadcast domains using the Exact graph and replace the use
       // of the Permissive graph.
       const auto& permissive_group = permissive_graph.toGroup(loop_id);
-      if (std::any_of(
+      if (std::ranges::any_of(
               permissive_group->begin(),
               permissive_group->end(),
               [](Val* id) -> bool {
@@ -2973,15 +3122,14 @@ std::vector<int64_t> reorderDomainLike(
         expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
 
     // Inserts the outputs at the innermost position
-    auto innermost_it =
-        std::find(ordered_domain.begin(), ordered_domain.end(), inputs.back());
+    auto innermost_it = std::ranges::find(ordered_domain, inputs.back());
     NVF_ERROR(innermost_it != ordered_domain.end());
     ordered_domain.insert(innermost_it, outputs.begin(), outputs.end());
 
     // Removes the inputs
     for (const auto& inp : inputs) {
       ordered_domain.erase(
-          std::remove(ordered_domain.begin(), ordered_domain.end(), inp),
+          std::ranges::remove(ordered_domain, inp).begin(),
           ordered_domain.end());
     }
   }
@@ -2992,8 +3140,7 @@ std::vector<int64_t> reorderDomainLike(
   int64_t new_id_pos = 0;
   for (const auto i : arange(domain_to_reorder.size())) {
     const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
-    auto it =
-        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    auto it = std::ranges::find(ordered_domain, loop_id_group);
     if (it == ordered_domain.end()) {
       permutation.at(i) = new_id_pos;
       ++new_id_pos;
@@ -3001,8 +3148,7 @@ std::vector<int64_t> reorderDomainLike(
   }
   for (const auto i : arange(domain_to_reorder.size())) {
     const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
-    auto it =
-        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    auto it = std::ranges::find(ordered_domain, loop_id_group);
     if (it != ordered_domain.end()) {
       int64_t new_pos =
           (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
@@ -3039,7 +3185,7 @@ namespace {
 // factors
 class ExpensiveOpInfo {
  public:
-  ExpensiveOpInfo() : n_tanh_(0), n_exp_(0), n_reciprocal_(0) {}
+  ExpensiveOpInfo() = default;
   void analyzeFusion(Fusion* fusion) {
     for (auto expr : fusion->exprs()) {
       if (auto unary = dynamic_cast<UnaryOp*>(expr)) {
@@ -3082,9 +3228,9 @@ class ExpensiveOpInfo {
 
  private:
   // Number of each expensive operation in the fusion
-  int n_tanh_;
-  int n_exp_;
-  int n_reciprocal_;
+  int n_tanh_ = 0;
+  int n_exp_ = 0;
+  int n_reciprocal_ = 0;
 
   // Empirical factors to consider the cost of each operation
   static constexpr int f_tanh_ = 4;
@@ -3105,7 +3251,7 @@ int64_t getRequiredBitsInFlight() {
   // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
   constexpr float empirical_gmem_latency = 9.5e-9;
   const auto dev_idx = at::cuda::current_device();
-  int gpu_mem_clock_khz;
+  int gpu_mem_clock_khz = 0;
   cudaDeviceGetAttribute(
       &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -3147,7 +3293,7 @@ bool isHighBandwidthFlopsRatio() {
   const auto dev_idx = at::cuda::current_device();
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // bandwidth
-  int gpu_mem_clock_khz;
+  int gpu_mem_clock_khz = 0;
   cudaDeviceGetAttribute(
       &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
@@ -3155,7 +3301,7 @@ bool isHighBandwidthFlopsRatio() {
   // fp32 cuda core flops
   const int cuda_core_per_sm = getCoresPerSM(dev_prop->major, dev_prop->minor);
   const int flops_per_cycle = 2;
-  int gpu_clock_khz;
+  int gpu_clock_khz = 0;
   cudaDeviceGetAttribute(&gpu_clock_khz, cudaDevAttrClockRate, dev_idx);
   float flops = (float)gpu_clock_khz * 1000.f *
       (float)dev_prop->multiProcessorCount * (float)cuda_core_per_sm *
@@ -3249,7 +3395,7 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
       NVF_ERROR(it != p2c.end());
       new_consumer_alloc.push_back(it->second);
     }
-    consumer->setAllocationDomain(new_consumer_alloc, /*contiguity=*/true);
+    consumer->setAllocationDomain(new_consumer_alloc, /*new_contiguity=*/true);
 
     tv = consumer;
   }
@@ -3257,10 +3403,9 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
 }
 
 bool isSymbolicTensor(const TensorView* tv) {
-  return std::any_of(
-      tv->getLogicalDomain().begin(),
-      tv->getLogicalDomain().end(),
-      [](IterDomain* id) { return !id->extent()->isConst(); });
+  return std::ranges::any_of(tv->getLogicalDomain(), [](IterDomain* id) {
+    return !id->extent()->isConst();
+  });
 }
 
 // This function requires the allocation domain to be a permutation of the
@@ -3271,8 +3416,7 @@ void buildAllocationDomainFromLoopIds(TensorView* tv) {
   const auto& logical = tv->getLogicalDomain();
   const auto& alloc = tv->getMaybeAllocationDomain();
   NVF_ERROR(
-      std::is_permutation(
-          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
+      std::ranges::is_permutation(logical, alloc),
       "buildAllocationDomainFromLoopIds expects the allocation domain to be a "
       "permutation of the logical domain");
   const auto& loop = tv->getLoopDomain();
@@ -3320,8 +3464,7 @@ void buildAllocationDomainFromLoopIds(TensorView* tv) {
       }
       // skip if the loop ID is not derived from the current allocation ID
       auto& sources = id_to_alloc_sources.at(loop_id);
-      if (std::find(sources.begin(), sources.end(), alloc_id) ==
-          sources.end()) {
+      if (std::ranges::find(sources, alloc_id) == sources.end()) {
         continue;
       }
       new_alloc_domain.push_back(loop_id);
@@ -3362,12 +3505,12 @@ int64_t getMaxClusterSize() {
 
   executor_utils::initializeCudaContext();
 
-  CUmodule module;
+  CUmodule module = nullptr;
   NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
-  CUfunction func;
+  CUfunction func = nullptr;
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
 
-  int max_smem_opt_in;
+  int max_smem_opt_in = 0;
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
       &max_smem_opt_in,
       CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
@@ -3382,7 +3525,7 @@ int64_t getMaxClusterSize() {
 
   // block size is set to 128, its value does not matter for the query as the
   // max shared memory size is used to ensure 1 CTA per SM.
-  size_t maxDynamicSmemSize;
+  size_t maxDynamicSmemSize = 0;
   NVFUSER_CUDA_SAFE_CALL(cuOccupancyAvailableDynamicSMemPerBlock(
       &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 128));
 
@@ -3397,7 +3540,7 @@ int64_t getMaxClusterSize() {
   config.sharedMemBytes = maxDynamicSmemSize;
   config.hStream = nullptr;
 
-  int max_cluster_size;
+  int max_cluster_size = 0;
   NVFUSER_CUDA_SAFE_CALL(
       cuOccupancyMaxPotentialClusterSize(&max_cluster_size, func, &config));
 
@@ -3426,12 +3569,12 @@ int64_t getMaxActiveClusters(const int64_t cluster_size) {
 
   executor_utils::initializeCudaContext();
 
-  CUmodule module;
+  CUmodule module = nullptr;
   NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
-  CUfunction func;
+  CUfunction func = nullptr;
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
 
-  int max_smem_opt_in;
+  int max_smem_opt_in = 0;
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
       &max_smem_opt_in,
       CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
@@ -3441,23 +3584,23 @@ int64_t getMaxActiveClusters(const int64_t cluster_size) {
   NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
       func, CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED, 1));
 
-  size_t maxDynamicSmemSize;
+  size_t maxDynamicSmemSize = 0;
   NVFUSER_CUDA_SAFE_CALL(cuOccupancyAvailableDynamicSMemPerBlock(
       &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 1));
 
-  int32_t max_active_blocks;
+  int32_t max_active_blocks = 0;
   NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
       &max_active_blocks, func, /*blockSize=*/1, maxDynamicSmemSize));
 
   CUlaunchConfig config{0};
-  CUlaunchAttribute attribute[1];
+  std::array<CUlaunchAttribute, 1> attribute{};
   attribute[0].id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
   attribute[0].value.clusterDim.x = (uint32_t)cluster_size;
   attribute[0].value.clusterDim.y = 1;
   attribute[0].value.clusterDim.z = 1;
 
   config.numAttrs = 1;
-  config.attrs = attribute;
+  config.attrs = attribute.data();
   config.blockDimX = 128;
   config.blockDimY = 1;
   config.blockDimZ = 1;
@@ -3468,7 +3611,7 @@ int64_t getMaxActiveClusters(const int64_t cluster_size) {
   config.gridDimY = (unsigned int)max_active_blocks;
   config.gridDimZ = 1;
 
-  int num_clusters;
+  int num_clusters = 0;
   NVFUSER_CUDA_SAFE_CALL(
       cuOccupancyMaxActiveClusters(&num_clusters, func, &config));
 
@@ -3507,7 +3650,7 @@ int64_t getTmaDomainInner(
   // Example: For float32 (32 bits): min_size = 256/32 = 8 elements
 
   // align_bits: TMA tile alignment requirement (2 * 16 bytes = 256 bits)
-  constexpr int64_t align_bits = 2 * 16 * 8; // 256 bits
+  constexpr int64_t align_bits = 2LL * 16 * 8; // 256 bits
 
   // min_size: Minimum elements required in tma_domain_inner to satisfy
   // constraints Ensures (min_size * min_dtype_bits) ≥ 256 bits for 2 aligned
@@ -3619,8 +3762,8 @@ int64_t countLeadingParallelDimensions(const TensorView* tv) {
   };
 
   int64_t i = 0;
-  for (; i < tv->nDims() && is_parallel(tv->axis(i)); i++)
-    ;
+  for (; i < tv->nDims() && is_parallel(tv->axis(i)); i++) {
+  }
   const int64_t num_parallel_dims = i;
 
   for (; i < tv->nDims(); i++) {

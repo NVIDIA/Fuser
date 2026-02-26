@@ -13,7 +13,7 @@
 
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "ops/arith.h"
 #include "scheduler/matmul.h"
 #include "scheduler/matmul_heuristic.h"

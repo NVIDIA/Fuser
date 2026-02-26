@@ -10,6 +10,7 @@
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
+#include "host_ir/ops.h"
 #include "host_ir/pass/stream_parallel_type.h"
 #include "ir/all_nodes.h"
 #include "multidevice/symmetric_tensor.h"
@@ -505,6 +506,68 @@ TEST_F(MultiDeviceHostIrTest, SymmetricContiguousView) {
 
   EXPECT_TRUE(at::allclose(local_output_tensor, ref_output))
       << "Output tensor does not match expected values";
+}
+
+TEST_F(MultiDeviceTest, SwizzleWithParallelType) {
+  const int64_t d = communicator_->size();
+  const int64_t my_rank = communicator_->deviceId();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  {
+    TensorView* in_tv = makeContigTensor(2);
+    TensorView* out_tv = set(in_tv);
+    hic->addInput(in_tv);
+    hic->addOutput(out_tv);
+
+    for (auto* tv : {in_tv, out_tv}) {
+      tv->setMemoryType(MemoryType::Global);
+      tv->setDeviceMesh(mesh);
+      tv->outer_split(1, d);
+      tv->axis(1)->parallelize(ParallelType::DIDx);
+      tv->setAllocationDomain(tv->getLoopDomain(), true);
+      tv->outer_split(0, d);
+      tv->swizzle1d(0, ParallelType::DIDx);
+      tv->axis(0)->parallelize(ParallelType::Stream);
+    }
+
+    auto* allocate_out = IrBuilder::create<kir::Allocate>(
+        out_tv, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
+    auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+    auto* for_loop = IrBuilder::create<ForLoop>(
+        stream_index,
+        /*start=*/hic->zeroVal(DataType::Index),
+        /*stop=*/IrBuilder::create<Val>(d - 1, DataType::Index));
+
+    TensorView* in_shard =
+        hir::shardByStream(in_tv, stream_index, out_tv->definition());
+    TensorView* out_shard =
+        hir::shardByStream(out_tv, stream_index, out_tv->definition());
+
+    auto* copy = IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, out_shard, in_shard);
+
+    for_loop->body().pushBack(in_shard->definition());
+    for_loop->body().pushBack(out_shard->definition());
+    for_loop->body().pushBack(copy);
+
+    hic->pushBackTopLevelExprs(allocate_out);
+    hic->pushBackTopLevelExprs(for_loop);
+  }
+
+  HostIrEvaluator hie(std::move(hic));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor unsharded_in = at::randn({d * 3, d * 5}, options);
+  at::Tensor sharded_in = shardTensor1D(unsharded_in, 1, mesh);
+
+  KernelArgumentHolder ins(sharded_in);
+  ins.setCacheId(0);
+  KernelArgumentHolder outs = hie.runWithInputs(ins);
+  at::Tensor out = outs[0].as<at::Tensor>();
+  at::Tensor expected_out = sharded_in;
+  expected_out.chunk(d, 0)[(my_rank + d - 1) % d].zero_();
+  EXPECT_TRUE(at::allclose(out, expected_out)) << out << " vs " << expected_out;
 }
 
 } // namespace hir

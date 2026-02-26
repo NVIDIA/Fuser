@@ -11,7 +11,6 @@
 #include <device_lower/utils.h>
 #include <id_model/schedule.h>
 #include <index_compute.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>
@@ -1698,6 +1697,27 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
     // register new LoadStoreOp with mbarrier
     GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
         new_ldst, mbarrier);
+
+    GpuLower::current()->propagateExprInfo(ldst, back());
+  } else if (GpuLower::current()->batchedTmaMbarrierMap().contains(ldst)) {
+    kir::TensorIndex* mbarrier =
+        GpuLower::current()->batchedTmaMbarrierMap().at(ldst);
+    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+    // gmem indexing and expect_bytes for mbarrier
+    auto [in, expect_bytes] =
+        Index::getCpAsyncBulkGmemIndex(ldst, mbarrier_index, for_loops_);
+
+    pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
+        nullptr, mbarrier_index, expect_bytes));
+
+    // indexing ldst op
+    Val* out = lowerDstIndex(
+        ldst->out(), /*override_index=*/{}, /*generate_pointer=*/true);
+    Expr* new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {

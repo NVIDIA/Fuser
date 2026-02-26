@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <expr_simplifier.h>
-#include <id_model/id_model.h>
-#include <id_model/to_string.h>
-#include <ir/utils.h>
-#include <options.h>
-#include <utils.h>
+#include "base.h"
+#include "expr_simplifier.h"
+#include "id_model/id_model.h"
+#include "id_model/to_string.h"
+#include "ir/utils.h"
+#include "options.h"
 
 namespace nvfuser {
 

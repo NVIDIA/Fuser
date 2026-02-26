@@ -6,7 +6,7 @@
  */
 // clang-format on
 #pragma once
-#include <scheduler/all_schedulers.h>
+#include "scheduler/all_schedulers.h"
 
 namespace nvfuser {
 

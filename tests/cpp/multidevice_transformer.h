@@ -84,7 +84,7 @@ class DistributedTransformer {
       TensorView* w1,
       TensorView* mask,
       TensorView* sdpa_output,
-      TensorView* sdpa_log_sumexp,
+      TensorView* sdpa_logsumexp,
       TensorView* sdpa_seed,
       TensorView* sdpa_offset,
       TensorView* grad,

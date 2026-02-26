@@ -7,21 +7,20 @@
 // clang-format on
 #pragma once
 
-#include <c10/core/ScalarType.h>
-#include <exceptions.h>
-
-#include <ir/builder_passkey.h>
-#include <polymorphic_value.h>
-#include <type.h>
-#include <utils.h>
-#include <visibility.h>
-
 #include <cstdint>
+#include <iosfwd>
 #include <limits>
-#include <memory>
-#include <stdexcept>
 #include <unordered_map>
 #include <vector>
+
+#include <c10/core/ScalarType.h>
+
+#include "base.h"
+#include "exceptions.h"
+#include "ir/builder_passkey.h"
+#include "polymorphic_value.h"
+#include "type.h"
+#include "visibility.h"
 
 // TODO: Add more types (int32, int64)
 // TODO: sameAs should have better logic to check against any type and return
@@ -93,8 +92,7 @@ class ExprPasskey {
 //! Basically beinng able to succienctly traverse down the inhereitance stack of
 //! a Statment at runtime. This is currently implemented in dispatch.h
 class NVF_API Statement : public NonCopyable, public PolymorphicBase {
-  friend void swap(Fusion&, Fusion&) noexcept;
-  friend void swap(IrContainer& a, IrContainer& b) noexcept;
+  friend class Fusion;
 
  public:
   Statement() = delete;
@@ -141,7 +139,7 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   kir::Kernel* kernel() const;
 
   // Return the container this statement belongs to
-  IrContainer* container() const {
+  Fusion* container() const {
     return ir_container_;
   }
 
@@ -184,7 +182,7 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   StmtNameType name_ = kInvalidStmName;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
-  IrContainer* ir_container_ = nullptr;
+  Fusion* ir_container_ = nullptr;
 };
 
 inline std::string toString(Statement* stmt) {
@@ -217,7 +215,6 @@ inline std::string toString(Statement* stmt) {
 //!        Scalar::Scalar(const Val* src, IrCloner* ir_cloner)
 //! 2) dispatch.h/.cpp must be updated to include dispatch of the new Val
 //! 3) Default mutator function should be added to mutator.cpp
-//! 4a) Printing functions should be added to ir/iostream.h/.cpp
 //! 4b) Graphviz generation must be added to ir/graphviz.h/.cpp
 //! 5) An enum value must be added to ValType in type.h
 //! 6) A string entry must be added in val_type_string_map
@@ -477,7 +474,7 @@ class NVF_API Val : public Statement {
 };
 
 using newObjectFuncType = Expr*(
-    IrContainer*,
+    Fusion*,
     std::vector<Val*>,
     std::vector<Val*>,
     std::vector<Statement*>);
@@ -515,7 +512,6 @@ using newObjectFuncType = Expr*(
 //!      - Implementation of bool sameAs(...)
 //!  2) dispatch.h/.cpp must be updated to include dispatch of the new Expr
 //!  3) Default mutator function should be added to mutator.h/.cpp
-//!  4) Printing functions should be added to ir/iostream.h/.cpp
 //!  5) Lower case convenience functions should be added to arith.h/.cpp (If
 //!     user facing)
 //!  7) A string entry must be added in expr_type_string_map
@@ -701,7 +697,7 @@ bool Val::isDefinitionType() const {
 #define NVFUSER_DECLARE_CLONE_AND_CREATE                        \
   virtual Statement* clone(IrCloner* ir_cloner) const override; \
   static Expr* newObject(                                       \
-      IrContainer* container,                                   \
+      Fusion* container,                                        \
       std::vector<Val*> inputs,                                 \
       std::vector<Val*> outputs,                                \
       std::vector<Statement*> attributes);                      \
@@ -714,12 +710,15 @@ bool Val::isDefinitionType() const {
     return IrBuilder::clone(this, ir_cloner);              \
   }                                                        \
   Expr* ClassName::newObject(                              \
-      IrContainer* container,                              \
+      Fusion* container,                                   \
       std::vector<Val*> inputs,                            \
       std::vector<Val*> outputs,                           \
       std::vector<Statement*> attributes) {                \
     return IrBuilder::createInContainer<ClassName>(        \
         container, inputs, outputs, attributes);           \
   }
+
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement& stmt);
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);
 
 } // namespace nvfuser

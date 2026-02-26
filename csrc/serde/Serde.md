@@ -6,6 +6,8 @@
 
 # NvFuser Serialization
 
+## Serialization is disabled because legacy bindings are removed.
+
 Serde is an acronym of serialization and deserialization.
 
 # Overview
@@ -66,7 +68,7 @@ References:
 
 # Serde Testing
 
-In test_python_frontend.py, the `exec_nvfuser` function is decorated with the `serde_check` functions. Every unit test should automatically test serialization.
+The `exec_nvfuser` function is decorated with the `serde_check` functions. Every unit test should automatically test serialization.
 
 ```python
 def serde_check(test_fn: Callable):

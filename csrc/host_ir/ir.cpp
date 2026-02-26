@@ -14,12 +14,13 @@
 #include <string>
 #include <vector>
 
+#include "base.h"
 #include "host_ir/container.h"
 #include "ir/builder.h"
 #include "ir/builder_passkey.h"
 #include "ir/cloner.h"
 #include "ir/iostream.h"
-#include "utils.h"
+#include "runtime/compiled_kernel.h"
 
 namespace nvfuser::hir {
 

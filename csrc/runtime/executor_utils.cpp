@@ -5,30 +5,30 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>
-#include <ATen/native/cuda/jit_utils.h>
-
-#include <contiguity.h>
-#include <debug.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
-#include <driver_api.h>
-#include <instrumentation.h>
-#include <interval_analysis.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <options.h>
-#include <runtime/executor_utils.h>
-#include <tensor_metadata.h>
-#include <utils.h>
-
-#include <cuda_occupancy.h>
+#include "runtime/executor_utils.h"
 
 #include <cstdlib>
 #include <fstream>
 #include <variant>
+
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <ATen/native/cuda/jit_utils.h>
+
+#include "base.h"
+#include "contiguity.h"
+#include "cuda_occupancy.h"
+#include "debug.h"
+#include "device_lower/lower2device.h"
+#include "device_lower/utils.h"
+#include "driver_api.h"
+#include "instrumentation.h"
+#include "interval_analysis.h"
+#include "ir/all_nodes.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "options.h"
+#include "tensor_metadata.h"
 
 namespace nvfuser {
 namespace executor_utils {

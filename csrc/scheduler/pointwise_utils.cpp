@@ -5,14 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/pointwise_utils.h>
+#include "scheduler/pointwise_utils.h"
 
 #include <ATen/cuda/CUDAContext.h>
-#include <ir/printer.h>
-#include <multidevice/utils.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/registry.h>
-#include <scheduler/runtime_info.h>
+
+#include "ir/printer.h"
+#include "multidevice/utils.h"
+#include "scheduler/cache_policy_refiner.h"
+#include "scheduler/registry.h"
+#include "scheduler/runtime_info.h"
 
 namespace nvfuser {
 namespace pointwise_utils {

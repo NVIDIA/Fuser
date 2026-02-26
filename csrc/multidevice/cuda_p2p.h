@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <ATen/core/Tensor.h>
 #include <cuda.h>
 
 #include <ATen/core/Tensor.h>

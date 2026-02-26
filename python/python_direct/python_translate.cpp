@@ -15,8 +15,10 @@
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <type.h>
-#include <utils.h>
+#include "base.h"
 
+#include <algorithm>
+#include <iterator>
 #include <ranges>
 #include <type_traits>
 #include <utility>
@@ -57,23 +59,19 @@ bool isPythonScalar(const Val* v) {
   PrimDataType value_dtype(std::get<PrimDataType>(v->dtype().type));
   switch (value_dtype) {
     case PrimDataType::Bool:
-      return true;
     case PrimDataType::Int:
     case PrimDataType::Index:
-      return true;
     case PrimDataType::ComplexDouble:
-      return true;
     case PrimDataType::Double:
       return true;
     default:
       return false;
   }
-  return false;
 }
 
 class PythonPrinter {
  public:
-  PythonPrinter(std::ostream& os) : os_(os) {}
+  PythonPrinter(std::ostream& os) : os_(&os) {}
 
   // Generate a python string for a string value.
   std::string toString(const std::string& s) {
@@ -195,7 +193,7 @@ class PythonPrinter {
       } else {
         ss << toString(val);
       }
-      if (i < vec.size() - 1) {
+      if (i < std::ssize(vec) - 1) {
         ss << ", ";
       }
     }
@@ -218,7 +216,7 @@ class PythonPrinter {
             val->toString());
         ss << toString(val, /*is_lvalue=*/true);
       }
-      if (i < vec.size() - 1) {
+      if (i < std::ssize(vec) - 1) {
         ss << ", ";
       }
     }
@@ -312,11 +310,11 @@ class PythonPrinter {
       const std::string& op_name,
       const std::vector<const nvfuser::Val*>& inputs,
       const std::vector<const nvfuser::Val*>& outputs) {
-    os_ << kTab;
+    (*os_) << kTab;
     if (!outputs.empty()) {
-      os_ << generateOutputs(outputs) << " = ";
+      (*os_) << generateOutputs(outputs) << " = ";
     }
-    os_ << op_name << "(" << toString(inputs, /*is_list=*/false) << ")\n";
+    (*os_) << op_name << "(" << toString(inputs, /*is_list=*/false) << ")\n";
   }
 
   // Generate a python operation with a list of inputs and outputs.
@@ -335,8 +333,8 @@ class PythonPrinter {
     std::string kwargs_str = generateNamedList(default_kwargs, kwargs);
     constexpr bool any_arguments = sizeof...(arg_types) == 0;
     std::string connect = (any_arguments || kwargs_str.empty()) ? "" : ", ";
-    os_ << kTab << generateOutputs(outputs) << " = " << op_name << "("
-        << generateList(args) << connect << kwargs_str << ")\n";
+    (*os_) << kTab << generateOutputs(outputs) << " = " << op_name << "("
+           << generateList(args) << connect << kwargs_str << ")\n";
   }
 
   // Generate a python operation with a list of inputs and outputs.
@@ -355,9 +353,9 @@ class PythonPrinter {
       const std::tuple<kwargs_types...>& kwargs,
       const std::vector<const nvfuser::Val*>& outputs) {
     std::string connect = (sizeof...(arg_types) == 0) ? "" : ", ";
-    os_ << kTab << generateOutputs(outputs) << " = " << op_name << "("
-        << generateList(args) << connect
-        << generateNamedList(kwargs_names, kwargs) << ")\n";
+    (*os_) << kTab << generateOutputs(outputs) << " = " << op_name << "("
+           << generateList(args) << connect
+           << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
   // Generate a python operation with a list of inputs and a single output.
@@ -376,8 +374,9 @@ class PythonPrinter {
       const std::tuple<kwargs_types...>& kwargs,
       const std::string& output_name) {
     std::string connect = (sizeof...(arg_types) == 0) ? "" : ", ";
-    os_ << kTab << output_name << " = " << op_name << "(" << generateList(args)
-        << connect << generateNamedList(kwargs_names, kwargs) << ")\n";
+    (*os_) << kTab << output_name << " = " << op_name << "("
+           << generateList(args) << connect
+           << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
   // Generate a python operation with a list of inputs and outputs.
@@ -396,20 +395,20 @@ class PythonPrinter {
       const std::vector<std::string>& kwargs_names,
       const std::tuple<kwargs_types...>& kwargs,
       const std::vector<const nvfuser::Val*>& outputs) {
-    std::string connect = (args.size() == 0) ? "" : ", ";
-    os_ << kTab << generateOutputs(outputs) << " = " << op_name << "("
-        << toString(args) << connect << generateNamedList(kwargs_names, kwargs)
-        << ")\n";
+    std::string connect = args.empty() ? "" : ", ";
+    (*os_) << kTab << generateOutputs(outputs) << " = " << op_name << "("
+           << toString(args) << connect
+           << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
   // Generate a python definition for a FusionDefinition.
   void generateFusionDefinition() {
-    os_ << "def nvfuser_fusion(fd : FusionDefinition) -> None :\n";
+    (*os_) << "def nvfuser_fusion(fd : FusionDefinition) -> None :\n";
   }
 
  private:
   //! The stream to print the python function to.
-  std::ostream& os_;
+  std::ostream* os_;
   //! Indentation for python code.
   static constexpr const char* kTab = "    ";
 };
@@ -483,17 +482,14 @@ class PythonTranslator : public OptInConstDispatch {
     const std::vector<IterDomain*>& logical_out_domain =
         op->output(0)->as<TensorView>()->domain()->logical();
     std::vector<Val*> logical_domain_extents;
-    std::transform(
-        logical_out_domain.begin(),
-        logical_out_domain.end(),
-        std::back_inserter(logical_domain_extents),
-        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
-    return std::all_of(
-        logical_domain_extents.begin(),
-        logical_domain_extents.end(),
-        [&](Val* v) {
-          return v->definition() == nullptr || visited_vals_.count(v) > 0;
-        });
+    std::ranges::copy(
+        logical_out_domain | std::views::transform([](IterDomain* id) {
+          return id->getMaybeExpandedExtent();
+        }),
+        std::back_inserter(logical_domain_extents));
+    return std::ranges::all_of(logical_domain_extents, [&](Val* v) {
+      return v->definition() == nullptr || visited_vals_.count(v) > 0;
+    });
   }
 
   // Gather the expressions necessary to create a scalar value.
@@ -614,14 +610,11 @@ class PythonTranslator : public OptInConstDispatch {
 
       // Handle scalars and constants not generated by separate expression.
       std::vector<Val*> scalars;
-      std::copy_if(
-          e->inputs().begin(),
-          e->inputs().end(),
-          std::back_inserter(scalars),
-          [](Val* v) { return v->isScalar(); });
-      std::for_each(scalars.begin(), scalars.end(), [this](const Val* v) {
-        dispatch(v);
-      });
+      std::ranges::copy_if(
+          e->inputs(), std::back_inserter(scalars), [](Val* v) {
+            return v->isScalar();
+          });
+      std::ranges::for_each(scalars, [this](const Val* v) { dispatch(v); });
 
       // short-circuit: add to back of stack if not all of the expression's
       // dependencies are satisfied.
@@ -672,11 +665,10 @@ class PythonTranslator : public OptInConstDispatch {
   // Gather all TensorViews and FusionDefinition indices
   std::vector<const nvfuser::Val*> tensors() {
     std::vector<const nvfuser::Val*> tensors;
-    std::copy_if(
-        visited_vals_.begin(),
-        visited_vals_.end(),
-        std::back_inserter(tensors),
-        [](const nvfuser::Val* v) { return v->isA<TensorView>(); });
+    std::ranges::copy_if(
+        visited_vals_, std::back_inserter(tensors), [](const nvfuser::Val* v) {
+          return v->isA<TensorView>();
+        });
     return tensors;
   }
 
@@ -712,14 +704,14 @@ class PythonTranslator : public OptInConstDispatch {
           TensorDomain::noReductions(tv->domain()->logical());
       std::vector<Val*> extents;
       extents.reserve(filtered_logical_domain.size());
-      std::transform(
-          filtered_logical_domain.begin(),
-          filtered_logical_domain.end(),
-          std::back_inserter(extents),
-          [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+      std::ranges::copy(
+          filtered_logical_domain | std::views::transform([](IterDomain* id) {
+            return id->getMaybeExpandedExtent();
+          }),
+          std::back_inserter(extents));
 
       // Check if value matches iterdomain extent
-      auto iter = std::find(extents.begin(), extents.end(), v);
+      auto iter = std::ranges::find(extents, v);
       if (iter == extents.end()) {
         continue;
       }
@@ -792,11 +784,11 @@ class PythonTranslator : public OptInConstDispatch {
         tv->domain()->logical();
     std::vector<Val*> logical_domain_extents;
     // Use expanded extent if available for IterDomain.
-    std::transform(
-        logical_out_domain.begin(),
-        logical_out_domain.end(),
-        std::back_inserter(logical_domain_extents),
-        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+    std::ranges::copy(
+        logical_out_domain | std::views::transform([](IterDomain* id) {
+          return id->getMaybeExpandedExtent();
+        }),
+        std::back_inserter(logical_domain_extents));
     return logical_domain_extents;
   }
 
@@ -896,9 +888,11 @@ class PythonTranslator : public OptInConstDispatch {
     // BroadcastOp node exists if keepdim is True. Detect this pattern to
     // minify the python definition.
     static const auto default_args = std::make_tuple(
-        KeywordArgument<decltype(dims)>{"dims", std::nullopt},
-        KeywordArgument<bool>{"keepdim", false},
-        KeywordArgument<DataType>{"dtype", DataType::Null});
+        KeywordArgument<decltype(dims)>{
+            .name = "dims", .default_value = std::nullopt},
+        KeywordArgument<bool>{.name = "keepdim", .default_value = false},
+        KeywordArgument<DataType>{
+            .name = "dtype", .default_value = DataType::Null});
     printer_.generateKwargsOperation(
         "fd.ops." + nvfuser::python::toString(rop),
         std::make_tuple(rop->in()),
@@ -910,8 +904,8 @@ class PythonTranslator : public OptInConstDispatch {
   void handle(const ScanOp* sop) final {
     NVF_ERROR(sop != nullptr);
     visited_vals_.insert(sop->out());
-    static const auto default_args =
-        std::make_tuple(KeywordArgument<int64_t>{"dim", std::nullopt});
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<int64_t>{.name = "dim", .default_value = std::nullopt});
     printer_.generateKwargsOperation(
         "fd.ops." + toString(sop),
         std::make_tuple(sop->in()),
@@ -966,8 +960,8 @@ class PythonTranslator : public OptInConstDispatch {
     NVF_ERROR(lop != nullptr);
     visited_vals_.insert(lop->out());
 
-    static const auto default_args =
-        std::make_tuple(KeywordArgument<TensorView*>{"bias", nullptr});
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<TensorView*>{.name = "bias", .default_value = nullptr});
     printer_.generateKwargsOperation(
         "fd.ops.linear",
         std::make_tuple(lop->inA(), lop->inB()),
@@ -1012,14 +1006,21 @@ class PythonTranslator : public OptInConstDispatch {
           {gmm_op->out()});
     } else {
       static const auto default_args = std::make_tuple(
-          KeywordArgument<decltype(gmm_op->alpha())>{"alpha", nullptr},
-          KeywordArgument<decltype(gmm_op->bias())>{"bias", nullptr},
-          KeywordArgument<decltype(gmm_op->beta())>{"beta", nullptr},
-          KeywordArgument<DataType>{"dtype", DataType::BFloat16},
-          KeywordArgument<int64_t>{"output_block_scale_size", 0},
+          KeywordArgument<decltype(gmm_op->alpha())>{
+              .name = "alpha", .default_value = nullptr},
+          KeywordArgument<decltype(gmm_op->bias())>{
+              .name = "bias", .default_value = nullptr},
+          KeywordArgument<decltype(gmm_op->beta())>{
+              .name = "beta", .default_value = nullptr},
           KeywordArgument<DataType>{
-              "output_block_scale_dtype", DataType::BFloat16},
-          KeywordArgument<bool>{"output_gamma", false});
+              .name = "dtype", .default_value = DataType::BFloat16},
+          KeywordArgument<int64_t>{
+              .name = "output_block_scale_size", .default_value = 0},
+          KeywordArgument<DataType>{
+              .name = "output_block_scale_dtype",
+              .default_value = DataType::BFloat16},
+          KeywordArgument<bool>{
+              .name = "output_gamma", .default_value = false});
       printer_.generateKwargsOperation(
           "fd.ops.grouped_mm",
           std::make_tuple(
@@ -1087,14 +1088,20 @@ class PythonTranslator : public OptInConstDispatch {
     }
 
     static const auto default_args = std::make_tuple(
-        KeywordArgument<decltype(smm_op->alpha())>{"alpha", nullptr},
-        KeywordArgument<decltype(smm_op->bias())>{"bias", nullptr},
-        KeywordArgument<decltype(smm_op->beta())>{"beta", nullptr},
-        KeywordArgument<DataType>{"dtype", DataType::BFloat16},
-        KeywordArgument<int64_t>{"output_block_scale_size", 0},
+        KeywordArgument<decltype(smm_op->alpha())>{
+            .name = "alpha", .default_value = nullptr},
+        KeywordArgument<decltype(smm_op->bias())>{
+            .name = "bias", .default_value = nullptr},
+        KeywordArgument<decltype(smm_op->beta())>{
+            .name = "beta", .default_value = nullptr},
         KeywordArgument<DataType>{
-            "output_block_scale_dtype", DataType::BFloat16},
-        KeywordArgument<bool>{"output_gamma", false});
+            .name = "dtype", .default_value = DataType::BFloat16},
+        KeywordArgument<int64_t>{
+            .name = "output_block_scale_size", .default_value = 0},
+        KeywordArgument<DataType>{
+            .name = "output_block_scale_dtype",
+            .default_value = DataType::BFloat16},
+        KeywordArgument<bool>{.name = "output_gamma", .default_value = false});
     printer_.generateKwargsOperation(
         "fd.ops.scaled_mm",
         std::make_tuple(
@@ -1118,11 +1125,11 @@ class PythonTranslator : public OptInConstDispatch {
     NVF_ERROR(sdpa_fwd_op != nullptr);
 
     static const auto default_args = std::make_tuple(
-        KeywordArgument<TensorView*>{"bias", nullptr},
-        KeywordArgument<TensorView*>{"mask", nullptr},
-        KeywordArgument<Val*>{"dropout_p", nullptr},
-        KeywordArgument<Val*>{"is_causal", nullptr},
-        KeywordArgument<Val*>{"scale", nullptr});
+        KeywordArgument<TensorView*>{.name = "bias", .default_value = nullptr},
+        KeywordArgument<TensorView*>{.name = "mask", .default_value = nullptr},
+        KeywordArgument<Val*>{.name = "dropout_p", .default_value = nullptr},
+        KeywordArgument<Val*>{.name = "is_causal", .default_value = nullptr},
+        KeywordArgument<Val*>{.name = "scale", .default_value = nullptr});
     visited_vals_.insert(sdpa_fwd_op->attn_out());
     visited_vals_.insert(sdpa_fwd_op->logsumexp());
     visited_vals_.insert(sdpa_fwd_op->philox_seed());
@@ -1198,8 +1205,10 @@ class PythonTranslator : public OptInConstDispatch {
     }
 
     static const auto default_args = std::make_tuple(
-        KeywordArgument<decltype(squeeze_dims)>{"dims", std::nullopt},
-        KeywordArgument<bool>{"squeeze_expanded", false});
+        KeywordArgument<decltype(squeeze_dims)>{
+            .name = "dims", .default_value = std::nullopt},
+        KeywordArgument<bool>{
+            .name = "squeeze_expanded", .default_value = false});
     printer_.generateKwargsOperation(
         "fd.ops.squeeze",
         std::make_tuple(sop->in()),
@@ -1221,9 +1230,7 @@ class PythonTranslator : public OptInConstDispatch {
     // Add CPP values to Fusion Definition if necessary
     static const std::vector<std::string> reshape_argument_names = {
         "new_shape"};
-    std::for_each(new_shape.begin(), new_shape.end(), [this](const Val* v) {
-      dispatch(v);
-    });
+    std::ranges::for_each(new_shape, [this](const Val* v) { dispatch(v); });
     visited_vals_.insert(vop->out());
     printer_.generateKwargsOperation(
         "fd.ops.reshape",
@@ -1242,8 +1249,7 @@ class PythonTranslator : public OptInConstDispatch {
 
     static const std::vector<std::string> expand_argument_names = {"shape"};
     // Add CPP values to Fusion Definition if necessary
-    std::for_each(
-        shape.begin(), shape.end(), [this](const Val* v) { dispatch(v); });
+    std::ranges::for_each(shape, [this](const Val* v) { dispatch(v); });
     visited_vals_.insert(eop->out());
     printer_.generateKwargsOperation(
         "fd.ops.expand",
@@ -1304,9 +1310,8 @@ class PythonTranslator : public OptInConstDispatch {
     // Step 3: Transform to indices for original pad widths
     std::vector<int64_t> original_indices;
     original_indices.reserve(normalized_indices.size());
-    std::transform(
-        normalized_indices.begin(),
-        normalized_indices.end(),
+    std::ranges::transform(
+        normalized_indices,
         std::back_inserter(original_indices),
         [=](int64_t normalized_idx) {
           int64_t offset = total_size - normalized_idx;
@@ -1328,16 +1333,14 @@ class PythonTranslator : public OptInConstDispatch {
     }
 
     // Check that no pad width values are nullptr.
-    NVF_ERROR(std::all_of(
-        original_order_pad_widths.begin(),
-        original_order_pad_widths.end(),
-        [](Val* v) { return v != nullptr; }));
+    NVF_ERROR(std::ranges::all_of(
+        original_order_pad_widths, [](Val* v) { return v != nullptr; }));
 
     visited_vals_.insert(pad_op->out());
     static const auto default_args = std::make_tuple(
         KeywordArgument<decltype(original_order_pad_widths)>{
-            "pad_widths", std::nullopt},
-        KeywordArgument<Val*>{"value", nullptr});
+            .name = "pad_widths", .default_value = std::nullopt},
+        KeywordArgument<Val*>{.name = "value", .default_value = nullptr});
     printer_.generateKwargsOperation(
         "fd.ops.pad",
         std::make_tuple(pad_op->in()),
@@ -1382,9 +1385,10 @@ class PythonTranslator : public OptInConstDispatch {
         NVF_ERROR(false, "Unsupported RNGOpType.");
     }
     static const auto default_args = std::make_tuple(
-        KeywordArgument<Val*>{"rng_seed", nullptr},
-        KeywordArgument<Val*>{"rng_offset", nullptr},
-        KeywordArgument<DataType>{"dtype", DataType::Float});
+        KeywordArgument<Val*>{.name = "rng_seed", .default_value = nullptr},
+        KeywordArgument<Val*>{.name = "rng_offset", .default_value = nullptr},
+        KeywordArgument<DataType>{
+            .name = "dtype", .default_value = DataType::Float});
 
     Val* first_arg = nullptr;
     Val* second_arg = nullptr;
@@ -1441,9 +1445,10 @@ class PythonTranslator : public OptInConstDispatch {
   void handlePermute(const LoadStoreOp* lsop) {
     auto* out_tv = lsop->out()->as<TensorView>();
 
-    std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
-        out_tv->getRootDomain(), out_tv->getLogicalDomain());
-    NVF_ERROR(new2old.has_value(), "Expected permutation");
+    std::optional<std::vector<int64_t>> new2old_opt =
+        ir_utils::computePermutation(
+            out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(new2old_opt.has_value(), "Expected permutation");
 
     visited_vals_.insert(lsop->out());
     static const std::vector<std::string> argument_names = {"dims"};
@@ -1451,7 +1456,7 @@ class PythonTranslator : public OptInConstDispatch {
         "fd.ops.permute",
         std::make_tuple(lsop->in()),
         argument_names,
-        std::make_tuple(new2old.value()),
+        std::make_tuple(new2old_opt.value()),
         {lsop->out()});
   }
 
@@ -1495,10 +1500,14 @@ class PythonTranslator : public OptInConstDispatch {
     dispatch(iop->step());
 
     static const auto default_args = std::make_tuple(
-        KeywordArgument<decltype(iop->length())>{"length", std::nullopt},
-        KeywordArgument<decltype(iop->start())>{"start", nullptr},
-        KeywordArgument<decltype(iop->step())>{"step", nullptr},
-        KeywordArgument<DataType>{"dtype", DataType::Int});
+        KeywordArgument<decltype(iop->length())>{
+            .name = "length", .default_value = std::nullopt},
+        KeywordArgument<decltype(iop->start())>{
+            .name = "start", .default_value = nullptr},
+        KeywordArgument<decltype(iop->step())>{
+            .name = "step", .default_value = nullptr},
+        KeywordArgument<DataType>{
+            .name = "dtype", .default_value = DataType::Int});
     printer_.generateKwargsOperation(
         "fd.ops.iota",
         std::make_tuple(),
@@ -1564,9 +1573,10 @@ class PythonTranslator : public OptInConstDispatch {
     visited_vals_.insert(topkop->output(0));
     visited_vals_.insert(topkop->output(1));
     static const auto default_args = std::make_tuple(
-        KeywordArgument<decltype(topkop->dim())>{"dim", -1},
-        KeywordArgument<bool>{"largest", true},
-        KeywordArgument<bool>{"sorted", false});
+        KeywordArgument<decltype(topkop->dim())>{
+            .name = "dim", .default_value = -1},
+        KeywordArgument<bool>{.name = "largest", .default_value = true},
+        KeywordArgument<bool>{.name = "sorted", .default_value = false});
     printer_.generateKwargsOperation(
         "fd.ops.topk",
         std::make_tuple(topkop->in(), topkop->k()),
@@ -1581,9 +1591,10 @@ class PythonTranslator : public OptInConstDispatch {
     auto* out_tv = argsortop->output(0)->as<TensorView>();
     visited_vals_.insert(out_tv);
     static const auto default_args = std::make_tuple(
-        KeywordArgument<decltype(argsortop->dim())>{"dim", std::nullopt},
-        KeywordArgument<bool>{"descending", false},
-        KeywordArgument<bool>{"stable", false});
+        KeywordArgument<decltype(argsortop->dim())>{
+            .name = "dim", .default_value = std::nullopt},
+        KeywordArgument<bool>{.name = "descending", .default_value = false},
+        KeywordArgument<bool>{.name = "stable", .default_value = false});
     printer_.generateKwargsOperation(
         "fd.ops.argsort",
         std::make_tuple(argsortop->in()),
@@ -1598,11 +1609,12 @@ class PythonTranslator : public OptInConstDispatch {
     NVF_ERROR(eop != nullptr);
     visited_vals_.insert(eop->output(0));
     static const auto default_args = std::make_tuple(
-        KeywordArgument<Val*>{"padding_idx", nullptr},
-        KeywordArgument<Val*>{"max_norm", nullptr},
-        KeywordArgument<Val*>{"norm_type", nullptr},
-        KeywordArgument<Val*>{"scale_grad_by_freq", nullptr},
-        KeywordArgument<Val*>{"sparse", nullptr});
+        KeywordArgument<Val*>{.name = "padding_idx", .default_value = nullptr},
+        KeywordArgument<Val*>{.name = "max_norm", .default_value = nullptr},
+        KeywordArgument<Val*>{.name = "norm_type", .default_value = nullptr},
+        KeywordArgument<Val*>{
+            .name = "scale_grad_by_freq", .default_value = nullptr},
+        KeywordArgument<Val*>{.name = "sparse", .default_value = nullptr});
     printer_.generateKwargsOperation(
         "fd.ops.embedding_fwd",
         std::make_tuple(eop->in(), eop->weight()),
@@ -1634,10 +1646,13 @@ class PythonTranslator : public OptInConstDispatch {
     visited_vals_.insert(bqop->output(1));
 
     static const auto default_args = std::make_tuple(
-        KeywordArgument<decltype(bqop->globalScale())>{"global_scale", nullptr},
-        KeywordArgument<int64_t>{"block_size", 16},
-        KeywordArgument<bool>{"swizzle_block_scales", false},
-        KeywordArgument<DataType>{"dtype", DataType::Float4_e2m1fn});
+        KeywordArgument<decltype(bqop->globalScale())>{
+            .name = "global_scale", .default_value = nullptr},
+        KeywordArgument<int64_t>{.name = "block_size", .default_value = 16},
+        KeywordArgument<bool>{
+            .name = "swizzle_block_scales", .default_value = false},
+        KeywordArgument<DataType>{
+            .name = "dtype", .default_value = DataType::Float4_e2m1fn});
 
     auto dtype = bqop->quantizedOutput()->as<TensorView>()->dtype();
     printer_.generateKwargsOperation(
@@ -1650,6 +1665,32 @@ class PythonTranslator : public OptInConstDispatch {
             bqop->isSwizzledScales(),
             dtype),
         std::vector<const nvfuser::Val*>{bqop->output(0), bqop->output(1)});
+  }
+
+  void handle(const GroupedBlockQuantizationOp* grouped_bqop) final {
+    NVF_ERROR(grouped_bqop != nullptr);
+    visited_vals_.insert(grouped_bqop->output(0));
+    visited_vals_.insert(grouped_bqop->output(1));
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(grouped_bqop->globalScale())>{
+            .name = "global_scale", .default_value = nullptr},
+        KeywordArgument<int64_t>{.name = "block_size", .default_value = 16},
+        KeywordArgument<DataType>{
+            .name = "dtype", .default_value = DataType::Float4_e2m1fn});
+
+    auto dtype = grouped_bqop->quantizedOutput()->as<TensorView>()->dtype();
+    printer_.generateKwargsOperation(
+        "fd.ops.nv_grouped_block_quantize",
+        std::make_tuple(
+            grouped_bqop->in(),
+            grouped_bqop->inputOffsets(),
+            grouped_bqop->outputOffsets()),
+        default_args,
+        std::make_tuple(
+            grouped_bqop->globalScale(), grouped_bqop->blockSize(), dtype),
+        std::vector<const nvfuser::Val*>{
+            grouped_bqop->output(0), grouped_bqop->output(1)});
   }
 
  private:

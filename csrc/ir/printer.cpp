@@ -6,12 +6,14 @@
  */
 // clang-format on
 
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <instrumentation.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <kernel_ir.h>
+#include "ir/printer.h"
+
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "instrumentation.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "kernel.h"
 
 namespace nvfuser {
 
@@ -114,35 +116,40 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
   const auto& logical_domain = tv->getLogicalDomain();
   if (tv->hasRoot()) {
     const auto& root_domain = tv->getRootDomain();
-    os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
+    indent(os(), 1) << "root domain: (" << toDelimitedString(root_domain) << ")"
+                    << std::endl;
 
     const auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain.begin(), root_domain.end()},
         {logical_domain.begin(), logical_domain.end()});
 
     for (const auto exp : all_exp) {
-      os() << "  " << exp->toString();
+      indent(os(), 2) << exp->toString();
     }
   }
 
-  os() << " logical domain : (" << toDelimitedString(logical_domain) << ")\n";
+  indent(os(), 1) << "logical domain: (" << toDelimitedString(logical_domain)
+                  << ")" << std::endl;
 
   if (tv->hasAllocation()) {
     const auto& alloc_domain = tv->getAllocationDomain();
 
-    os() << " allocation domain : (" << toDelimitedString(alloc_domain)
-         << ")\n";
+    indent(os(), 1) << "allocation domain: (" << toDelimitedString(alloc_domain)
+                    << ")" << std::endl;
   }
 
-  os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
+  indent(os(), 1) << "contiguity: " << tv->domain()->getContiguityString()
+                  << std::endl;
 
   for (const auto exp : tv->domain()->allExprs()) {
-    os() << "  " << exp->toString();
+    indent(os(), 2) << exp->toString();
   }
-  os() << " loop domain : (" << toDelimitedString(tv->getLoopDomain()) << ")\n";
+  indent(os(), 1) << "loop domain: (" << toDelimitedString(tv->getLoopDomain())
+                  << ")" << std::endl;
   if (tv->getAlternateLoopDomain().has_value()) {
-    os() << " alternate loop domain : ("
-         << toDelimitedString(tv->getAlternateLoopDomain().value()) << ")\n";
+    indent(os(), 1) << "alternate loop domain: ("
+                    << toDelimitedString(tv->getAlternateLoopDomain().value())
+                    << ")" << std::endl;
   }
 }
 

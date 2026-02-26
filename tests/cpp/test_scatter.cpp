@@ -54,7 +54,6 @@ class ScatterTest : public NVFuserFixtureParamTest<ScatterTestConfig> {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
     manual_scheduling = GetParam();
   }
@@ -487,7 +486,6 @@ class ScatterAccumulateTest
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
     std::tie(m, n, dtype, accumulate_op) = GetParam();
   }

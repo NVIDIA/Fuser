@@ -5,13 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <compute_at_map.h>
-#include <id_model/to_string.h>
-#include <id_model/validation_utils.h>
-#include <ir/utils.h>
-#include <utils.h>
+#include "id_model/validation_utils.h"
 
 #include <sstream>
+
+#include "base.h"
+#include "compute_at_map.h"
+#include "id_model/to_string.h"
+#include "ir/utils.h"
 
 namespace nvfuser {
 
@@ -118,16 +119,7 @@ bool exprsMap(
 } // namespace
 
 IdModelValidator::IdModelValidator(Fusion* fusion, bool allow_self_mapping)
-    : ca_map_(fusion, allow_self_mapping) {
-  for (auto tv : fusion->allTvs()) {
-    for (auto id : tv->domain()->allIDs()) {
-      if (id->definition() && id->definition()->isA<Swizzle2D>()) {
-        has_swizzle_ = true;
-        break;
-      }
-    }
-  }
-}
+    : ca_map_(fusion, allow_self_mapping) {}
 
 void IdModelValidator::fullyPropagateMappings(
     DisjointSets<IterDomain*>& id_sets) {
@@ -258,11 +250,6 @@ void compareDisjointSets(
 } // namespace
 
 void IdModelValidator::checkExactGraphEquivalence(const ValGraph& exact_graph) {
-  if (has_swizzle_) {
-    // Ignoring a fusion with swizzle
-    return;
-  }
-
   // Empty graph
   if (exact_graph.disjointValSets().disjointSets().empty()) {
     return;
@@ -283,11 +270,6 @@ void IdModelValidator::checkExactGraphEquivalence(const ValGraph& exact_graph) {
 
 void IdModelValidator::checkAlmostExactGraphEquivalence(
     const ValGraph& almost_exact_graph) {
-  if (has_swizzle_) {
-    // Ignoring a fusion with swizzle
-    return;
-  }
-
   // Empty graph
   if (almost_exact_graph.disjointValSets().disjointSets().empty()) {
     return;
@@ -302,11 +284,6 @@ void IdModelValidator::checkAlmostExactGraphEquivalence(
 
 void IdModelValidator::checkPermissiveGraphEquivalence(
     const ValGraph& permissive_graph) {
-  if (has_swizzle_) {
-    // Ignoring a fusion with swizzle
-    return;
-  }
-
   // Empty graph
   if (permissive_graph.disjointValSets().disjointSets().empty()) {
     return;

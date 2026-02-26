@@ -5,6 +5,8 @@
 
 import torch
 import itertools
+
+# TODO Update script to use nvfuser_direct module
 from nvfuser import FusionDefinition, SchedulerType, DataType, ParallelType
 from enum import Enum
 from dataclasses import dataclass

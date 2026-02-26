@@ -15,11 +15,11 @@
 
 #include <c10/util/ArrayRef.h>
 
-#include <fusion_segmenter.h>
-#include <runtime/executor.h>
-#include <scheduler/heuristic.h>
-#include <serde/fusion_cache_generated.h>
-#include <utils.h>
+#include "base.h"
+#include "fusion_segmenter.h"
+#include "runtime/executor.h"
+#include "scheduler/heuristic.h"
+#include "serde/fusion_cache_generated.h"
 
 namespace nvfuser {
 

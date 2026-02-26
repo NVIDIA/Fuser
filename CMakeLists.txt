@@ -4,6 +4,14 @@
 cmake_minimum_required(VERSION 3.18)
 project(nvfuser)
 
+# When CXX is clang, ensure nvcc also uses clang as its host compiler.
+# This must be set before enable_language(CUDA) so that CMake configures
+# nvcc with the correct -ccbin. The CUDAHOSTCXX env var should do this,
+# but PyTorch's TorchConfig.cmake can override it, so we also set it here.
+if(NOT CMAKE_CUDA_HOST_COMPILER AND DEFINED ENV{CUDAHOSTCXX})
+  set(CMAKE_CUDA_HOST_COMPILER $ENV{CUDAHOSTCXX})
+endif()
+
 enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
@@ -18,7 +26,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
-set(NVFUSER_PYTHON_BINDINGS "${NVFUSER_ROOT}/python/python_frontend")
 set(NVFUSER_PYTHON_COMMON "${NVFUSER_ROOT}/python/python_common")
 set(NVFUSER_PYTHON_DIRECT_BINDINGS "${NVFUSER_ROOT}/python/python_direct")
 set(NVFUSER_CUTLASS "${NVFUSER_ROOT}/cutlass")
@@ -234,6 +241,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/allocation_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/post_communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/cuda_p2p.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/dispatch_combine.cpp
@@ -261,6 +269,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/add_axioms.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/fmin_fmax_promotion.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
@@ -304,7 +313,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/greedy.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/matmul_ampere-.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_hopper+.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
@@ -327,6 +335,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction_outer_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
@@ -342,6 +351,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/tools/resize_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/tools/static_repeat.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/transpose_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/expr_eval_sched.cpp
@@ -381,21 +393,6 @@ list(APPEND NVFUSER_SRCS
 if(NOT MSVC)
   list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/fusion_profiler.cpp
-  )
-endif()
-
-if(BUILD_PYTHON)
-  list(APPEND NVFUSER_SRCS
-    ${NVFUSER_PYTHON_BINDINGS}/fusion_cache.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/fusion_definition.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/fusion_state.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/segmentation.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/translation.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
-    ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
-    ${NVFUSER_PYTHON_COMMON}/distributed_tensor.cpp
-    ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
-    ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
   )
 endif()
 
@@ -503,7 +500,7 @@ target_link_libraries(nvfuser_codegen PRIVATE
 )
 
 if(NVFUSER_BUILD_WITH_ASAN)
-  target_compile_options(codegen_internal PRIVATE -fsanitize=address)
+  target_compile_options(codegen_internal PUBLIC -fsanitize=address)
   target_link_options(codegen_internal PUBLIC -fsanitize=address)
   target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
 endif()
@@ -640,128 +637,6 @@ install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
 if(BUILD_PYTHON)
-  # -----------------------------
-  # build nvfuser python library
-  # -----------------------------
-  # nvfuser python API sources
-  set(NVFUSER_PYTHON_SRCS)
-  list(APPEND NVFUSER_PYTHON_SRCS
-    ${NVFUSER_PYTHON_BINDINGS}/multidevice_bindings.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/python_bindings.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/python_bindings_extension.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/schedule_bindings.cpp
-  )
-
-  add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
-  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_DIR})
-  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
-  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_CUTLASS})
-  target_include_directories(nvf_py_internal SYSTEM INTERFACE
-    ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-  )
-
-  # setup python API version
-  add_custom_command(
-    OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
-    COMMAND
-    "${Python_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
-    COMMAND
-    "${Python_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
-    DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
-    DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
-    WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
-  )
-  add_custom_target(
-    gen_nvfuser_version ALL
-    DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
-  )
-  add_dependencies(nvf_py_internal gen_nvfuser_version)
-
-  target_compile_definitions(nvf_py_internal PRIVATE
-    "-DTORCH_CUDA_BUILD_MAIN_LIB"
-    "-DC10_BUILD_MAIN_LIB=1"
-    EXTENSION_NAME=_C
-  )
-
-  add_library(nvfuser MODULE $<TARGET_OBJECTS:nvf_py_internal>)
-  target_compile_definitions(nvfuser PRIVATE
-    "-DTORCH_CUDA_BUILD_MAIN_LIB"
-    "-DC10_BUILD_MAIN_LIB=1"
-    EXTENSION_NAME=_C
-  )
-
-  if(NOT MSVC)
-    target_compile_options(nvf_py_internal PRIVATE -Wall -Wno-unused-function)
-    target_compile_options(nvf_py_internal PRIVATE -Werror)
-
-    # Add function/data sections for dead code elimination
-    target_compile_options(nvf_py_internal PRIVATE
-      "-ffunction-sections"
-      "-fdata-sections"
-    )
-
-    set(NVF_LIB_SUFFIX ".so")
-  else()
-    set(NVF_LIB_SUFFIX ".pyd")
-  endif()
-
-  set_target_properties(nvfuser PROPERTIES
-    C_STANDARD ${NVFUSER_C_STANDARD}
-    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-    CXX_STANDARD_REQUIRED ON
-    CXX_VISIBILITY_PRESET hidden
-    INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvfuser_common/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
-    POSITION_INDEPENDENT_CODE Yes
-    SUFFIX ${NVF_LIB_SUFFIX}
-    VISIBILITY_INLINES_HIDDEN Yes
-  )
-  set_target_properties(nvf_py_internal PROPERTIES
-    C_STANDARD ${NVFUSER_C_STANDARD}
-    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-    CXX_STANDARD_REQUIRED ON
-    CXX_VISIBILITY_PRESET hidden
-    INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
-    POSITION_INDEPENDENT_CODE Yes
-    VISIBILITY_INLINES_HIDDEN Yes
-  )
-
-  if (NVFUSER_USE_CUTLASS)
-    target_link_libraries(nvf_py_internal PRIVATE nvf_cutlass)
-  endif()
-
-  if (NOT MSVC)
-    target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
-  endif()
-
-  target_link_libraries(nvf_py_internal PRIVATE
-    nvfuser_codegen
-    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-    pybind11::pybind11 pybind11::headers
-  )
-
-  target_link_libraries(nvfuser PRIVATE
-    nvf_py_internal
-    Python::Module
-  )
-
-  # Add dead code elimination flags to reduce file size
-  if(NOT MSVC)
-    target_link_options(nvfuser PRIVATE
-      "-Wl,--gc-sections"
-      "-Wl,--as-needed"
-      $<$<CONFIG:Release>:-s>
-    )
-  endif()
-
-  set_target_properties(nvfuser PROPERTIES
-    INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
-  )
-  install(TARGETS nvfuser DESTINATION lib)
-
   # ------------------------------------------------
   # build nvfuser direct python library
   # ------------------------------------------------
@@ -784,6 +659,9 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/profile.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
+    ${NVFUSER_PYTHON_COMMON}/distributed_tensor.cpp
+    ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
+    ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
@@ -961,7 +839,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_runtime.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scatter.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_sdpa.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
@@ -1473,9 +1351,6 @@ target_include_directories(codegen_internal PRIVATE "${CMAKE_BINARY_DIR}/include
 install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
 
 file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/bin" SYMBOLIC)
-# These symbolic links help IDEs like Cursor resolve symbols in nvfuser and
-# nvfuser_direct.
-file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser" "${NVFUSER_ROOT}/nvfuser" SYMBOLIC)
 file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser_direct" "${NVFUSER_ROOT}/nvfuser_direct" SYMBOLIC)
 
 message(STATUS "******** Nvfuser configuration summary ********")

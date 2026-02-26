@@ -5,10 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/utils.h>
-#include <id_model/indexing_utils.h>
-#include <id_model/predicate_indexing.h>
-#include <id_model/utils.h>
+#include "id_model/predicate_indexing.h"
+
+#include "device_lower/utils.h"
+#include "id_model/indexing_utils.h"
+#include "id_model/utils.h"
 
 namespace nvfuser {
 

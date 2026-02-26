@@ -7,10 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <ir/iostream.h>
-#include <iter_visitor.h>
-
 #include <iosfwd>
+
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "kernel.h"
 
 namespace nvfuser {
 

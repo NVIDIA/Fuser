@@ -12,7 +12,6 @@
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <scheduler/mma_utils.h>
@@ -21,8 +20,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
-#include <utils.h>
 #include <val_graph_visitor.h>
+#include "base.h"
 
 #include <ATen/cuda/CUDAContext.h>
 #include "ir/base_nodes.h"
@@ -255,7 +254,8 @@ void traverseFrontierWithContiguityCheck(
 
 void validateQuantizedOutputScheduling(
     TensorView* quantized_output,
-    DataType input_dtype) {
+    DataType input_dtype,
+    bool is_mxfp8_output = false) {
   // Outputs have the same allocation domain
   // as the logical domain - no allocation domain.
   NVF_ERROR(
@@ -296,9 +296,14 @@ void validateQuantizedOutputScheduling(
     }
   }
 
+  // group id is used as a proxy for vectorization.
+  // When quantizing to mxfp8, we allow no group id
+  // as vectorization is not necessary for quantization to mxfp8
+  // but is required for sub-byte dtypes.
   NVF_ERROR(
-      grouped_id != nullptr,
-      "One of the output IDs must be grouped for ",
+      grouped_id != nullptr || is_mxfp8_output,
+      "One of the output IDs must be grouped for "
+      "BlockQuantizationOp: ",
       quantized_output->definition()->toString());
 
   NVF_ERROR(
@@ -311,14 +316,17 @@ void validateQuantizedOutputScheduling(
       "Parallelization along z axis is not supported for ",
       quantized_output->definition()->toString());
 
-  auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
+  auto inner_extent =
+      grouped_id ? grouped_id->extent()->evaluate().as<int64_t>() : 1;
 
+  // Check the extents of group id based on input data type
+  // if group id is present
   NVF_ERROR(
-      ((inner_extent == 4 || inner_extent == 2) &&
-       input_dtype == DataType::Float) ||
-          ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
-           (input_dtype == DataType::BFloat16 ||
-            input_dtype == DataType::Half)),
+      (!grouped_id ||
+       ((inner_extent == 4 || inner_extent == 2) &&
+        input_dtype == DataType::Float) ||
+       ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
+        (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half))),
       "The group dimension must be  2/4 (FP32) or 2/4/8 "
       "(BF16). Found: ",
       inner_extent,
@@ -385,6 +393,34 @@ void validateQuantizedOutputScheduling(
       ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
         traverseFrontierWithContiguityCheck(frontier, expr);
       });
+
+  // Check that TIDx is multiple of block size.
+  // We hardcode block size of 32 here for now.
+  // As there are no group ids, tidx must now be the innermost
+  // as we reduce across it. We also check that all merges leading
+  // to tidx are contiguous.
+  if (is_mxfp8_output && !grouped_id) {
+    Val* is_divisible = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(
+            thread_x->extent(), IrBuilder::create<Val>(32, DataType::Index)),
+        quantized_output->fusion()->zeroVal());
+
+    NVFUSER_LOWER_VALIDATE(
+        is_divisible,
+        "Block dim X of BlockQuantizationOp input must be divisible by "
+        "block size 32 but got extent ",
+        thread_x->extent()->toInlineString(),
+        " in ",
+        quantized_output->definition()->toString());
+
+    NVF_ERROR(
+        ids_to_transform.back() == thread_x,
+        "When quantizing to Float8_e4m3fn without grouping, TIDx must be the "
+        "innermost ID. Expr: ",
+        quantized_output->definition()->toString());
+
+    return;
+  }
 
   // The grouped ID must correspond to the innermost loop-like domain
   NVF_ERROR(
@@ -795,6 +831,7 @@ class ExprValidator : public OptOutDispatch {
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
     auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
     auto output_dtype = quantized_output->dtype();
+    bool is_mxfp8_output = output_dtype == DataType::Float8_e4m3fn;
 
     NVF_ERROR_EQ(
         inp_tv->getMemoryType(),
@@ -814,7 +851,7 @@ class ExprValidator : public OptOutDispatch {
         "Block scaling factor must be a global memory tensor. Found: ",
         block_scaling_factor->getMemoryType());
 
-    if (output_dtype == DataType::Float8_e4m3fn) {
+    if (is_mxfp8_output) {
       NVF_ERROR(
           !bqop->hasGlobalScale(),
           "Global scale is not supported when quantizing to Float8_e4m3fn.");
@@ -862,7 +899,8 @@ class ExprValidator : public OptOutDispatch {
             [](std::optional<bool> c) { return c.value_or(true); }),
         "Block scaling factor not contiguous");
 
-    validateQuantizedOutputScheduling(quantized_output, inp_tv->dtype());
+    validateQuantizedOutputScheduling(
+        quantized_output, inp_tv->dtype(), is_mxfp8_output);
   }
 
   void handle(GroupedBlockQuantizationOp* bqop) final {
@@ -987,14 +1025,6 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  void handle(Swizzle2D* swizzle) final {
-    if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
-        swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
-      // Do not (yet) allow vectorization across any swizzled id.
-      is_valid = false;
-    }
-  }
-
   // Given the vectorized loop ID in a tensor, find its innermost
   // ancestors in the allocation domain. Broadcast IDs are ignored.
   // All dependent allocation IDs are also returned.
@@ -1085,7 +1115,7 @@ class VectorizeValidator : public OptInDispatch {
       Expr* expr = expr_g->front();
       NVF_ERROR(
           expr->isA<Merge>() || expr->isA<Split>() || expr->isA<Resize>() ||
-              expr->isA<Swizzle>() || expr->isA<Swizzle2D>(),
+              expr->isA<Swizzle>(),
           "Unexpected expr: ",
           expr->toString());
 
@@ -1096,11 +1126,10 @@ class VectorizeValidator : public OptInDispatch {
           ? graph.outputGroups(expr_g)
           : graph.inputGroups(expr_g);
 
-      if (expr->isOneOf<Swizzle, Swizzle2D>()) {
+      if (expr->isA<Swizzle>()) {
         // Not supported.
         // TODO: Checking the outputs too since that is what
-        // VectorizeValidator::handle(Swizzle*) and
-        // VectorizeValidator::handle(Swizzle2D*) do, but unclear
+        // VectorizeValidator::handle(Swizzle*) does, but unclear
         // why.
         if (std::find(inputs.begin(), inputs.end(), cur_group) !=
                 inputs.end() ||
@@ -1777,80 +1806,6 @@ void validateMma(Fusion* fusion) {
     }
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
       validateSizeMemoryOp(ldst);
-    }
-  }
-}
-
-namespace {
-
-// Utility function to validate a loop swizzle:
-//  1. Throws an error if any output of the swizzle is not in loop_domain set.
-//  2. Warns if any output of the swizzle is not the concrete id of the loop
-//  map.
-// The second case would make the codegen ignore this swizzle, as if it was
-// not there at all.
-void validateLoopSwizzle(
-    Expr* swizzle_expr,
-    std::unordered_set<IterDomain*>& loop_domains) {
-  for (auto out_id :
-       ir_utils::filterByType<IterDomain>(swizzle_expr->outputs())) {
-    NVF_ERROR(
-        loop_domains.count(out_id),
-        "Loop swizzle can only be direct producer of loop domains.");
-    if (lower_utils::getConcreteLoopID(out_id) != out_id) {
-      TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
-    }
-  }
-}
-
-} // namespace
-
-void validateSwizzle(Fusion* fusion) {
-  auto used_vals = fusion->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    if (tv->hasSwizzleOp()) {
-      std::unordered_set<IterDomain*> tv_loop_domain_set(
-          tv->getLoopDomain().begin(), tv->getLoopDomain().end());
-
-      // Make sure no swizzle op is inlined:
-      auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getLogicalDomain(),
-          {tv->getLoopDomain().begin(),
-           tv->getLoopDomain().begin() + tv->getMaxComputePosition()});
-
-      auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getLogicalDomain(),
-          {tv->getLoopDomain().begin() + tv->getMaxComputePosition(),
-           tv->getLoopDomain().end()});
-
-      // Check inlined swizzles: only loop swizzles can be inlined currently
-      //  as inlining data swizzles would require addtional support of
-      //  unswizzle operator, which currently doesn't have important use
-      //  cases.
-      for (auto swizzle_expr : inlined_swizzles) {
-        NVF_ERROR(
-            swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop,
-            "Only support inlining loop swizzles");
-        validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
-      }
-
-      std::unordered_set<Expr*> inlined_swizzle_set(
-          inlined_swizzles.begin(), inlined_swizzles.end());
-
-      // Check not inlined swizzles:
-      //  Apply the loop swizzle check when it applies, and
-      // also make sure that the no swizzle is also in inlined_swizzle set.
-      // The latter would mean that one output of the swizzle is inlined while
-      //  the other is not. Such case will not be supported.
-      for (auto swizzle_expr : not_inlined_swizzles) {
-        NVF_ERROR(
-            !inlined_swizzle_set.count(swizzle_expr),
-            "Cannot partially inline across swizzle domains.",
-            swizzle_expr->toString());
-        if (swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop) {
-          validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
-        }
-      }
     }
   }
 }

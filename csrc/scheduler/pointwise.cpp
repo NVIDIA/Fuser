@@ -6,18 +6,20 @@
  */
 // clang-format on
 
-#include <scheduler/pointwise.h>
+#include "scheduler/pointwise.h"
+
+#include <ranges>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <instrumentation.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/pointwise_non_tma.h>
-#include <scheduler/pointwise_tma.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
-#include <ranges>
+
+#include "instrumentation.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/pointwise_non_tma.h"
+#include "scheduler/pointwise_tma.h"
+#include "scheduler/pointwise_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 
@@ -295,27 +297,49 @@ bool PointWiseScheduler::canScheduleRunTime(
   // These are requirements of the current implementation of the
   // Block Quantization Op runtime function.
 
-  auto has_block_quantization_ops =
-      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+  auto block_quantization_ops =
+      HeuristicDataCacheEntry<HeuristicCompileTime::BlockQuantizationOps>(
           data_cache,
           [fusion]() {
-            return std::make_unique<bool>(
-                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty() ||
-                !ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion)
-                     .empty());
+            auto ops = std::make_unique<std::vector<Expr*>>();
+            // Get BlockQuantizationOp operations
+            auto block_quant_ops =
+                ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+            ops->insert(
+                ops->end(), block_quant_ops.begin(), block_quant_ops.end());
+            // Get GroupedBlockQuantizationOp operations
+            auto grouped_ops =
+                ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion);
+            ops->insert(ops->end(), grouped_ops.begin(), grouped_ops.end());
+            return ops;
           })
           .get();
 
-  if (has_block_quantization_ops) {
+  if (!block_quantization_ops.empty()) {
     auto heuristics = computeHeuristics(fusion, runtime_info, data_cache);
     auto pparams = static_cast<const PointwiseParams*>(heuristics.get());
     NVF_ERROR(pparams != nullptr);
     if (pparams->vectorization_factor < 2) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(),
-          "Block Quantization Op requires vectorization factor to be at least "
-          "2.");
-      return false;
+      for (auto op : block_quantization_ops) {
+        auto data_type_width = op->isA<BlockQuantizationOp>()
+            ? dataTypeSizeBit(op->as<BlockQuantizationOp>()
+                                  ->quantizedOutput()
+                                  ->getDataType()
+                                  .value())
+            : dataTypeSizeBit(op->as<GroupedBlockQuantizationOp>()
+                                  ->quantizedOutput()
+                                  ->getDataType()
+                                  .value());
+
+        if (data_type_width % 8 != 0) {
+          scheduler_debug_utils::canScheduleRejectReason(
+              schedulerType(),
+              "Block Quantization Op requires vectorization factor to be at "
+              "least "
+              "2 for quantizing to sub-byte dtypes such as NVFP4");
+          return false;
+        }
+      }
     }
 
     if (pparams->split_grid_y_dim) {
@@ -423,16 +447,23 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   // cap vectorization when block quantization op is encountered, since there's
   // a validation during device_lower
   auto has_block_quantization_ops =
-      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::BlockQuantizationOps>(
           data_cache,
           [fusion]() {
-            return std::make_unique<bool>(
-                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty() ||
-                !ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion)
-                     .empty());
+            auto ops = std::make_unique<std::vector<Expr*>>();
+            // Get BlockQuantizationOp operations
+            auto block_quant_ops =
+                ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+            ops->insert(
+                ops->end(), block_quant_ops.begin(), block_quant_ops.end());
+            // Get GroupedBlockQuantizationOp operations
+            auto grouped_ops =
+                ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion);
+            ops->insert(ops->end(), grouped_ops.begin(), grouped_ops.end());
+            return ops;
           })
           .get();
-  if (has_block_quantization_ops) {
+  if (!has_block_quantization_ops.empty()) {
     // FIXME: this needs to be done per input dtype. I'm capping it as 4 for
     // simplicity for now.
     pparams->as<PointwiseParams>()->vectorization_factor = std::min<int64_t>(

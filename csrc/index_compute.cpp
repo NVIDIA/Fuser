@@ -22,7 +22,6 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/arith.h>
@@ -374,50 +373,6 @@ void IndexCompute::handle(Swizzle* swizzle) {
   index_map_[in_y_id] = swizzled_index.second;
 }
 
-void IndexCompute::handle(Swizzle2D* swizzle_2d) {
-  auto out_x_id = maybeGetExactMapConcreteID(swizzle_2d->outX());
-  auto out_y_id = maybeGetExactMapConcreteID(swizzle_2d->outY());
-  auto in_x_id = maybeGetExactMapConcreteID(swizzle_2d->inX());
-  auto in_y_id = maybeGetExactMapConcreteID(swizzle_2d->inY());
-
-  auto out_x_it = index_map_.find(out_x_id);
-  auto out_y_it = index_map_.find(out_y_id);
-
-  if (out_x_it == index_map_.end() || out_y_it == index_map_.end()) {
-    return;
-  }
-
-  const auto out_x_ind = out_x_it->second;
-  const auto out_y_ind = out_y_it->second;
-
-  if (swizzle_mode_ == SwizzleMode::NoSwizzle ||
-      swizzle_mode_ != swizzle_2d->swizzleMode()) {
-    // Handle inactive swizzles by just passing through index
-    //  and extend information.
-
-    if (!index_map_.count(in_x_id)) {
-      index_map_[in_x_id] = out_x_ind;
-      extent_map_[in_x_id] = getExtent(out_x_id);
-    }
-    if (!index_map_.count(in_y_id)) {
-      index_map_[in_y_id] = out_y_ind;
-      extent_map_[in_y_id] = getExtent(out_y_id);
-    }
-  } else {
-    // Generate integer swizzle math if the
-    //  swizzle is activated. See also
-    //  [Note on swizzle mode].
-    std::pair<Val*, Val*> swizzled_index = dispatchSwizzle(
-        swizzle_2d->swizzleType(),
-        out_x_ind,
-        out_y_ind,
-        getExtent(out_x_id),
-        getExtent(out_y_id));
-    index_map_[in_x_id] = swizzled_index.first;
-    index_map_[in_y_id] = swizzled_index.second;
-  }
-}
-
 void IndexCompute::handle(Resize* resize) {
   auto out_id = maybeGetExactMapConcreteID(resize->out());
   auto in_id = maybeGetExactMapConcreteID(resize->in());
@@ -450,7 +405,7 @@ void IndexCompute::handle(Resize* resize) {
 
 void IndexCompute::dispatch(Expr* e) {
   NVF_ERROR(
-      (e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>()),
+      (e->isOneOf<Split, Merge, Swizzle, Resize>()),
       "Invalid expr type found in transform traversal.");
   updateUnswitchedDomains(e);
   BackwardVisitor::dispatch(e);
@@ -537,15 +492,6 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
   //  will gradually enable replaying and mapping of loop
   // swizzles in the IR infrastructure and once that's piped
   // through this part of logic will be removed.
-  std::unordered_set<Expr*> visited;
-  for (auto loop_id : loop_indexing.loopDomains()) {
-    auto loop_id_def = loop_id->definition();
-    if (loop_id_def != nullptr && loop_id_def->isA<Swizzle2D>()) {
-      if (visited.insert(loop_id_def).second) {
-        dispatch(loop_id_def);
-      }
-    }
-  }
 
   // Resolve the index vals that could be resolved with only
   //  the loops that consumer_tv doesn't share with any of its
@@ -858,22 +804,6 @@ class UpdateLeafIndices : public IterVisitor {
         SimplifyingIrBuilder::mulExpr(getExtent(outer_id), getExtent(inner_id));
   }
 
-  void handle(Swizzle2D* swizzle_2d) override {
-    auto in_x = swizzle_2d->inX();
-    auto in_y = swizzle_2d->inY();
-    auto out_x = swizzle_2d->outX();
-    auto out_y = swizzle_2d->outY();
-
-    // Forward propagation pass still just forward
-    //  through the indices and the actual swizzle
-    //  will be applied on the backward pass in
-    //  IndexSwizzle class implementation.
-    index_map_[out_x] = index_map_.at(in_x);
-    extent_map_[out_x] = getExtent(in_x);
-    index_map_[out_y] = index_map_.at(in_y);
-    extent_map_[out_y] = getExtent(in_y);
-  }
-
   // return extent_map_[id] if exists, else return id->extent()
   Val* getExtent(IterDomain* id) {
     if (extent_map_.find(id) != extent_map_.end()) {
@@ -901,91 +831,6 @@ Val* getExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
 }
 
 } // namespace
-
-IndexSwizzle::IndexSwizzle(
-    const TensorView* tv,
-    std::unordered_map<IterDomain*, Val*> initial_index_map,
-    std::unordered_map<IterDomain*, Val*> extent_map,
-    std::unordered_set<IterDomain*> zero_domains,
-    std::unordered_set<IterDomain*> zero_merged_in)
-    : IndexCompute(
-          tv->domain(),
-          std::move(initial_index_map),
-          std::move(extent_map),
-          std::move(zero_domains),
-          std::move(zero_merged_in)),
-      tv_(tv) {}
-
-IndexSwizzle::IndexSwizzle(
-    const TensorView* tv,
-    const TensorDomain* domain,
-    std::unordered_map<IterDomain*, Val*> initial_index_map,
-    std::unordered_map<IterDomain*, Val*> extent_map,
-    std::unordered_set<IterDomain*> zero_domains,
-    std::unordered_set<IterDomain*> zero_merged_in)
-    : IndexCompute(
-          domain,
-          std::move(initial_index_map),
-          std::move(extent_map),
-          std::move(zero_domains),
-          std::move(zero_merged_in)),
-      tv_(tv) {}
-
-void IndexSwizzle::run() {
-  if (tv_->hasSwizzleOp()) {
-    // Propagate backward for the annotated swizzle path.
-    // TODO:
-    //  eventually will unify the two swizzling implementation
-    //  code path in a follow up. Currently just focusing on
-    //  getting the necessary implementation of the swizzle
-    //  operator ready.
-    //
-    // At this intermediate state, the legacy swizzle implementation
-    //  takes precedence, i.e. whenever swizzle_type_ is not NoSwizzle,
-    //  the new swizzle op pass is disabled.
-    UpdateLeafIndices update_loop(td_, indexMap(), extentMap());
-    index_map_ = update_loop.indexMap();
-    extent_map_ = update_loop.extentMap();
-    IndexCompute::swizzle_mode_ = SwizzleMode::Data;
-    IndexCompute::run();
-  }
-}
-
-void IndexSwizzle::dispatch(Expr* e) {
-  auto out_ids = ir_utils::filterByType<IterDomain>(e->outputs());
-  bool needs_update =
-      std::any_of(
-          out_ids.begin(),
-          out_ids.end(),
-          [this](IterDomain* id) {
-            return swizzled_ids_.find(id) != swizzled_ids_.end();
-          }) ||
-      (e->isA<Swizzle2D>() &&
-       e->as<Swizzle2D>()->swizzleType() != Swizzle2DType::NoSwizzle &&
-       e->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Data);
-  if (!needs_update) {
-    return;
-  }
-
-  IndexCompute::dispatch(e);
-  for (auto input : ir_utils::filterByType<IterDomain>(e->inputs())) {
-    swizzled_ids_.insert(input);
-  }
-}
-
-void IndexSwizzle::handle(Swizzle2D* swizzle_2d) {
-  auto out_x_id = swizzle_2d->outX();
-  auto out_y_id = swizzle_2d->outY();
-
-  auto out_x_it = index_map_.find(out_x_id);
-  auto out_y_it = index_map_.find(out_y_id);
-
-  NVF_ERROR(
-      out_x_it != index_map_.end() && out_y_it != index_map_.end(),
-      "Swizzle output indices were not propagated through");
-
-  IndexCompute::handle(swizzle_2d);
-}
 
 namespace {
 
@@ -1438,40 +1283,10 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   const auto& producer_indexing = producer_indexing_from_idgraph.index;
 
-  IndexSwizzle index_swizzle(
-      producer_tv,
-      producer_indexing.indexMap(),
-      producer_indexing.extentMap(),
-      producer_indexing.zeroDomains(),
-      producer_indexing.zeroMergedIn());
-
-  index_swizzle.run();
-
-  auto producer_swizzled_index = index_swizzle;
-
-  if (producer_tv->hasSwizzleOp()) {
-    // Special handling needed on the new swizzle
-    //  op pass:
-    //  each swizzle op is local to the tensor,
-    //  so ReplayPasC will not include the swizzle
-    //  ops on the producer iterdomain. So would
-    //  need to traverse forward the producer domain
-    //  before the replay to get the swizzle ops.
-    IndexSwizzle producer_swizzle2d(
-        producer_tv,
-        domain_guard.prevDomain(),
-        producer_indexing.indexMap(),
-        producer_indexing.extentMap(),
-        producer_indexing.zeroDomains(),
-        producer_indexing.zeroMergedIn());
-    producer_swizzle2d.run();
-    producer_swizzled_index = producer_swizzle2d;
-  }
-
   // TODO: merge the two swizzle compute logic once the new one is ready.
   //  will need to replace cyclic shift swizzle with xor since swizzle2d
   //  doesn't have cyclic shift.
-  const auto& index_map = producer_swizzled_index.indexMap();
+  const auto& index_map = producer_indexing.indexMap();
 
   const auto& extent_map = producer_indexing.extentMap();
   const auto& zero_domain_map = producer_indexing.zeroDomains();
@@ -1925,16 +1740,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
   auto consumer_indexing = consumer_indexing_from_idgraph.index;
 
-  IndexSwizzle index_swizzle(
-      consumer_tv,
-      consumer_indexing.indexMap(),
-      consumer_indexing.extentMap(),
-      consumer_indexing.zeroDomains(),
-      consumer_indexing.zeroMergedIn());
-
-  index_swizzle.run();
-
-  const auto& index_map = index_swizzle.indexMap();
+  const auto& index_map = consumer_indexing.indexMap();
   const auto& extent_map = consumer_indexing.extentMap();
   const auto& zero_domain_map = consumer_indexing.zeroDomains();
 
@@ -2128,50 +1934,13 @@ bool shouldUseTensorIndexer(
         GpuLower::current()->tmemInfo().hasTMemTensor();
   };
 
-  // Check if TensorIndexer is supported.
-  auto is_tensor_indexer_supported = [&](bool assert) -> bool {
-    bool is_producer_ldmatrix_op = producer->definition() != nullptr &&
-        producer->definition()->isA<LoadStoreOp>() &&
-        producer->definition()->as<LoadStoreOp>()->opType() ==
-            LoadStoreOpType::LdMatrix;
-    bool is_producer_stmatrix_op_with_no_alloc_domain =
-        producer->definition() != nullptr &&
-        producer->definition()->isA<LoadStoreOp>() &&
-        producer->definition()->as<LoadStoreOp>()->opType() ==
-            LoadStoreOpType::StMatrix &&
-        !producer->hasAllocation();
-
-    if (assert) {
-      NVF_ERROR(
-          !is_producer_ldmatrix_op,
-          "TensorIndexer required but not supported as the producer is "
-          "produced by ldmatrix: ",
-          producer->definition()->toString());
-      NVF_ERROR(
-          !is_producer_stmatrix_op_with_no_alloc_domain,
-          "TensorIndexer required but not supported as the producer is "
-          "produced by stmatrix and it does not have allocation domain: ",
-          producer->definition()->toString());
-    }
-
-    return !is_producer_ldmatrix_op &&
-        !is_producer_stmatrix_op_with_no_alloc_domain;
-  };
-
-  // TensorIndexer is always used if it's required
-  if (is_tensor_indexer_required()) {
-    // Make sure it's supported
-    is_tensor_indexer_supported(/*assert=*/true);
-    return true;
-  }
-
-  // If opted in, TensorIndexer is used as long as it's supported
-  if (GpuLower::current()->idModelOptions().isTensorIndexerEnabled() &&
-      is_tensor_indexer_supported(/*assert=*/false)) {
-    return true;
-  }
-
-  return false;
+  // TensorIndexer is always used when required or if not disabled.
+  // Note: Previously, ldmatrix and stmatrix were first introduced
+  // with Ampere, their indexing were only implemented in the legacy
+  // indexer in a rather manual way. The current implementation uses
+  // the alternate loop domain to enable TensorIndexer-based indexing.
+  return is_tensor_indexer_required() ||
+      GpuLower::current()->idModelOptions().isTensorIndexerEnabled();
 }
 
 } // namespace

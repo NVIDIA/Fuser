@@ -45,7 +45,7 @@ fusion : Fusion
   // template functions in the Fusion class. Templates do not exist in the
   // python language. To bind these functions, you must instantiate a full
   // (explicit) template specialization.
-  py::class_<Fusion, std::shared_ptr<Fusion>>(nvfuser, "Fusion")
+  py::class_<Fusion, py::smart_holder>(nvfuser, "Fusion")
       .def(py::init<>(), R"(
 Create a new Fusion.
 
@@ -229,12 +229,12 @@ str
 void bindFusionExecutorCache(py::module& nvfuser) {
   py::class_<FusionExecutorCache>(nvfuser, "FusionExecutorCache")
       .def(
-          py::init([](const Fusion* fusion,
+          py::init([](std::unique_ptr<Fusion> fusion,
                       int64_t fusion_id,
                       bool auto_schedule) {
-            // Make a copy of the fusion for FusionExecutorCache to own.
+            // Move fusion to FusionExecutorCache.
             return std::make_unique<FusionExecutorCache>(
-                std::make_unique<Fusion>(*fusion), fusion_id, auto_schedule);
+                std::move(fusion), fusion_id, auto_schedule);
           }),
           py::arg("fusion"),
           py::arg("fusion_id") = 0,
@@ -516,13 +516,15 @@ void bindKernelExecutor(py::module& nvfuser) {
           [](KernelExecutor& self,
              Fusion* fusion,
              const py::iterable& args,
-             const LaunchParams& launch_constraints,
+             std::optional<LaunchParams> launch_constraints,
              const CompileParams& compile_params,
              SchedulerType scheduler_type) {
+            // launch_constraints is optional to avoid creating default
+            // LaunchParams when importing shared library.
             self.compile(
                 fusion,
                 from_pyiterable(args),
-                launch_constraints,
+                launch_constraints.value_or(LaunchParams()),
                 compile_params,
                 scheduler_type);
           },
@@ -548,17 +550,22 @@ void bindKernelExecutor(py::module& nvfuser) {
             )",
           py::arg("fusion"),
           py::arg("args") = py::list(),
-          py::arg("launch_constraints") = LaunchParams(),
+          py::arg("launch_constraints") = py::none(),
           py::arg("compile_params") = CompileParams(),
           py::arg("scheduler_type") = SchedulerType::None)
       .def(
           "run",
           [](KernelExecutor& self,
              const py::iterable& args,
-             const LaunchParams& launch_constraints,
+             std::optional<LaunchParams> launch_constraints,
              const CompileParams& compile_params) {
+            // launch_constraints is optional to avoid creating default
+            // LaunchParams when importing shared library.
             KernelArgumentHolder outputs = self.run(
-                from_pyiterable(args), {}, launch_constraints, compile_params);
+                from_pyiterable(args),
+                {},
+                launch_constraints.value_or(LaunchParams()),
+                compile_params);
             return to_tensor_vector(outputs);
           },
           R"(
@@ -579,7 +586,7 @@ void bindKernelExecutor(py::module& nvfuser) {
                   The output arguments containing the results.
             )",
           py::arg("args"),
-          py::arg("launch_constraints") = LaunchParams(),
+          py::arg("launch_constraints") = py::none(),
           py::arg("compile_params") = CompileParams())
       .def(
           "is_compiled",
@@ -591,6 +598,25 @@ void bindKernelExecutor(py::module& nvfuser) {
                -------
                bool
                    True if the kernel has been compiled, False otherwise.
+             )")
+      .def(
+          "is_programmatic_dependent_launch_enabled",
+          [](KernelExecutor& self) -> bool {
+            if (!self.isCompiled()) {
+              return false;
+            }
+            return self.compiledKernel()
+                ->kernel()
+                ->summary()
+                .enable_programmatic_dependent_launch;
+          },
+          R"(
+               Check if programmatic dependent launch is enabled for this kernel.
+
+               Returns
+               -------
+               bool
+                   True if programmatic dependent launch is enabled, False otherwise.
              )");
 }
 

@@ -6,21 +6,21 @@
  */
 // clang-format on
 
-#include <host_ir/ops.h>
+#include "host_ir/ops.h"
 
 #include <algorithm>
 #include <optional>
 #include <ranges>
 #include <vector>
 
-#include <host_ir/ir.h>
-#include <ir/utils.h>
-#include <multidevice/allocation_utils.h>
-#include <multidevice/propagation.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <transform_replay.h>
-#include <utils.h>
+#include "base.h"
+#include "host_ir/ir.h"
+#include "ir/utils.h"
+#include "multidevice/allocation_utils.h"
+#include "multidevice/propagation.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "transform_replay.h"
 
 namespace nvfuser::hir {
 

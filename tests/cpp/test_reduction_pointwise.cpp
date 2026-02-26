@@ -13,17 +13,11 @@
 #include "scheduler/reduction_utils.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class PointwiseFusedReductionTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using PointwiseFusedReductionTest = NVFuserTest;
 
 // inner reduction + non-broadcast epilogue, can't be fused
 // outer reduction + non-broadcast epilogue, can be fused

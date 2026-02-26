@@ -9,7 +9,6 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 
 namespace nvfuser {
@@ -380,19 +379,6 @@ class IndexingPathAnalysis : public OptInDispatch {
   }
 
   // Should be uncommon. Just predicate if unsafe
-  void handle(Swizzle2D* swizzle) {
-    const auto expr_g = graph_.toGroup(swizzle);
-    const auto inputs =
-        getInputsOfExprGroup(graph_, expr_g, currentDirection());
-    const auto outputs =
-        getOutputsOfExprGroup(graph_, expr_g, currentDirection());
-
-    for (const auto& inp : inputs) {
-      if (unsafe_groups_.contains(inp)) {
-        groups_to_predicate_.emplace_back(inp);
-      }
-    }
-  }
 
   const std::vector<ValGroup>& groupsToPredicate() const {
     return groups_to_predicate_;

@@ -18,7 +18,7 @@
 #include <kernel_ir_dispatch.h>
 #include <ops/arith.h>
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 #include <sstream>
 #include <unordered_map>
@@ -1298,13 +1298,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     //  before reaching this point.
     auto this_tv = alloc_info->alloc_expr->buffer()->as<TensorView>();
     auto reuse_tv = to_reuse->alloc_expr->buffer()->as<TensorView>();
-
-    // Aggressively disable inner sharing for swizzled tvs since
-    //  the indexing order is in general not tractable.
-    // But outer sharing should still apply.
-    if (this_tv->hasSwizzleOp() || reuse_tv->hasSwizzleOp()) {
-      return false;
-    }
 
     // Check the values in between the two buffers.
     auto vals_between_this_and_reuse =

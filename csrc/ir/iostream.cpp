@@ -6,15 +6,12 @@
  */
 // clang-format on
 
-#include <ir/iostream.h>
+#include "ir/iostream.h"
 
 #include <ostream>
 
-#include <fusion.h>
-#include <ir/base_nodes.h>
-#include <ir/internal_nodes.h>
-#include <ir/printer.h>
-#include <kernel_ir.h>
+#include "ir/internal_nodes.h"
+#include "kernel_ir.h"
 
 namespace nvfuser {
 
@@ -35,37 +32,6 @@ void checkInlineable(const Expr* expr) {
       expr->output(0)->isScalar() || expr->output(0)->isA<NamedScalar>(),
       "Printing inline computations involving values other than scalars is not "
       "currently supported.");
-}
-
-std::ostream& operator<<(std::ostream& os, const Statement& stmt) {
-  return os << stmt.toString();
-}
-
-std::ostream& operator<<(std::ostream& os, const Fusion& f) {
-  IrPrinter p(os);
-  p.handle(&f);
-  return os;
-}
-
-namespace {
-template <typename T>
-void print(std::ostream& os, const T* t) {
-  if (t == nullptr) {
-    os << "<null>";
-  } else {
-    os << *t;
-  }
-}
-} // namespace
-
-std::ostream& operator<<(std::ostream& os, const Statement* t) {
-  print(os, t);
-  return os;
-}
-
-std::ostream& operator<<(std::ostream& os, const Fusion* t) {
-  print(os, t);
-  return os;
 }
 
 } // namespace nvfuser

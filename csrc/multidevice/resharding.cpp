@@ -117,20 +117,28 @@ bool haveDifferentShardings(
     return false;
   }
 
-  // exit early in the unsharded case for performance if we are
+  // Exit early in the unsharded case for performance if we are
   // not checking for `Stream`.
   if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh() &&
       !parallel_types.count(ParallelType::Stream)) {
     return false;
   }
 
-  // If device mesh are different, the Expr is resharding if parallel_types
-  // includes DIDs
-  if (std::any_of(
-          kParallelTypeDIDs.begin(),
-          kParallelTypeDIDs.end(),
-          [&](ParallelType pt) { return parallel_types.count(pt); }) &&
-      producer->getDeviceMesh() != consumer->getDeviceMesh()) {
+  // If the two device meshes are different, the Expr is resharding if any
+  // parallel type in `parallel_types` is in the mesh.
+  //
+  // This code is problematic for multi-dimensional sharding.
+  // ```
+  // x: [iDIDy{2}, iDIDx{2}] on mesh [[0, 1], [2, 3]]
+  // y = set(x): [iDIDy{2}, i{2}] on mesh [[0], [2]]
+  // ```
+  // should be treated as non-resharding on DIDy.
+  if (producer->getDeviceMesh() != consumer->getDeviceMesh() &&
+      std::ranges::any_of(parallel_types, [&](ParallelType pt) {
+        return isParallelTypeDeviceDim(pt) &&
+            (producer->getDeviceMesh().hasParallelType(pt) ||
+             consumer->getDeviceMesh().hasParallelType(pt));
+      })) {
     return true;
   }
 
@@ -167,10 +175,8 @@ bool haveDifferentShardings(
         PairwiseLogicalDomainMap(producer, consumer)
             .mapBroadcast(false)
             .mapConsumerToProducer();
-    return !std::all_of(
-        consumer_domain.begin(),
-        consumer_domain.end(),
-        [&c2p, &parallel_types](IterDomain* c_id) {
+    return !std::ranges::all_of(
+        consumer_domain, [&c2p, &parallel_types](IterDomain* c_id) {
           auto p_id = c2p.at(c_id);
           auto p_id_pt = p_id->getParallelType();
           auto c_id_pt = c_id->getParallelType();
@@ -256,8 +262,8 @@ bool haveDifferentShardings(
   for (const auto parallel_type : parallel_types) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
-      for (IterDomain* p_logical_id :
-           getInputsInTargetDomain({p_loop_id}, producer->getLogicalDomain())) {
+      for (IterDomain* p_logical_id : ir_utils::getReachableIds(
+               producer->getLogicalDomain(), {p_loop_id})) {
         if (id_to_index.count(p_logical_id) > 0) {
           continue;
         }
@@ -270,8 +276,8 @@ bool haveDifferentShardings(
   for (const auto parallel_type : parallel_types) {
     if (IterDomain* c_loop_id =
             getOrDefault(c_parallel_type_to_id, parallel_type)) {
-      for (IterDomain* c_root_id : getInputsInTargetDomain(
-               {c_loop_id}, consumer->getMaybeRootDomain())) {
+      for (IterDomain* c_root_id : ir_utils::getReachableIds(
+               consumer->getMaybeRootDomain(), {c_loop_id})) {
         if (id_to_index.count(c_root_id) > 0) {
           continue;
         }

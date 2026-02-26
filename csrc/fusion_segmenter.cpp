@@ -1732,9 +1732,10 @@ std::ostream& operator<<(
 }
 
 void SegmentedFusion::print() const {
-  debug() << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
-  completeFusion()->printMath();
-  debug() << "} // {Re-written complete fusion}\n";
+  debug() << "Segmented_Fusion Dump: -- Re-written complete fusion:{"
+          << std::endl;
+  completeFusion()->print();
+  debug() << "} // {Re-written complete fusion}" << std::endl << std::endl;
   debug() << this << "\n";
 }
 
@@ -4534,7 +4535,7 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
       // More details of the issue regarding merging horizontal groups can be
       // found in issue 3829 -- https://github.com/NVIDIA/Fuser/issues/3829.
       // Even with a squeeze op with 2 uses, this test case:
-      // https://github.com/NVIDIA/Fuser/blob/70ab277c7d91bcc24cd50dd75cedd79863a24f96/tests/python/test_python_frontend.py#L3666C1-L3666C30
+      // https://github.com/NVIDIA/Fuser/blob/69da2d1972eb19bf7a04cef0c4debe9f55d8e11c/tests/python/direct/test_repro.py#L801
       // demonstrates that privatizing the squeeze op leads to horizontal groups
       // that can't be merged back.
       if (maybe_upcast_squeeze_out_tv->definition()->isA<SqueezeOp>() &&

@@ -76,8 +76,8 @@
 import sys
 
 from utils import (
+    BuildConfig,
     run,
-    create_build_config,
     override_build_config_from_env,
 )
 
@@ -95,11 +95,8 @@ def version_tag(config):
 
 
 def main():
-    # Parse arguments using argparse
-    # Use argparse to create description of arguments from command line
-    config, forward_args = create_build_config()
-
-    # Override build config from environment variables
+    config = BuildConfig()
+    # Override build config from environment variables.
     override_build_config_from_env(config)
 
     if "clean" in sys.argv:
@@ -108,8 +105,6 @@ def main():
 
     if config.cpp_standard < 20:
         raise ValueError("nvfuser requires C++20 standard or higher")
-
-    sys.argv = [sys.argv[0]] + forward_args
 
     run(config, version_tag(config), relative_path="..")
 

@@ -20,10 +20,10 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include "codegen.h"
-#include "csrc/exceptions.h"
 #include "device_lower/lower2device.h"
 #include "device_lower/pass/magic_zero.h"
 #include "disjoint_set.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "fusion_segmenter.h"
@@ -46,22 +46,16 @@
 #include "scheduler/tools/inlining.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_replay.h"
 #include "transform_rfactor.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
 using namespace at::indexing;
 
-class Gpu1Test : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using Gpu1Test = NVFuserTest;
 
 // A few smoke tests for IrGraphGenerator
 // (These tests exercise IrGraphGenerator through a non-trivial IR,
@@ -2803,7 +2797,6 @@ class Fp4CastTest : public NVFuserTest,
  public:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     std::tie(dtype_highp, vectorization_factor) = GetParam();
     NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
   }
@@ -3008,7 +3001,6 @@ class AdvancedDtypeTest : public NVFuserFixtureParamTest<bool> {
   bool use_dynamic_shape;
   void SetUp() override {
     NVFuserFixtureParamTest<bool>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     use_dynamic_shape = GetParam();
   }
 };
@@ -3086,7 +3078,6 @@ class Float4E2m1ManualScheduleTestAllArch
   bool dynamic_shape;
   void SetUp() override {
     NVFuserFixtureParamTest<Float4E2m1ManualScheduleTestParams>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     std::tie(vectorize_factor, dynamic_shape) = GetParam();
   }
 };

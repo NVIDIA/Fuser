@@ -6,9 +6,6 @@
  */
 // clang-format on
 #include <gtest/gtest.h>
-#include <torch/torch.h>
-
-#include <ATen/cuda/CUDAContext.h>
 
 #include "multidevice/cuda_p2p.h"
 #include "multidevice/symmetric_tensor.h"
@@ -38,7 +35,8 @@ TEST_F(AlltoallvCudaTest, AlltoallvAsymmetric) {
     send_counts.index_put_({dest}, count_for(my_rank, dest));
   }
 
-  auto metadata = prepareAlltoallvMetadata(send_counts, "test_alltoallv_counts");
+  auto metadata =
+      prepareAlltoallvMetadata(send_counts, "test_alltoallv_counts");
   const int64_t max_recv = metadata.max_recv;
   const int64_t total_send = send_counts.sum().item<int64_t>();
   auto send_sym = SymmetricTensor::allocate(
@@ -46,8 +44,8 @@ TEST_F(AlltoallvCudaTest, AlltoallvAsymmetric) {
   send_sym.narrow(0, 0, total_send)
       .copy_(at::arange(total_send, int_options) + my_rank * 1000);
 
-  auto recv_sym = SymmetricTensor::allocate(
-      {max_recv}, at::kLong, communicator_->device());
+  auto recv_sym =
+      SymmetricTensor::allocate({max_recv}, at::kLong, communicator_->device());
   SymmetricTensor recv_handle(recv_sym);
   recv_handle.setupRemoteHandles("test_alltoallv_recv");
 

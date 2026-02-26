@@ -11,8 +11,8 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <iter_visitor.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 namespace nvfuser {
 

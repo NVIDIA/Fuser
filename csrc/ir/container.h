@@ -11,18 +11,12 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include <exceptions.h>
-#include <ir/base_nodes.h>
-#include <utils.h>
-#include <visibility.h>
+#include "base.h"
+#include "exceptions.h"
+#include "ir/base_nodes.h"
+#include "visibility.h"
 
 namespace nvfuser {
-
-class IrBuilderPasskey;
-class ExprPasskey;
-class OptOutMutator;
-
-class NamedScalar;
 
 // Passkey for container to register names with statements
 class IrContainerPasskey {
@@ -32,17 +26,22 @@ class IrContainerPasskey {
   explicit IrContainerPasskey() = default;
 };
 
-class IrContainer : public PolymorphicBase {
+class NamedScalar;
+
+class IrContainer {
  public:
   NVF_API IrContainer();
 
-  IrContainer(const IrContainer& other);
-  IrContainer(IrContainer&& other) noexcept;
+  // Copy/Move Constructors and Operators are deleted. IrContainer is managed
+  // through a smart pointer in IrContainer. Semantic operations for Fusion
+  // types are handled directly through copy and swap functions.
+  IrContainer(const IrContainer& other) = delete;
+  IrContainer(IrContainer&& other) noexcept = delete;
 
-  IrContainer& operator=(const IrContainer& other);
-  IrContainer& operator=(IrContainer&& other) noexcept;
+  IrContainer& operator=(const IrContainer& other) = delete;
+  IrContainer& operator=(IrContainer&& other) noexcept = delete;
 
-  ~IrContainer() override;
+  ~IrContainer();
 
   bool inContainer(const Statement* stmt) const;
 
@@ -52,65 +51,18 @@ class IrContainer : public PolymorphicBase {
   }
 
   //! Return values in insertion order
-  const std::deque<Val*> deterministic_vals() const noexcept {
-    std::deque<Val*> vals_deque;
-    std::transform(
-        vals_up_.begin(),
-        vals_up_.end(),
-        std::back_inserter(vals_deque),
-        [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
-    return vals_deque;
-  }
+  const std::deque<Val*> deterministic_vals() const noexcept;
 
   //! Return expression in insertion order
-  const std::deque<Expr*> deterministic_exprs() const noexcept {
-    std::deque<Expr*> exprs_deque;
-    std::transform(
-        exprs_up_.begin(),
-        exprs_up_.end(),
-        std::back_inserter(exprs_deque),
-        [](const std::unique_ptr<Expr>& expr_up) { return expr_up.get(); });
-    return exprs_deque;
-  }
+  const std::deque<Expr*> deterministic_exprs() const noexcept;
 
   //! Return mapping from value to integer id
   const std::unordered_map<Val*, int64_t> deterministic_vals_map()
-      const noexcept {
-    std::unordered_map<Val*, int64_t> vals_map;
-    int64_t count = 0;
-    std::transform(
-        vals_up_.begin(),
-        vals_up_.end(),
-        std::inserter(vals_map, vals_map.end()),
-        [&count](const std::unique_ptr<Val>& val_up) {
-          return std::make_pair(val_up.get(), count++);
-        });
-    return vals_map;
-  }
+      const noexcept;
 
   //! Return mapping from expression to integer id
   const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
-      const noexcept {
-    std::unordered_map<Expr*, int64_t> exprs_map;
-    int64_t count = 0;
-    std::transform(
-        exprs_up_.begin(),
-        exprs_up_.end(),
-        std::inserter(exprs_map, exprs_map.end()),
-        [&count](const std::unique_ptr<Expr>& expr_up) {
-          return std::make_pair(expr_up.get(), count++);
-        });
-    return exprs_map;
-  }
-
-  //! Register the Statement with this container
-  NVF_API virtual void registerStmt(IrBuilderPasskey, Statement* stmt);
-
-  //! Register the Val with this container
-  NVF_API virtual void registerVal(IrBuilderPasskey, Val* val);
-
-  //! Register expr with this container.
-  NVF_API virtual void registerExpr(IrBuilderPasskey, Expr* expr);
+      const noexcept;
 
   //! Return the set of Exprs registered with this fusion. Warning: This will
   //! return exprs outside inputs/outputs, so can be unsafe for use with
@@ -155,22 +107,22 @@ class IrContainer : public PolymorphicBase {
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 
-  friend void swap(IrContainer& a, IrContainer& b) noexcept;
+  static void swap(IrContainer& a, IrContainer& b) noexcept;
 
-  // Let mutator remove Exprs.
-  friend OptOutMutator;
+  // Let Fusion access IrContainer::clear()
+  friend class Fusion;
 
-  virtual void removeExpr(Expr* expr);
+  void removeExpr(Expr* expr);
 
   //! Completely remove val from the fusion, break all dependencies associated
   //! with it
-  virtual void removeVal(Val* val);
+  void removeVal(Val* val);
 
   //! Register the Val with this container
-  virtual void registerVal(Val* val);
+  NVF_API void registerVal(Val* val);
 
   //! Register expr with this container.
-  virtual void registerExpr(Expr* expr);
+  NVF_API void registerExpr(Expr* expr);
 
   StmtNameType getValName(ValType vtype) {
     if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
@@ -234,6 +186,18 @@ class IrContainer : public PolymorphicBase {
   std::unique_ptr<NamedScalar> magic_zero_val_;
   std::unique_ptr<std::vector<Val*>> axioms_;
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
+
+ public:
+  Fusion* parent() const {
+    NVF_ERROR(
+        parent_ != nullptr, "Call to IrContainer::parent() holds nullptr.")
+    return parent_;
+  }
+
+ private:
+  // Parent Fusion that owns this container (for pure composition pattern)
+  // Used by Statement::fusion() to navigate back to owning Fusion
+  Fusion* parent_ = nullptr;
 };
 
 } // namespace nvfuser
