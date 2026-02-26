@@ -11,9 +11,6 @@ from pathlib import Path
 from typing import Any, List, NamedTuple, Optional
 
 
-IS_WINDOWS: bool = os.name == "nt"
-
-
 def eprint(*args: Any, **kwargs: Any) -> None:
     print(*args, file=sys.stderr, flush=True, **kwargs)
 
@@ -37,10 +34,6 @@ class LintMessage(NamedTuple):
     description: Optional[str]
 
 
-def as_posix(name: str) -> str:
-    return name.replace("\\", "/") if IS_WINDOWS else name
-
-
 def _run_command(
     args: List[str],
     *,
@@ -51,9 +44,7 @@ def _run_command(
     try:
         return subprocess.run(
             args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=IS_WINDOWS,  # So batch scripts are found.
+            capture_output=True,
             timeout=timeout,
             check=True,
         )
@@ -138,7 +129,7 @@ def check_file(
                         "STDOUT\n{stdout}"
                     ).format(
                         returncode=err.returncode,
-                        command=" ".join(as_posix(x) for x in err.cmd),
+                        command=" ".join(err.cmd),
                         stderr=err.stderr.decode("utf-8").strip() or "(empty)",
                         stdout=err.stdout.decode("utf-8").strip() or "(empty)",
                     )
@@ -171,11 +162,6 @@ def main() -> None:
         fromfile_prefix_chars="@",
     )
     parser.add_argument(
-        "--binary",
-        required=True,
-        help="clang-format binary path",
-    )
-    parser.add_argument(
         "--retries",
         default=3,
         type=int,
@@ -201,16 +187,36 @@ def main() -> None:
 
     logging.basicConfig(
         format="<%(threadName)s:%(levelname)s> %(message)s",
-        level=logging.NOTSET
-        if args.verbose
-        else logging.DEBUG
-        if len(args.filenames) < 1000
-        else logging.INFO,
+        level=(
+            logging.NOTSET
+            if args.verbose
+            else logging.DEBUG
+            if len(args.filenames) < 1000
+            else logging.INFO
+        ),
         stream=sys.stderr,
     )
 
-    binary = os.path.normpath(args.binary) if IS_WINDOWS else args.binary
-    binary = os.path.expanduser(binary)
+    try:
+        llvm_bindir = subprocess.check_output(
+            ["llvm-config", "--bindir"], text=True
+        ).strip()
+    except FileNotFoundError:
+        lint_message = LintMessage(
+            path=None,
+            line=None,
+            char=None,
+            code="CLANGFORMAT",
+            severity=LintSeverity.ERROR,
+            name="init-error",
+            original=None,
+            replacement=None,
+            description="llvm-config doesn't exist (is LLVM installed?).",
+        )
+        print(json.dumps(lint_message._asdict()), flush=True)
+        sys.exit(0)
+
+    binary = os.path.join(llvm_bindir, "clang-format")
     if not Path(binary).exists():
         lint_message = LintMessage(
             path=None,
@@ -222,8 +228,7 @@ def main() -> None:
             original=None,
             replacement=None,
             description=(
-                f"Could not find clang-format binary at {binary}, "
-                "did you forget to run `lintrunner init`?"
+                f"Could not find clang-format binary at {binary} (is LLVM installed?)",
             ),
         )
         print(json.dumps(lint_message._asdict()), flush=True)
