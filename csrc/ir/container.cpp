@@ -80,6 +80,9 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
 
   std::swap(a.val_type_name_map_, b.val_type_name_map_);
   std::swap(a.expr_name_counter_, b.expr_name_counter_);
+
+  std::swap(a.per_fusion_vals_, b.per_fusion_vals_);
+  std::swap(a.per_fusion_exprs_, b.per_fusion_exprs_);
 }
 
 IrCloner IrContainer::copy(
@@ -124,6 +127,8 @@ void IrContainer::clear() noexcept {
   exprs_up_.clear();
   val_type_name_map_.clear();
   expr_name_counter_ = 0;
+  per_fusion_vals_.clear();
+  per_fusion_exprs_.clear();
 }
 
 bool IrContainer::inContainer(const Statement* const_stmt) const {
@@ -181,6 +186,132 @@ bool IrContainer::hasMultipleFusions() const {
 
 const std::unordered_set<Fusion*>& IrContainer::sharingFusions() const {
   return sharing_fusions_;
+}
+
+const std::unordered_set<Val*>& IrContainer::valsOwnedBy(
+    const Fusion* fusion) const {
+  static const std::unordered_set<Val*> empty;
+  auto it = per_fusion_vals_.find(fusion);
+  return it != per_fusion_vals_.end() ? it->second : empty;
+}
+
+const std::unordered_set<Expr*>& IrContainer::exprsOwnedBy(
+    const Fusion* fusion) const {
+  static const std::unordered_set<Expr*> empty;
+  auto it = per_fusion_exprs_.find(fusion);
+  return it != per_fusion_exprs_.end() ? it->second : empty;
+}
+
+void IrContainer::transferStatementOwnership(
+    const Fusion* from,
+    const Fusion* to) {
+  auto vals_it = per_fusion_vals_.find(from);
+  if (vals_it != per_fusion_vals_.end()) {
+    auto& to_vals = per_fusion_vals_[to];
+    to_vals.insert(vals_it->second.begin(), vals_it->second.end());
+    per_fusion_vals_.erase(vals_it);
+  }
+
+  auto exprs_it = per_fusion_exprs_.find(from);
+  if (exprs_it != per_fusion_exprs_.end()) {
+    auto& to_exprs = per_fusion_exprs_[to];
+    to_exprs.insert(exprs_it->second.begin(), exprs_it->second.end());
+    per_fusion_exprs_.erase(exprs_it);
+  }
+}
+
+void IrContainer::removeStatementsOwnedBy(const Fusion* fusion) {
+  auto vals_it = per_fusion_vals_.find(fusion);
+  if (vals_it != per_fusion_vals_.end()) {
+    const auto& owned = vals_it->second;
+    std::erase_if(vals_up_, [&](const std::unique_ptr<Val>& v) {
+      if (owned.count(v.get()) > 0) {
+        vals_.erase(v.get());
+        return true;
+      }
+      return false;
+    });
+    per_fusion_vals_.erase(vals_it);
+  }
+
+  auto exprs_it = per_fusion_exprs_.find(fusion);
+  if (exprs_it != per_fusion_exprs_.end()) {
+    const auto& owned = exprs_it->second;
+    std::erase_if(exprs_up_, [&](const std::unique_ptr<Expr>& e) {
+      if (owned.count(e.get()) > 0) {
+        exprs_.erase(e.get());
+        return true;
+      }
+      return false;
+    });
+    per_fusion_exprs_.erase(exprs_it);
+  }
+}
+
+std::deque<Val*> IrContainer::deterministicValsOwnedBy(
+    const Fusion* fusion) const noexcept {
+  std::deque<Val*> result;
+  auto it = per_fusion_vals_.find(fusion);
+  if (it == per_fusion_vals_.end()) {
+    return result;
+  }
+  const auto& owned = it->second;
+  for (const auto& val_up : vals_up_) {
+    if (owned.count(val_up.get()) > 0) {
+      result.push_back(val_up.get());
+    }
+  }
+  return result;
+}
+
+std::deque<Expr*> IrContainer::deterministicExprsOwnedBy(
+    const Fusion* fusion) const noexcept {
+  std::deque<Expr*> result;
+  auto it = per_fusion_exprs_.find(fusion);
+  if (it == per_fusion_exprs_.end()) {
+    return result;
+  }
+  const auto& owned = it->second;
+  for (const auto& expr_up : exprs_up_) {
+    if (owned.count(expr_up.get()) > 0) {
+      result.push_back(expr_up.get());
+    }
+  }
+  return result;
+}
+
+std::unordered_map<Val*, int64_t> IrContainer::deterministicValsMapOwnedBy(
+    const Fusion* fusion) const noexcept {
+  std::unordered_map<Val*, int64_t> result;
+  auto it = per_fusion_vals_.find(fusion);
+  if (it == per_fusion_vals_.end()) {
+    return result;
+  }
+  const auto& owned = it->second;
+  int64_t count = 0;
+  for (const auto& val_up : vals_up_) {
+    if (owned.count(val_up.get()) > 0) {
+      result[val_up.get()] = count++;
+    }
+  }
+  return result;
+}
+
+std::unordered_map<Expr*, int64_t> IrContainer::deterministicExprsMapOwnedBy(
+    const Fusion* fusion) const noexcept {
+  std::unordered_map<Expr*, int64_t> result;
+  auto it = per_fusion_exprs_.find(fusion);
+  if (it == per_fusion_exprs_.end()) {
+    return result;
+  }
+  const auto& owned = it->second;
+  int64_t count = 0;
+  for (const auto& expr_up : exprs_up_) {
+    if (owned.count(expr_up.get()) > 0) {
+      result[expr_up.get()] = count++;
+    }
+  }
+  return result;
 }
 
 } // namespace nvfuser

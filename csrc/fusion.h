@@ -521,40 +521,51 @@ class NVF_API Fusion : public PolymorphicBase {
   }
 
   // Collections access (return values in insertion order)
-  const std::deque<Val*> deterministic_vals() const noexcept {
-    return ir_container()->deterministic_vals();
+  std::deque<Val*> deterministic_vals() const noexcept {
+    return ir_container()->deterministicValsOwnedBy(this);
   }
 
-  const std::deque<Expr*> deterministic_exprs() const noexcept {
-    return ir_container()->deterministic_exprs();
+  std::deque<Expr*> deterministic_exprs() const noexcept {
+    return ir_container()->deterministicExprsOwnedBy(this);
   }
 
-  const std::unordered_map<Val*, int64_t> deterministic_vals_map()
-      const noexcept {
-    return ir_container()->deterministic_vals_map();
+  std::unordered_map<Val*, int64_t> deterministic_vals_map() const noexcept {
+    return ir_container()->deterministicValsMapOwnedBy(this);
   }
 
-  const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
-      const noexcept {
-    return ir_container()->deterministic_exprs_map();
+  std::unordered_map<Expr*, int64_t> deterministic_exprs_map() const noexcept {
+    return ir_container()->deterministicExprsMapOwnedBy(this);
   }
 
   // Collections access (unordered sets)
   const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return ir_container()->unordered_exprs();
+    return ir_container()->exprsOwnedBy(this);
   }
 
   const std::unordered_set<Val*>& vals() const noexcept {
-    return ir_container()->vals();
+    return ir_container()->valsOwnedBy(this);
   }
 
-  // Count queries
+  // Count queries (per-Fusion: only counts statements owned by this Fusion)
   int64_t numExprs() const noexcept {
-    return ir_container()->numExprs();
+    return std::ssize(ir_container()->exprsOwnedBy(this));
   }
 
   int64_t numVals() const noexcept {
-    return ir_container()->numVals();
+    return std::ssize(ir_container()->valsOwnedBy(this));
+  }
+
+  //! Return per-Fusion val count excluding shortcut vals (zero_val_, etc.).
+  //! Shortcut vals are registered in both per_fusion_vals_ and vals_up_, but
+  //! since they're singletons that should persist across StatementGuard scopes,
+  //! this count excludes them so the LIFO pop-back in
+  //! removeStatementsCreatedAfter correctly skips over them.
+  int64_t numValsExcludingShortcuts() const noexcept {
+    int64_t count = std::ssize(ir_container()->valsOwnedBy(this));
+    count -= (zero_val_ != nullptr) + (one_val_ != nullptr) +
+        (true_val_ != nullptr) + (false_val_ != nullptr) +
+        (magic_zero_val_ != nullptr);
+    return count;
   }
 
   // Shortcut values (frequently used constants)
