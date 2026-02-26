@@ -232,9 +232,25 @@ def main() -> None:
         stream=sys.stderr,
     )
 
-    llvm_bindir = subprocess.check_output(
-        "llvm-config --bindir", text=True, shell=True
-    ).strip()
+    try:
+        llvm_bindir = subprocess.check_output(
+            "llvm-config --bindir", text=True, shell=True
+        ).strip()
+    except subprocess.CalledProcessError as err:
+        err_msg = LintMessage(
+            path="<none>",
+            line=None,
+            char=None,
+            code="CLANGTIDY",
+            severity=LintSeverity.ERROR,
+            name="command-failed",
+            original=None,
+            replacement=None,
+            description=(f"llvm-config --bindir failed (is LLVM installed?): {err}. "),
+        )
+        print(json.dumps(err_msg._asdict()), flush=True)
+        exit(0)
+
     binary_path = os.path.join(llvm_bindir, "clang-tidy")
     if not os.path.exists(binary_path):
         err_msg = LintMessage(
@@ -246,10 +262,7 @@ def main() -> None:
             name="command-failed",
             original=None,
             replacement=None,
-            description=(
-                f"Could not find clang-tidy binary at {binary_path},"
-                " you may need to run `lintrunner init`."
-            ),
+            description=f"Could not find clang-tidy binary at {binary_path} (is LLVM installed?)",
         )
         print(json.dumps(err_msg._asdict()), flush=True)
         exit(0)

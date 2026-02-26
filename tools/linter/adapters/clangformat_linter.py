@@ -187,17 +187,35 @@ def main() -> None:
 
     logging.basicConfig(
         format="<%(threadName)s:%(levelname)s> %(message)s",
-        level=logging.NOTSET
-        if args.verbose
-        else logging.DEBUG
-        if len(args.filenames) < 1000
-        else logging.INFO,
+        level=(
+            logging.NOTSET
+            if args.verbose
+            else logging.DEBUG
+            if len(args.filenames) < 1000
+            else logging.INFO
+        ),
         stream=sys.stderr,
     )
 
-    llvm_bindir = subprocess.check_output(
-        "llvm-config --bindir", text=True, shell=True
-    ).strip()
+    try:
+        llvm_bindir = subprocess.check_output(
+            "llvm-config --bindir", text=True, shell=True
+        ).strip()
+    except subprocess.CalledProcessError as err:
+        lint_message = LintMessage(
+            path=None,
+            line=None,
+            char=None,
+            code="CLANGFORMAT",
+            severity=LintSeverity.ERROR,
+            name="init-error",
+            original=None,
+            replacement=None,
+            description=(f"llvm-config --bindir failed (is LLVM installed?): {err}. "),
+        )
+        print(json.dumps(lint_message._asdict()), flush=True)
+        sys.exit(0)
+
     binary = os.path.join(llvm_bindir, "clang-format")
     if not Path(binary).exists():
         lint_message = LintMessage(
@@ -210,8 +228,7 @@ def main() -> None:
             original=None,
             replacement=None,
             description=(
-                f"Could not find clang-format binary at {binary}, "
-                "did you forget to run `lintrunner init`?"
+                f"Could not find clang-format binary at {binary} (is LLVM installed?)",
             ),
         )
         print(json.dumps(lint_message._asdict()), flush=True)

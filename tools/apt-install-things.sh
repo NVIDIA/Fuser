@@ -42,8 +42,8 @@ if command -v llvm-config-19 >/dev/null 2>&1; then
     # clang-format without hardcoding which version
     sudo ln -sf "$(command -v llvm-config-19)" /usr/bin/llvm-config
 else
-    # Should we error out instead of warning?
     echo "Warning: llvm-config-19 not found in PATH after installation"
+    ls -la /usr/bin/llvm-config* || true
 fi
 
 # Install minimal cuda toolkit.
