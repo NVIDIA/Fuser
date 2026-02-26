@@ -1488,7 +1488,7 @@ class TransposeTMA
       public testing::WithParamInterface<std::tuple<bool, bool>> {};
 
 // Transpose happens at input cached smem
-// Each thread loads multiple rows from input and write as multiple columns to
+// Each thread loads multiple columns from input and write as multiple rows to
 // output.
 TEST_P(TransposeTMA, TransposeInputSmem) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
@@ -1672,7 +1672,7 @@ INSTANTIATE_TEST_SUITE_P(
     }));
 
 // Transpose happens at output cached smem
-// Each thread loads multiple columns from input and write as multiple rows to
+// Each thread loads multiple rows from input and write as multiple columns to
 // output.
 // with tma load, 852 ms on GB200.
 // without tma load, 814 ms on GB200.
