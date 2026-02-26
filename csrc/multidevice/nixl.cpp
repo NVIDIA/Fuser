@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iostream>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -67,7 +68,7 @@ void validateCudaTensors(const std::vector<at::Tensor>& tensors) {
 #ifdef USE_NIXL
 
 nixl_reg_dlist_t buildRegDlist(const std::vector<at::Tensor>& tensors) {
-  nixl_reg_dlist_t dlist(VRAM_SEG, tensors.size());
+  nixl_reg_dlist_t dlist(VRAM_SEG);
   for (const auto& t : tensors) {
     dlist.addDesc(
         {reinterpret_cast<uintptr_t>(t.data_ptr()),
@@ -78,7 +79,7 @@ nixl_reg_dlist_t buildRegDlist(const std::vector<at::Tensor>& tensors) {
 }
 
 nixl_xfer_dlist_t buildXferDlist(const std::vector<TensorDesc>& descs) {
-  nixl_xfer_dlist_t dlist(VRAM_SEG, descs.size());
+  nixl_xfer_dlist_t dlist(VRAM_SEG);
   for (const auto& desc : descs) {
     dlist.addDesc({desc.addr, desc.size, desc.dev});
   }
@@ -163,30 +164,47 @@ NixlBackend::Impl::Impl(Communicator& communicator)
   // local descriptor list for VRAM -- if no backend claims VRAM, the
   // probe fails and we mark the backend as unavailable.
   {
+    constexpr int64_t kProbeBytes = 64;
     auto probe = at::empty(
-        {1},
+        {kProbeBytes},
         at::TensorOptions().dtype(at::kByte).device(
             at::kCUDA, communicator_.deviceId()));
-    nixl_reg_dlist_t reg_dlist(VRAM_SEG, 1);
-    reg_dlist.addDesc(
-        {reinterpret_cast<uintptr_t>(probe.data_ptr()),
-         probe.nbytes(),
-         static_cast<uint32_t>(probe.device().index())});
+    size_t nbytes = static_cast<size_t>(probe.nbytes());
+    uintptr_t addr = reinterpret_cast<uintptr_t>(probe.data_ptr());
+    uint32_t dev_idx = static_cast<uint32_t>(probe.device().index());
+
+    std::cerr << "[NixlBackend probe] device=" << dev_idx
+              << " addr=0x" << std::hex << addr << std::dec
+              << " nbytes=" << nbytes
+              << " numel=" << probe.numel()
+              << " element_size=" << probe.element_size() << std::endl;
+
+    NVF_ERROR(nbytes > 0, "NIXL probe: unexpected zero-byte tensor");
+    NVF_ERROR(addr != 0, "NIXL probe: null data pointer");
+
+    nixl_reg_dlist_t reg_dlist(VRAM_SEG);
+    reg_dlist.addDesc({addr, nbytes, static_cast<uint64_t>(dev_idx)});
+
+    std::cerr << "[NixlBackend probe] reg_dlist desc: addr=0x" << std::hex
+              << reg_dlist[0].addr << std::dec
+              << " len=" << reg_dlist[0].len
+              << " devId=" << reg_dlist[0].devId << std::endl;
 
     nixl_status_t reg_status = agent_->registerMem(reg_dlist);
+    std::cerr << "[NixlBackend probe] registerMem returned "
+              << reg_status << std::endl;
     if (reg_status != NIXL_SUCCESS) {
       return;
     }
 
-    nixl_xfer_dlist_t xfer_dlist(VRAM_SEG, 1);
-    xfer_dlist.addDesc(
-        {reinterpret_cast<uintptr_t>(probe.data_ptr()),
-         probe.nbytes(),
-         static_cast<uint32_t>(probe.device().index())});
+    nixl_xfer_dlist_t xfer_dlist(VRAM_SEG);
+    xfer_dlist.addDesc({addr, nbytes, static_cast<uint64_t>(dev_idx)});
 
     nixlDlistH* dlist_handle = nullptr;
     nixl_status_t prep_status =
         agent_->prepXferDlist(NIXL_INIT_AGENT, xfer_dlist, dlist_handle);
+    std::cerr << "[NixlBackend probe] prepXferDlist returned "
+              << prep_status << std::endl;
 
     if (dlist_handle) {
       agent_->releasedDlistH(dlist_handle);
