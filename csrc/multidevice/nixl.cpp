@@ -164,7 +164,7 @@ NixlBackend::Impl::Impl(Communicator& communicator)
   // local descriptor list for VRAM -- if no backend claims VRAM, the
   // probe fails and we mark the backend as unavailable.
   {
-    constexpr int64_t kProbeBytes = 64;
+    constexpr int64_t kProbeBytes = 1;
     auto probe = at::empty(
         {kProbeBytes},
         at::TensorOptions().dtype(at::kByte).device(
