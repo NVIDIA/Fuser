@@ -7,10 +7,10 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import time
 from enum import Enum
 from pathlib import Path
-from sysconfig import get_paths as gp
 from typing import Any, List, NamedTuple, Optional, Pattern
 
 # Nvfuser directory root
@@ -25,7 +25,7 @@ IS_WINDOWS: bool = os.name == "nt"
 
 # Returns '/usr/local/include/python<version number>'
 def get_python_include_dir() -> str:
-    return gp()["include"]
+    return sysconfig.get_paths()["include"]
 
 
 def eprint(*args: Any, **kwargs: Any) -> None:
@@ -79,7 +79,8 @@ def run_command(
         return subprocess.run(
             args,
             capture_output=True,
-            check=False,
+            check=True,
+            text=True,
         )
     finally:
         end_time = time.monotonic()
@@ -133,7 +134,6 @@ def clang_search_dirs() -> List[str]:
 # "/usr/local/cuda-13.0/targets/x86_64-linux/include". I'll try to add that in
 # a future PR.
 include_dir = [
-    "/usr/lib/llvm-11/include/openmp",
     get_python_include_dir(),
     os.path.join(NVFUSER_ROOT, "third_party/pybind11/include"),
 ] + clang_search_dirs()
@@ -152,7 +152,7 @@ def check_file(
         proc = run_command(
             [binary, f"-p={build_dir}", *include_args, filename],
         )
-    except OSError as err:
+    except subprocess.CalledProcessError as err:
         return [
             LintMessage(
                 path=filename,
@@ -163,7 +163,9 @@ def check_file(
                 name="command-failed",
                 original=None,
                 replacement=None,
-                description=(f"Failed due to {err.__class__.__name__}:\n{err}"),
+                description=(
+                    f"Failed due to {err}\n\nstdout:\n{err.stdout}\nstderr:\n{err.stderr}"
+                ),
             )
         ]
     lint_messages = []

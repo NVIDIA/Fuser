@@ -48,7 +48,7 @@ std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info) {
 
 class LoopNest {
  public:
-  LoopNest(Scope& top_level) : top_level_(top_level) {}
+  LoopNest(Scope* top_level) : top_level_(top_level) {}
 
   int64_t size() const {
     return std::ssize(loop_infos_);
@@ -71,7 +71,7 @@ class LoopNest {
   // Returns the scope of the innermost for-loop or the top-level scope if the
   // loop nest is empty.
   Scope& innermostScope() const {
-    return empty() ? top_level_ : innermost().loop->body();
+    return empty() ? *top_level_ : innermost().loop->body();
   }
 
   hir::ForLoop* openLoop(IterDomain* id) {
@@ -86,8 +86,7 @@ class LoopNest {
 
  private:
   std::vector<LoopInfo> loop_infos_;
-  Scope&
-      top_level_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  Scope* top_level_;
 };
 
 std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
@@ -410,7 +409,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     hic->addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
   }
 
-  LoopNest loop_nest(hic->topLevel());
+  LoopNest loop_nest(&hic->topLevel());
 
   IdModel id_model(segmented_fusion.completeFusion(), /*build_graphs=*/false);
   id_model.buildExactGraph();

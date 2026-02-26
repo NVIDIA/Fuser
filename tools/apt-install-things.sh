@@ -13,7 +13,7 @@ sudo apt-get update
 sudo apt-get -y remove llvm-18 gcc-13 libstdc++-13-dev gcc-12 libstdc++-12-dev
 
 # Install the latest version of clang and gcc.
-sudo apt-get -y install --reinstall clang-19 clang-tidy-19 clang-format-19 gcc-14 nlohmann-json3-dev ninja-build
+sudo apt-get -y install clang-19 clang-tidy-19 clang-format-19 gcc-14 nlohmann-json3-dev ninja-build
 
 # llvm provides llvm-config, which downstream scripts use to locate binaries.
 sudo apt-get -y install llvm-19

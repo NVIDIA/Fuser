@@ -37,6 +37,7 @@
 #include "runtime/executor_params.h"
 #include "runtime/fusion_executor_cache.h"
 #include "scheduler/all_schedulers.h"
+#include "scheduler/reduction_outer_tma.h"
 #include "scheduler/reduction_tma.h"
 #include "scheduler/reduction_utils.h"
 #include "scheduler/tools/inlining.h"
@@ -2790,7 +2791,13 @@ namespace tma_reduction_check {
 bool isTmaParams(const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   const auto& hparams = runtime->schedulerHeuristics()->heuristicsList().at(0);
-  return hparams->isA<TmaInnerReductionParams>();
+  return hparams->isA<TmaInnerReductionParams>() ||
+      hparams->isA<TmaOuterReductionParams>();
+}
+bool isOuterTmaParams(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto& hparams = runtime->schedulerHeuristics()->heuristicsList().at(0);
+  return hparams->isA<TmaOuterReductionParams>();
 }
 } // namespace tma_reduction_check
 
@@ -2915,11 +2922,7 @@ TEST_P(TmaOuterReductionManualTest, Basic) {
   int64_t dtype_bytes = dataTypeSizeByte(dtype);
   auto [outer_size, iter_size] = GetParam();
 
-  // TMA requires 16-byte alignment on both dimensions
-  if ((outer_size * dtype_bytes) % 16 != 0) {
-    GTEST_SKIP() << "Outer dimension bytes not divisible by 16, can't use TMA";
-    return;
-  }
+  // TMA requires the stride (iter_size * dtype_bytes) to be 16-byte aligned
   if ((iter_size * dtype_bytes) % 16 != 0) {
     GTEST_SKIP() << "Iter dimension bytes not divisible by 16, can't use TMA";
     return;
@@ -3089,6 +3092,104 @@ INSTANTIATE_TEST_SUITE_P(
           return vals;
         }())),
     ([](const testing::TestParamInfo<TmaOuterReductionManualTestParams>& info) {
+      auto [outer_size, iter_size] = info.param;
+      return "outer_" + std::to_string(outer_size) + "_iter_" +
+          std::to_string(iter_size);
+    }));
+
+// Test outer reduction with auto-scheduled TMA
+using TmaOuterReductionTestParams =
+    std::tuple<int64_t, int64_t>; // <outer_size, iter_size>
+
+class TmaOuterReductionTest
+    : public NVFuserFixtureParamTest<TmaOuterReductionTestParams> {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    NVFuserFixtureParamTest<TmaOuterReductionTestParams>::SetUp();
+    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
+  }
+
+  // Check if we expect outer TMA to be used based on mayUseTmaOuter conditions
+  bool expectOuterTmaUsed(
+      int64_t outer_size,
+      int64_t iter_size,
+      int64_t dtype_bytes) {
+    uint64_t total_reduction_bytes = outer_size * dtype_bytes;
+    uint64_t min_tma_bytes = 16384;
+    if (total_reduction_bytes < min_tma_bytes) {
+      return false;
+    }
+    // The stride (iter_size * dtype_bytes) must be 16-byte aligned
+    if ((iter_size * dtype_bytes) % 16 != 0) {
+      return false;
+    }
+    return true;
+  }
+
+ private:
+  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+
+TEST_P(TmaOuterReductionTest, Sum) {
+  auto [outer_size, iter_size] = GetParam();
+  auto dtype = DataType::Float;
+  int64_t dtype_bytes = dataTypeSizeByte(dtype);
+
+  // TMA requires the stride (iter_size * dtype_bytes) to be 16-byte aligned
+  if ((iter_size * dtype_bytes) % 16 != 0) {
+    GTEST_SKIP() << "Iter dimension bytes not divisible by 16, can't use TMA";
+    return;
+  }
+
+  std::vector<int64_t> shape = {outer_size, iter_size};
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {0}); // reduce along axis 0 (outer reduction)
+  fusion.addOutput(tv1);
+
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  if (expectOuterTmaUsed(outer_size, iter_size, dtype_bytes)) {
+    EXPECT_TRUE(tma_reduction_check::isOuterTmaParams(executor_cache))
+        << "Expected outer TMA scheduler for outer_size=" << outer_size
+        << " iter_size=" << iter_size;
+  }
+
+  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__, "");
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaOuterReductionTest,
+    testing::Combine(
+        testing::ValuesIn([] { // outer_size
+          std::vector<int64_t> vals;
+          for (int64_t v = 256; v <= 65536; v *= 4) {
+            vals.push_back(v);
+          }
+          return vals;
+        }()),
+        testing::ValuesIn([] { // iter_size
+          std::vector<int64_t> vals;
+          for (int64_t v = 256; v <= 65536; v *= 4) {
+            vals.push_back(v);
+          }
+          return vals;
+        }())),
+    ([](const testing::TestParamInfo<TmaOuterReductionTestParams>& info) {
       auto [outer_size, iter_size] = info.param;
       return "outer_" + std::to_string(outer_size) + "_iter_" +
           std::to_string(iter_size);
