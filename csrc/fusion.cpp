@@ -34,6 +34,207 @@
 
 namespace nvfuser {
 
+// Lock-free implementation methods for Fusion operations that mutate
+// IrContainer state. These are called while the caller holds unique_lock
+// on ir_container()->mutex_, avoiding self-deadlock on nested calls
+// (e.g., removeVal → removeExpr).
+struct Fusion::ContainerMutator {
+  static void removeExpr(Fusion* self, Expr* expr) {
+    self->ir_container()->assertInContainerImpl(expr, "Cannot remove expr ");
+
+    for (auto* out : expr->outputs()) {
+      if (out->isA<TensorView>()) {
+        self->invalidateTvsAndUses();
+      }
+      out->setDefinition(nullptr);
+    }
+
+    for (auto* inp : expr->inputs()) {
+      inp->removeUse(expr);
+      if (inp->isA<TensorView>()) {
+        self->invalidateTvsAndUses();
+      }
+    }
+
+    auto* c = self->ir_container();
+    auto expr_in_deque = std::find_if(
+        c->exprs_up_.begin(),
+        c->exprs_up_.end(),
+        [expr](std::unique_ptr<Expr>& expr_up) {
+          return expr_up.get() == expr;
+        });
+    NVF_ERROR(
+        expr_in_deque != c->exprs_up_.end(),
+        "Wanted to remove an expression but its unique ptr is missing.");
+    c->per_fusion_exprs_[self].erase(expr);
+    c->exprs_.erase(expr);
+    c->exprs_up_.erase(expr_in_deque);
+  }
+
+  static void removeVal(Fusion* self, Val* val) {
+    self->ir_container()->assertInContainerImpl(val, "Cannot remove val ");
+
+    // Don't remove cached special vals — they are lazily created singletons
+    if (val == self->zero_val_ || val == self->one_val_ ||
+        val == self->true_val_ || val == self->false_val_ ||
+        val == self->magic_zero_val_) {
+      return;
+    }
+
+    NVF_CHECK(
+        !val->isFusionInput(),
+        "Cannot remove val as it is an input of the fusion.");
+    NVF_CHECK(
+        !val->isFusionOutput(),
+        "Cannot remove val as it is an output of the fusion.");
+
+    if (Expr* orig = val->definition()) {
+      removeExpr(self, orig);
+    }
+
+    // We must scan all per-fusion owned exprs (not just live uses) to find
+    // all expressions that reference this val, including dead code.
+    auto* c = self->ir_container();
+    std::vector<Expr*> exprs_to_remove;
+    const auto& owned_exprs = c->per_fusion_exprs_[self];
+    for (Expr* e : owned_exprs) {
+      if (!c->inContainerImpl(e)) {
+        continue;
+      }
+      if (std::find(e->inputs().begin(), e->inputs().end(), val) !=
+          e->inputs().end()) {
+        exprs_to_remove.push_back(e);
+      }
+    }
+    for (auto e : exprs_to_remove) {
+      removeExpr(self, e);
+    }
+
+    auto val_in_deque = std::find_if(
+        c->vals_up_.begin(),
+        c->vals_up_.end(),
+        [val](std::unique_ptr<Val>& val_up) { return val_up.get() == val; });
+    NVF_ERROR(
+        val_in_deque != c->vals_up_.end(),
+        "Wanted to remove a value but its unique ptr is missing.");
+    c->per_fusion_vals_[self].erase(val);
+    c->vals_.erase(val);
+    c->vals_up_.erase(val_in_deque);
+
+    self->invalidateTvsAndUses();
+  }
+
+  static void registerVal(Fusion* self, Val* val) {
+    if (self->ir_container()->inContainerImpl(val)) {
+      return;
+    }
+
+    if (val->fusion()) {
+      NVF_CHECK(
+          val->fusion() == self, val, " was not found in the active fusion.");
+    }
+
+    auto* c = self->ir_container();
+    c->vals_up_.emplace_back(val);
+    c->vals_.insert(val);
+    c->per_fusion_vals_[self].insert(val);
+    val->setName(IrContainerPasskey(), self->getValName(val->vtype()));
+  }
+
+  static void registerExpr(Fusion* self, Expr* expr) {
+    if (self->ir_container()->inContainerImpl(expr)) {
+      return;
+    }
+
+    if (expr->fusion()) {
+      NVF_CHECK(
+          expr->fusion() == self, expr, " was not found in the active fusion.");
+    }
+
+    auto* c = self->ir_container();
+    c->exprs_up_.emplace_back(expr);
+    c->exprs_.insert(expr);
+    c->per_fusion_exprs_[self].insert(expr);
+    expr->setName(IrContainerPasskey(), self->getExprName());
+
+    for (Val* input : expr->inputs()) {
+      c->assertInContainerImpl(input, "Input to expr is invalid, ");
+      if (input->isA<TensorView>()) {
+        self->invalidateTvsAndUses();
+      } else {
+        input->addUse(expr);
+      }
+    }
+
+    const bool is_ssa =
+        !self->isA<kir::Kernel>() && !self->isA<hir::HostIrContainer>();
+
+    for (Val* output : expr->outputs()) {
+      c->assertInContainerImpl(output, "Output to expr is invalid, ");
+      if (output->definition() != nullptr && is_ssa) {
+        removeExpr(self, output->definition());
+      }
+      if (is_ssa || output->definition() == nullptr) {
+        output->setDefinition(expr);
+        if (output->isA<TensorView>()) {
+          self->invalidateTvsAndUses();
+        }
+      }
+    }
+  }
+
+  static void removeStatementsCreatedAfter(
+      Fusion* self,
+      int64_t num_exprs_before,
+      int64_t num_vals_before) {
+    auto* c = self->ir_container();
+
+    NVF_ERROR(
+        c->exprs_up_.size() == c->exprs_.size(),
+        "exprs_up_ (size ",
+        c->exprs_up_.size(),
+        ") and exprs_ (size ",
+        c->exprs_.size(),
+        ") are out of sync.");
+    NVF_ERROR(
+        std::ssize(c->exprs_up_) >= num_exprs_before,
+        "exprs_up_ size (",
+        std::ssize(c->exprs_up_),
+        ") is less than num_exprs_before (",
+        num_exprs_before,
+        ").");
+
+    // Remove expressions before values because we need to change Val::uses_.
+    while (std::ssize(c->exprs_up_) > num_exprs_before) {
+      Expr* e = c->exprs_up_.back().get();
+      for (Val* in : e->inputs()) {
+        in->removeUse(e);
+      }
+      c->per_fusion_exprs_[self].erase(e);
+      c->exprs_.erase(e);
+      c->exprs_up_.pop_back();
+    }
+
+    while (std::ssize(c->vals_up_) > num_vals_before) {
+      Val* v = c->vals_up_.back().get();
+      if (v == self->zero_val_) {
+        self->zero_val_ = nullptr;
+      } else if (v == self->one_val_) {
+        self->one_val_ = nullptr;
+      } else if (v == self->true_val_) {
+        self->true_val_ = nullptr;
+      } else if (v == self->false_val_) {
+        self->false_val_ = nullptr;
+      } else if (v == self->magic_zero_val_) {
+        self->magic_zero_val_ = nullptr;
+      }
+      c->per_fusion_vals_[self].erase(v);
+      c->vals_.erase(v);
+      c->vals_up_.pop_back();
+    }
+  }
+};
+
 size_t Fusion::hash() const {
   size_t hash = 0;
 
@@ -180,6 +381,7 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
     if (a.ir_container_.get() == b.ir_container_.get()) {
       // Same container: directly swap per-Fusion tracking entries
       auto* c = a.ir_container_.get();
+      std::unique_lock lock(c->mutex_);
       std::swap(c->per_fusion_vals_[&a], c->per_fusion_vals_[&b]);
       std::swap(c->per_fusion_exprs_[&a], c->per_fusion_exprs_[&b]);
     } else {
@@ -387,151 +589,21 @@ void Fusion::clear() noexcept {
 }
 
 void Fusion::removeExpr(Expr* expr) {
-  assertInContainer(expr, "Cannot remove expr ");
-  // If we hit this error too frequently, we could lighten the restrictions so
-  // that removing something that doesn't exist simply does nothing. For now,
-  // we're going with the strictest model which errors.
-
-  for (auto* out : expr->outputs()) {
-    if (out->isA<TensorView>()) {
-      invalidateTvsAndUses();
-    }
-    out->setDefinition(nullptr);
-  }
-
-  // Remove uses in inputs
-  for (auto* inp : expr->inputs()) {
-    // Note that if inp is a TensorView, this may call invalidateTvsAndUses
-    inp->removeUse(expr);
-    if (inp->isA<TensorView>()) {
-      invalidateTvsAndUses();
-    }
-  }
-
-  auto* c = ir_container();
-  auto expr_in_deque = std::find_if(
-      c->exprs_up_.begin(),
-      c->exprs_up_.end(),
-      [expr](std::unique_ptr<Expr>& expr_up) { return expr_up.get() == expr; });
-  NVF_ERROR(
-      expr_in_deque != c->exprs_up_.end(),
-      "Wanted to remove an expression but its unique ptr is missing.");
-  c->per_fusion_exprs_[this].erase(expr);
-  c->exprs_.erase(expr);
-  c->exprs_up_.erase(expr_in_deque);
+  std::unique_lock lock(ir_container()->mutex_);
+  ContainerMutator::removeExpr(this, expr);
 }
 
 void Fusion::removeVal(Val* val) {
-  assertInContainer(val, "Cannot remove val ");
-
-  // Don't remove cached special vals — they are lazily created singletons
-  if (val == zero_val_ || val == one_val_ || val == true_val_ ||
-      val == false_val_ || val == magic_zero_val_) {
-    return;
-  }
-
-  NVF_CHECK(
-      !val->isFusionInput(),
-      "Cannot remove val as it is an input of the fusion.");
-  NVF_CHECK(
-      !val->isFusionOutput(),
-      "Cannot remove val as it is an output of the fusion.");
-
-  if (Expr* orig = val->definition()) {
-    removeExpr(orig);
-  }
-
-  // We previously first looped over val->uses() and removed them all from the
-  // Fusion. This seems correct at first glance, but it is incomplete since
-  // `val->uses()` actually only gives all live uses. When there is dead code in
-  // the Fusion that includes some uses of a val that is to be removed, we can
-  // wind up with an expression that holds an invalid pointer to the removed
-  // value in its inputs(). In https://github.com/NVIDIA/Fuser/issues/1270 this
-  // caused a segfault when the fusion was cloned since that will clone not only
-  // live objects but also these dangerous dangling dead ones.
-  //
-  // IMPORTANT: We must use unordered_exprs() instead of exprs() here.
-  // exprs() only returns Exprs reachable from terminating outputs, which means
-  // dead Exprs that still reference the Val won't be found and removed.
-  // This causes use-after-free when copying the Fusion later.
-  std::vector<Expr*> exprs_to_remove;
-  for (Expr* e : unordered_exprs()) {
-    if (!inContainer(e)) {
-      continue;
-    }
-    if (std::find(e->inputs().begin(), e->inputs().end(), val) !=
-        e->inputs().end()) {
-      // Avoid removing until after we've looped through exprs_
-      exprs_to_remove.push_back(e);
-    }
-  }
-  for (auto e : exprs_to_remove) {
-    removeExpr(e);
-  }
-
-  auto* c = ir_container();
-  auto val_in_deque = std::find_if(
-      c->vals_up_.begin(),
-      c->vals_up_.end(),
-      [val](std::unique_ptr<Val>& val_up) { return val_up.get() == val; });
-  NVF_ERROR(
-      val_in_deque != c->vals_up_.end(),
-      "Wanted to remove a value but its unique ptr is missing.");
-  c->per_fusion_vals_[this].erase(val);
-  c->vals_.erase(val);
-  c->vals_up_.erase(val_in_deque);
-
-  invalidateTvsAndUses();
+  std::unique_lock lock(ir_container()->mutex_);
+  ContainerMutator::removeVal(this, val);
 }
 
 void Fusion::removeStatementsCreatedAfter(
     int64_t num_exprs_before,
     int64_t num_vals_before) {
-  auto* c = ir_container();
-
-  NVF_ERROR(
-      c->exprs_up_.size() == c->exprs_.size(),
-      "exprs_up_ (size ",
-      c->exprs_up_.size(),
-      ") and exprs_ (size ",
-      c->exprs_.size(),
-      ") are out of sync.");
-  NVF_ERROR(
-      std::ssize(c->exprs_up_) >= num_exprs_before,
-      "exprs_up_ size (",
-      std::ssize(c->exprs_up_),
-      ") is less than num_exprs_before (",
-      num_exprs_before,
-      ").");
-
-  // Remove expressions before values because we need to change Val::uses_.
-  while (std::ssize(c->exprs_up_) > num_exprs_before) {
-    Expr* e = c->exprs_up_.back().get();
-    for (Val* in : e->inputs()) {
-      in->removeUse(e);
-    }
-    c->per_fusion_exprs_[this].erase(e);
-    c->exprs_.erase(e);
-    c->exprs_up_.pop_back();
-  }
-
-  while (std::ssize(c->vals_up_) > num_vals_before) {
-    Val* v = c->vals_up_.back().get();
-    if (v == zero_val_) {
-      zero_val_ = nullptr;
-    } else if (v == one_val_) {
-      one_val_ = nullptr;
-    } else if (v == true_val_) {
-      true_val_ = nullptr;
-    } else if (v == false_val_) {
-      false_val_ = nullptr;
-    } else if (v == magic_zero_val_) {
-      magic_zero_val_ = nullptr;
-    }
-    c->per_fusion_vals_[this].erase(v);
-    c->vals_.erase(v);
-    c->vals_up_.pop_back();
-  }
+  std::unique_lock lock(ir_container()->mutex_);
+  ContainerMutator::removeStatementsCreatedAfter(
+      this, num_exprs_before, num_vals_before);
 }
 
 void Fusion::addInput(Val* input) {
@@ -983,70 +1055,13 @@ void Fusion::assumeNonNegative(Val* val) {
 }
 
 void Fusion::registerVal(Val* val) {
-  if (inContainer(val)) {
-    return;
-  }
-
-  if (val->fusion()) {
-    NVF_CHECK(
-        val->fusion() == this, val, " was not found in the active fusion.");
-  }
-
-  auto* c = ir_container();
-  c->vals_up_.emplace_back(val);
-  c->vals_.insert(val);
-  c->per_fusion_vals_[this].insert(val);
-  val->setName(IrContainerPasskey(), getValName(val->vtype()));
+  std::unique_lock lock(ir_container()->mutex_);
+  ContainerMutator::registerVal(this, val);
 }
 
 void Fusion::registerExpr(Expr* expr) {
-  if (inContainer(expr)) {
-    return;
-  }
-
-  if (expr->fusion()) {
-    NVF_CHECK(
-        expr->fusion() == this, expr, " was not found in the active fusion.");
-  }
-
-  auto* c = ir_container();
-  c->exprs_up_.emplace_back(expr);
-  c->exprs_.insert(expr);
-  c->per_fusion_exprs_[this].insert(expr);
-  expr->setName(IrContainerPasskey(), getExprName());
-
-  for (Val* input : expr->inputs()) {
-    assertInContainer(input, "Input to expr is invalid, ");
-    // Don't just add this expr as a use of the input if it's a tensor as the
-    // whole fusion needs to be traversed to rebuild the usage lists
-    if (input->isA<TensorView>()) {
-      invalidateTvsAndUses();
-    } else {
-      input->addUse(expr);
-    }
-  }
-
-  // Kernel and host are non-ssa. This is mainly (maybe only) because of
-  // initialization expressions which would overwrite tensor view definitions.
-  const bool is_ssa =
-      !this->isA<kir::Kernel>() && !this->isA<hir::HostIrContainer>();
-
-  for (Val* output : expr->outputs()) {
-    assertInContainer(output, "Output to expr is invalid, ");
-    if (output->definition() != nullptr && is_ssa) {
-      removeExpr(output->definition());
-    }
-    if (is_ssa || output->definition() == nullptr) {
-      output->setDefinition(expr);
-      if (output->isA<TensorView>()) {
-        // Updating the definition might change the path to output TVs.
-        // If that happens, our definition-based traversal can change and
-        // introduce whole new branches, so we need to recompute the uses_
-        // vector after setDefinition.
-        invalidateTvsAndUses();
-      }
-    }
-  }
+  std::unique_lock lock(ir_container()->mutex_);
+  ContainerMutator::registerExpr(this, expr);
 }
 
 void Fusion::resetTvUses() {

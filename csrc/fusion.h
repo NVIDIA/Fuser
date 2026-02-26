@@ -638,6 +638,10 @@ class NVF_API Fusion : public PolymorphicBase {
   inline static const std::string exact_mappings_key = "exact_mappings";
   std::shared_ptr<IrContainer> ir_container_;
 
+  // PIMPL for lock-free mutation methods (defined in fusion.cpp)
+  struct ContainerMutator;
+  friend struct ContainerMutator;
+
   Val* zero_val_ = nullptr;
   Val* one_val_ = nullptr;
   Val* true_val_ = nullptr;
