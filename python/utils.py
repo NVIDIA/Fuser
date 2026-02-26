@@ -495,25 +495,6 @@ def cmake(config, relative_path):
         "-B",
         cmake_build_dir,
     ]
-    cuda_home = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
-    if cuda_home:
-        cmd_str.append(f"-DCUDA_TOOLKIT_ROOT_DIR={cuda_home}")
-        nvcc_path = os.path.join(cuda_home, "bin", "nvcc")
-        if os.path.isfile(nvcc_path):
-            cmd_str.append(f"-DCMAKE_CUDA_COMPILER={nvcc_path}")
-    cudahostcxx = os.environ.get("CUDAHOSTCXX")
-    if cudahostcxx:
-        resolved = shutil.which(cudahostcxx) or cudahostcxx
-        cmd_str.append(f"-DCMAKE_CUDA_HOST_COMPILER={resolved}")
-        os.environ["CUDAHOSTCXX"] = resolved
-    cc = os.environ.get("CC")
-    if cc:
-        resolved = shutil.which(cc) or cc
-        cmd_str.append(f"-DCMAKE_C_COMPILER={resolved}")
-    cxx = os.environ.get("CXX")
-    if cxx:
-        resolved = shutil.which(cxx) or cxx
-        cmd_str.append(f"-DCMAKE_CXX_COMPILER={resolved}")
     if config.cutlass_max_jobs:
         cmd_str.append(f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}")
     if config.nvmmh_include_dir:
