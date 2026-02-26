@@ -223,27 +223,27 @@ void IrContainer::transferStatementOwnership(
 void IrContainer::removeStatementsOwnedBy(const Fusion* fusion) {
   auto vals_it = per_fusion_vals_.find(fusion);
   if (vals_it != per_fusion_vals_.end()) {
-    for (auto it = vals_up_.begin(); it != vals_up_.end();) {
-      if (vals_it->second.count(it->get()) > 0) {
-        vals_.erase(it->get());
-        it = vals_up_.erase(it);
-      } else {
-        ++it;
+    const auto& owned = vals_it->second;
+    std::erase_if(vals_up_, [&](const std::unique_ptr<Val>& v) {
+      if (owned.count(v.get()) > 0) {
+        vals_.erase(v.get());
+        return true;
       }
-    }
+      return false;
+    });
     per_fusion_vals_.erase(vals_it);
   }
 
   auto exprs_it = per_fusion_exprs_.find(fusion);
   if (exprs_it != per_fusion_exprs_.end()) {
-    for (auto it = exprs_up_.begin(); it != exprs_up_.end();) {
-      if (exprs_it->second.count(it->get()) > 0) {
-        exprs_.erase(it->get());
-        it = exprs_up_.erase(it);
-      } else {
-        ++it;
+    const auto& owned = exprs_it->second;
+    std::erase_if(exprs_up_, [&](const std::unique_ptr<Expr>& e) {
+      if (owned.count(e.get()) > 0) {
+        exprs_.erase(e.get());
+        return true;
       }
-    }
+      return false;
+    });
     per_fusion_exprs_.erase(exprs_it);
   }
 }
