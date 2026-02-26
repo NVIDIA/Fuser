@@ -427,24 +427,14 @@ void Fusion::removeStatementsCreatedAfter(
     int64_t num_vals_before) {
   auto* c = ir_container();
 
-  NVF_ERROR(
-      c->exprs_up_.size() == c->exprs_.size(),
-      "exprs_up_ (size ",
-      c->exprs_up_.size(),
-      ") and exprs_ (size ",
-      c->exprs_.size(),
-      ") are out of sync.");
-  NVF_ERROR(
-      std::ssize(c->exprs_up_) >= num_exprs_before,
-      "exprs_up_ size (",
-      std::ssize(c->exprs_up_),
-      ") is less than num_exprs_before (",
-      num_exprs_before,
-      ").");
-
   // Remove expressions before values because we need to change Val::uses_.
-  while (std::ssize(c->exprs_up_) > num_exprs_before) {
+  while (std::ssize(c->exprsOwnedBy(this)) > num_exprs_before) {
+    // Pop from global deque back — statements created by this Fusion during
+    // the guard scope are at the tail (LIFO invariant).
     Expr* e = c->exprs_up_.back().get();
+    NVF_ERROR(
+        c->per_fusion_exprs_[this].count(e) > 0,
+        "removeStatementsCreatedAfter: tail expr belongs to another Fusion");
     for (Val* in : e->inputs()) {
       in->removeUse(e);
     }
@@ -453,8 +443,12 @@ void Fusion::removeStatementsCreatedAfter(
     c->exprs_up_.pop_back();
   }
 
-  while (std::ssize(c->vals_up_) > num_vals_before) {
+  while (numValsExcludingShortcuts() > num_vals_before) {
     Val* v = c->vals_up_.back().get();
+    NVF_ERROR(
+        c->per_fusion_vals_[this].count(v) > 0,
+        "removeStatementsCreatedAfter: tail val belongs to another Fusion");
+    // Null out shortcut caches if they point to vals about to be destroyed
     if (v == zero_val_) {
       zero_val_ = nullptr;
     } else if (v == one_val_) {
