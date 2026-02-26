@@ -29,26 +29,28 @@ namespace {
 
 class Node {
  public:
-  Node(Scope* scope, Expr* expr, const Node* parent)
-      : scope_(scope),
-        expr_(expr),
-        parent_(parent),
-        depth_(parent ? parent->depth() + 1 : 0) {}
+  Node(Scope* scope, Scope::Iterator iter, const Node* parent)
+      : scope_(scope), iter_(iter), parent_(parent) {}
+
+  Node(const Node& other) = delete;
+  Node(Node&& other) = delete;
+  Node& operator=(const Node& other) = delete;
+  Node& operator=(Node&& other) = delete;
 
   Scope* scope() const {
     return scope_;
   }
 
+  Scope::Iterator iterator() const {
+    return iterator_;
+  }
+
   Expr* getExpr() const {
-    return expr_;
+    return *iterator_;
   }
 
   const Node* parent() const {
     return parent_;
-  }
-
-  int depth() const {
-    return depth_;
   }
 
   const std::vector<Node*>& children() const {
@@ -61,9 +63,8 @@ class Node {
 
  private:
   Scope* scope_;
-  Expr* expr_;
+  Scope::Iterator iter_;
   const Node* parent_;
-  int depth_;
   std::vector<Node*> children_;
 };
 
@@ -110,8 +111,9 @@ class DominatorTree {
 
  private:
   void build(Scope& scope, Node* parent) {
-    for (Expr* e : scope.exprs()) {
-      auto [node_it, inserted] = nodes_.try_emplace(e, &scope, e, parent);
+    for (auto it = scope.exprs().begin(); it != scope.exprs().end(); ++it) {
+      Expr* e = *it;
+      auto [node_it, inserted] = nodes_.try_emplace(e, &scope, it, parent);
       NVF_ERROR(inserted);
       Node& node = node_it->second;
       if (parent != nullptr) {
@@ -138,15 +140,17 @@ class DominatorTree {
   std::unordered_map<const Expr*, Node> nodes_;
 };
 
-// Post-dominator tree: node A post-dominates B if every path from B to exit
-// goes through A. Built by traversing from exit toward entry.
 class PostDominatorTree {
  public:
-  explicit PostDominatorTree(
-      hir::HostIrContainer& hic,
-      std::unordered_map<TensorView*, const Node*>& lca)
-      : hic_(&hic) {
-    build(hic_->topLevel(), /*scope_exit_successor=*/nullptr, lca);
+  explicit PostDominatorTree(hir::HostIrContainer& hic) : hic_(&hic) {
+    build(hic_->topLevel(), /*scope_exit_successor=*/nullptr);
+  }
+
+  const Node* getRoot() const {
+    const auto& top_level_exprs = hic_->topLevelExprs();
+    NVF_ERROR(!top_level_exprs.empty());
+    Expr* root = top_level_exprs.back();
+    return &nodes_.at(root);
   }
 
   const Node* getNode(Expr* expr) const {
@@ -154,54 +158,56 @@ class PostDominatorTree {
     return it != nodes_.end() ? &it->second : nullptr;
   }
 
+  // `pre_fn` is called before traversing any child of a node.  `post_fn` is
+  // called after traversing all children of a node.
+  void depthFirstTraverse(
+      const std::function<void(const Node*)>& pre_fn,
+      const std::function<void(const Node*)>& post_fn) const {
+    struct Frame {
+      const Node* node;
+      bool processed;
+    };
+
+    std::stack<Frame> stack;
+    stack.push({getRoot(), /*processed=*/false});
+    while (!stack.empty()) {
+      Frame& top = stack.top();
+      if (top.processed) {
+        post_fn(top.node);
+        stack.pop();
+        continue;
+      }
+
+      pre_fn(top.node);
+      top.processed = true;
+      for (const Node* child : top.node->children()) {
+        stack.push({child, /*processed=*/false});
+      }
+    }
+  }
+
  private:
-  void build(
-      Scope& scope,
-      Node* parent,
-      std::unordered_map<TensorView*, const Node*>& lca) {
-    for (Expr* e : scope.exprs() | std::views::reverse) {
-      auto [node_it, inserted] = nodes_.try_emplace(e, &scope, e, parent);
+  void build(Scope& scope, Node* parent) {
+    auto& exprs = scope.exprs();
+    for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
+      Expr* e = *it;
+      auto [node_it, inserted] = nodes_.try_emplace(e, &scope, it, parent);
       NVF_ERROR(inserted);
       Node& node = node_it->second;
-
-      if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
-        TensorView* tv = alloc->buffer()->as<TensorView>();
-        lca[tv] = findLCA(lca[tv], &node);
-      }
-      for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-        lca[in] = findLCA(lca[in], &node);
+      if (parent != nullptr) {
+        parent->addChild(&node);
       }
 
       if (auto* loop = dynamic_cast<hir::ForLoop*>(e)) {
-        build(loop->body(), &node, lca);
+        build(loop->body(), &node);
       }
       if (auto* ite = dynamic_cast<kir::IfThenElse*>(e)) {
-        build(ite->thenBody(), &node, lca);
-        build(ite->elseBody(), &node, lca);
+        build(ite->thenBody(), &node);
+        build(ite->elseBody(), &node);
       }
 
       parent = &node;
     }
-  }
-
-  const Node* findLCA(const Node* a, const Node* b) const {
-    if (a == nullptr) {
-      return b;
-    }
-    if (b == nullptr) {
-      return a;
-    }
-    while (a->depth() > b->depth()) {
-      a = a->parent();
-    }
-    while (b->depth() > a->depth()) {
-      b = b->parent();
-    }
-    while (a != b) {
-      a = a->parent();
-      b = b->parent();
-    }
-    return a;
   }
 
   hir::HostIrContainer* hic_;
@@ -244,7 +250,7 @@ void insertAllocations(hir::HostIrContainer& hic) {
           if (needsOutputPreallocation(e)) {
             auto* allocate =
                 IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
-            node->scope()->insert_before(node->getExpr(), allocate);
+            node->scope()->insert(node->iter(), allocate);
           }
 
           defined.insert(out);
@@ -266,14 +272,62 @@ bool needsDeallocation(TensorView* tv) {
   if (tv->isFusionOutput()) {
     return false;
   }
-  if (tv->definition()->isA<ShardByStream>()) {
-    return false;
-  }
-  const AliasInfo& alias_info = tv->container()->getOutputAlias(tv);
-  if (alias_info.type == AllocationType::ReuseBuffer) {
-    return false;
-  }
   return true;
+}
+
+// For each TensorView that is allocated or used as an input, find its
+// least common ancestor in the Post-dominator Tree — the latest point at which
+// it can be deallocated.
+std::unordered_map<TensorView*, const Node*> computeLCA(
+    const PostDominatorTree& tree) {
+  std::unordered_map<const Node*, int> depth;
+
+  auto findLCA = [&](const Node* a, const Node* b) -> const Node* {
+    if (a == nullptr) {
+      return b;
+    }
+    if (b == nullptr) {
+      return a;
+    }
+    int64_t depth_a = depth.at(a);
+    int64_t depth_b = depth.at(b);
+    while (depth_a > depth_b) {
+      a = a->parent();
+      depth_a--;
+    }
+    while (depth_b > depth_a) {
+      b = b->parent();
+      depth_b--;
+    }
+    while (a != b) {
+      a = a->parent();
+      b = b->parent();
+    }
+    return a;
+  };
+
+  std::unordered_map<TensorView*, const Node*> lca;
+  int64_t current_depth = -1;
+
+  tree.depthFirstTraverse(
+      /*pre_fn=*/
+      [&](const Node* node) {
+        current_depth++;
+        depth[node] = current_depth;
+        Expr* e = node->getExpr();
+
+        if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
+          TensorView* tv = alloc->buffer()->as<TensorView>();
+          lca[tv] = findLCA(lca[tv], node);
+        }
+        for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
+          lca[in] = findLCA(lca[in], node);
+        }
+      },
+      /*post_fn=*/
+      [&](const Node*) { --current_depth; });
+
+  return lca;
 }
 
 void insertDeallocations(hir::HostIrContainer& hic) {
@@ -286,18 +340,21 @@ void insertDeallocations(hir::HostIrContainer& hic) {
         expr);
   });
 
-  std::unordered_map<TensorView*, const Node*> lca;
-  PostDominatorTree post_dom_tree(hic, lca);
+  PostDominatorTree post_dominator_tree(hic);
+  const std::unordered_map<TensorView*, const Node*>& lca_map =
+      computeLCA(post_dominator_tree);
 
   // Insert deallocate at LCA for each TV that needs deallocation.
-  for (const auto& [tv, lca_node] : lca) {
+  for (const auto& [tv, lca_node] : lca_map) {
     if (!needsDeallocation(tv)) {
       continue;
     }
     NVF_ERROR(
-        lca_node != nullptr, "Could not find post-dominator for tensor ", tv);
+        lca_node != nullptr,
+        "Could not find least common ancestor for all uses of ",
+        tv);
     auto* deallocate = IrBuilder::create<hir::Deallocate>(tv);
-    lca_node->scope()->insert_after(lca_node->getExpr(), deallocate);
+    lca_node->scope()->insert(std::next(lca_node->iterator()), deallocate);
   }
 }
 
