@@ -20,7 +20,7 @@ StatementGuard::StatementGuard(Fusion* fusion)
         return fusion;
       }()),
       prev_num_exprs_(fusion_->numExprs()),
-      prev_num_vals_(fusion_->numVals()) {}
+      prev_num_vals_(fusion_->numValsExcludingShortcuts()) {}
 
 StatementGuard::~StatementGuard() {
   fusion_->removeStatementsCreatedAfter(prev_num_exprs_, prev_num_vals_);
