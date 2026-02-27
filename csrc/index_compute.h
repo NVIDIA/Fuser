@@ -398,48 +398,11 @@ class PredicateInfo {
 // can make the below tensorviews const.
 class Index {
  private:
-  // Producer indexing if it's in shared or local memory
-  static std::vector<Val*> getNonGlobalProducerStridedIndices(
-      TensorView* producer,
-      const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {});
-
-  // Consumer indexing if it's in shared or local memory
-  static std::vector<Val*> getNonGlobalConsumerStridedIndices(
-      const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {});
-
   // get the strides of a tensor used for the index lowering
+  // Delete?
   static std::vector<Val*> getStrides(TensorView* tv);
 
-  // get the allocation indices of a consumer tensor
-  static std::vector<Val*> getConsumerAllocationIndices(
-      const TensorView* tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const IndexFromIdGraph& index_from_id_graph);
-
-  // get the allocation indices of a producer tensor
-  static std::vector<Val*> getProducerAllocationIndices(
-      TensorView* producer,
-      const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {});
-
  public:
-  // Producer if it's in global memory
-  static std::vector<Val*> getGlobalProducerStridedIndices(
-      TensorView* producer,
-      const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {});
-
-  // Consumer indexing if it's in global memory
-  static std::vector<Val*> getGlobalConsumerStridedIndices(
-      TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops);
-
   // Indexing functions
   // Consumer = Producer
   // i.e. T0 = T1... -> T0 is the consumer, T1 is the producer
@@ -468,27 +431,6 @@ class Index {
       bool generate_pointer = false,
       DataType as_type = DataType::Null,
       bool ld_st_matrix = false);
-
-  //! Returns a vector of strided indices mapped onto the
-  //! allocation domain of a producer tensor. The size of the returned
-  //! vector is guaranteed to be equal to the number of axes of the
-  //! indexing allocation domain.
-  static Val* getProducerStridedIndices(
-      TensorView* producer,
-      const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {},
-      bool generate_pointer = false);
-
-  // TODO: Remove
-  //! Returns a vector of strided indices mapped onto the
-  //! allocation domain of a consumer tensor. The size of the returned
-  //! vector is guaranteed to be equal to the number of axes of the
-  //! indexing allocation domain.
-  static Val* getConsumerStridedIndices(
-      TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      bool generate_pointer = false);
 
   //! Returns the logical index linearized from a multi-dimension address into a
   //! linear memory address a consumer tensor. The returned index is intended to
