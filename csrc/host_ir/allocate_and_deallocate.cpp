@@ -69,7 +69,7 @@ class Node {
 
 // `pre_fn` is called before traversing any child of a node.  `post_fn` is
 // called after traversing all children of a node.
-void depthFirstTraverse(
+void depthFirstTraverseFromRoot(
     const Node* root,
     const std::function<void(const Node*)>& pre_fn,
     const std::function<void(const Node*)>& post_fn) {
@@ -112,7 +112,7 @@ class DominatorTree {
   void depthFirstTraverse(
       const std::function<void(const Node*)>& pre_fn,
       const std::function<void(const Node*)>& post_fn) const {
-    depthFirstTraverse(getRoot(), pre_fn, post_fn);
+    depthFirstTraverseFromRoot(getRoot(), pre_fn, post_fn);
   }
 
  private:
@@ -169,13 +169,14 @@ class PostDominatorTree {
   void depthFirstTraverse(
       const std::function<void(const Node*)>& pre_fn,
       const std::function<void(const Node*)>& post_fn) const {
-    depthFirstTraverse(getRoot(), pre_fn, post_fn);
+    depthFirstTraverseFromRoot(getRoot(), pre_fn, post_fn);
   }
 
  private:
   void build(Scope& scope, Node* parent) {
     auto& exprs = scope.exprs();
-    for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
+    for (auto it = exprs.end(); it != exprs.begin();) {
+      --it;
       Expr* e = *it;
       auto [node_it, inserted] = nodes_.try_emplace(e, &scope, it, parent);
       NVF_ERROR(inserted);
@@ -236,7 +237,7 @@ void insertAllocations(hir::HostIrContainer& hic) {
           if (needsOutputPreallocation(e)) {
             auto* allocate =
                 IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
-            node->scope()->insert(node->iter(), allocate);
+            node->scope()->insert(node->iterator(), allocate);
           }
 
           defined.insert(out);
@@ -251,22 +252,12 @@ void insertAllocations(hir::HostIrContainer& hic) {
       });
 }
 
-bool needsDeallocation(TensorView* tv) {
-  if (tv->isFusionInput()) {
-    return false;
-  }
-  if (tv->isFusionOutput()) {
-    return false;
-  }
-  return true;
-}
-
 // For each TensorView that is allocated or used as an input, find its
 // least common ancestor in the Post-dominator Tree — the latest point at which
 // it can be deallocated.
-std::unordered_map<TensorView*, const Node*> computeLCA(
-    const PostDominatorTree& tree) {
-  std::unordered_map<const Node*, int> depth;
+std::unordered_map<TensorView*, const Node*> computeLeastCommonAncestor(
+    const PostDominatorTree& post_dom_tree) {
+  std::unordered_map<const Node*, int64_t> depth;
 
   auto findLCA = [&](const Node* a, const Node* b) -> const Node* {
     if (a == nullptr) {
@@ -295,7 +286,7 @@ std::unordered_map<TensorView*, const Node*> computeLCA(
   std::unordered_map<TensorView*, const Node*> lca;
   int64_t current_depth = -1;
 
-  tree.depthFirstTraverse(
+  post_dom_tree.depthFirstTraverse(
       /*pre_fn=*/
       [&](const Node* node) {
         current_depth++;
@@ -328,11 +319,12 @@ void insertDeallocations(hir::HostIrContainer& hic) {
 
   PostDominatorTree post_dominator_tree(hic);
   const std::unordered_map<TensorView*, const Node*>& lca_map =
-      computeLCA(post_dominator_tree);
+      computeLeastCommonAncestor(post_dominator_tree);
 
-  // Insert deallocate at LCA for each TV that needs deallocation.
+  // Insert deallocate at LCA for each tensorview that is not a fusion input or
+  // output.
   for (const auto& [tv, lca_node] : lca_map) {
-    if (!needsDeallocation(tv)) {
+    if (tv->isFusionInput() || tv->isFusionOutput()) {
       continue;
     }
     NVF_ERROR(

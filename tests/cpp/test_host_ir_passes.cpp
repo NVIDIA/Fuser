@@ -44,8 +44,8 @@ TEST_F(HostIrPassesTest, TwoMatmulsInlinable) {
   TensorView* inp = makeContigTensor(2);
   TensorView* w1 = makeContigTensor(2);
   TensorView* w2 = makeContigTensor(2);
-  TensorView* intermediate = matmul(inp, w1);
-  TensorView* out = matmul(intermediate, w2);
+  TensorView* out = matmul(inp, w1);
+  out = matmul(out, w2);
 
   fusion->addInput(inp);
   fusion->addInput(w1);
@@ -69,18 +69,11 @@ TEST_F(HostIrPassesTest, TwoMatmulsInlinable) {
   // allocated and deallocated within the loop body.
   FusionKernelRuntime* runtime = executor.getMostRecentKernelRuntime();
   const auto& exprs = runtime->getHostIrContainer().topLevelExprs();
-  auto it = std::find_if(exprs.begin(), exprs.end(), [](Expr* e) {
-    return e->isA<hir::ForLoop>();
+  int deallocate_count = std::count_if(exprs.begin(), exprs.end(), [](Expr* e) {
+    return e->isA<hir::Deallocate>();
   });
-  ASSERT_NE(it, exprs.end());
-  const auto& body = (*it)->as<hir::ForLoop>()->body();
-  int deallocate_count =
-      std::count_if(body.exprs().begin(), body.exprs().end(), [](Expr* e) {
-        return e->isA<hir::Deallocate>();
-      });
-  EXPECT_EQ(deallocate_count, 1)
-      << "Expected for-loop body to have exactly one Deallocate, got "
-      << deallocate_count;
+  EXPECT_EQ(deallocate_count, 0) << "Intermediate matmul output should have "
+                                    "been deallocated inside the loop.";
 
   testValidate(
       executor.fusion(),
@@ -100,8 +93,8 @@ TEST_F(HostIrPassesTest, TwoMatmulsNotInlinable) {
   TensorView* inp = makeContigTensor(2);
   TensorView* w1 = makeContigTensor(2);
   TensorView* w2 = makeContigTensor(2);
-  TensorView* out1 = matmul(inp, w1);
-  TensorView* out = matmul(out1, w2);
+  TensorView* out = matmul(inp, w1);
+  out = matmul(out, w2);
 
   fusion->addInput(inp);
   fusion->addInput(w1);
@@ -129,9 +122,8 @@ TEST_F(HostIrPassesTest, TwoMatmulsNotInlinable) {
   int deallocate_count = std::count_if(exprs.begin(), exprs.end(), [](Expr* e) {
     return e->isA<hir::Deallocate>();
   });
-  EXPECT_EQ(deallocate_count, 1)
-      << "Expected exactly one Deallocate at top level, got "
-      << deallocate_count;
+  EXPECT_EQ(deallocate_count, 1) << "Intermediate matmul output should have "
+                                    "been deallocated outside the loop.";
 
   testValidate(
       executor.fusion(),
