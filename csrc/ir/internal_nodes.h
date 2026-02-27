@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
 #include <list>
 
 #include "exceptions.h"
@@ -1161,7 +1162,7 @@ class GroupedReductionOp : public Expr {
 class WelfordTriplet {
  public:
   //! Names of the Welford triplet vals
-  enum class ValName { Avg, Var, N };
+  enum class ValName : std::uint8_t { Avg, Var, N };
 
   WelfordTriplet() = default;
 

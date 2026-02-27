@@ -344,12 +344,12 @@ void Fusion::removeVal(Val* val) {
 void Fusion::addInput(Val* input) {
   assertInContainer(input, "Cannot register input ");
 
-  if (input->getValType().value() == ValType::TensorView) {
+  if (input->getValType() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
     if (tv->getMemoryType() != MemoryType::Symmetric) {
       tv->setMemoryType(MemoryType::Global);
     }
-  } else if (input->getValType().value() == ValType::Others) {
+  } else if (input->getValType() == ValType::Others) {
     NVF_CHECK(
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not "
@@ -428,7 +428,7 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
     std::ranges::replace_if(
         outputs_, [&output](Val* v) { return v == output; }, replacement);
 
-    if (replacement->getValType().value() == ValType::TensorView) {
+    if (replacement->getValType() == ValType::TensorView) {
       replacement->setIsFusionOutput(true);
       NVF_CHECK(
           replacement->as<TensorView>()->getMemoryType() !=
@@ -437,7 +437,7 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
           replacement);
       replacement->as<TensorView>()->setMemoryType(MemoryType::Global);
     }
-    if (output->getValType().value() == ValType::TensorView) {
+    if (output->getValType() == ValType::TensorView) {
       output->setIsFusionOutput(false);
       // If `output` is both an input and an output before the replacement,
       // don't localize it.

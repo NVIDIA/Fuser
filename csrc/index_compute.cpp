@@ -249,7 +249,7 @@ void IndexCompute::handle(Merge* merge) {
     }
 
     // If all are broadcast we can just send the index to the last entry.
-    if (std::all_of(input_ids.begin(), input_ids.end(), [](IterDomain* id) {
+    if (std::ranges::all_of(input_ids, [](IterDomain* id) {
           // I don't think reductions can be in here, but strictly matching the
           // logic in the indexing functions like
           // getNonGlobalConsumerStridedIndices
@@ -522,12 +522,11 @@ void IndexCompute::collectIndexIntoPermissiveMap(
     //  iterdomains.
     //
     auto id_outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
-    if (std::all_of(
-            id_outputs.begin(), id_outputs.end(), [this](IterDomain* id) {
-              return index_map_.count(
-                  GpuLower::current()->info().caMap().getConcreteMappedID(
-                      id, IdMappingMode::EXACT));
-            })) {
+    if (std::ranges::all_of(id_outputs, [this](IterDomain* id) {
+          return index_map_.count(
+              GpuLower::current()->info().caMap().getConcreteMappedID(
+                  id, IdMappingMode::EXACT));
+        })) {
       // Visit this expression:
       // LoopIndexingAnalysis::traverseFromDomainVals made sure that each
       //  concrete index is bound exactly once so computing these expressions
@@ -973,10 +972,8 @@ indexMapFromTV(
 
   // Check if the current op has an implicit loop implemented
   //  within an mma instruction.
-  bool within_mma_loops =
-      std::any_of(loops.begin(), loops.end(), [](kir::ForLoop* fl) {
-        return fl->iter_domain()->isMma();
-      });
+  bool within_mma_loops = std::ranges::any_of(
+      loops, [](kir::ForLoop* fl) { return fl->iter_domain()->isMma(); });
 
   // Track domains that do not contibute to the resulting
   // index. Previously, index->isZeroInt() was used to detect such
@@ -2259,7 +2256,10 @@ std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
   const auto& splits_to_predicate = it->second;
 
   for (auto split : splits_to_predicate) {
-    PredicateDomainInfo info{split->in(), {split->in()}, true};
+    PredicateDomainInfo info{
+        .id = split->in(),
+        .covered_ids = {split->in()},
+        .is_intermediate_domain = true};
     pred_info_vec.emplace_back(info);
   }
 
@@ -2493,10 +2493,9 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
                                      : producer_tv->domain()->allIDs();
     for (const auto& group : groups_to_index) {
-      auto it = std::find_if(
-          tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
-            return group->has(gmem_id);
-          });
+      auto it = std::ranges::find_if(tma_all_ids, [&](IterDomain* gmem_id) {
+        return group->has(gmem_id);
+      });
       if (it != tma_all_ids.end()) {
         ids_to_index.push_back(*it);
       } else {

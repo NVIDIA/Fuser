@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 #include <visibility.h>
 
+#include <cstdint>
 #include <vector>
 
 // Note: [The Mathematics of Integer Arithmetic]
@@ -125,7 +126,12 @@ struct VarInfo {
 };
 
 // Analyze expression register usage
-enum class RegisterType { GeneralPurpose, Uniform, Immediate, Unknown };
+enum class RegisterType : std::uint8_t {
+  GeneralPurpose,
+  Uniform,
+  Immediate,
+  Unknown
+};
 RegisterType getRegisterType(Val* value);
 
 // Simplify expressions with the given information of variables.

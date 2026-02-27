@@ -109,7 +109,7 @@ const std::vector<Expr*>& Val::uses() const {
 }
 
 bool Val::addUse(Expr* expr) {
-  if (std::find(uses_.begin(), uses_.end(), expr) == uses_.end()) {
+  if (std::ranges::find(uses_, expr) == uses_.end()) {
     uses_.push_back(expr);
     return true;
   }
@@ -117,7 +117,7 @@ bool Val::addUse(Expr* expr) {
 }
 
 bool Val::removeUse(Expr* expr) {
-  auto it = std::find(uses_.begin(), uses_.end(), expr);
+  auto it = std::ranges::find(uses_, expr);
   if (it != uses_.end()) {
     uses_.erase(it);
     if (this->isA<TensorView>()) {

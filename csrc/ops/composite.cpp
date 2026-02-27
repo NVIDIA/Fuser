@@ -40,7 +40,7 @@ ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale) {
   auto apply_mask = mul(x, mask);
   auto y = mul(apply_mask, scale);
 
-  return {y, mask};
+  return {.output = y, .mask = mask};
 }
 
 TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
@@ -242,7 +242,7 @@ LstmResult lstm(
   const auto cell = add(mul(forget_gate, prev_cell), mul(in_gate, cell_gate));
   const auto hidden = mul(out_gate, tanh(cell));
 
-  return {cell, hidden};
+  return {.cell = cell, .hidden = hidden};
 }
 
 namespace {
@@ -395,7 +395,8 @@ TensorView* view_as_real(TensorView* x) {
       "Operand of view_as_real must have complex type");
 
   auto vec_type = ArrayType{
-      std::make_shared<DataType>(getTypeFromComplexType(input_type)), 2};
+      .type = std::make_shared<DataType>(getTypeFromComplexType(input_type)),
+      .size = 2};
   auto tv_vector = bitCastOp(vec_type, x);
   return viewAsScalar(tv_vector);
 }
@@ -692,7 +693,11 @@ SdpfaFwdResult sdpfa_fwd(
       scale == nullptr
           ? scale
           : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
-  return {output, logsumexp, philox_seed, philox_offset};
+  return {
+      .output = output,
+      .logsumexp = logsumexp,
+      .philox_seed = philox_seed,
+      .philox_offset = philox_offset};
 }
 
 SdpfaBwdResult sdpfa_bwd(
@@ -783,7 +788,8 @@ SdpfaBwdResult sdpfa_bwd(
       scale == nullptr
           ? scale
           : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
-  return {grad_query, grad_key, grad_value};
+  return {
+      .grad_query = grad_query, .grad_key = grad_key, .grad_value = grad_value};
 }
 
 TensorView* embedding_fwd(

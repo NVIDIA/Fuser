@@ -68,7 +68,8 @@ class FilterIterator {
   using difference_type = std::ptrdiff_t;
   using value_type = FilterType*;
   using pointer = value_type*;
-  using reference = value_type&;
+  // Proxy iterator: operator* returns by value so reference is value_type.
+  using reference = value_type;
 
   FilterIterator() : current_(), end_() {}
 
@@ -123,11 +124,14 @@ class FilterIterator {
 // An iterable view to a given container of Val pointers. Only returns
 // Vals of a given Val type.
 // NOTE: Add a non-const iterator if needed.
+// Models std::ranges::input_range so it works with std::ranges::all_of, etc.
 template <typename FilterType, typename InputIt>
 class FilteredView : public std::ranges::view_base {
  public:
   using value_type = FilterType*;
   using const_iterator = FilterIterator<FilterType, InputIt>;
+  using iterator = const_iterator;
+  using sentinel = const_iterator;
 
   FilteredView() = default;
 
@@ -185,7 +189,7 @@ auto filterByType(const ContainerType& inputs) {
 
 //! Returns a list of new-to-old mappings.
 //!
-//! This funcion canonicalizes the dimensions and validates that multiple old
+//! This function canonicalizes the dimensions and validates that multiple old
 //! dimension are mapped to the same new dimension.
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,

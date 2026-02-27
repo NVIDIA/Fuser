@@ -207,9 +207,9 @@ class LowerToInlinePtx : public kir::ExprMutator {
       }
       const auto& array = std::get<ArrayType>(dtype.type);
       return ArrayType{
-          std::make_shared<DataType>(
-              ArrayType{array.type, array.size / (size_t)factor}),
-          (size_t)factor};
+          .type = std::make_shared<DataType>(ArrayType{
+              .type = array.type, .size = array.size / (size_t)factor}),
+          .size = (size_t)factor};
     };
 
     DataType accumulator_type = maybe_outer_split(mma->out()->dtype(), split_n);

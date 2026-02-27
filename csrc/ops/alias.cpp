@@ -67,9 +67,7 @@ TensorView* reshape(
       original_sizes.size());
 
   // handle empty reshapes by converting to full
-  if (std::any_of(original_sizes.begin(), original_sizes.end(), [](int64_t s) {
-        return s == 0l;
-      })) {
+  if (std::ranges::any_of(original_sizes, [](int64_t s) { return s == 0l; })) {
     // The original
     bool has_dynamic_axis = false;
     bool has_zero_output_size = false;
@@ -135,10 +133,8 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   auto inp_dom = TensorDomain::noReductions(inp_tv->getLogicalDomain());
 
   NVF_CHECK(
-      std::none_of(
-          inp_dom.begin(),
-          inp_dom.end(),
-          [](auto inp_id) { return inp_id->maybePartial(); }),
+      std::ranges::none_of(
+          inp_dom, [](auto inp_id) { return inp_id->maybePartial(); }),
       "Unsupported input tensor to reshape as its axes may be partial: ",
       inp_tv->toString());
 
@@ -356,7 +352,7 @@ TensorView* squeeze(
     out->setDeviceMesh(x->getDeviceMesh());
   }
 
-  if (std::none_of(to_squeeze.begin(), to_squeeze.end(), std::identity())) {
+  if (std::ranges::none_of(to_squeeze, std::identity())) {
     // If we did not squeeze any axes, this is just set()
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
   } else {
@@ -692,10 +688,8 @@ TensorView* cat(
   // Primarily used for FusionTranslation, which adds the padOp for each tensor
   // separately.
   if (manual_padding) {
-    bool all_padded =
-        std::all_of(inputs.begin(), inputs.end(), [](TensorView* tv) {
-          return tv->definition()->isA<PadOp>();
-        });
+    bool all_padded = std::ranges::all_of(
+        inputs, [](TensorView* tv) { return tv->definition()->isA<PadOp>(); });
     NVF_ERROR(
         all_padded,
         "Expected all inputs to be padded when manual_padding is True.");

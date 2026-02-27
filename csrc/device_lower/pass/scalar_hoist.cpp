@@ -568,7 +568,8 @@ class CommonScalarInserter : private kir::ExprMutator {
   }
 
  private:
-  const CommonScalarMap& common_scalar_map_;
+  const CommonScalarMap&
+      common_scalar_map_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 } // namespace
