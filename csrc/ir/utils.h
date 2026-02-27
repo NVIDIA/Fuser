@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 #include <unordered_map>
 #include <vector>
 
@@ -69,6 +70,8 @@ class FilterIterator {
   using pointer = value_type*;
   using reference = value_type&;
 
+  FilterIterator() : current_(), end_() {}
+
   FilterIterator(Iterator begin, Iterator end) : current_(begin), end_(end) {
     advance();
   }
@@ -121,15 +124,17 @@ class FilterIterator {
 // Vals of a given Val type.
 // NOTE: Add a non-const iterator if needed.
 template <typename FilterType, typename InputIt>
-class FilteredView {
+class FilteredView : public std::ranges::view_base {
  public:
   using value_type = FilterType*;
   using const_iterator = FilterIterator<FilterType, InputIt>;
 
-  FilteredView(InputIt first, InputIt last) : input_it_(first), last_(last) {}
+  FilteredView() = default;
+
+  FilteredView(InputIt first, InputIt last) : first_(first), last_(last) {}
 
   const_iterator cbegin() const {
-    return const_iterator(input_it_, last_);
+    return const_iterator(first_, last_);
   }
 
   const_iterator begin() const {
@@ -161,8 +166,8 @@ class FilteredView {
   }
 
  private:
-  const InputIt input_it_;
-  const InputIt last_;
+  InputIt first_;
+  InputIt last_;
 };
 
 template <typename FilterType, typename InputIt>
