@@ -5,12 +5,75 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "multidevice/ipc_utils.h"
 #include "multidevice/symmetric_tensor.h"
 #include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
 
 using SymmetricTensorTest = MultiDeviceTest;
+
+// -----------------------------------------------------------------------------
+// Symmetric memory backend and option tests
+// -----------------------------------------------------------------------------
+
+TEST_F(SymmetricTensorTest, GetSymmetricMemoryBackend_ReturnsValidBackend) {
+  SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
+  EXPECT_TRUE(
+      backend == SymmetricMemoryBackend::Native ||
+      backend == SymmetricMemoryBackend::PyTorchNccl ||
+      backend == SymmetricMemoryBackend::PyTorchNvshmem ||
+      backend == SymmetricMemoryBackend::PyTorchCuda)
+      << "getSymmetricMemoryBackend() returned an invalid backend value";
+}
+
+TEST_F(SymmetricTensorTest, Validate_RejectsNormalCudaTensor) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device (Native allocate needs VMM)";
+  }
+  // With Native backend, allocate() uses VMM; with PyTorch backend we skip
+  // because validate() is only used for Native path (PyTorch tensors come from
+  // cache in constructor).
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
+    GTEST_SKIP() << "Validate test applies to Native backend only";
+  }
+  // Allocate a normal (non-symmetric) CUDA tensor
+  at::Tensor normal_tensor = at::empty(
+      {64, 64},
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
+  std::string error = SymmetricTensor::validate(normal_tensor);
+  EXPECT_FALSE(error.empty())
+      << "SymmetricTensor::validate() should reject a normal CUDA tensor";
+}
+
+TEST_F(SymmetricTensorTest, Validate_AcceptsSymmetricAllocation) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
+    GTEST_SKIP() << "validate() for allocate() output is defined for Native backend only";
+  }
+  at::Tensor sym_tensor = SymmetricTensor::allocate(
+      {128, 128}, at::ScalarType::Float, communicator_->device());
+  std::string error = SymmetricTensor::validate(sym_tensor);
+  EXPECT_TRUE(error.empty())
+      << "SymmetricTensor::validate() should accept tensor from allocate(); got: "
+      << error;
+}
+
+TEST_F(SymmetricTensorTest, Constructor_ThrowsOnInvalidTensor) {
+  at::Tensor normal_tensor = at::empty(
+      {8, 8},
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
+  EXPECT_THROW(
+      { SymmetricTensor sym_tensor(normal_tensor); },
+      c10::Error)
+      << "SymmetricTensor constructor should throw when given a non-symmetric tensor";
+}
+
+// -----------------------------------------------------------------------------
+// Backend-agnostic and Native backend correctness (allocate + remote access)
+// -----------------------------------------------------------------------------
 
 TEST_F(SymmetricTensorTest, BasicAllocation) {
   if (communicator_->size() == 1) {
@@ -51,6 +114,51 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
     float expected_value = static_cast<float>(peer_rank + 100);
     EXPECT_FLOAT_EQ(peer_value, expected_value)
         << "Rank " << rank << " reading from rank " << peer_rank;
+  }
+}
+
+// Same remote-access correctness as BasicAllocation but only runs when
+// PyTorch symmetric memory backend is selected (NVFUSER_ENABLE=
+// symmetric_memory_backend(pytorch_nccl|pytorch_nvshmem|pytorch_cuda)).
+// Run with e.g. NVFUSER_ENABLE=symmetric_memory_backend(pytorch_nccl) to
+// exercise the PyTorch path.
+TEST_F(SymmetricTensorTest, PyTorchBackend_RemoteAccessCorrectness) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+  SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
+  if (backend == SymmetricMemoryBackend::Native) {
+    GTEST_SKIP()
+        << "PyTorch backend not selected; set NVFUSER_ENABLE=symmetric_memory_backend(pytorch_nccl) to run";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t world_size = communicator_->size();
+
+  at::Tensor local_tensor = SymmetricTensor::allocate(
+      {256, 512}, at::ScalarType::Float, communicator_->device());
+  SymmetricTensor sym_tensor(local_tensor);
+
+  EXPECT_TRUE(local_tensor.is_cuda());
+  EXPECT_EQ(local_tensor.numel(), 256 * 512);
+
+  float local_value = static_cast<float>(rank + 200);
+  local_tensor.fill_(local_value);
+
+  sym_tensor.setupRemoteHandles();
+
+  for (int64_t peer_rank = 0; peer_rank < world_size; ++peer_rank) {
+    void* peer_ptr = sym_tensor.remoteTensor(peer_rank).data_ptr();
+    EXPECT_NE(peer_ptr, nullptr);
+
+    float peer_value;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        &peer_value, peer_ptr, sizeof(float), cudaMemcpyDeviceToHost));
+
+    float expected_value = static_cast<float>(peer_rank + 200);
+    EXPECT_FLOAT_EQ(peer_value, expected_value)
+        << "Rank " << rank << " reading from rank " << peer_rank
+        << " (PyTorch backend)";
   }
 }
 

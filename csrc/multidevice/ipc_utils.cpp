@@ -191,4 +191,22 @@ MulticastProtocol getMulticastProtocol() {
   return MulticastProtocol::BatchMemcpy;
 }
 
+SymmetricMemoryBackend getSymmetricMemoryBackend() {
+  if (isOptionEnabled(EnableOption::SymmetricMemoryBackend)) {
+    if (hasEnableOptionArgument(
+            EnableOption::SymmetricMemoryBackend, "pytorch_nccl")) {
+      return SymmetricMemoryBackend::PyTorchNccl;
+    }
+    if (hasEnableOptionArgument(
+            EnableOption::SymmetricMemoryBackend, "pytorch_nvshmem")) {
+      return SymmetricMemoryBackend::PyTorchNvshmem;
+    }
+    if (hasEnableOptionArgument(
+            EnableOption::SymmetricMemoryBackend, "pytorch_cuda")) {
+      return SymmetricMemoryBackend::PyTorchCuda;
+    }
+  }
+  return SymmetricMemoryBackend::Native;
+}
+
 } // namespace nvfuser

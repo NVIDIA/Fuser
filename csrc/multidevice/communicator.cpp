@@ -424,4 +424,20 @@ void Communicator::barrier(std::optional<CommunicatorBackend> backend) {
   getWorld(backend)->barrier(options)->wait();
 }
 
+#ifdef NVFUSER_DISTRIBUTED
+c10::intrusive_ptr<c10d::Store> Communicator::getStore() const {
+  return c10::intrusive_ptr<c10d::Store>(store_);
+}
+
+c10::intrusive_ptr<c10d::Backend> Communicator::getWorldBackendIntrusivePtr(
+    std::optional<CommunicatorBackend> backend) {
+  std::vector<RankType> all_ranks(size_);
+  std::iota(all_ranks.begin(), all_ranks.end(), 0);
+  CommunicatorBackend b = backend.value_or(default_backend_);
+  std::string team_key = getTeamKey(all_ranks, b);
+  (void)getBackendForTeam(all_ranks, backend, "");
+  return backends_.at(team_key);
+}
+#endif
+
 } // namespace nvfuser
