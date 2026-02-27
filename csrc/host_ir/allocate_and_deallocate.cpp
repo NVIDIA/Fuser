@@ -29,13 +29,20 @@ namespace {
 
 class Node {
  public:
-  Node(Scope* scope, Scope::Iterator iter, const Node* parent)
-      : scope_(scope), iter_(iter), parent_(parent) {}
-
+  Node(Scope* scope, Scope::Iterator iterator, const Node* parent)
+      : scope_(scope), iterator_(iterator), parent_(parent) {}
   Node(const Node& other) = delete;
   Node(Node&& other) = delete;
   Node& operator=(const Node& other) = delete;
   Node& operator=(Node&& other) = delete;
+
+  const std::vector<Node*>& children() const {
+    return children_;
+  }
+
+  void addChild(Node* child) {
+    children_.push_back(child);
+  }
 
   Scope* scope() const {
     return scope_;
@@ -53,20 +60,41 @@ class Node {
     return parent_;
   }
 
-  const std::vector<Node*>& children() const {
-    return children_;
-  }
-
-  void addChild(Node* child) {
-    children_.push_back(child);
-  }
-
  private:
   Scope* scope_;
-  Scope::Iterator iter_;
+  Scope::Iterator iterator_;
   const Node* parent_;
   std::vector<Node*> children_;
 };
+
+// `pre_fn` is called before traversing any child of a node.  `post_fn` is
+// called after traversing all children of a node.
+void depthFirstTraverse(
+    const Node* root,
+    const std::function<void(const Node*)>& pre_fn,
+    const std::function<void(const Node*)>& post_fn) {
+  struct Frame {
+    const Node* node;
+    bool processed;
+  };
+
+  std::stack<Frame> stack;
+  stack.push({root, /*processed=*/false});
+  while (!stack.empty()) {
+    Frame& top = stack.top();
+    if (top.processed) {
+      post_fn(top.node);
+      stack.pop();
+      continue;
+    }
+
+    pre_fn(top.node);
+    top.processed = true;
+    for (const Node* child : top.node->children()) {
+      stack.push({child, /*processed=*/false});
+    }
+  }
+}
 
 class DominatorTree {
  public:
@@ -81,39 +109,19 @@ class DominatorTree {
     return &nodes_.at(root);
   }
 
-  // `pre_fn` is called before traversing any child of a node.  `post_fn` is
-  // called after traversing all children of a node.
   void depthFirstTraverse(
       const std::function<void(const Node*)>& pre_fn,
       const std::function<void(const Node*)>& post_fn) const {
-    struct Frame {
-      const Node* node;
-      bool processed;
-    };
-
-    std::stack<Frame> stack;
-    stack.emplace(getRoot(), /*processed=*/false);
-    while (!stack.empty()) {
-      Frame& top = stack.top();
-      if (top.processed) {
-        post_fn(top.node);
-        stack.pop();
-        continue;
-      }
-
-      pre_fn(top.node);
-      top.processed = true;
-      for (const Node* child : top.node->children()) {
-        stack.emplace(child, /*processed=*/false);
-      }
-    }
+    depthFirstTraverse(getRoot(), pre_fn, post_fn);
   }
 
  private:
   void build(Scope& scope, Node* parent) {
-    for (auto it = scope.exprs().begin(); it != scope.exprs().end(); ++it) {
-      Expr* e = *it;
-      auto [node_it, inserted] = nodes_.try_emplace(e, &scope, it, parent);
+    for (auto scope_it = scope.exprs().begin(); scope_it != scope.exprs().end();
+         ++scope_it) {
+      Expr* e = *scope_it;
+      auto [node_it, inserted] =
+          nodes_.try_emplace(e, &scope, scope_it, parent);
       NVF_ERROR(inserted);
       Node& node = node_it->second;
       if (parent != nullptr) {
@@ -143,7 +151,7 @@ class DominatorTree {
 class PostDominatorTree {
  public:
   explicit PostDominatorTree(hir::HostIrContainer& hic) : hic_(&hic) {
-    build(hic_->topLevel(), /*scope_exit_successor=*/nullptr);
+    build(hic_->topLevel(), /*parent=*/nullptr);
   }
 
   const Node* getRoot() const {
@@ -158,32 +166,10 @@ class PostDominatorTree {
     return it != nodes_.end() ? &it->second : nullptr;
   }
 
-  // `pre_fn` is called before traversing any child of a node.  `post_fn` is
-  // called after traversing all children of a node.
   void depthFirstTraverse(
       const std::function<void(const Node*)>& pre_fn,
       const std::function<void(const Node*)>& post_fn) const {
-    struct Frame {
-      const Node* node;
-      bool processed;
-    };
-
-    std::stack<Frame> stack;
-    stack.push({getRoot(), /*processed=*/false});
-    while (!stack.empty()) {
-      Frame& top = stack.top();
-      if (top.processed) {
-        post_fn(top.node);
-        stack.pop();
-        continue;
-      }
-
-      pre_fn(top.node);
-      top.processed = true;
-      for (const Node* child : top.node->children()) {
-        stack.push({child, /*processed=*/false});
-      }
-    }
+    depthFirstTraverse(getRoot(), pre_fn, post_fn);
   }
 
  private:
