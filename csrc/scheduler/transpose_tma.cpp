@@ -142,34 +142,37 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
 
   // Set up TMA load for inputs.
   std::vector<TensorView*> tma_load_tvs;
-  for (auto [cached_input, input_idx] : cached_inputs) {
-    if (!tparams->use_tma_load) {
-      continue;
+  if (tparams->use_tma_load) {
+    for (auto [cached_input, input_idx] : cached_inputs) {
+      auto load_op = dynamic_cast<LoadStoreOp*>(cached_input->definition());
+      if (load_op == nullptr) {
+        continue;
+      }
+      load_op->setOpType(LoadStoreOpType::CpAsyncBulkTensorTile);
+      cached_input->setMemoryType(MemoryType::Shared);
+      cached_input->cacheAfter();
+      tma_load_tvs.push_back(cached_input);
     }
-    auto load_op = dynamic_cast<LoadStoreOp*>(cached_input->definition());
-    if (load_op == nullptr) {
-      continue;
-    }
-    load_op->setOpType(LoadStoreOpType::CpAsyncBulkTensorTile);
-    cached_input->setMemoryType(MemoryType::Shared);
-    cached_input->cacheAfter();
-    tma_load_tvs.push_back(cached_input);
+  }
+
+  // Collect output TVs.
+  std::vector<TensorView*> output_tvs;
+  output_tvs.reserve(cached_outputs.size());
+  for (auto [cached_output, output_idx] : cached_outputs) {
+    output_tvs.push_back(fusion->outputs()[output_idx]->as<TensorView>());
   }
 
   // Set up output caching with TMA store when enabled.
   std::vector<TensorView*> tma_store_tvs;
-  std::vector<TensorView*> output_tvs;
-  for (auto [cached_output, output_idx] : cached_outputs) {
-    auto output = fusion->outputs()[output_idx]->as<TensorView>();
-    output_tvs.push_back(output);
-    if (!tparams->use_tma_store) {
-      continue;
+  if (tparams->use_tma_store) {
+    for (auto [cached_output, output_idx] : cached_outputs) {
+      auto output = fusion->outputs()[output_idx]->as<TensorView>();
+      output->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::CpAsyncBulkTensorTile);
+      cached_output->setMemoryType(MemoryType::Shared);
+      cached_output->cacheBefore();
+      tma_store_tvs.push_back(cached_output);
     }
-    output->definition()->as<LoadStoreOp>()->setOpType(
-        LoadStoreOpType::CpAsyncBulkTensorTile);
-    cached_output->setMemoryType(MemoryType::Shared);
-    cached_output->cacheBefore();
-    tma_store_tvs.push_back(cached_output);
   }
 
   // Find transposed ids and positions, two groups, transpose happens in
@@ -328,10 +331,8 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   // ref_tv->axis(-1)->parallelize(ParallelType::Unroll);
 
   // Propagate to all TVs except smem/output TVs managed by TMA
-  std::unordered_set<TensorView*> skip_tvs;
-  if (!tma_load_tvs.empty()) {
-    skip_tvs.insert(tma_load_tvs.begin(), tma_load_tvs.end());
-  }
+  std::unordered_set<TensorView*> skip_tvs(
+      tma_load_tvs.begin(), tma_load_tvs.end());
   if (tparams->use_tma_store) {
     skip_tvs.insert(output_tvs.begin(), output_tvs.end());
   }
