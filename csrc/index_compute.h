@@ -480,6 +480,7 @@ class Index {
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false);
 
+  // TODO: Remove
   //! Returns a vector of strided indices mapped onto the
   //! allocation domain of a consumer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
