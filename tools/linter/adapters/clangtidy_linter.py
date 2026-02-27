@@ -72,7 +72,7 @@ RESULTS_RE: Pattern[str] = re.compile(
 
 def run_command(
     args: List[str],
-) -> "subprocess.CompletedProcess[bytes]":
+) -> subprocess.CompletedProcess[str]:
     logging.debug("$ %s", " ".join(args))
     start_time = time.monotonic()
     try:
