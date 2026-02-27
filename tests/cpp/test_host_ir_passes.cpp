@@ -101,9 +101,9 @@ TEST_F(HostIrPassesTest, TwoMatmulsNotInlinable) {
   fusion->addInput(w2);
   fusion->addOutput(out);
 
-  w1->split(1, c, /*inner_split=*/false);
+  w1->outer_split(1, c);
   w1->axis(1)->parallelize(ParallelType::Stream);
-  out->split(0, c, /*inner_split=*/false);
+  out->outer_split(0, c);
   out->axis(0)->parallelize(ParallelType::Stream);
 
   FusionExecutorCache executor(std::move(fusion));

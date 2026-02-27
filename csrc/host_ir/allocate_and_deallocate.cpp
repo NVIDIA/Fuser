@@ -8,7 +8,6 @@
 
 #include "host_ir/allocate_and_deallocate.h"
 
-#include <algorithm>
 #include <functional>
 #include <iterator>
 #include <list>
@@ -18,8 +17,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "fusion.h"
-#include "host_ir/ir.h"
 #include "ir/builder.h"
 #include "ir/utils.h"
 
