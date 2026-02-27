@@ -95,8 +95,7 @@ class Logger : public NoOpLogger {
       auto match = [r](const std::regex& trigger) -> bool {
         return std::regex_match(r.name, trigger);
       };
-      if (std::find_if(triggers.begin(), triggers.end(), match) !=
-          triggers.end()) {
+      if (std::ranges::find_if(triggers, match) != triggers.end()) {
         return true;
       }
     }
@@ -120,15 +119,15 @@ class Logger : public NoOpLogger {
       };
 
       std::string header = "Simplifying expression:\n" + str(init_val_);
-      debug() << header << std::endl;
+      debug() << header << '\n';
       for (auto r : record_) {
-        debug() << r.name << ":\n" << str(r.result) << std::endl;
+        debug() << r.name << ":\n" << str(r.result) << '\n';
       }
-      debug() << std::string(std::min<size_t>(header.size(), 80), '=')
-              << std::endl;
+      debug() << std::string(std::min<size_t>(header.size(), 80), '=') << '\n';
     } catch (...) {
       // clang-tidy don't want this function to throw, but this is just a
       // debugging helper, I don't really care if it has throw or not.
+      (void)0;
     }
   }
 
@@ -136,7 +135,7 @@ class Logger : public NoOpLogger {
     if (value->sameAs(current_val_)) {
       return;
     } else {
-      record_.emplace_back(Record{name, value});
+      record_.emplace_back(Record{.name = name, .result = value});
       current_val_ = value;
     }
   }
@@ -665,10 +664,8 @@ bool FlattenedAssocCommOp::sameAs(const Statement* other) const {
   std::list<Val*> other_inputs(
       other_fop->inputs().begin(), other_fop->inputs().end());
   for (const auto inp : inputs()) {
-    auto it =
-        std::find_if(other_inputs.begin(), other_inputs.end(), [inp](Val* v) {
-          return v->sameAs(inp);
-        });
+    auto it = std::ranges::find_if(
+        other_inputs, [inp](Val* v) { return v->sameAs(inp); });
     if (it == other_inputs.end()) {
       return false;
     }
@@ -729,8 +726,8 @@ std::vector<Val*> FlattenedAssocCommOp::sortedInputs(const Context& context) {
     // or v2) that exclusively has the right most variable in context.order()
     // will be to the right of the other input.
     bool v1_is_left_of_v2 = false;
-    auto deps1 = dependency.at(v1);
-    auto deps2 = dependency.at(v2);
+    const auto& deps1 = dependency.at(v1);
+    const auto& deps2 = dependency.at(v2);
     auto hasTensorIndex = [](const auto& deps) {
       return std::any_of(deps.begin(), deps.end(), [](auto val) {
         return val->template isA<kir::TensorIndex>();
@@ -751,7 +748,7 @@ std::vector<Val*> FlattenedAssocCommOp::sortedInputs(const Context& context) {
     }
     return v1_is_left_of_v2;
   };
-  std::sort(sorted_inputs.begin(), sorted_inputs.end(), compare);
+  std::ranges::sort(sorted_inputs, compare);
   return sorted_inputs;
 }
 
@@ -1205,10 +1202,8 @@ Val* divideFactorized(Val* x, Val* y) {
   std::vector<Val*> quotient_symbolic_factors;
 
   for (auto yf : y_factors.second) {
-    auto it = std::find_if(
-        x_factors.second.begin(), x_factors.second.end(), [yf](Val* v) {
-          return v->sameAs(yf);
-        });
+    auto it = std::ranges::find_if(
+        x_factors.second, [yf](Val* v) { return v->sameAs(yf); });
     if (it == x_factors.second.end()) {
       // not divisible
       return nullptr;
@@ -1252,10 +1247,8 @@ Val* greatestCommonDivisor(const std::vector<Val*>& inputs) {
           factors.second.end());
     } else {
       for (auto f : (*common_symbolic_factors)) {
-        auto it = std::find_if(
-            factors.second.begin(), factors.second.end(), [f](Val* v) {
-              return v->sameAs(f);
-            });
+        auto it = std::ranges::find_if(
+            factors.second, [f](Val* v) { return v->sameAs(f); });
         if (it != factors.second.end()) {
           new_common_symbolic_factors.emplace_back(f);
           factors.second.erase(it);
@@ -2750,10 +2743,7 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
     }
   }
 
-  if (std::none_of(
-          common_lhs_terms.begin(), common_lhs_terms.end(), [](auto flag) {
-            return flag;
-          })) {
+  if (std::ranges::none_of(common_lhs_terms, std::identity())) {
     return value;
   }
 

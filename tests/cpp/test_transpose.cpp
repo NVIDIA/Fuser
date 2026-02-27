@@ -721,7 +721,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize1) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({64 * 1024 * 1024, 2, 2}, options);
+  at::Tensor input = at::randn({64L * 1024 * 1024, 2, 2}, options);
 
   auto cg_outputs =
       scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
@@ -741,7 +741,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize2) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({2, 64 * 1024 * 1024, 2}, options);
+  at::Tensor input = at::randn({2, 64L * 1024 * 1024, 2}, options);
 
   auto cg_outputs =
       scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
@@ -761,7 +761,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize3) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({1024 * 1024, 2, 2, 2, 2, 2, 2, 2}, options);
+  at::Tensor input = at::randn({1024L * 1024, 2, 2, 2, 2, 2, 2, 2}, options);
 
   auto cg_outputs =
       scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
@@ -771,8 +771,8 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize3) {
 // x->sin->transpose->cos->y
 TEST_F(TransposeTest, FusionScheduleTranspose2DSmallInnerSize) {
   std::array<std::vector<int64_t>, 2> shapes{
-      std::vector<int64_t>{1024 * 1024 * 128, 2},
-      std::vector<int64_t>{2, 1024 * 1024 * 128}};
+      std::vector<int64_t>{1024L * 1024 * 128, 2},
+      std::vector<int64_t>{2, 1024L * 1024 * 128}};
   for (const auto& shape : shapes) {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -1225,7 +1225,7 @@ TEST_F(TransposeTest, FusionReshapeSmallTransposeDimensionSchedule) {
 
   auto tv0 = makeContigTensor(4);
   fusion.addInput(tv0);
-  auto tv1 = reshape(tv0, {x, y, z, w}, {x, y * z, w});
+  auto tv1 = reshape(tv0, {x, y, z, w}, {x, static_cast<int64_t>(y) * z, w});
   auto tv2 = transpose(tv1, 0, 2);
   fusion.addOutput(tv1);
   fusion.addOutput(tv2);

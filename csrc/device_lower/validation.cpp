@@ -1131,16 +1131,14 @@ class VectorizeValidator : public OptInDispatch {
         // TODO: Checking the outputs too since that is what
         // VectorizeValidator::handle(Swizzle*) does, but unclear
         // why.
-        if (std::find(inputs.begin(), inputs.end(), cur_group) !=
-                inputs.end() ||
-            std::find(outputs.begin(), outputs.end(), cur_group) !=
-                outputs.end()) {
+        if (std::ranges::find(inputs, cur_group) != inputs.end() ||
+            std::ranges::find(outputs, cur_group) != outputs.end()) {
           cur_group.reset();
           break;
         }
       }
 
-      if (std::find(inputs.begin(), inputs.end(), cur_group) == inputs.end()) {
+      if (std::ranges::find(inputs, cur_group) == inputs.end()) {
         continue;
       }
 
@@ -1221,10 +1219,10 @@ class VectorizeValidator : public OptInDispatch {
     // ATen tensor. See the comment of AdjustLastDim in type.h for more details.
     // For example, for fp4 tensor, we use Byte as the corresponding ATen
     // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bits.
-    int64_t aten_element_size_bit =
+    int64_t aten_element_size_bit = static_cast<int64_t>(
         c10::elementSize(
             data_type_to_aten(tv->dtype(), GpuLower::current()->indexType())) *
-        8;
+        8);
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
@@ -1376,10 +1374,8 @@ class VectorizeValidator : public OptInDispatch {
       }
 
       NVF_CHECK(
-          std::find(
-              allowed_vector_sizes_bit.begin(),
+          std::ranges::find(allowed_vector_sizes_bit, vector_size_bit) !=
               allowed_vector_sizes_bit.end(),
-              vector_size_bit) != allowed_vector_sizes_bit.end(),
           "Tried to vectorize a dim resulting in a word size of ",
           vector_size_bit,
           " bits, however, vector sizes starting from and including ",
@@ -1617,9 +1613,8 @@ void fillVectorizedContigAllocationDomains(
     NVF_ERROR(
         consumer_within_contig_it != contig_finder.withinContigIDs().end());
     const auto& within_ids = consumer_within_contig_it->second;
-    std::copy_if(
-        alloc_dom.begin(),
-        alloc_dom.end(),
+    std::ranges::copy_if(
+        alloc_dom,
         std::inserter(indexed_alloc_ids, indexed_alloc_ids.end()),
         [&](IterDomain* alloc_id) {
           return within_ids.find(alloc_id) != within_ids.end();
@@ -1641,10 +1636,9 @@ void fillConsumerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder) {
   auto& info_vector = GpuLower::current()->vectorizedSetInfo();
-  auto it = std::find_if(
-      info_vector.begin(), info_vector.end(), [&consumer_tv](auto& info) {
-        return info.consumer_tv == consumer_tv;
-      });
+  auto it = std::ranges::find_if(info_vector, [&consumer_tv](auto& info) {
+    return info.consumer_tv == consumer_tv;
+  });
   if (it == info_vector.end()) {
     return;
   }
@@ -1664,10 +1658,8 @@ void fillProducerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder) {
   auto& info_vector = GpuLower::current()->vectorizedSetInfo();
-  auto it = std::find_if(
-      info_vector.begin(),
-      info_vector.end(),
-      [&producer_tv, &consumer_tv](auto& info) {
+  auto it = std::ranges::find_if(
+      info_vector, [&producer_tv, &consumer_tv](auto& info) {
         return info.consumer_tv == consumer_tv &&
             info.producer_tv == producer_tv;
       });

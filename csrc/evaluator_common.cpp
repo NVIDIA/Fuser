@@ -274,7 +274,7 @@ void PrecomputedValues::print() const {
   for (auto i : arange(symbols_.size())) {
     if (defined_[i]) {
       debug() << symbols_[i]->toInlineString() << " = "
-              << PolymorphicValue_functions::toString(values_[i]) << std::endl;
+              << PolymorphicValue_functions::toString(values_[i]) << '\n';
     }
   }
 }
@@ -290,7 +290,7 @@ void PrecomputedValues::invalidate() {
   binding_log_.clear();
 
   // invalidate value entries
-  std::fill(defined_.begin(), defined_.end(), false);
+  std::ranges::fill(defined_, false);
 
   // invalidate flag
   has_valid_values_ = false;
@@ -438,7 +438,7 @@ void PrecomputedValues::bindTensorMetaData(
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
-    : precomputed_values_(precomputed_values), num_of_instructions_{0} {
+    : precomputed_values_(precomputed_values) {
   for (auto val : precomputed_values_.symbols_) {
     auto def = val->definition();
     if (def) {

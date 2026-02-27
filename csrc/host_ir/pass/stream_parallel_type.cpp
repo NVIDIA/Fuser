@@ -202,7 +202,7 @@ std::list<Expr*> groupStreamParallelRegions(
 
   for (Expr* expr : top_level_exprs) {
     // Skip expressions with no outputs
-    if (expr->outputs().size() == 0) {
+    if (expr->outputs().empty()) {
       new_top_level_exprs.push_back(expr);
       continue;
     }
@@ -319,7 +319,7 @@ std::list<Expr*> processForLoopBodies(
           new_loop_body.push_back(slicing);
         }
         expr = ir_utils::replaceValInExprInputs(expr, tensor, slicing->out());
-        if (expr->outputs().size() > 0 && expr->outputs()[0] == tensor) {
+        if (!expr->outputs().empty() && expr->outputs()[0] == tensor) {
           expr =
               ir_utils::transferDefinitionToNewOutputs(expr, {slicing->out()});
         }
@@ -520,10 +520,10 @@ std::list<Expr*> processForLoopBodies(
 
         auto [slicing_input, is_new] = tensor_slicing_cache.get(
             input_tv,
-            /*dim=*/0,
+            /*stream_axis_index=*/0,
             /*index=*/FusionGuard::getCurFusion()->zeroVal());
-        auto [slicing_output, is_new_] =
-            tensor_slicing_cache.get(output_tv, /*dim=*/0, /*index=*/recv_peer);
+        auto [slicing_output, is_new_] = tensor_slicing_cache.get(
+            output_tv, /*stream_axis_index=*/0, /*index=*/recv_peer);
         new_loop_body.push_back(slicing_output);
 
         if (params.offset_stream_indexing_by_rank == false) {
