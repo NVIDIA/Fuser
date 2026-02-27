@@ -72,7 +72,7 @@ RESULTS_RE: Pattern[str] = re.compile(
 
 def run_command(
     args: List[str],
-) -> "subprocess.CompletedProcess[bytes]":
+) -> subprocess.CompletedProcess[str]:
     logging.debug("$ %s", " ".join(args))
     start_time = time.monotonic()
     try:
@@ -175,7 +175,7 @@ def check_file(
         saved_cwd = os.getcwd()
         os.chdir(build_dir)
 
-        for match in RESULTS_RE.finditer(proc.stdout.decode()):
+        for match in RESULTS_RE.finditer(proc.stdout):
             # Convert the reported path to an absolute path.
             abs_path = str(Path(match["file"]).resolve())
             message = LintMessage(
