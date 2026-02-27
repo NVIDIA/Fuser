@@ -6,8 +6,6 @@
 */
 // clang-format on
 
-// This file contains integration tests that run fusions through
-// FusionExecutorCache with host IR lowering turned on.
 #include <algorithm>
 
 #include <gtest/gtest.h>
