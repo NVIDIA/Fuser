@@ -294,8 +294,11 @@ std::unordered_map<TensorView*, const Node*> computeLeastCommonAncestor(
           TensorView* tv = alloc->buffer()->as<TensorView>();
           lca[tv] = findLCA(lca[tv], node);
         }
-        for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          lca[in] = findLCA(lca[in], node);
+        for (auto* tv : ir_utils::filterByType<TensorView>(e->inputs())) {
+          lca[tv] = findLCA(lca[tv], node);
+        }
+        for (auto* tv : ir_utils::filterByType<TensorView>(e->outputs())) {
+          lca[tv] = findLCA(lca[tv], node);
         }
       },
       /*post_fn=*/

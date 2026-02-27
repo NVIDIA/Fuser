@@ -6,7 +6,8 @@
 */
 // clang-format on
 
-#include <algorithm>
+#include <ranges>
+#include <unordered_set>
 
 #include <gtest/gtest.h>
 
@@ -20,6 +21,49 @@
 #include "tests/cpp/validator.h"
 
 namespace nvfuser {
+
+namespace {
+
+// Traverse the IR and collect all allocated Tensorviews and remove them when
+// a Deallocate is encountered.
+void collectPersistentTensorViews(
+    const Scope& scope,
+    std::unordered_set<TensorView*>& allocated) {
+  for (Expr* e : scope.exprs()) {
+    if (auto* dealloc = dynamic_cast<hir::Deallocate*>(e)) {
+      allocated.erase(dealloc->buffer());
+      continue;
+    }
+    if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
+      allocated.insert(alloc->buffer()->as<TensorView>());
+      continue;
+    }
+    for (auto* tv : ir_utils::filterByType<TensorView>(e->inputs())) {
+      allocated.insert(tv);
+    }
+    for (auto* tv : ir_utils::filterByType<TensorView>(e->outputs())) {
+      allocated.insert(tv);
+    }
+    if (auto* loop = dynamic_cast<hir::ForLoop*>(e)) {
+      collectPersistentTensorViews(loop->body(), allocated);
+    }
+  }
+}
+
+void checkMemoryLeak(const hir::HostIrContainer& hic) {
+  std::unordered_set<TensorView*> allocated;
+  collectPersistentTensorViews(hic.topLevel(), allocated);
+  EXPECT_TRUE(std::all_of(
+      allocated.begin(),
+      allocated.end(),
+      [](TensorView* tv) {
+        return tv->isFusionInput() || tv->isFusionOutput();
+      }))
+      << "Some TensorViews allocated in IR are not deallocated and not fusion "
+         "inputs/outputs.";
+}
+
+} // namespace
 
 class HostIrPassesTest : public NVFuserTest {
  protected:
@@ -61,15 +105,8 @@ TEST_F(HostIrPassesTest, TwoMatmulsInlinable) {
   auto out_tensors =
       executor.runFusionWithInputs({inp_tensor, w1_tensor, w2_tensor});
 
-  // Both matmuls are inlined in the same loop; `intermediate` is
-  // allocated and deallocated within the loop body.
   FusionKernelRuntime* runtime = executor.getMostRecentKernelRuntime();
-  const auto& exprs = runtime->getHostIrContainer().topLevelExprs();
-  int deallocate_count = std::count_if(exprs.begin(), exprs.end(), [](Expr* e) {
-    return e->isA<hir::Deallocate>();
-  });
-  EXPECT_EQ(deallocate_count, 0) << "Intermediate matmul output should have "
-                                    "been deallocated inside the loop.";
+  checkMemoryLeak(runtime->getHostIrContainer());
 
   testValidate(
       executor.fusion(),
@@ -112,14 +149,8 @@ TEST_F(HostIrPassesTest, TwoMatmulsNotInlinable) {
   auto out_tensors =
       executor.runFusionWithInputs({inp_tensor, w1_tensor, w2_tensor});
 
-  // The intermediate (out1) is fully allocated; its deallocate is at top level.
   FusionKernelRuntime* runtime = executor.getMostRecentKernelRuntime();
-  const auto& exprs = runtime->getHostIrContainer().topLevelExprs();
-  int deallocate_count = std::count_if(exprs.begin(), exprs.end(), [](Expr* e) {
-    return e->isA<hir::Deallocate>();
-  });
-  EXPECT_EQ(deallocate_count, 1) << "Intermediate matmul output should have "
-                                    "been deallocated outside the loop.";
+  checkMemoryLeak(runtime->getHostIrContainer());
 
   testValidate(
       executor.fusion(),
