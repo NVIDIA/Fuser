@@ -7,6 +7,7 @@
 // clang-format on
 #include "scheduler/tools/domain_map.h"
 
+#include <algorithm>
 #include <ranges>
 
 #include "scheduler/utils.h"
@@ -201,7 +202,7 @@ bool DomainMap::areAllTargetIdsCoveredBy(
     // logical domain of tv.
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         all_producer_sets;
-    std::for_each(ids.begin(), ids.end(), [&](IterDomain* tv_logical_id) {
+    std::ranges::for_each(ids, [&](IterDomain* tv_logical_id) {
       all_producer_sets.pushBack(
           ca_map_.disjointSetOf(tv_logical_id, IdMappingMode::EXACT));
     });
@@ -306,10 +307,8 @@ bool DomainMap::areAllTargetIdsCoveredBy(
 IterDomain* DomainMap::getMappedInputConcreteID(
     const std::unordered_set<IterDomain*>& in_concrete_ids,
     IterDomain* out_id) const {
-  auto in_concrete_id_iter = std::find_if(
-      in_concrete_ids.begin(),
-      in_concrete_ids.end(),
-      [&](IterDomain* in_concrete_id) {
+  auto in_concrete_id_iter =
+      std::ranges::find_if(in_concrete_ids, [&](IterDomain* in_concrete_id) {
         return ca_map_.areMapped(in_concrete_id, out_id, IdMappingMode::EXACT);
       });
   if (in_concrete_id_iter != in_concrete_ids.end()) {
@@ -340,7 +339,7 @@ void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
   // IDs through rfactor exprs
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       exact_sets;
-  std::for_each(ids.begin(), ids.end(), [&](IterDomain* id) {
+  std::ranges::for_each(ids, [&](IterDomain* id) {
     exact_sets.pushBack(ca_map_.disjointSetOf(id, IdMappingMode::EXACT));
   });
 
@@ -536,27 +535,48 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   // are tv0[i0, i1] and tv1[i2, b3] where i0/i2 and i1/b3 are mapped to each
   // other. However, tv0 and tv1 are in two different groups because of the
   // broadcast. In this case, we should use the pointwise scheduler instead of
-  // the transpose scheduler.
+  // the transpose scheduler. More generally, missing broadcast dimensions
+  // should be allowed when checking domain mapping, e.g. [b0, i1, i2] and [I1,
+  // B2] should be considered as all mapped as long as i1/I1 and b2/B2 are
+  // mapped. The extra b0 dimension is allowed to be missing.
   const auto& ref1_loop = ref1->getMaybeAllocationDomain();
   const auto& ref2_loop = ref2->getMaybeAllocationDomain();
   const auto& ca_map = domain_map.getComputeAtMap();
 
-  // Filter out reduction (and stride) domains before comparing
-  auto ref1_filtered = ref1_loop | TensorDomain::kNoReductions;
-  auto ref2_filtered = ref2_loop | TensorDomain::kNoReductions;
+  // Filter out reduction and broadcast dimensions before comparing.
+  // - the shorter must be a subsequence of the longer (same
+  //   order), e.g. longer [i0,i1,i2] allows shorter [i0,i1], [i1,i2], [i0,i2];
+  //   disallows [i1,i0], [i2,i1], [i2,i0].
+  auto ref1_filtered =
+      ref1_loop | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts;
+  auto ref2_filtered =
+      ref2_loop | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts;
 
-  const bool all_mapped = std::ranges::equal(
-      ref1_filtered, ref2_filtered, [&](IterDomain* id1, IterDomain* id2) {
-        return ca_map.areMapped(id1, id2, IdMappingMode::PERMISSIVE);
-      });
+  const auto n1 = std::ranges::distance(ref1_filtered);
+  const auto n2 = std::ranges::distance(ref2_filtered);
+  auto shorter = (n1 <= n2) ? ref1_filtered : ref2_filtered;
+  auto longer = (n1 <= n2) ? ref2_filtered : ref1_filtered;
+  auto it = std::ranges::begin(longer);
+  auto end = std::ranges::end(longer);
+  bool all_mapped = true;
+  for (IterDomain* id_s : shorter) {
+    it = std::ranges::find_if(it, end, [&](IterDomain* id_l) {
+      return ca_map.areMapped(id_s, id_l, IdMappingMode::PERMISSIVE);
+    });
+    if (it == end) {
+      all_mapped = false;
+      break;
+    }
+    ++it;
+  }
   if (all_mapped) {
     // Not required, just to validate the assumption that all_mapped implies
     // any_bcast
     const bool any_bcast =
         std::ranges::any_of(
-            ref1_filtered, [](IterDomain* id) { return id->isBroadcast(); }) ||
+            ref1_loop, [](IterDomain* id) { return id->isBroadcast(); }) ||
         std::ranges::any_of(
-            ref2_filtered, [](IterDomain* id) { return id->isBroadcast(); });
+            ref2_loop, [](IterDomain* id) { return id->isBroadcast(); });
     NVF_ERROR(
         any_bcast,
         "all_mapped implies any_bcast, ca_map:\n",
@@ -670,9 +690,8 @@ std::vector<std::vector<TensorView*>> TransposeDomainMap::
       }
     }
   }
-  std::stable_sort(
-      groups.begin(),
-      groups.end(),
+  std::ranges::stable_sort(
+      groups,
       [](const std::vector<TensorView*>& v1,
          const std::vector<TensorView*>& v2) { return v1.size() > v2.size(); });
   return groups;
@@ -681,10 +700,8 @@ std::vector<std::vector<TensorView*>> TransposeDomainMap::
 IterDomain* TransposeDomainMap::getMappedInputConcreteID(
     const std::unordered_set<IterDomain*>& in_concrete_ids,
     IterDomain* out_id) const {
-  auto in_concrete_id_iter = std::find_if(
-      in_concrete_ids.begin(),
-      in_concrete_ids.end(),
-      [&](IterDomain* in_concrete_id) {
+  auto in_concrete_id_iter =
+      std::ranges::find_if(in_concrete_ids, [&](IterDomain* in_concrete_id) {
         return ca_map_.areMapped(
             in_concrete_id, out_id, IdMappingMode::PERMISSIVE);
       });

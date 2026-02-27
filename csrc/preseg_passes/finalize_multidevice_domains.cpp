@@ -10,7 +10,6 @@
 #include "fusion.h"
 #include "ir/allocation_utils.h"
 #include "ir/interface_nodes.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 #include "linked_hash_map.h"
 #include "multidevice/allocation_utils.h"

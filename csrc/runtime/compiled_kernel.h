@@ -19,7 +19,6 @@
 #include "ir/cloner.h"
 #include "ir/graphviz.h"
 #include "ir/interface_nodes.h"
-#include "ir/printer.h"
 #include "multidevice/communicator.h"
 #include "runtime/allocations.h"
 #include "runtime/executor_params.h"

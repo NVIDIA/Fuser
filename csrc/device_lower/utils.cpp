@@ -19,7 +19,6 @@
 #include <device_lower/lower2device.h>
 #include <expr_simplifier.h>
 #include <id_model/utils.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>

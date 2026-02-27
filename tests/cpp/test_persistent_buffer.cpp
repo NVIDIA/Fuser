@@ -1257,6 +1257,13 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
   // persistent is not supported yet for 3D reduction.
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
+  // expect reduction and pointwise scheduler
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::Reduction)));
+
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 

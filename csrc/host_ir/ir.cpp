@@ -20,6 +20,7 @@
 #include "ir/builder_passkey.h"
 #include "ir/cloner.h"
 #include "ir/iostream.h"
+#include "runtime/compiled_kernel.h"
 
 namespace nvfuser::hir {
 

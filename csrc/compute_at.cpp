@@ -9,7 +9,6 @@
 #include <device_lower/utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <scheduler/tools/inlining.h>

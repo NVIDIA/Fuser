@@ -9,7 +9,6 @@
 #include <expr_simplifier.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>

@@ -37,6 +37,9 @@ class TransposeParams : public HeuristicParams {
   std::vector<int64_t> dims_merged_with_1 = {};
   std::vector<int64_t> dims_merged_with_2 = {};
 
+  // Whether to use TMA for loading inputs
+  bool use_tma_load = false;
+
   // Vectorization factor for tensors in the first group
   int64_t vectorize_factor1 = 1;
 
@@ -61,6 +64,7 @@ class TransposeParams : public HeuristicParams {
       return false;
     }
     bool attr_equal = other->cparams == cparams &&
+        other->use_tma_load == use_tma_load &&
         other->split_before_tiling == split_before_tiling &&
         other->dims_merged_with_1 == dims_merged_with_1 &&
         other->dims_merged_with_2 == dims_merged_with_2 &&
@@ -141,6 +145,7 @@ class TransposeParams : public HeuristicParams {
 
   size_t hash() const override {
     return c10::get_hash(
+        use_tma_load,
         split_before_tiling,
         dims_merged_with_1,
         dims_merged_with_2,

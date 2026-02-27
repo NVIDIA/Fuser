@@ -14,7 +14,6 @@
 #include <evaluator_common.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/execution_utils.h>

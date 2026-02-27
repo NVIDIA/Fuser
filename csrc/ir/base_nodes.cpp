@@ -7,6 +7,7 @@
 // clang-format on
 #include "ir/base_nodes.h"
 
+#include <ostream>
 #include <string>
 #include <unordered_map>
 
@@ -551,6 +552,17 @@ std::vector<PolymorphicValue> Expr::evaluate(
 
 void Expr::addDataAttribute(PolymorphicValue attr) {
   addAttribute(IrBuilder::createInContainer<Val>(container(), std::move(attr)));
+}
+
+std::ostream& operator<<(std::ostream& os, const Statement& stmt) {
+  return os << stmt.toString();
+}
+
+std::ostream& operator<<(std::ostream& os, const Statement* stmt) {
+  if (stmt == nullptr) {
+    return os << "<null>";
+  }
+  return os << *stmt;
 }
 
 } // namespace nvfuser

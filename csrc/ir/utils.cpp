@@ -15,7 +15,6 @@
 #include "expr_simplifier.h"
 #include "fusion.h"
 #include "ir/builder.h"
-#include "ir/iostream.h"
 #include "iter_visitor.h"
 #include "ops/arith.h"
 #include "scheduler/mma_utils.h"

@@ -9,7 +9,6 @@
 
 #include "alias_analysis.h"
 #include "debug.h"
-#include "ir/iostream.h" // for operator<<(ostream&, TensorView*)
 #include "ir/utils.h"
 #include "ops/alias.h"
 #include "options.h"

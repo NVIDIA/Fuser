@@ -10,7 +10,6 @@
 
 #include "expr_evaluator.h"
 #include "instrumentation.h"
-#include "ir/iostream.h"
 #include "multidevice/execution_utils.h"
 #include "multidevice/utils.h"
 #include "polymorphic_value.h"

@@ -18,7 +18,6 @@
 #include <vector>
 
 #include "ir/builder.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 
 namespace nvfuser::hir {

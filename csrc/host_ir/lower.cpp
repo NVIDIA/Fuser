@@ -16,7 +16,6 @@
 #include "ir/all_nodes.h"
 #include "ir/builder.h"
 #include "ir/interface_nodes.h"
-#include "ir/iostream.h"
 #include "multidevice/device_mesh.h"
 #include "multidevice/utils.h"
 #include "ops/all_ops.h"

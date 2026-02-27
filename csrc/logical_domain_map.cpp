@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <debug.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <logical_domain_map.h>

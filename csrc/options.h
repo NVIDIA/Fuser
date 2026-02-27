@@ -72,8 +72,6 @@ enum class DebugDumpOption {
   PreSegmenterLogging,
   HostIrLowering, //! Dump the Host IR after each lowering pass
   PythonDefinition, //! Python Frontend Fusion Definition.
-  PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
-  PythonFrontendDebug, //! Python Frontend debug information.
   TransformPropagator, //! When running TransformPropagator, print propagation
                        //! path and replay result
   Cubin, //! Dump compiled CUBIN

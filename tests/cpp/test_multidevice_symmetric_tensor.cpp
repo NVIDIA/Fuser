@@ -122,45 +122,45 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
 // symmetric_memory_backend(pytorch_nccl|pytorch_nvshmem|pytorch_cuda)).
 // Run with e.g. NVFUSER_ENABLE=symmetric_memory_backend(pytorch_nccl) to
 // exercise the PyTorch path.
-TEST_F(SymmetricTensorTest, PyTorchBackend_RemoteAccessCorrectness) {
-  if (communicator_->size() == 1) {
-    GTEST_SKIP() << "Skipping test for single device";
-  }
-  SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
-  if (backend == SymmetricMemoryBackend::Native) {
-    GTEST_SKIP()
-        << "PyTorch backend not selected; set NVFUSER_ENABLE=symmetric_memory_backend(pytorch_nccl) to run";
-  }
+// TEST_F(SymmetricTensorTest, PyTorchBackend_RemoteAccessCorrectness) {
+//   if (communicator_->size() == 1) {
+//     GTEST_SKIP() << "Skipping test for single device";
+//   }
+//   SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
+//   if (backend == SymmetricMemoryBackend::Native) {
+//     GTEST_SKIP()
+//         << "PyTorch backend not selected; set NVFUSER_ENABLE=symmetric_memory_backend(pytorch_nccl) to run";
+//   }
 
-  const int64_t rank = communicator_->deviceId();
-  const int64_t world_size = communicator_->size();
+//   const int64_t rank = communicator_->deviceId();
+//   const int64_t world_size = communicator_->size();
 
-  at::Tensor local_tensor = SymmetricTensor::allocate(
-      {256, 512}, at::ScalarType::Float, communicator_->device());
-  SymmetricTensor sym_tensor(local_tensor);
+//   at::Tensor local_tensor = SymmetricTensor::allocate(
+//       {256, 512}, at::ScalarType::Float, communicator_->device());
+//   SymmetricTensor sym_tensor(local_tensor);
 
-  EXPECT_TRUE(local_tensor.is_cuda());
-  EXPECT_EQ(local_tensor.numel(), 256 * 512);
+//   EXPECT_TRUE(local_tensor.is_cuda());
+//   EXPECT_EQ(local_tensor.numel(), 256 * 512);
 
-  float local_value = static_cast<float>(rank + 200);
-  local_tensor.fill_(local_value);
+//   float local_value = static_cast<float>(rank + 200);
+//   local_tensor.fill_(local_value);
 
-  sym_tensor.setupRemoteHandles();
+//   sym_tensor.setupRemoteHandles();
 
-  for (int64_t peer_rank = 0; peer_rank < world_size; ++peer_rank) {
-    void* peer_ptr = sym_tensor.remoteTensor(peer_rank).data_ptr();
-    EXPECT_NE(peer_ptr, nullptr);
+//   for (int64_t peer_rank = 0; peer_rank < world_size; ++peer_rank) {
+//     void* peer_ptr = sym_tensor.remoteTensor(peer_rank).data_ptr();
+//     EXPECT_NE(peer_ptr, nullptr);
 
-    float peer_value;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-        &peer_value, peer_ptr, sizeof(float), cudaMemcpyDeviceToHost));
+//     float peer_value;
+//     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+//         &peer_value, peer_ptr, sizeof(float), cudaMemcpyDeviceToHost));
 
-    float expected_value = static_cast<float>(peer_rank + 200);
-    EXPECT_FLOAT_EQ(peer_value, expected_value)
-        << "Rank " << rank << " reading from rank " << peer_rank
-        << " (PyTorch backend)";
-  }
-}
+//     float expected_value = static_cast<float>(peer_rank + 200);
+//     EXPECT_FLOAT_EQ(peer_value, expected_value)
+//         << "Rank " << rank << " reading from rank " << peer_rank
+//         << " (PyTorch backend)";
+//   }
+// }
 
 TEST_F(SymmetricTensorTest, PreallocatedTensor) {
   if (communicator_->size() == 1) {

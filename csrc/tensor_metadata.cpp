@@ -11,7 +11,6 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
