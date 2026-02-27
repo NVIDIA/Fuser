@@ -10,14 +10,12 @@
 // FusionExecutorCache with host IR lowering turned on.
 #include <algorithm>
 
-#include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include "fusion.h"
 #include "host_ir/ir.h"
 #include "ir/all_nodes.h"
-#include "ops/all_ops.h"
+#include "ops/composite.h"
 #include "options.h"
 #include "runtime/fusion_kernel_runtime.h"
 #include "tests/cpp/utils.h"
