@@ -7,12 +7,13 @@
 // clang-format on
 #include "preseg_passes/move_pad.h"
 
+#include <ranges>
+
 #include "expr_simplifier.h"
 #include "fusion.h"
 #include "ir/builder.h"
 #include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
-#include "ops/alias.h"
 #include "ops/arith.h"
 #include "ops/utils.h"
 #include "transform_replay.h"
@@ -39,7 +40,7 @@ bool isSimplePadOp(PadOp* pad) {
     return true;
   }
   std::vector<Val*> pad_widths = pad->getPadWidths();
-  return std::all_of(pad_widths.begin(), pad_widths.end(), [](Val* pad_val) {
+  return std::ranges::all_of(pad_widths, [](Val* pad_val) {
     return simplifyExpr(SimplifyingIrBuilder::geExpr(
                             pad_val, pad_val->fusion()->zeroVal()))
         ->isTrue();
@@ -98,8 +99,8 @@ bool hasBroadcastOnAny(
       return false;
     }
   }
-  return std::any_of(axes.begin(), axes.end(), [&tvs](int64_t i) {
-    return std::any_of(tvs.begin(), tvs.end(), [i](TensorView* tv) {
+  return std::ranges::any_of(axes, [&tvs](int64_t i) {
+    return std::ranges::any_of(tvs, [i](TensorView* tv) {
       return tv->getLogicalDomain()[i]->isBroadcast();
     });
   });
@@ -115,9 +116,8 @@ Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
   // pushed `PadOp` out and breaking the codegen if `CatOp` remains.
   DataType data_type = inputs[0]->getDataType();
   NVF_ERROR(
-      std::all_of(
-          inputs.begin(),
-          inputs.end(),
+      std::ranges::all_of(
+          inputs,
           [&data_type](Val* val) { return val->getDataType() == data_type; }),
       "all inputs to cat should be of the same datatype");
   NVF_ERROR(!inputs.empty(), "replace cat op expects to have non-empty inputs");
@@ -225,9 +225,8 @@ TensorView* replayConcretePad(
       rank == ref_iter_type.size(),
       "ref_iter_type does not have compatible size regarding pad_tv");
   NVF_ERROR(
-      std::all_of(
-          vec_pad_widths.begin(),
-          vec_pad_widths.end(),
+      std::ranges::all_of(
+          vec_pad_widths,
           [&rank](const std::vector<Val*>& pad_widths) {
             return pad_widths.size() == 2 * rank;
           }),
@@ -383,11 +382,7 @@ void propagatePads(Fusion* fusion) {
   stack.reserve(filtered_pads.size());
 
   // NOTE: we only consider simple padop as propagation stack.
-  std::copy_if(
-      filtered_pads.begin(),
-      filtered_pads.end(),
-      std::back_inserter(stack),
-      isSimplePadOp);
+  std::ranges::copy_if(filtered_pads, std::back_inserter(stack), isSimplePadOp);
 
   // NOTE: this is a WAR. We use a set of `simple_pad_set` to track all mergable
   // PadOps, since we cannot always prove them to be a simple op even when they

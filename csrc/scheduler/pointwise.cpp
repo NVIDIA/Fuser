@@ -378,7 +378,8 @@ bool mayHaveTmaCompatibleInputs(
     // inner TMA domain size of 2 * 16 bytes. Additionally, skip if the inner
     // TMA domain size equals the total element count, as this would mean the
     // outer TMA domain is 1, which is not a valid 2D TMA configuration.
-    const int64_t tma_domain_inner_min = 2 * 128 / dtype_bits;
+    const int64_t tma_domain_inner_min =
+        static_cast<int64_t>(2 * 128) / dtype_bits;
     if (elem_count % tma_domain_inner_min != 0 ||
         elem_count == tma_domain_inner_min) {
       continue;

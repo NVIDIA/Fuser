@@ -7,6 +7,8 @@
 // clang-format on
 #include "scheduler/normalization_utils.h"
 
+#include <ranges>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include "base.h"
@@ -82,7 +84,7 @@ void PreferredLaunchConfig::initValidGdims() {
   // Reverse the first half and swap gridDim.x and gridDim.y. That
   // list becomes the latter half
   auto latter_half = grid_dims;
-  std::reverse(latter_half.begin(), latter_half.end());
+  std::ranges::reverse(latter_half);
   for (const auto& gdimx_gdimy : latter_half) {
     if (gdimx_gdimy.second == gdimx_gdimy.first) {
       // This is already in the first half

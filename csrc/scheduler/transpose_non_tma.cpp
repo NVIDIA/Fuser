@@ -395,13 +395,12 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
             << "\n"
             << "reference2: " << reference2->toString() << "\n"
             << "inner_most_id2 position: " << inner_most_pos2_in_ref1
-            << " (in reference 1)" << std::endl;
+            << " (in reference 1)\n";
     if (utils::hasSmallTransposeDimensions(tparams)) {
-      debug() << "small transposed dim, needs virtual inner-most dim"
-              << std::endl;
+      debug() << "small transposed dim, needs virtual inner-most dim\n";
     }
-    debug() << std::endl;
-    debug() << tparams->toString() << std::endl;
+    debug() << '\n';
+    debug() << tparams->toString() << '\n';
   }
 
   return tparams;

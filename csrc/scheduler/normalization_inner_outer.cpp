@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ranges>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include "instrumentation.h"
@@ -34,7 +36,7 @@ bool preferWarpSpecialized(
   // TODO: extend to support dynamic inputs, warp specialization requires
   // static CTA size
   auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
-  if (std::any_of(inp_tvs.begin(), inp_tvs.end(), [](TensorView* tv) {
+  if (std::ranges::any_of(inp_tvs, [](TensorView* tv) {
         return scheduler_utils::isSymbolicTensor(tv);
       })) {
     return false;
@@ -169,9 +171,8 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       // TMA load requires size to be multiple of 16 bytes (128 bits).
       // In inner-outer scheduler, only shared memory persistent buffers are
       // TMA loaded and tma load size equals to the buffer size.
-      if (std::all_of(
-              buffer_params.smem_persistent_buffers.begin(),
-              buffer_params.smem_persistent_buffers.end(),
+      if (std::ranges::all_of(
+              buffer_params.smem_persistent_buffers,
               [&runtime_info, &persistent_buffer_info](TensorView* buffer) {
                 int64_t buffer_size_regs_bit =
                     scheduler_utils::getPersistentBufferSizeBitOfTensor(

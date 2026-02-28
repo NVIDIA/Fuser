@@ -720,9 +720,8 @@ TensorView* TensorView::reorder(
 TensorView* TensorView::reorder(const std::vector<int64_t>& permutation) {
   std::unordered_map<int64_t, int64_t> reorder_map;
   int64_t idx = 0;
-  std::transform(
-      permutation.begin(),
-      permutation.end(),
+  std::ranges::transform(
+      permutation,
       std::inserter(reorder_map, reorder_map.end()),
       [&idx](const int64_t v) { return std::make_pair(idx++, v); });
 
@@ -1396,10 +1395,8 @@ void TensorView::circularBuffer(
 
 bool TensorView::isEmptyTensor() const {
   auto& logical_domain = getLogicalDomain();
-  return std::all_of(
-      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
-        return id->extent()->isZeroInt();
-      });
+  return std::ranges::all_of(
+      logical_domain, [](IterDomain* id) { return id->extent()->isZeroInt(); });
 }
 
 void TensorView::applyMmaSwizzle(MmaOperand operand) {
@@ -1578,10 +1575,9 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
   // domain. We don't need this and we should be able to just use stride_order_,
   // but currently alloc_domain support isn't ideal and could prevent
   // vectorization. Adding this workaround to restore performance.
-  if (std::adjacent_find(
-          stride_order.begin(), stride_order.end(), [](int64_t l, int64_t r) {
-            return l <= r;
-          }) != stride_order.end()) {
+  if (std::ranges::adjacent_find(stride_order, [](int64_t l, int64_t r) {
+        return l <= r;
+      }) != stride_order.end()) {
     // stride_order is not in descending order, we cannot skip it.
     stride_order_ = std::move(stride_order);
   }

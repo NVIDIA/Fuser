@@ -269,7 +269,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       prop.max_dtype_size_bit_for_vectorization,
       /*n_vectorizable_tensors=*/-1,
       /*n_waves=*/-1,
-      /*logical_reorder_map=*/
+      /*logical_reorder=*/
       pointwise_utils::getLogicalReorderMap(
           prop.largest_out, prop.has_reshapes, data_cache));
 
@@ -309,7 +309,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << prop.min_dtype_size_bit_for_vectorization << "\n";
     debug() << "  vectorization_factor: " << params->vectorization_factor
             << "\n";
-    debug() << "============================================\n" << std::endl;
+    debug() << "============================================\n";
   }
   return params;
 }

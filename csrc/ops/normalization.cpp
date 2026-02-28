@@ -116,7 +116,8 @@ VarMeanResult variance_mean(
     auto out_real = variance_mean(real(x), dims, correction, keepdim);
     auto out_imag = variance_mean(imag(x), dims, correction, keepdim);
     return {
-        add(out_real.var, out_imag.var), complex(out_real.mean, out_imag.mean)};
+        .var = add(out_real.var, out_imag.var),
+        .mean = complex(out_real.mean, out_imag.mean)};
   }
 
   const int64_t kNumberOfDims =
@@ -134,7 +135,9 @@ VarMeanResult variance_mean(
 
   // Welford op can't handle 0-dim tensors, so we need to handle them separately
   if (x->nDims() == 0) {
-    return {variance(x, dims, correction, keepdim), mean(x, dims, keepdim)};
+    return {
+        .var = variance(x, dims, correction, keepdim),
+        .mean = mean(x, dims, keepdim)};
   }
 
   auto welford_out = Welford(x, dims);
@@ -150,7 +153,7 @@ VarMeanResult variance_mean(
     mean = broadcast(mean, is_broadcast);
   }
 
-  return {var, mean};
+  return {.var = var, .mean = mean};
 }
 
 TensorView* standard_deviation(
@@ -334,7 +337,7 @@ ForwardNormResult layer_norm(
     y = add(y, bias_bcast);
   }
 
-  return {y, mean_bcast, invstd};
+  return {.output = y, .mean = mean_bcast, .invstd = invstd};
 }
 
 ForwardRMSNormResult rms_norm(
@@ -372,7 +375,7 @@ ForwardRMSNormResult rms_norm(
     y = mul(y, weight_bcast);
   }
 
-  return {y, invstd};
+  return {.output = y, .invstd = invstd};
 }
 
 BackwardNormResult layer_norm_backward(
@@ -428,7 +431,7 @@ BackwardNormResult layer_norm_backward(
   if (output_mask[2] && bias != nullptr) {
     db = sum(dy, r.outer_reduction_axes);
   }
-  return {dx, dw, db};
+  return {.grad_input = dx, .grad_weight = dw, .grad_bias = db};
 }
 
 BackwardRMSNormResult rms_norm_backward(
@@ -477,7 +480,7 @@ BackwardRMSNormResult rms_norm_backward(
     dw = sum(mul(dy, x_hat), r.outer_reduction_axes);
   }
 
-  return {dx, dw};
+  return {.grad_input = dx, .grad_weight = dw};
 }
 
 BackwardRMSNormResult thunder_rms_norm_backward(
@@ -527,7 +530,7 @@ BackwardRMSNormResult thunder_rms_norm_backward(
     dw = sum(mul(dy, mul(x, inv_rms)), r.outer_reduction_axes);
   }
 
-  return {dx, dw};
+  return {.grad_input = dx, .grad_weight = dw};
 }
 
 ForwardNormResult batch_norm(
@@ -679,7 +682,7 @@ ForwardNormResult batch_norm(
     auto bias_bcast = broadcast(bias, broadcast_mask);
     y = add(y, bias_bcast);
   }
-  return {y, mean, invstd};
+  return {.output = y, .mean = mean, .invstd = invstd};
 }
 
 BackwardNormResult batch_norm_backward(
@@ -777,7 +780,10 @@ BackwardNormResult batch_norm_backward(
     grad_bias = grad_output_sum;
   }
 
-  return {grad_input, grad_weight, grad_bias};
+  return {
+      .grad_input = grad_input,
+      .grad_weight = grad_weight,
+      .grad_bias = grad_bias};
 }
 
 ForwardNormResult instance_norm(
@@ -939,7 +945,7 @@ ForwardNormResult instance_norm(
     auto bias_bcast = broadcast(bias, channels_only_broadcast_mask);
     y = add(y, bias_bcast);
   }
-  return {y, mean, invstd};
+  return {.output = y, .mean = mean, .invstd = invstd};
 }
 
 BackwardNormResult instance_norm_backward(
@@ -1053,7 +1059,10 @@ BackwardNormResult instance_norm_backward(
     grad_bias_reduced = sum(grad_bias, {0});
   }
 
-  return {grad_input, grad_weight_reduced, grad_bias_reduced};
+  return {
+      .grad_input = grad_input,
+      .grad_weight = grad_weight_reduced,
+      .grad_bias = grad_bias_reduced};
 }
 
 } // namespace nvfuser

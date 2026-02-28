@@ -7,6 +7,8 @@
 // clang-format on
 #include "scheduler/reduction_utils.h"
 
+#include <ranges>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include "base.h"
@@ -41,7 +43,7 @@ TensorView* scheduleReductionTV(
   // domain unchanged.
   const int64_t num_parallel_dims =
       scheduler_utils::countLeadingParallelDimensions(reduction_tv);
-  const int iter_axis = num_parallel_dims;
+  const int iter_axis = static_cast<int>(num_parallel_dims);
   const auto [outer_reduce_axis, inner_reduce_axis] =
       [&]() -> std::tuple<int, int> {
     if (rparams->schedule_3d) {
@@ -61,9 +63,9 @@ TensorView* scheduleReductionTV(
 
   NVF_ERROR(
       reduction_tv->nDims() >
-          std::max(iter_axis, std::max(outer_reduce_axis, inner_reduce_axis)),
+          std::max({iter_axis, outer_reduce_axis, inner_reduce_axis}),
       "Issue in scheduling reduction tv, expecting >",
-      std::max(iter_axis, std::max(outer_reduce_axis, inner_reduce_axis)),
+      std::max({iter_axis, outer_reduce_axis, inner_reduce_axis}),
       " dimensions, but found ",
       reduction_tv->nDims());
 
@@ -473,11 +475,10 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
       // Filter out schedule operations used for programmatic dependent launch
       // because they are not traditional producers
       std::vector<TensorView*> producer_tvs;
-      std::copy_if(
-          all_producers.begin(),
-          all_producers.end(),
-          std::back_inserter(producer_tvs),
-          [](TensorView* tv) { return !ir_utils::isScheduleOp(tv); });
+      std::ranges::copy_if(
+          all_producers, std::back_inserter(producer_tvs), [](TensorView* tv) {
+            return !ir_utils::isScheduleOp(tv);
+          });
       if (producer_tvs.size() == 1 &&
           vectorizable_expr(cached_input->definition()) &&
           std::ranges::find(vectorizable_inputs_outputs, producer_tvs[0]) !=
@@ -556,8 +557,7 @@ void clearUnrollVectorizationAddGroupReduction(
     for (const auto i : arange(tv->nDims())) {
       auto id = tv->axis(i);
       if (use_grouped_reduction &&
-          std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
-              reduction_tvs.end() &&
+          std::ranges::find(reduction_tvs, tv) != reduction_tvs.end() &&
           convertParallelToGrouped(id)) {
         tv->axis(i)->parallelize(ParallelType::Group);
         for (auto sibling : ir_utils::siblingTvsOf(tv)) {
@@ -577,11 +577,10 @@ void clearUnrollVectorizationAddGroupReduction(
   // Propagate group to other reduction tvs
   if (use_grouped_reduction && reduction_tvs.size() > 1) {
     std::vector<TensorView*> other_reduction_tvs;
-    std::copy_if(
-        reduction_tvs.begin(),
-        reduction_tvs.end(),
-        std::back_inserter(other_reduction_tvs),
-        [&](auto tv) { return reduction_tv != tv; });
+    std::ranges::copy_if(
+        reduction_tvs, std::back_inserter(other_reduction_tvs), [&](auto tv) {
+          return reduction_tv != tv;
+        });
     scheduler_utils::parallelizeAllLike(
         reduction_tv, -1, other_reduction_tvs, {ParallelType::Group});
   }
@@ -731,7 +730,7 @@ TensorView* sortAndRFactor(
     TensorView* reference_tv,
     bool is_non_persistent_outer_reduction) {
   auto domain = reference_tv->getLoopDomain();
-  std::sort(domain.begin(), domain.end(), placedBefore);
+  std::ranges::sort(domain, placedBefore);
   std::unordered_map<int64_t, int64_t> reorder_map;
   std::unordered_map<IterDomain*, int64_t> domain_pos;
   for (auto axis_i : arange(static_cast<int64_t>(domain.size()))) {
@@ -751,10 +750,9 @@ TensorView* sortAndRFactor(
   // 8 × 7 × 4 elements.
   // See https://github.com/NVIDIA/Fuser/issues/4172 for real examples.
   if (is_non_persistent_outer_reduction) {
-    auto vect_iter =
-        std::find_if(domain.begin(), domain.end(), [](IterDomain* id) {
-          return id->getParallelType() == ParallelType::Vectorize;
-        });
+    auto vect_iter = std::ranges::find_if(domain, [](IterDomain* id) {
+      return id->getParallelType() == ParallelType::Vectorize;
+    });
     if (vect_iter != domain.end()) {
       int64_t vect_id_pos = vect_iter - domain.begin();
       std::unordered_map<int64_t, int64_t> reorder_map;
@@ -840,12 +838,17 @@ class PersistentBufferProjector {
 
  private:
   Fusion* fusion_;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const scheduler_utils::PersistentBufferInfo persistent_info_;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const std::vector<TensorView*>& persistent_buffers;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const std::vector<std::vector<TensorView*>>&
       persistent_buffer_resolution_points;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const std::vector<TensorView*>& projectable_persistent_buffers;
   std::vector<TensorView*> dummy_outputs_;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const bool project_to_inputs_;
 
   void projectToInputs() {
@@ -854,10 +857,8 @@ class PersistentBufferProjector {
     const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
     for (auto buffer_i : arange(persistent_buffers.size())) {
       auto buffer = persistent_buffers[buffer_i];
-      if (std::find(
-              projectable_persistent_buffers.begin(),
-              projectable_persistent_buffers.end(),
-              buffer) == projectable_persistent_buffers.end()) {
+      if (std::ranges::find(projectable_persistent_buffers, buffer) ==
+          projectable_persistent_buffers.end()) {
         continue;
       }
       // when project to inputs, if the buffer depends on reduction tvs,
@@ -904,11 +905,10 @@ class PersistentBufferProjector {
     // For a solid case, see NVFuserTest.ChainProjectionToPersistentProducer.
     std::vector<int> visiting_order(persistent_buffers.size());
     std::iota(visiting_order.begin(), visiting_order.end(), 0);
-    std::stable_sort(
-        visiting_order.begin(), visiting_order.end(), [this](int a, int b) {
-          return !DependencyCheck::isDependencyOf(
-              persistent_buffers[a], persistent_buffers[b]);
-        });
+    std::ranges::stable_sort(visiting_order, [this](int a, int b) {
+      return !DependencyCheck::isDependencyOf(
+          persistent_buffers[a], persistent_buffers[b]);
+    });
 
     // try to project buffer to its producers when
     // (1) all producers are persistent buffers
@@ -967,9 +967,8 @@ class PersistentBufferProjector {
         // reduction. If there's a reduction on the current path between the
         // persistent buffer and resolution, continue, there's no need to
         // replicate this use.
-        if (std::any_of(tv_chain.begin(), tv_chain.end(), [](TensorView* tv) {
-              return tv->hasReduction();
-            })) {
+        if (std::ranges::any_of(
+                tv_chain, [](TensorView* tv) { return tv->hasReduction(); })) {
           continue;
         }
 
@@ -979,10 +978,8 @@ class PersistentBufferProjector {
 
         // Only grab unique uses, a persistent buffer could be used multiple
         // times in the same expression.
-        if (std::find(
-                persistent_use_of_buffer.begin(),
-                persistent_use_of_buffer.end(),
-                use) != persistent_use_of_buffer.end()) {
+        if (std::ranges::find(persistent_use_of_buffer, use) !=
+            persistent_use_of_buffer.end()) {
           continue;
         }
         persistent_use_of_buffer.emplace_back(use);
@@ -1222,7 +1219,9 @@ int64_t getL1L2WarpSize(
   // reduction dim is really small, we can use <32 threads per warp.
   const bool fits_in_l2 =
       n_elems * max_dtype_size_bit_for_vectorization * n_tensor_inputs <
-      at::cuda::getCurrentDeviceProperties()->l2CacheSize * 8;
+      static_cast<int64_t>(
+          at::cuda::getCurrentDeviceProperties()->l2CacheSize) *
+          8;
 
   // If it fits in l2, we just want to make sure each warp uses 256 bits. Set
   // minimum warp as 16 threads instead of 32 as if we have a small reduction

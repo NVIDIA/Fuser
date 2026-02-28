@@ -7,6 +7,8 @@
 // clang-format on
 #include <type_promotion.h>
 
+#include <cstdint>
+
 #include <ir/interface_nodes.h>
 #include <ops/arith.h>
 
@@ -14,7 +16,7 @@ namespace nvfuser {
 
 namespace {
 
-enum ValueType { Tensor, Scalar, None };
+enum ValueType : std::uint8_t { Tensor, Scalar, None };
 
 struct OperandType {
   ValueType value_type = ValueType::Tensor;
@@ -159,13 +161,15 @@ OperandType getValueType(at::TypePtr type) {
         "Missing Scalar Type information");
     // TODO: Type Inference does not propagate Shape Information
     return {
-        ValueType::Tensor,
-        aten_to_data_type(tensor_type->scalarType().value()),
-        tensor_type->dim().has_value() ? tensor_type->dim().value() : 1};
+        .value_type = ValueType::Tensor,
+        .scalar_type = aten_to_data_type(*tensor_type->scalarType()),
+        .dim = tensor_type->dim().has_value() ? *tensor_type->dim() : 1};
   } else if (auto scalar_type = tryScalarTypeFromJitType(*type)) {
-    return {ValueType::Scalar, aten_to_data_type(scalar_type.value())};
+    return {
+        .value_type = ValueType::Scalar,
+        .scalar_type = aten_to_data_type(*scalar_type)};
   } else {
-    return {ValueType::None, DataType::Null};
+    return {.value_type = ValueType::None, .scalar_type = DataType::Null};
   }
 }
 
@@ -173,11 +177,12 @@ OperandType getValueType(Val* type) {
   if (type->isA<TensorView>()) {
     auto tensor_view = type->as<TensorView>();
     return {
-        ValueType::Tensor,
-        tensor_view->getDataType(),
-        tensor_view->getLogicalDomain().size()};
+        .value_type = ValueType::Tensor,
+        .scalar_type = tensor_view->getDataType(),
+        .dim = tensor_view->getLogicalDomain().size()};
   } else {
-    return {ValueType::Scalar, type->getDataType()};
+    return {
+        .value_type = ValueType::Scalar, .scalar_type = type->getDataType()};
   }
 }
 
