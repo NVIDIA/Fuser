@@ -964,25 +964,30 @@ TensorView* reshape(
     const AnalyzeViewResult& view_analysis) {
   NVF_ERROR(inp_tv != nullptr, "Input is invalid.");
 
-  auto squeezed = std::any_of(
-                      view_analysis.squeeze_axes.begin(),
-                      view_analysis.squeeze_axes.end(),
-                      [](bool s) { return s; })
-      ? squeeze(inp_tv, view_analysis.squeeze_axes)
-      : inp_tv;
+  TensorView* out_tv = inp_tv;
+  if (std::any_of(
+          view_analysis.squeeze_axes.begin(),
+          view_analysis.squeeze_axes.end(),
+          std::identity())) {
+    out_tv = squeeze(out_tv, view_analysis.squeeze_axes);
+  }
 
-  auto view = view_analysis.transforms.empty()
-      ? squeezed
-      : applyViewTransforms(inp_tv, squeezed, view_analysis);
+  if (!view_analysis.transforms.empty()) {
+    out_tv = applyViewTransforms(inp_tv, out_tv, view_analysis);
+  }
 
-  auto bcasted = std::any_of(
-                     view_analysis.broadcast_axes.begin(),
-                     view_analysis.broadcast_axes.end(),
-                     [](bool b) { return b; })
-      ? broadcast(view, view_analysis.broadcast_axes)
-      : view;
+  if (std::any_of(
+          view_analysis.broadcast_axes.begin(),
+          view_analysis.broadcast_axes.end(),
+          std::identity())) {
+    out_tv = broadcast(out_tv, view_analysis.broadcast_axes);
+  }
 
-  return bcasted;
+  if (out_tv == inp_tv) {
+    out_tv = set(inp_tv);
+  }
+
+  return out_tv;
 }
 
 } // namespace nvfuser
