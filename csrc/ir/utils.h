@@ -592,11 +592,10 @@ inline TensorView* getSoleProducerTv(const TensorView* tv) {
   // Filter out schedule operations used for programmatic dependent launch
   // because they are not traditional producers
   std::vector<TensorView*> producers;
-  std::copy_if(
-      all_producers.begin(),
-      all_producers.end(),
-      std::back_inserter(producers),
-      [](TensorView* tv) { return !ir_utils::isScheduleOp(tv); });
+  std::ranges::copy_if(
+      all_producers, std::back_inserter(producers), [](TensorView* tv) {
+        return !ir_utils::isScheduleOp(tv);
+      });
   NVF_ERROR(
       producers.size() == 1,
       "Expected only one producer of ",
@@ -844,7 +843,7 @@ class TVDomainGuard {
  public:
   explicit TVDomainGuard(TensorView* tv, TensorDomain* td);
   TVDomainGuard(const TVDomainGuard&) = delete;
-  NVF_API TVDomainGuard(TVDomainGuard&&);
+  NVF_API TVDomainGuard(TVDomainGuard&&) noexcept;
 
   //! An utility to access the tensordomain before the temporary
   //!  view. This is used to retrieve information, like swizzle

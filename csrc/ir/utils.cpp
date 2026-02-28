@@ -1626,7 +1626,7 @@ TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
   tv_->setDomain(td);
 }
 
-TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard)
+TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard) noexcept
     : tv_(nullptr), prev_domain_(guard.prev_domain_) {
   std::swap(tv_, guard.tv_);
 }
