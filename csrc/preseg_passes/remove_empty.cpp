@@ -106,7 +106,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
           "Found unexpected empty intermediate TensorView ",
           tv->toString());
       auto shape = noReductionShape(tv);
-      auto dtype = tv->getDataType().value();
+      auto dtype = tv->getDataType();
       auto new_tv = zeros(shape, dtype, /*maybe_symbolic=*/false);
       registerReplacement(tv, new_tv);
     }
@@ -155,7 +155,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     auto new_tv = full(
         noReductionShape(out),
         rop->init(),
-        out->getDataType().value(),
+        out->getDataType(),
         /*maybe_symbolic=*/false);
     registerReplacement(out, new_tv);
   }
@@ -195,22 +195,21 @@ class EmptyTensorRemover : public DeadCodeRemover {
     auto shape = noReductionShape(avg);
     if (isLive(avg)) {
       auto nan = IrBuilder::create<Val>(
-          std::numeric_limits<double>::quiet_NaN(), avg->getDataType().value());
-      auto nan_tensor = full(
-          shape, nan, avg->getDataType().value(), /*maybe_symbolic=*/false);
+          std::numeric_limits<double>::quiet_NaN(), avg->getDataType());
+      auto nan_tensor =
+          full(shape, nan, avg->getDataType(), /*maybe_symbolic=*/false);
       registerReplacement(avg, nan_tensor);
     }
     if (isLive(var_sum)) {
       auto new_var_sum = full(
           shape,
-          fusion()->zeroVal(var_sum->getDataType().value()),
-          var_sum->getDataType().value(),
+          fusion()->zeroVal(var_sum->getDataType()),
+          var_sum->getDataType(),
           /*maybe_symbolic=*/false);
       registerReplacement(var_sum, new_var_sum);
     }
     if (isLive(N)) {
-      auto new_N =
-          zeros(shape, N->getDataType().value(), /*maybe_symbolic=*/false);
+      auto new_N = zeros(shape, N->getDataType(), /*maybe_symbolic=*/false);
       registerReplacement(N, new_N);
     }
   }
@@ -297,7 +296,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     if (!emptyAxes(in_logical).empty()) {
       auto out = pop->out()->as<TensorView>();
       auto shape = noReductionShape(out);
-      auto dtype = out->getDataType().value();
+      auto dtype = out->getDataType();
       auto new_tv = full(shape, pop->value(), dtype, /*maybe_symbolic=*/false);
       registerReplacement(out, new_tv);
     }
@@ -313,7 +312,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     if (!emptyAxes(A_logical).empty()) {
       auto out = mop->out()->as<TensorView>();
       auto shape = noReductionShape(out);
-      auto dtype = out->getDataType().value();
+      auto dtype = out->getDataType();
       auto new_tv = zeros(shape, dtype, /*maybe_symbolic=*/false);
       registerReplacement(out, new_tv);
     }

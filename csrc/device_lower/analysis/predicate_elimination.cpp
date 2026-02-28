@@ -103,16 +103,15 @@ bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
   if (producer_tvs.empty()) {
     return false;
   }
-  return std::all_of(
-      producer_tvs.begin(), producer_tvs.end(), [&](TensorView* producer_tv) {
-        if (!producer_tv->isCircularBuffered()) {
-          return false;
-        }
-        const auto& type = producer_tv->circularBufferOptions().type;
-        return std::holds_alternative<WarpSpecialized>(type) &&
-            std::get<WarpSpecialized>(type).on ==
-            id_in_consumer->getParallelType();
-      });
+  auto producer_tv_list = producer_tvs.vector();
+  return std::ranges::all_of(producer_tv_list, [&](TensorView* producer_tv) {
+    if (!producer_tv->isCircularBuffered()) {
+      return false;
+    }
+    const auto& type = producer_tv->circularBufferOptions().type;
+    return std::holds_alternative<WarpSpecialized>(type) &&
+        std::get<WarpSpecialized>(type).on == id_in_consumer->getParallelType();
+  });
 }
 
 // Utility to check if the scheduled domain of the given
@@ -281,7 +280,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   ProducerConsumerPairAnalyzer(
       TensorView* consumer,
       const std::unordered_map<IterDomain*, IterDomain*>& c2p)
-      : consumer_(consumer), c2p_(c2p) {}
+      : consumer_(consumer), c2p_(&c2p) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
@@ -311,8 +310,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       // If oversubscribed, there must be a mapped producer ID that is
       // parallelized in the same way. Otherwise, needs to be
       // predicated.
-      auto c2p_it = c2p_.find(consumer_id);
-      if (c2p_it == c2p_.end() ||
+      auto c2p_it = c2p_->find(consumer_id);
+      if (c2p_it == c2p_->end() ||
           c2p_it->second->getParallelType() != consumer_id->getParallelType()) {
         needs_predicate_ = true;
         return;
@@ -321,7 +320,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     // If the producer has a matching domain, it should not cause
     // out-of-bound accesses
-    if (c2p_.count(consumer_id)) {
+    if (c2p_->count(consumer_id)) {
       return;
     }
 
@@ -376,7 +375,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
  private:
   TensorView* consumer_ = nullptr;
   //! BestEffort map from consumer IDs to producer IDs
-  const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
+  const std::unordered_map<IterDomain*, IterDomain*>* c2p_;
   bool needs_predicate_ = false;
 };
 
@@ -405,8 +404,8 @@ class PredicateChecker : public IterVisitor {
 
  private:
   PredicateChecker(const PredicateElimination& pred_elimination)
-      : pred_elimination_(pred_elimination),
-        non_predicated_exprs_(pred_elimination.getNonPredicatedExprs()) {}
+      : pred_elimination_(&pred_elimination),
+        non_predicated_exprs_(&pred_elimination.getNonPredicatedExprs()) {}
 
   using IterVisitor::handle;
 
@@ -469,7 +468,7 @@ class PredicateChecker : public IterVisitor {
   // cause exceptions
   bool predicateIntDiv(Expr* expr) const {
     DEBUG_PRINT_SCOPE(expr);
-    auto dt = expr->outputs()[0]->getDataType().value();
+    auto dt = expr->outputs()[0]->getDataType();
     RECORD_AND_RETURN(
         (dt == DataType::Int || dt == DataType::Int32) &&
         expr->isA<BinaryOp>() &&
@@ -615,8 +614,7 @@ class PredicateChecker : public IterVisitor {
               return false;
             }
             for (Expr* use : rf_logical->uses()) {
-              if (std::find(all_exprs.begin(), all_exprs.end(), use) ==
-                  all_exprs.end()) {
+              if (std::ranges::find(all_exprs, use) == all_exprs.end()) {
                 continue;
               }
               return use->isA<Split>();
@@ -633,13 +631,9 @@ class PredicateChecker : public IterVisitor {
       }
       const auto vals =
           DependencyCheck::getAllValsBetween(split_logical, zero_loop_ids);
-      if (std::any_of(
-              split_logical.begin(),
-              split_logical.end(),
-              [&vals](auto split_logical_id) {
-                return std::find(vals.begin(), vals.end(), split_logical_id) ==
-                    vals.end();
-              })) {
+      if (std::ranges::any_of(split_logical, [&vals](auto split_logical_id) {
+            return std::ranges::find(vals, split_logical_id) == vals.end();
+          })) {
         RECORD_AND_RETURN(true);
       }
     }
@@ -710,13 +704,14 @@ class PredicateChecker : public IterVisitor {
     // same reduction op.
     if (auto input_def_rop = dynamic_cast<ReductionOp*>(input_def)) {
       if (rop->getReductionOpType() != input_def_rop->getReductionOpType() &&
-          non_predicated_exprs_.find(input_def) !=
-              non_predicated_exprs_.end()) {
+          non_predicated_exprs_->find(input_def) !=
+              non_predicated_exprs_->end()) {
         needs_predicate_ = true;
         return;
       }
     } else if (
-        non_predicated_exprs_.find(input_def) != non_predicated_exprs_.end()) {
+        non_predicated_exprs_->find(input_def) !=
+        non_predicated_exprs_->end()) {
       needs_predicate_ = true;
       return;
     }
@@ -766,8 +761,8 @@ class PredicateChecker : public IterVisitor {
       // overwritten by a garbage value. However, it doesn't matter if
       // the input is also produced by another welford.
       if (!input_def->isA<WelfordOp>() && !input_def->isA<GroupedWelfordOp>() &&
-          non_predicated_exprs_.find(input_def) !=
-              non_predicated_exprs_.end()) {
+          non_predicated_exprs_->find(input_def) !=
+              non_predicated_exprs_->end()) {
         needs_predicate_ = true;
         return;
       }
@@ -809,8 +804,8 @@ class PredicateChecker : public IterVisitor {
       if (auto input_def_rop = dynamic_cast<ReductionOp*>(input_def)) {
         if (grouped_rop->getReductionOpType(i) !=
                 input_def_rop->getReductionOpType() &&
-            non_predicated_exprs_.find(input_def) !=
-                non_predicated_exprs_.end()) {
+            non_predicated_exprs_->find(input_def) !=
+                non_predicated_exprs_->end()) {
           needs_predicate_ = true;
           return;
         }
@@ -822,14 +817,14 @@ class PredicateChecker : public IterVisitor {
         if (grouped_rop->getReductionOpType(i) !=
                 input_def_grouped_rop->getReductionOpType(
                     input_index_as_output) &&
-            non_predicated_exprs_.find(input_def) !=
-                non_predicated_exprs_.end()) {
+            non_predicated_exprs_->find(input_def) !=
+                non_predicated_exprs_->end()) {
           needs_predicate_ = true;
           return;
         }
       } else if (
-          non_predicated_exprs_.find(input_def) !=
-          non_predicated_exprs_.end()) {
+          non_predicated_exprs_->find(input_def) !=
+          non_predicated_exprs_->end()) {
         needs_predicate_ = true;
         return;
       }
@@ -884,8 +879,8 @@ class PredicateChecker : public IterVisitor {
         // found to be equal to the initil value of this op.
         if (!input_def->isA<WelfordOp>() &&
             !input_def->isA<GroupedWelfordOp>() &&
-            non_predicated_exprs_.find(input_def) !=
-                non_predicated_exprs_.end()) {
+            non_predicated_exprs_->find(input_def) !=
+                non_predicated_exprs_->end()) {
           needs_predicate_ = true;
           return;
         }
@@ -908,14 +903,14 @@ class PredicateChecker : public IterVisitor {
         return;
       }
 
-      if (non_predicated_exprs_.find(input_def) !=
-          non_predicated_exprs_.end()) {
+      if (non_predicated_exprs_->find(input_def) !=
+          non_predicated_exprs_->end()) {
         // If producer of mma is non_predicated and initialized
         //  with the same value. The mma should not need a
         //  predicate. In fact this is the only way we can
         //  use mma at the moment since we could not predicate
         //  mma ops without guaranteeing warp uniform results.
-        auto input_init = pred_elimination_.getInitValue(input);
+        auto input_init = pred_elimination_->getInitValue(input);
 
         // TODO:
         //   clean up this to support more generic prolog fusion.
@@ -948,8 +943,8 @@ class PredicateChecker : public IterVisitor {
   }
 
  private:
-  const PredicateElimination& pred_elimination_;
-  const std::unordered_set<const Expr*>& non_predicated_exprs_;
+  const PredicateElimination* pred_elimination_;
+  const std::unordered_set<const Expr*>* non_predicated_exprs_;
   bool needs_predicate_ = false;
 };
 
@@ -1014,14 +1009,10 @@ void PredicateElimination::dispatch(Expr* expr) {
       setReductionInitValue(input, expr->as<MmaOp>()->init());
       continue;
     } else if (
-        non_predicated_exprs_.find(input_def) != non_predicated_exprs_.end()) {
-      // If an input does not need a predicate either, then it should
-      // have some value, so no need to set a default value
-      continue;
-    } else if (
+        non_predicated_exprs_.find(input_def) != non_predicated_exprs_.end() ||
         FusionInfoGuard::current()->tensorInitVal().get(input) != nullptr) {
-      // Don't set anything if the input is already set to be
-      // initialized.
+      // If an input does not need a predicate, or is already set to be
+      // initialized, no need to set a default value
       continue;
     } else {
       // Make sure input is initialized
@@ -1129,7 +1120,7 @@ Val* PredicateElimination::getInitValue(TensorView* tv) const {
   auto init_val = it->second;
   if (init_val == nullptr) {
     // No reduction restriction. Just use zero
-    auto dtype = *tv->getDataType();
+    auto dtype = tv->getDataType();
     if (std::holds_alternative<ArrayType>(dtype.type)) {
       return IrBuilder::create<NamedScalar>("{}", dtype);
     }

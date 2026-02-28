@@ -29,12 +29,10 @@ ForwardDropoutResult dropout(TensorView* x, Val* prob) {
 ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   NVF_ERROR(
-      prob != nullptr && prob->getDataType().has_value() &&
-          prob->getDataType().value() == DataType::Double,
+      prob != nullptr && prob->getDataType() == DataType::Double,
       "Probability is not a valid Double.");
   NVF_ERROR(
-      scale != nullptr && scale->getDataType().has_value() &&
-          scale->getDataType().value() == DataType::Double,
+      scale != nullptr && scale->getDataType() == DataType::Double,
       "Scale is not a valid Double.");
 
   auto rand_vals = rand_like(x);
@@ -42,15 +40,14 @@ ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale) {
   auto apply_mask = mul(x, mask);
   auto y = mul(apply_mask, scale);
 
-  return {y, mask};
+  return {.output = y, .mask = mask};
 }
 
 TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
   NVF_ERROR(mask != nullptr, "Mask is invalid");
   NVF_ERROR(
-      scale != nullptr && scale->getDataType().has_value() &&
-          scale->getDataType().value() == DataType::Double,
+      scale != nullptr && scale->getDataType() == DataType::Double,
       "Scale is not a valid Double.");
 
   auto grad_mask = mul(dy, mask);
@@ -61,8 +58,7 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 
 TensorView* triu(TensorView* tv, Val* offset) {
   NVF_CHECK(
-      isIntegralType(offset->getDataType().value()),
-      "offset must have integral type");
+      isIntegralType(offset->getDataType()), "offset must have integral type");
 
   // Let's say we want a triu of a 2D tensor of shape [2, 4]
   // We broadcast the iota of the outer dim
@@ -109,7 +105,7 @@ TensorView* triu(TensorView* tv, Val* offset) {
   auto tv_rows_b = broadcast(tv_rows, {false, true});
   auto tv_cols_b = broadcast(tv_columns, {true, false});
   auto mask = le(tv_rows_b, tv_cols_b);
-  return where(mask, tv, fusion->zeroVal(*tv->getDataType()));
+  return where(mask, tv, fusion->zeroVal(tv->getDataType()));
 }
 
 namespace {
@@ -246,7 +242,7 @@ LstmResult lstm(
   const auto cell = add(mul(forget_gate, prev_cell), mul(in_gate, cell_gate));
   const auto hidden = mul(out_gate, tanh(cell));
 
-  return {cell, hidden};
+  return {.cell = cell, .hidden = hidden};
 }
 
 namespace {
@@ -257,7 +253,7 @@ T* sign(T* x) {
   auto one = IrBuilder::createInContainer<Val>(x->container(), 1.);
   auto minus_one = IrBuilder::createInContainer<Val>(x->container(), -1.);
   auto sign = where(gt(x, zero), one, where(lt(x, zero), minus_one, zero));
-  return castOp(x->getDataType().value(), sign);
+  return castOp(x->getDataType(), sign);
 }
 } // namespace
 
@@ -393,13 +389,14 @@ TensorView* leaky_relu(TensorView* x, Val* negative_slope) {
 }
 
 TensorView* view_as_real(TensorView* x) {
-  auto input_type = x->getDataType().value();
+  auto input_type = x->getDataType();
   NVF_CHECK(
       isComplexType(input_type),
       "Operand of view_as_real must have complex type");
 
   auto vec_type = ArrayType{
-      std::make_shared<DataType>(getTypeFromComplexType(input_type)), 2};
+      .type = std::make_shared<DataType>(getTypeFromComplexType(input_type)),
+      .size = 2};
   auto tv_vector = bitCastOp(vec_type, x);
   return viewAsScalar(tv_vector);
 }
@@ -696,7 +693,11 @@ SdpfaFwdResult sdpfa_fwd(
       scale == nullptr
           ? scale
           : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
-  return {output, logsumexp, philox_seed, philox_offset};
+  return {
+      .output = output,
+      .logsumexp = logsumexp,
+      .philox_seed = philox_seed,
+      .philox_offset = philox_offset};
 }
 
 SdpfaBwdResult sdpfa_bwd(
@@ -787,7 +788,8 @@ SdpfaBwdResult sdpfa_bwd(
       scale == nullptr
           ? scale
           : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
-  return {grad_query, grad_key, grad_value};
+  return {
+      .grad_query = grad_query, .grad_key = grad_key, .grad_value = grad_value};
 }
 
 TensorView* embedding_fwd(

@@ -1019,16 +1019,11 @@ int64_t getPersistentBufferSizeBitOfTensor(
   // type before upcast.
   int64_t dtype_size_bit = 1;
   if (auto upcast_input = getUpCastInputOf(buffer)) {
-    auto upcast_dtype = upcast_input->getDataType();
-    NVF_ERROR(
-        upcast_dtype.has_value(), "Expected upcast input to have a data type.");
-    dtype_size_bit =
-        dataTypeSizeBit(*upcast_dtype, runtime_info.getIndexType());
+    dtype_size_bit = dataTypeSizeBit(
+        upcast_input->getDataType(), runtime_info.getIndexType());
   } else {
-    auto buffer_dtype = buffer->getDataType();
-    NVF_ERROR(buffer_dtype.has_value(), "Expected buffer to have a data type.");
     dtype_size_bit =
-        dataTypeSizeBit(*buffer_dtype, runtime_info.getIndexType());
+        dataTypeSizeBit(buffer->getDataType(), runtime_info.getIndexType());
   }
 
   buffer_bits = buffer_bits == -1 ? 0 : buffer_bits * dtype_size_bit;
@@ -2061,10 +2056,8 @@ BroadcastMultipleInformation getBroadcastMultiples(
     {
       bool rhs = false;
       bool lhs = false;
-      auto dtype_opt = in_out_tv->getDataType();
-      NVF_ERROR(
-          dtype_opt.has_value(), "Expected TensorView to have a data type.");
-      auto dtype_size_bit = dataTypeSizeBit(*dtype_opt, index_type);
+      auto dtype_size_bit =
+          dataTypeSizeBit(in_out_tv->getDataType(), index_type);
       for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
@@ -2974,10 +2967,8 @@ int64_t getReductionSmemWorkspaceBit(
   // (1) part-1, space for the reduction broadcast.
   int64_t dtype_size_bit = 1;
   for (auto tv : reduction_tvs) {
-    auto dtype_opt = tv->getDataType();
-    NVF_ERROR(
-        dtype_opt.has_value(), "Expected TensorView to have a data type.");
-    dtype_size_bit = std::max(dtype_size_bit, dataTypeSizeBit(*dtype_opt));
+    dtype_size_bit =
+        std::max(dtype_size_bit, dataTypeSizeBit(tv->getDataType()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is

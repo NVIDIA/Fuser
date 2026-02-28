@@ -7,6 +7,8 @@
 // clang-format on
 #include "scheduler/normalization_inner_outer_utils.h"
 
+#include <ranges>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include "instrumentation.h"
@@ -62,8 +64,7 @@ int64_t partialOuterReductionBufferSizeBit(
     }
     buffer_size_bit = (buffer_size_bit == -1) ? 0
                                               : buffer_size_bit *
-            dataTypeSizeBit(buffer->getDataType().value(),
-                            runtime_info.getIndexType());
+            dataTypeSizeBit(buffer->getDataType(), runtime_info.getIndexType());
     partial_reduction_buffer_size_bit += buffer_size_bit;
   }
   return partial_reduction_buffer_size_bit;
@@ -75,22 +76,17 @@ std::vector<TensorView*> sortProjectableBufferInputs(
   // mark whether the buffer is used by outer broadcast tensors
   std::unordered_map<TensorView*, bool> is_used_by_outer_bcast;
   for (auto buffer : projectable_buffer_inputs) {
-    is_used_by_outer_bcast[buffer] = std::any_of(
-        outer_broadcast_tvs.begin(),
-        outer_broadcast_tvs.end(),
-        [&buffer](TensorView* tv) {
+    is_used_by_outer_bcast[buffer] =
+        std::ranges::any_of(outer_broadcast_tvs, [&buffer](TensorView* tv) {
           return DependencyCheck::isDependencyOf(buffer, tv);
         });
   }
 
   // sort based on [is_used_by_outer_bcast]
   std::vector<TensorView*> sorted_buffer = projectable_buffer_inputs;
-  std::sort(
-      sorted_buffer.begin(),
-      sorted_buffer.end(),
-      [&](TensorView* a, TensorView* b) {
-        return !is_used_by_outer_bcast[a] && is_used_by_outer_bcast[b];
-      });
+  std::ranges::sort(sorted_buffer, [&](TensorView* a, TensorView* b) {
+    return !is_used_by_outer_bcast[a] && is_used_by_outer_bcast[b];
+  });
   return sorted_buffer;
 }
 
@@ -190,12 +186,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // TODO: maybe tunable for some cases.
   if (is_warp_specialized) {
     for (auto buffer : buffers) {
-      if (std::any_of(
-              outer_broadcast_tvs.begin(),
-              outer_broadcast_tvs.end(),
-              [&buffer](TensorView* tv) {
-                return DependencyCheck::isDependencyOf(buffer, tv);
-              })) {
+      if (std::ranges::any_of(outer_broadcast_tvs, [&buffer](TensorView* tv) {
+            return DependencyCheck::isDependencyOf(buffer, tv);
+          })) {
         buffer_params.non_circular_buffered_smem_size_bit +=
             scheduler_utils::getPersistentBufferSizeBitOfTensor(
                 buffer, runtime_info, persistent_buffer_info);
@@ -219,7 +212,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         ? buffer_size_regs_bit
         : roundUpSharedMemory(
               buffer_size_regs_bit,
-              dataTypeSizeBit(buffer->getDataType().value()),
+              dataTypeSizeBit(buffer->getDataType()),
               vectorize_factor,
               threads_per_block_min,
               threads_per_block_max,
@@ -311,12 +304,10 @@ std::vector<TensorView*> getGroupedReductionPersistentTvs(
   for (auto output : reduction_to_output) {
     auto chains_to_output =
         DependencyCheck::getAllDependencyChains(cached_input, output);
-    for (auto chain : chains_to_output) {
+    for (const auto& chain : chains_to_output) {
       auto tv_chain = ir_utils::filterByType<TensorView>(chain);
-      bool is_reduction_chain =
-          std::any_of(tv_chain.begin(), tv_chain.end(), [](TensorView* tv) {
-            return tv->hasReduction();
-          });
+      bool is_reduction_chain = std::ranges::any_of(
+          tv_chain, [](TensorView* tv) { return tv->hasReduction(); });
       if (is_reduction_chain) {
         for (auto tv : tv_chain) {
           // Don't include tvs pass reduction since we only want to find tvs

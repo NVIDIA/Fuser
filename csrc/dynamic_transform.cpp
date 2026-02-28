@@ -23,6 +23,7 @@
 #include <transform_view.h>
 #include "base.h"
 
+#include <functional>
 #include <optional>
 
 namespace nvfuser {
@@ -132,9 +133,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       for (Val* out_val : expr->outputs()) {
         if (TensorView* out_tv = dynamic_cast<TensorView*>(out_val)) {
           const std::vector<IterDomain*>& out_rf = out_tv->getLogicalDomain();
-          if (std::any_of(out_rf.begin(), out_rf.end(), [](IterDomain* id) {
-                return id->isSymbolic();
-              })) {
+          if (std::ranges::any_of(
+                  out_rf, std::mem_fn(&IterDomain::isSymbolic))) {
             info_.dynamic_factory_tvs_.push_back(out_tv);
           }
         } else {
@@ -680,10 +680,10 @@ std::string DynamicTransformConcretizationInfo::toString() const {
       initial_info_->getDynamicFactoryOutputs().size());
   for (int64_t i : arange((int64_t)factory_output_itertypes_.size())) {
     TensorView* tv = initial_info_->getDynamicFactoryOutputs().at(i);
-    indent(ss, 2) << tv->toString() << std::endl;
+    indent(ss, 2) << tv->toString() << '\n';
     for (const auto& [pos, iter_type] : factory_output_itertypes_.at(i)) {
       indent(ss, 3) << tv->getLogicalDomain().at(pos)->toString() << " => "
-                    << iter_type << std::endl;
+                    << iter_type << '\n';
     }
   }
   indent(ss, 1) << "TopK:\n";
@@ -860,7 +860,7 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
   auto fusion = FusionGuard::getCurFusion();
   for (const auto& ext_index : info_->getEmptyExtents()) {
     auto ext = info_->initialInfo()->getMaybeZeroExtents().at(ext_index);
-    auto zero = fusion->zeroVal(ext->getDataType().value());
+    auto zero = fusion->zeroVal(ext->getDataType());
     auto uses = ext->uses();
     for (auto use : uses) {
       ir_utils::replaceValInExprInputs(use, ext, zero);
@@ -1055,10 +1055,7 @@ void DynamicTransformConcretizer::concretizeExpand() {
         info_->initialInfo()->getDynamicExpandedTensorViews().at(tv_index);
 
     // If no axis is expanded, replace this op with a set()
-    if (std::none_of(
-            axis_is_expanded.begin(), axis_is_expanded.end(), [](bool b) {
-              return b;
-            })) {
+    if (std::ranges::none_of(axis_is_expanded, std::identity())) {
       TensorView* inp_tv =
           symbolic_out_tv->definition()->input(0)->as<TensorView>();
       TensorView* concretized_tv = set(inp_tv);

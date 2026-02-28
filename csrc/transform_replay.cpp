@@ -7,6 +7,8 @@
 // clang-format on
 #include <transform_replay.h>
 
+#include <ranges>
+
 #include <compute_at_map.h>
 #include <debug.h>
 #include <disjoint_set.h>
@@ -363,7 +365,7 @@ void TransformReplay::selfReplay(
       for (auto* id : new_self->logical()) {
         if (id->isReduction()) {
           new_allocation.push_back(id);
-          new_contiguities.push_back(std::nullopt);
+          new_contiguities.emplace_back();
         }
       }
     }
@@ -418,9 +420,8 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
 
   std::unordered_set<IterDomain*> all_unmapped_ids;
-  std::transform(
-      all_unmapped_vals.begin(),
-      all_unmapped_vals.end(),
+  std::ranges::transform(
+      all_unmapped_vals,
       std::inserter(all_unmapped_ids, all_unmapped_ids.end()),
       [](Val* val) { return val->as<IterDomain>(); });
   return all_unmapped_ids;
@@ -560,10 +561,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   for (auto producer_logical_id : producer_logical) {
     if (all_processed_ids.find(producer_logical_id) ==
             all_processed_ids.end() &&
-        std::find(
-            dims_mapped2target.begin(),
-            dims_mapped2target.end(),
-            producer_logical_id) == dims_mapped2target.end()) {
+        std::ranges::find(dims_mapped2target, producer_logical_id) ==
+            dims_mapped2target.end()) {
       producer_self_replay_map[producer_logical_id] = producer_logical_id;
     }
   }
@@ -787,14 +786,11 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   // Any root domain that was not used to generate computeIDs we can also put in
   // the map to forward their transformations.
   for (auto consumer_root_id : consumer_root) {
-    if (std::find(
-            processed_roots.begin(), processed_roots.end(), consumer_root_id) ==
+    if (std::ranges::find(processed_roots, consumer_root_id) ==
             processed_roots.end() &&
         // Don't re-add roots that may have directly mapped in the replay
-        std::find(
-            dims_mapped2target.begin(),
-            dims_mapped2target.end(),
-            consumer_root_id) == dims_mapped2target.end()) {
+        std::ranges::find(dims_mapped2target, consumer_root_id) ==
+            dims_mapped2target.end()) {
       consumer_self_replay_map[consumer_root_id] = consumer_root_id;
     }
   }
@@ -994,7 +990,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
   IterDomainMap c2p_logical_map = pairwise_map.mapConsumerToProducer();
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->getLoopDomain();
+  const auto& consumer_domain = consumer->getLoopDomain();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : c2p_logical_map) {
@@ -1008,7 +1004,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
       unskippable_consumer_ids_vec.begin(), unskippable_consumer_ids_vec.end());
 
   // IterDomains in `producer` root also in `consumer` root
-  const auto producer_domain = producer->getLoopDomain();
+  const auto& producer_domain = producer->getLoopDomain();
 
   auto it_consumer = consumer_domain.begin();
   auto it_producer = producer_domain.begin();
@@ -1066,14 +1062,14 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
   IterDomainMap p2c_logical_map = pairwise_map.mapProducerToConsumer();
 
   // IterDomains in `producer` root that are not reduction
-  const auto producer_domain = producer->getLoopDomain();
+  const auto& producer_domain = producer->getLoopDomain();
   auto unskippable_producer_ids_vec =
       TensorDomain::noReductions(producer_domain);
   std::unordered_set<IterDomain*> unskippable_producer_ids(
       unskippable_producer_ids_vec.begin(), unskippable_producer_ids_vec.end());
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->getLoopDomain();
+  const auto& consumer_domain = consumer->getLoopDomain();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : p2c_logical_map) {
@@ -1138,18 +1134,17 @@ bool TransformReplay::fullSelfMatching(
     const TensorView* replay,
     const TensorView* target) {
   auto replay_root = replay->getMaybeRootDomain();
-  auto replay_dom = replay->getLoopDomain();
+  const auto& replay_dom = replay->getLoopDomain();
   auto target_root = target->getMaybeRootDomain();
-  auto target_dom = target->getLoopDomain();
+  const auto& target_dom = target->getLoopDomain();
   std::unordered_map<IterDomain*, IterDomain*> target2replay_map;
   if (replay_root.size() != target_root.size()) {
     return false;
   }
   target2replay_map.reserve(replay_root.size());
-  std::transform(
-      target_root.begin(),
-      target_root.end(),
-      replay_root.begin(),
+  std::ranges::transform(
+      target_root,
+      replay_root,
       std::inserter(target2replay_map, target2replay_map.begin()),
       [](auto a, auto b) { return std::make_pair(a, b); });
   BestEffortReplay replay_(replay_dom, target_dom, target2replay_map);
@@ -1194,9 +1189,9 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "TransformPropagator::propagateC2P" << std::endl;
-    debug() << "  from: " << from << " @ " << pos << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "TransformPropagator::propagateC2P\n";
+    debug() << "  from: " << from << " @ " << pos << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(
@@ -1212,10 +1207,10 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
     to->setDomain(replay.first);
     new_pos = replay.second;
     if (debug_print) {
-      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
+      debug() << "  replayed: " << to << " @ " << new_pos << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped. result position: " << new_pos << std::endl;
+    debug() << "  replay skipped. result position: " << new_pos << '\n';
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1227,9 +1222,9 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "TransformPropagator::propagateP2C" << std::endl;
-    debug() << "  from: " << from << " @ " << pos << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "TransformPropagator::propagateP2C\n";
+    debug() << "  from: " << from << " @ " << pos << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(
@@ -1245,10 +1240,10 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
     to->setDomain(replay.first);
     new_pos = replay.second;
     if (debug_print) {
-      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
+      debug() << "  replayed: " << to << " @ " << new_pos << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped. result position: " << new_pos << std::endl;
+    debug() << "  replay skipped. result position: " << new_pos << '\n';
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1258,9 +1253,9 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
   // See note [Using multiple TransformPropagators]
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "TransformPropagator::propagateSibling" << std::endl;
-    debug() << "  from: " << from << " @ " << pos << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "TransformPropagator::propagateSibling\n";
+    debug() << "  from: " << from << " @ " << pos << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
@@ -1274,10 +1269,10 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
         "producer position.");
     to->setDomain(replay);
     if (debug_print) {
-      debug() << "  replayed: " << to << " @ " << pos << std::endl;
+      debug() << "  replayed: " << to << " @ " << pos << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped. result position: " << pos << std::endl;
+    debug() << "  replay skipped. result position: " << pos << '\n';
   }
   replayed_pos_[to] = pos;
 }
@@ -1295,9 +1290,9 @@ void MostInlinedTransformPropagator::propagateC2P(
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "MostInlinedTransformPropagator::propagateC2P" << std::endl;
-    debug() << "  from: " << from << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "MostInlinedTransformPropagator::propagateC2P\n";
+    debug() << "  from: " << from << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(
@@ -1312,10 +1307,10 @@ void MostInlinedTransformPropagator::propagateC2P(
         "producer position.");
     to->setDomain(replay.first);
     if (debug_print) {
-      debug() << "  replayed: " << to << std::endl;
+      debug() << "  replayed: " << to << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped" << std::endl;
+    debug() << "  replay skipped\n";
   }
 }
 
@@ -1328,9 +1323,9 @@ void MostInlinedTransformPropagator::propagateP2C(
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "MostInlinedTransformPropagator::propagateP2C" << std::endl;
-    debug() << "  from: " << from << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "MostInlinedTransformPropagator::propagateP2C\n";
+    debug() << "  from: " << from << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(
@@ -1345,10 +1340,10 @@ void MostInlinedTransformPropagator::propagateP2C(
         "producer position.");
     to->setDomain(replay.first);
     if (debug_print) {
-      debug() << "  replayed: " << to << std::endl;
+      debug() << "  replayed: " << to << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped" << std::endl;
+    debug() << "  replay skipped\n";
   }
 }
 
@@ -1358,9 +1353,9 @@ void MostInlinedTransformPropagator::propagateSibling(
   // See note [Using multiple TransformPropagators]
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "MostInlinedTransformPropagator::propagateSibling" << std::endl;
-    debug() << "  from: " << from << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "MostInlinedTransformPropagator::propagateSibling\n";
+    debug() << "  from: " << from << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
@@ -1374,10 +1369,10 @@ void MostInlinedTransformPropagator::propagateSibling(
         "producer position.");
     to->setDomain(replay);
     if (debug_print) {
-      debug() << "  replayed: " << to << std::endl;
+      debug() << "  replayed: " << to << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped" << std::endl;
+    debug() << "  replay skipped\n";
   }
 }
 
@@ -1479,7 +1474,7 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
     }
     TensorDomain* new_domain = fullReplay(old_domain, new_out_root);
     TensorView* new_out_tv =
-        IrBuilder::create<TensorView>(new_domain, *old_out->getDataType());
+        IrBuilder::create<TensorView>(new_domain, old_out->getDataType());
     new_outs.push_back(new_out_tv);
   }
 

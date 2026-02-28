@@ -720,9 +720,8 @@ TensorView* TensorView::reorder(
 TensorView* TensorView::reorder(const std::vector<int64_t>& permutation) {
   std::unordered_map<int64_t, int64_t> reorder_map;
   int64_t idx = 0;
-  std::transform(
-      permutation.begin(),
-      permutation.end(),
+  std::ranges::transform(
+      permutation,
       std::inserter(reorder_map, reorder_map.end()),
       [&idx](const int64_t v) { return std::make_pair(idx++, v); });
 
@@ -813,7 +812,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =
-      IrBuilder::create<TensorView>(producer_domain, getDataType().value());
+      IrBuilder::create<TensorView>(producer_domain, getDataType());
 
   producer->setDeviceMesh(mesh_);
 
@@ -950,7 +949,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =
-      IrBuilder::create<TensorView>(producer_domain, tv->getDataType().value());
+      IrBuilder::create<TensorView>(producer_domain, tv->getDataType());
 
   // Set domain of consumer
   tv->setDomain(consumer_domain);
@@ -1101,7 +1100,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(container(), domain()),
-      getDataType().value());
+      getDataType());
 
   // Set domain of consumer
   TensorView* consumer = this;
@@ -1193,7 +1192,7 @@ TensorView* TensorView::cacheFork() {
           container(),
           IterDomain::clone(logical_domain),
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
-      getDataType().value());
+      getDataType());
 
   // Create write operation from this TV to new output
   IrBuilder::createInContainer<LoadStoreOp>(
@@ -1292,7 +1291,7 @@ TensorView* TensorView::cacheAfter(
           container(),
           new_logical_domain,
           TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
-      getDataType().value());
+      getDataType());
 
   // Set domain of producer - No Change
   TensorView* producer = this;
@@ -1396,10 +1395,8 @@ void TensorView::circularBuffer(
 
 bool TensorView::isEmptyTensor() const {
   auto& logical_domain = getLogicalDomain();
-  return std::all_of(
-      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
-        return id->extent()->isZeroInt();
-      });
+  return std::ranges::all_of(
+      logical_domain, [](IterDomain* id) { return id->extent()->isZeroInt(); });
 }
 
 void TensorView::applyMmaSwizzle(MmaOperand operand) {
@@ -1426,7 +1423,7 @@ void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
 }
 
 void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
-  auto dtype = getDataType().value();
+  auto dtype = getDataType();
   // Input is on the form:
   // [...., K (assume is 16), N (16 .. say dtype is half and swizzle
   // size is 32B]. Here the TMA box is [16,16]. This box could have
@@ -1578,10 +1575,9 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
   // domain. We don't need this and we should be able to just use stride_order_,
   // but currently alloc_domain support isn't ideal and could prevent
   // vectorization. Adding this workaround to restore performance.
-  if (std::adjacent_find(
-          stride_order.begin(), stride_order.end(), [](int64_t l, int64_t r) {
-            return l <= r;
-          }) != stride_order.end()) {
+  if (std::ranges::adjacent_find(stride_order, [](int64_t l, int64_t r) {
+        return l <= r;
+      }) != stride_order.end()) {
     // stride_order is not in descending order, we cannot skip it.
     stride_order_ = std::move(stride_order);
   }
