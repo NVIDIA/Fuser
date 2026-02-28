@@ -844,7 +844,7 @@ class PersistentBufferProjector {
   const std::vector<TensorView*>& persistent_buffers;
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const std::vector<std::vector<TensorView*>>&
-      persistent_buffer_resolution_points;
+      persistent_buffer_resolution_points; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const std::vector<TensorView*>& projectable_persistent_buffers;
   std::vector<TensorView*> dummy_outputs_;

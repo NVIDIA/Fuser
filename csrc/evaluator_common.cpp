@@ -291,11 +291,8 @@ void PrecomputedValues::invalidate() {
   binding_log_.clear();
 
   // invalidate value entries (vector<bool> is not a ranges output_range)
-  std::fill(
-      defined_.begin(),
-      defined_.end(),
-      false); // NOLINT(modernize-use-ranges) - vector<bool> is not a ranges
-              // output_range
+  // NOLINTNEXTLINE(modernize-use-ranges)
+  std::fill(defined_.begin(), defined_.end(), false);
 
   // invalidate flag
   has_valid_values_ = false;

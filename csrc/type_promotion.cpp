@@ -162,8 +162,10 @@ OperandType getValueType(at::TypePtr type) {
     // TODO: Type Inference does not propagate Shape Information
     return {
         .value_type = ValueType::Tensor,
-        .scalar_type = aten_to_data_type(*tensor_type->scalarType()),
-        .dim = tensor_type->dim().has_value() ? *tensor_type->dim() : 1};
+        .scalar_type =
+            aten_to_data_type(valueOrError(tensor_type->scalarType())),
+        .dim = tensor_type->dim().has_value() ? valueOrError(tensor_type->dim())
+                                              : 1};
   } else if (auto scalar_type = tryScalarTypeFromJitType(*type)) {
     return {
         .value_type = ValueType::Scalar,
