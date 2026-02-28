@@ -150,10 +150,6 @@ class PostDominatorTree {
     return &nodes_.at(root);
   }
 
-  const Node* getNode(Expr* expr) const {
-    return getOrDefault(nodes_, expr);
-  }
-
  private:
   void build(Scope& scope, Node* parent) {
     auto& exprs = scope.exprs();
