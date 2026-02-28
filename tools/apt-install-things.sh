@@ -4,17 +4,25 @@ set -e
 
 # Install cuda keyring
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb && rm cuda-keyring_1.1-1_all.deb
 sudo apt-get update
 
 # Remove some old toolchains. By default, the github action comes with multiple versions of gcc and clang installed.
 # Having many versions of gcc and clang installed interfers with each other, causing weird build and clang-tidy errors.
 # We only keep one version of gcc and clang in the system, and remove the rest.
-sudo apt-get -y remove gcc-13 libstdc++-13-dev gcc-12 libstdc++-12-dev
+sudo apt-get -y remove llvm-18 gcc-13 libstdc++-13-dev gcc-12 libstdc++-12-dev
 
 # Install the latest version of clang and gcc.
-sudo apt-get -y install --reinstall clang-19 gcc-14 nlohmann-json3-dev ninja-build
+sudo apt-get -y install clang-19 clang-tidy-19 clang-format-19 gcc-14 nlohmann-json3-dev ninja-build
 
+# llvm provides llvm-config, which downstream scripts use to locate binaries.
+sudo apt-get -y install llvm-19
+
+# llvm-dev and libzstd-dev are for host IR compilation, which uses LLVM JIT.
+sudo apt-get -y install llvm-19-dev libzstd-dev
+
+# Should we use llvm-config to locate clang?
+#
 # Ensure clang-19 and clang++-19 are available and properly linked
 # Create symlinks if they don't exist to handle runner environment variations
 if [ ! -x "/usr/bin/clang-19" ] && [ -x "/usr/bin/clang" ]; then
@@ -28,11 +36,18 @@ if ! command -v clang-19 >/dev/null 2>&1; then
     ls -la /usr/bin/clang* || true
 fi
 
+# Verify llvm-config-19 installation
+if command -v llvm-config-19 >/dev/null 2>&1; then
+    # Set up llvm-config so lintrunner can use it to locate clang-tidy and
+    # clang-format without hardcoding which version
+    sudo ln -sf "$(command -v llvm-config-19)" /usr/bin/llvm-config
+else
+    echo "Warning: llvm-config-19 not found in PATH after installation"
+    ls -la /usr/bin/llvm-config* || true
+fi
+
 # Install minimal cuda toolkit.
 sudo apt-get -y install cuda-compiler-13-0 cuda-command-line-tools-13-0 cuda-libraries-dev-13-0 libnccl-dev
-
-# llvm-dev are for host IR compilation, which uses LLVM JIT.
-sudo apt-get -y install llvm-19-dev
 
 # PyTorch now relies on <fmt/..> packages
 sudo apt-get -y install libfmt-dev

@@ -7,10 +7,10 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import time
 from enum import Enum
 from pathlib import Path
-from sysconfig import get_paths as gp
 from typing import Any, List, NamedTuple, Optional, Pattern
 
 # Nvfuser directory root
@@ -25,7 +25,7 @@ IS_WINDOWS: bool = os.name == "nt"
 
 # Returns '/usr/local/include/python<version number>'
 def get_python_include_dir() -> str:
-    return gp()["include"]
+    return sysconfig.get_paths()["include"]
 
 
 def eprint(*args: Any, **kwargs: Any) -> None:
@@ -72,14 +72,15 @@ RESULTS_RE: Pattern[str] = re.compile(
 
 def run_command(
     args: List[str],
-) -> "subprocess.CompletedProcess[bytes]":
+) -> subprocess.CompletedProcess[str]:
     logging.debug("$ %s", " ".join(args))
     start_time = time.monotonic()
     try:
         return subprocess.run(
             args,
             capture_output=True,
-            check=False,
+            check=True,
+            text=True,
         )
     finally:
         end_time = time.monotonic()
@@ -129,12 +130,15 @@ def clang_search_dirs() -> List[str]:
     return search_paths
 
 
-include_args = []
+# NVFUSER_USE_PCH=ON somehow requires the CUDA include dir e.g.
+# "/usr/local/cuda-13.0/targets/x86_64-linux/include". I'll try to add that in
+# a future PR.
 include_dir = [
-    "/usr/lib/llvm-11/include/openmp",
     get_python_include_dir(),
     os.path.join(NVFUSER_ROOT, "third_party/pybind11/include"),
 ] + clang_search_dirs()
+
+include_args = []
 for dir in include_dir:
     include_args += ["--extra-arg", f"-I{dir}"]
 
@@ -148,7 +152,7 @@ def check_file(
         proc = run_command(
             [binary, f"-p={build_dir}", *include_args, filename],
         )
-    except OSError as err:
+    except subprocess.CalledProcessError as err:
         return [
             LintMessage(
                 path=filename,
@@ -159,7 +163,9 @@ def check_file(
                 name="command-failed",
                 original=None,
                 replacement=None,
-                description=(f"Failed due to {err.__class__.__name__}:\n{err}"),
+                description=(
+                    f"Failed due to {err}\n\nstdout:\n{err.stdout}\nstderr:\n{err.stderr}"
+                ),
             )
         ]
     lint_messages = []
@@ -169,7 +175,7 @@ def check_file(
         saved_cwd = os.getcwd()
         os.chdir(build_dir)
 
-        for match in RESULTS_RE.finditer(proc.stdout.decode()):
+        for match in RESULTS_RE.finditer(proc.stdout):
             # Convert the reported path to an absolute path.
             abs_path = str(Path(match["file"]).resolve())
             message = LintMessage(
@@ -196,11 +202,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="clang-tidy wrapper linter.",
         fromfile_prefix_chars="@",
-    )
-    parser.add_argument(
-        "--binary",
-        required=True,
-        help="clang-tidy binary path",
     )
     parser.add_argument(
         "--build-dir",
@@ -233,8 +234,11 @@ def main() -> None:
         stream=sys.stderr,
     )
 
-    args.binary = os.path.expanduser(args.binary)
-    if not os.path.exists(args.binary):
+    try:
+        llvm_bindir = subprocess.check_output(
+            ["llvm-config", "--bindir"], text=True
+        ).strip()
+    except FileNotFoundError:
         err_msg = LintMessage(
             path="<none>",
             line=None,
@@ -244,23 +248,28 @@ def main() -> None:
             name="command-failed",
             original=None,
             replacement=None,
-            description=(
-                f"Could not find clang-tidy binary at {args.binary},"
-                " you may need to run `lintrunner init`."
-            ),
+            description="llvm-config doesn't exist (is LLVM installed?).",
+        )
+        print(json.dumps(err_msg._asdict()), flush=True)
+        exit(0)
+
+    binary_path = os.path.join(llvm_bindir, "clang-tidy")
+    if not os.path.exists(binary_path):
+        err_msg = LintMessage(
+            path="<none>",
+            line=None,
+            char=None,
+            code="CLANGTIDY",
+            severity=LintSeverity.ERROR,
+            name="command-failed",
+            original=None,
+            replacement=None,
+            description=f"Could not find clang-tidy binary at {binary_path} (is LLVM installed?)",
         )
         print(json.dumps(err_msg._asdict()), flush=True)
         exit(0)
 
     abs_build_dir = Path(args.build_dir).resolve()
-
-    # Get the absolute path to clang-tidy and use this instead of the relative
-    # path such as .lintbin/clang-tidy. The problem here is that os.chdir is
-    # per process, and the linter uses it to move between the current directory
-    # and the build folder. And there is no .lintbin directory in the latter.
-    # When it happens in a race condition, the linter command will fails with
-    # the following no such file or directory error: '.lintbin/clang-tidy'
-    binary_path = os.path.abspath(args.binary)
 
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=os.cpu_count(),
