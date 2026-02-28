@@ -64,9 +64,7 @@ class Node {
   std::vector<Node*> children_;
 };
 
-// `pre_fn` is called before traversing any child of a node.  `post_fn` is
-// called after traversing all children of a node.
-void depthFirstTraverseFromRoot(
+void depthFirstTraverse(
     const Node* root,
     const std::function<void(const Node*)>& pre_fn,
     const std::function<void(const Node*)>& post_fn) {
@@ -104,12 +102,6 @@ class DominatorTree {
     NVF_ERROR(!top_level_exprs.empty());
     Expr* root = top_level_exprs.front();
     return &nodes_.at(root);
-  }
-
-  void depthFirstTraverse(
-      const std::function<void(const Node*)>& pre_fn,
-      const std::function<void(const Node*)>& post_fn) const {
-    depthFirstTraverseFromRoot(getRoot(), pre_fn, post_fn);
   }
 
  private:
@@ -159,14 +151,7 @@ class PostDominatorTree {
   }
 
   const Node* getNode(Expr* expr) const {
-    auto it = nodes_.find(expr);
-    return it != nodes_.end() ? &it->second : nullptr;
-  }
-
-  void depthFirstTraverse(
-      const std::function<void(const Node*)>& pre_fn,
-      const std::function<void(const Node*)>& post_fn) const {
-    depthFirstTraverseFromRoot(getRoot(), pre_fn, post_fn);
+    return getOrDefault(nodes_, expr);
   }
 
  private:
@@ -220,7 +205,8 @@ void insertAllocations(hir::HostIrContainer& hic) {
   DominatorTree dom_tree(hic);
   std::unordered_set<TensorView*> defined;
 
-  dom_tree.depthFirstTraverse(
+  depthFirstTraverse(
+      /*root=*/dom_tree.getRoot(),
       /*pre_fn=*/
       [&](const Node* node) {
         Expr* e = node->getExpr();
@@ -253,7 +239,7 @@ void insertAllocations(hir::HostIrContainer& hic) {
 // least common ancestor in the Post-dominator Tree — the latest point at which
 // it can be deallocated.
 std::unordered_map<TensorView*, const Node*> computeLeastCommonAncestor(
-    const PostDominatorTree& post_dom_tree) {
+    const PostDominatorTree& pdt) {
   std::unordered_map<const Node*, int64_t> depth;
 
   auto findLCA = [&](const Node* a, const Node* b) -> const Node* {
@@ -283,15 +269,19 @@ std::unordered_map<TensorView*, const Node*> computeLeastCommonAncestor(
   std::unordered_map<TensorView*, const Node*> lca;
   int64_t current_depth = -1;
 
-  post_dom_tree.depthFirstTraverse(
+  depthFirstTraverse(
+      /*root=*/pdt.getRoot(),
       /*pre_fn=*/
       [&](const Node* node) {
         current_depth++;
         depth[node] = current_depth;
         Expr* e = node->getExpr();
 
+        // Temporary special-case for kir::Allocate. We will switch
+        // inserting a new `hir::Allocate` in host IR lowering where
+        // the allocated `tv` will be the expr input.
         if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
-          TensorView* tv = alloc->buffer()->as<TensorView>();
+          auto* tv = alloc->buffer()->as<TensorView>();
           lca[tv] = findLCA(lca[tv], node);
         }
         for (auto* tv : ir_utils::filterByType<TensorView>(e->inputs())) {
@@ -317,9 +307,9 @@ void insertDeallocations(hir::HostIrContainer& hic) {
         expr);
   });
 
-  PostDominatorTree post_dominator_tree(hic);
+  PostDominatorTree pdt(hic);
   const std::unordered_map<TensorView*, const Node*>& lca_map =
-      computeLeastCommonAncestor(post_dominator_tree);
+      computeLeastCommonAncestor(pdt);
 
   // Insert deallocate at LCA for each tensorview that is not a fusion input or
   // output.
