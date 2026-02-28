@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <algorithm>
+
 #include <debug.h>
 #include <exceptions.h>
 #include <fusion.h>
@@ -742,10 +744,8 @@ class SegmentCandidateFinder {
 
   //! Query if a val is a fusion input or a forwarded input
   bool isFusionInput(Val* val) const {
-    return std::find(
-               forwarded_fusion_inputs_.begin(),
-               forwarded_fusion_inputs_.end(),
-               val) != forwarded_fusion_inputs_.end();
+    return std::ranges::find(forwarded_fusion_inputs_, val) !=
+        forwarded_fusion_inputs_.end();
   };
 
   // Get all auxiliary groups created for fusion inputs

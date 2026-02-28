@@ -50,6 +50,7 @@ void LayerNormBackward_ShapeInference_Base(
   }
 
   for (auto _ : benchmark_state) {
+    (void)_;
     // Setup (not included in the measurement)
     executor_cache->runFusionWithInputs(args);
   }
@@ -92,6 +93,7 @@ void LayerNormForward_ShapeInferenceBase(
   }
 
   for (auto _ : benchmark_state) {
+    (void)_;
     // Setup (not included in the measurement)
     executor_cache->runFusionWithInputs(args);
   }

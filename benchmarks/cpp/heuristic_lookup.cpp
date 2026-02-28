@@ -42,6 +42,7 @@ static void NvFuserScheduler_LayerNormBackward_HeuristicLookup(
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args) != nullptr);
 
   for (auto _ : benchmark_state) {
+    (void)_;
     // Setup (not included in the measurement)
     runtime->getMaybeHeuristicsFor(args);
   }
@@ -65,6 +66,7 @@ static void NvFuserScheduler_LayerNormForward_HeuristicLookup(
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args) != nullptr);
 
   for (auto _ : benchmark_state) {
+    (void)_;
     // Setup (not included in the measurement)
     runtime->getMaybeHeuristicsFor(args);
   }
