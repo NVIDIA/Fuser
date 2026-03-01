@@ -657,10 +657,11 @@ SdpfaFwdResult sdpfa_fwd(
   // API changes in torch 2.7.0
   // The torch API returns philox_seed -> rng_state (uint64_t[2])
   // and philox_offset -> _unused (empty tensor)
-  TensorView* philox_seed = TensorViewBuilder()
-                                .shape(std::vector<int64_t>{2})
-                                .dtype(DataType::UInt64)
-                                .build();
+  TensorView* philox_seed = nullptr;
+  philox_seed = TensorViewBuilder()
+                    .shape(std::vector<int64_t>{2})
+                    .dtype(DataType::UInt64)
+                    .build();
   TensorView* philox_offset =
       TensorViewBuilder().dtype(DataType::UInt64).build();
 #else

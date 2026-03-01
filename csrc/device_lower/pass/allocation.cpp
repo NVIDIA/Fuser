@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/pass/allocation.h>
 
+#include <cstdint>
 #include <ranges>
 #include <unordered_set>
 
@@ -567,8 +568,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     reordered_allocation_domains.reserve(allocation_domains.size());
 
     for (auto dom : ordered_domains) {
-      auto it =
-          std::find(allocation_domains.begin(), allocation_domains.end(), dom);
+      auto it = std::ranges::find(allocation_domains, dom);
       if (it == allocation_domains.end()) {
         continue;
       }
@@ -643,13 +643,10 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     // No BID/DID parallel type should be used
-    if (std::any_of(
-            allocation_domains.begin(),
-            allocation_domains.end(),
-            [](IterDomain* id) -> bool {
-              return isParallelTypeDeviceDim(id->getParallelType()) ||
-                  isParallelTypeBlockDim(id->getParallelType());
-            })) {
+    if (std::ranges::any_of(allocation_domains, [](IterDomain* id) -> bool {
+          return isParallelTypeDeviceDim(id->getParallelType()) ||
+              isParallelTypeBlockDim(id->getParallelType());
+        })) {
       return std::nullopt;
     }
 
@@ -824,7 +821,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
       // If it's already in the allocation ID set, nothing further
       // needs to be done
-      if (std::find(allocation_ids.begin(), allocation_ids.end(), indexed_id) !=
+      if (std::ranges::find(allocation_ids, indexed_id) !=
           allocation_ids.end()) {
         continue;
       }
@@ -871,10 +868,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
       int num_dependent_allocation_ids = 0;
       std::vector<IterDomain*> pathched_allocation_ids_next;
       for (auto id : allocation_ids) {
-        if (std::find(
-                dependent_allocation_ids.begin(),
-                dependent_allocation_ids.end(),
-                id) != dependent_allocation_ids.end()) {
+        if (std::ranges::find(dependent_allocation_ids, id) !=
+            dependent_allocation_ids.end()) {
           ++num_dependent_allocation_ids;
           if (num_dependent_allocation_ids ==
               std::ssize(dependent_allocation_ids)) {
@@ -900,7 +895,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
 namespace {
 
-enum class CircularBufferWaitType { ReadAfterWrite, WriteAfterRead };
+enum class CircularBufferWaitType : uint8_t { ReadAfterWrite, WriteAfterRead };
 
 // This function creates kir::Loop with range based on stage depth. It is
 // used for mbarrier initialization and invalidation.
@@ -1203,9 +1198,8 @@ class AllocationInserter : public kir::ExprMutator {
     if (memory_type == MemoryType::Tensor) {
       const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
       for (const auto& region : regions) {
-        auto tv_info_it = std::find_if(
-            region.covered_tensors.begin(),
-            region.covered_tensors.end(),
+        auto tv_info_it = std::ranges::find_if(
+            region.covered_tensors,
             [&](const auto& tv_info) { return tv_info.tensor == info.buffer; });
         if (tv_info_it != region.covered_tensors.end()) {
           auto address_ti = IrBuilder::create<kir::TensorIndex>(
@@ -1233,12 +1227,12 @@ class AllocationInserter : public kir::ExprMutator {
 
     // mbarrier for cluster reduction
     // create and allocate a memory barrier
-    TensorView* all_mbarriers =
-        TensorViewBuilder()
-            .shape(std::vector<int64_t>{cluster_reduction_count})
-            .dtype(DataType::UInt64)
-            .contiguity(true)
-            .build();
+    TensorView* all_mbarriers = nullptr;
+    all_mbarriers = TensorViewBuilder()
+                        .shape(std::vector<int64_t>{cluster_reduction_count})
+                        .dtype(DataType::UInt64)
+                        .contiguity(true)
+                        .build();
     all_mbarriers->setMemoryType(MemoryType::Shared);
     kir::Allocate* mbarrier_alloc =
         IrBuilder::create<kir::Allocate>(all_mbarriers, MemoryType::Shared);
@@ -1290,12 +1284,12 @@ class AllocationInserter : public kir::ExprMutator {
         "Batched non-circular TMA mbarriers should only be used when there are "
         "more than one batchable TMA loads. Got: ",
         batched_tma_load_count);
-    TensorView* all_mbarriers =
-        TensorViewBuilder()
-            .shape(std::vector<int64_t>{batched_tma_load_count})
-            .dtype(DataType::UInt64)
-            .contiguity(true)
-            .build();
+    TensorView* all_mbarriers = nullptr;
+    all_mbarriers = TensorViewBuilder()
+                        .shape(std::vector<int64_t>{batched_tma_load_count})
+                        .dtype(DataType::UInt64)
+                        .contiguity(true)
+                        .build();
     all_mbarriers->setMemoryType(MemoryType::Shared);
     kir::Allocate* mbarrier_alloc =
         IrBuilder::create<kir::Allocate>(all_mbarriers, MemoryType::Shared);
@@ -1552,14 +1546,16 @@ class AllocationInserter : public kir::ExprMutator {
         auto mbarrier = IrBuilder::create<kir::TensorIndex>(
             batched_tma_mbarriers_,
             IrBuilder::create<Val>(batched_tma_index_++, DataType::Index));
-        GpuLower::current()->batchedTmaMbarrierMap()[expr] = mbarrier;
+        const Expr* expr_key = expr;
+        GpuLower::current()->batchedTmaMbarrierMap()[expr_key] = mbarrier;
       } else {
         // create and allocate a memory barrier
-        TensorView* mbarrier = TensorViewBuilder()
-                                   .shape(std::vector<int64_t>{})
-                                   .dtype(DataType::UInt64)
-                                   .contiguity(true)
-                                   .build();
+        TensorView* mbarrier = nullptr;
+        mbarrier = TensorViewBuilder()
+                       .shape(std::vector<int64_t>{})
+                       .dtype(DataType::UInt64)
+                       .contiguity(true)
+                       .build();
         mbarrier->setMemoryType(MemoryType::Shared);
         auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
             mbarrier,
@@ -1577,13 +1573,15 @@ class AllocationInserter : public kir::ExprMutator {
 
         kir::Allocate* mbarrier_alloc =
             IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
-        Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
+        Scope* expr_scope = nullptr;
+        expr_scope = scope_.empty() ? nullptr : scope_.back();
         registerInsertBefore(expr, mbarrier_alloc, expr_scope);
         registerInsertBefore(expr, mbarrier_init, expr_scope);
         registerInsertBefore(expr, sync_init, expr_scope);
         registerInsertAfter(expr, mbarrier_inval, expr_scope);
         registerInsertAfter(expr, sync_inval, expr_scope);
-        GpuLower::current()->mbarrierMap()[expr] = mbarrier;
+        const Expr* expr_key = expr;
+        GpuLower::current()->mbarrierMap()[expr_key] = mbarrier;
       }
     }
   }
@@ -1601,10 +1599,8 @@ class AllocationInserter : public kir::ExprMutator {
     std::unordered_set<const TensorView*> circular_buffer_tvs =
         GpuLower::current()->circularBufferInfo().getCircularBufferTvs(fl);
 
-    bool circular_buffer_load_is_tma = std::any_of(
-        circular_buffer_tvs.begin(),
-        circular_buffer_tvs.end(),
-        [](const TensorView* tv) {
+    bool circular_buffer_load_is_tma =
+        std::ranges::any_of(circular_buffer_tvs, [](const TensorView* tv) {
           return ir_utils::isCpAsyncBulkLoad(tv->definition());
         });
 
@@ -1624,12 +1620,12 @@ class AllocationInserter : public kir::ExprMutator {
       int64_t num_cb_mbarriers =
           cb_opt.usesMBarrierForWAR() ? cb_opt.stage * 2 : cb_opt.stage;
 
-      TensorView* cb_mbarrier =
-          TensorViewBuilder()
-              .shape(std::vector<int64_t>{num_cb_mbarriers})
-              .dtype(DataType::UInt64)
-              .contiguity(true)
-              .build();
+      TensorView* cb_mbarrier = nullptr;
+      cb_mbarrier = TensorViewBuilder()
+                        .shape(std::vector<int64_t>{num_cb_mbarriers})
+                        .dtype(DataType::UInt64)
+                        .contiguity(true)
+                        .build();
       cb_mbarrier->setMemoryType(MemoryType::Shared);
 
       kir::Allocate* cb_mbarrier_alloc =
@@ -1672,7 +1668,8 @@ class AllocationInserter : public kir::ExprMutator {
       //   inval(cb_mbarrier[stage]);
       // }
       //
-      Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
+      Scope* current_scope = nullptr;
+      current_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(fl, cb_mbarrier_alloc, current_scope);
       registerInsertBefore(fl, cb_mbarrier_init_raw, current_scope);
       registerInsertAfter(fl, cb_mbarrier_inval_raw, current_scope);
@@ -1933,7 +1930,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
         }
         for (const auto& region :
              GpuLower::current()->tmemInfo().allocation.regions) {
-          for (auto tv_info : region.covered_tensors) {
+          for (const auto& tv_info : region.covered_tensors) {
             if (io_vals.count(tv_info.tensor)) {
               access_map_[expr].pushBack(&region);
               for (auto container : scope_exprs_) {
@@ -1991,7 +1988,8 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
      public:
       DeallocInserter(
           const std::vector<Expr*>& exprs,
-          std::vector<Expr*>& exprs_with_deallocs) {
+          std::vector<Expr*>& exprs_with_deallocs)
+          : region_to_register_dealloc_map_{}, access_map_{} {
         handle(exprs);
         for (const auto& region :
              GpuLower::current()->tmemInfo().allocation.regions) {
