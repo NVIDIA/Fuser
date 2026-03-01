@@ -79,6 +79,11 @@ class ExpressionEvaluator {
     return precomputed_values_;
   }
 
+  //! Get the extent to multiplier map for unshardedSizes from PrecomputedValues
+  std::unordered_map<Val*, int64_t>* getExtentToMultiplierMap() const {
+    return precomputed_values_ ? precomputed_values_->getExtentToMultiplierMap() : nullptr;
+  }
+
   //! Augment the evaluator with the exact root-domain map such that
   //! if the extent of a root ID is known, the extents of all other
   //! root IDs that are exactly mapped also get bound to the same
