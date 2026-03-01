@@ -7,6 +7,8 @@
 // clang-format on
 #include "runtime/fusion_executor_cache.h"
 
+#include <algorithm>
+
 #include "base.h"
 #include "debug.h"
 #include "dynamic_transform.h"
@@ -613,17 +615,12 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // have Path 1 (hottest re-use path) and Path 4 (full recompile).
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
     FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::reuseKRT");
-    auto runtime_it = std::find_if(
-        kernel_runtimes.begin(),
-        kernel_runtimes.end(),
+    auto runtime_it = std::ranges::find_if(
+        kernel_runtimes,
         [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
-          auto maybe_heuristics =
+          new_heuristics =
               kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
-          if (!maybe_heuristics.has_value()) {
-            return false;
-          }
-          new_heuristics = std::move(maybe_heuristics.value());
-          return true;
+          return new_heuristics != nullptr;
         });
     if (runtime_it != kernel_runtimes.end()) {
       kernel_runtime = runtime_it->get();
@@ -647,10 +644,10 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       conc_info->setInitialInfo(&conc_initial_info);
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-        debug() << "Fusion before concretization:" << std::endl;
+        debug() << "Fusion before concretization:" << '\n';
         conc_fusion->printMath();
-        debug() << conc_initial_info.toString() << std::endl;
-        debug() << conc_info->toString() << std::endl;
+        debug() << conc_initial_info.toString() << '\n';
+        debug() << conc_info->toString() << '\n';
       }
 
       DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);
@@ -660,7 +657,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       conc_fusion->stopManaging("initial_info");
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-        debug() << "Concretized Fusion:" << std::endl;
+        debug() << "Concretized Fusion:" << '\n';
         conc_fusion->print();
       }
     }

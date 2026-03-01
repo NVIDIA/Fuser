@@ -2556,8 +2556,8 @@ std::vector<Expr*> SegmentedGroup::stablyOrderedExprs() const {
   return ordered_exprs;
 }
 
-std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
-    getMaybeHeuristicParams(SchedulerRuntimeInfo& runtime_info) {
+std::unique_ptr<HeuristicParams> SegmentedGroup::getMaybeHeuristicParams(
+    SchedulerRuntimeInfo& runtime_info) {
   FUSER_PERF_SCOPE("SegmentedFusion::getMaybeHeuristicParams");
   auto heuristic_data_cache =
       segmented_fusion_->getCachedHeuristicDataFor(this);
@@ -2567,7 +2567,7 @@ std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
           runtime_info,
           heuristic_data_cache,
           /*skip_compile_time_checks=*/true)) {
-    return std::nullopt;
+    return nullptr;
   }
   return SchedulerEntry::makeSchedulerInstance(schedulerType())
       ->computeHeuristics(

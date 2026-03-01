@@ -40,7 +40,7 @@ void LayerNormBackward_ShapeInference_Base(
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), executor_cache, args, shape, norm_shape);
 
-  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args) != nullptr);
 
   executor_cache->profile(true);
   executor_cache->disableKernelLaunch();
@@ -50,6 +50,7 @@ void LayerNormBackward_ShapeInference_Base(
   }
 
   for (auto _ : benchmark_state) {
+    (void)_;
     // Setup (not included in the measurement)
     executor_cache->runFusionWithInputs(args);
   }
@@ -81,7 +82,7 @@ void LayerNormForward_ShapeInferenceBase(
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), executor_cache, args, shape, norm_shape);
 
-  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args) != nullptr);
 
   executor_cache->profile(true);
   executor_cache->disableKernelLaunch();
@@ -92,6 +93,7 @@ void LayerNormForward_ShapeInferenceBase(
   }
 
   for (auto _ : benchmark_state) {
+    (void)_;
     // Setup (not included in the measurement)
     executor_cache->runFusionWithInputs(args);
   }

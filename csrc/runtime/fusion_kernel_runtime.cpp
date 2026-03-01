@@ -134,9 +134,8 @@ FusionKernelRuntime::FusionKernelRuntime(
   is_segmented_ = segmented_fusion_->groups().size() > 1;
 
   // Create Initial Heuristics for Segmented Fusion
-  auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
-  NVF_ERROR(maybe_heuristics.has_value());
-  heuristics_ = std::move(maybe_heuristics.value());
+  heuristics_ = getMaybeHeuristicsFor(args, forced_index_type);
+  NVF_ERROR(heuristics_ != nullptr);
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
@@ -530,10 +529,9 @@ const ExecutorLog& FusionKernelRuntime::getMostRecentExecutorLog() const {
   return most_recent_executor_log_;
 }
 
-std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
-    getMaybeHeuristicsFor(
-        const KernelArgumentHolder& args,
-        std::optional<PrimDataType> forced_index_type) {
+std::unique_ptr<HeuristicParamsList> FusionKernelRuntime::getMaybeHeuristicsFor(
+    const KernelArgumentHolder& args,
+    std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
 
   // The runtime group run order is different from the segmented_fusion group
@@ -601,18 +599,17 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
       // canScheduleRuntime, but it is safe to skip canScheduleCompileTime. We
       // skip it here to avoid performing expensive fusion traversals on the
       // dynamic shape path.
-      auto maybe_heuristic_params =
+      auto heuristic_params =
           group_to_run->getMaybeHeuristicParams(fusion_to_run_info);
-      // If unavailable, then return std::nullopt
-      if (!maybe_heuristic_params.has_value()) {
-        return std::nullopt;
+      // If unavailable, then return nullptr
+      if (!heuristic_params) {
+        return nullptr;
       }
       // Check if this scheduler entry matches the previous entry for this
-      // segmented group. If no match, then return std::nullptr
-      auto heuristic_params = std::move(maybe_heuristic_params.value());
+      // segmented group. If no match, then return nullptr
       if (!heuristic_params->sameAs(
               heuristics_->at(group_to_run->groupId()).get())) {
-        return std::nullopt;
+        return nullptr;
       }
       // Add new scheduler entry for this segmented group
       heuristics->at(group_to_run->groupId()) = std::move(heuristic_params);
