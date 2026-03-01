@@ -176,13 +176,7 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   std::vector<IterDomain*> out_domain;
   out_domain.reserve(idx_domain.size());
   for (auto idx_domain_ptr : idx_domain) {
-    out_domain.push_back(
-        IterDomainBuilder(idx_domain_ptr)
-            .iter_type(
-                idx_domain_ptr->getIterType() == IterType::Iteration
-                    ? IterType::GatherScatter
-                    : idx_domain_ptr->getIterType())
-            .build());
+    out_domain.push_back(IterDomainBuilder(idx_domain_ptr).build());
   }
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
