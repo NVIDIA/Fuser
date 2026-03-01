@@ -5,10 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "ops/schedule.h"
 
-#include <ir/all_nodes.h>
-#include <ops/schedule.h>
 #include <algorithm>
+
+#include "ir/all_nodes.h"
 
 namespace nvfuser {
 

@@ -5,15 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ATen/cuda/CUDAContext.h>
-
-#include <ir/builder.h>
-#include <ir/composite_nodes.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <transform_view.h>
+#include "ops/composite.h"
 
 #include <ranges>
+
+#include <ATen/cuda/CUDAContext.h>
+
+#include "ir/builder.h"
+#include "ir/composite_nodes.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "transform_view.h"
 
 namespace nvfuser {
 
@@ -655,10 +657,11 @@ SdpfaFwdResult sdpfa_fwd(
   // API changes in torch 2.7.0
   // The torch API returns philox_seed -> rng_state (uint64_t[2])
   // and philox_offset -> _unused (empty tensor)
-  TensorView* philox_seed = TensorViewBuilder()
-                                .shape(std::vector<int64_t>{2})
-                                .dtype(DataType::UInt64)
-                                .build();
+  TensorView* philox_seed = nullptr;
+  philox_seed = TensorViewBuilder()
+                    .shape(std::vector<int64_t>{2})
+                    .dtype(DataType::UInt64)
+                    .build();
   TensorView* philox_offset =
       TensorViewBuilder().dtype(DataType::UInt64).build();
 #else

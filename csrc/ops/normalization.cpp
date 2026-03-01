@@ -5,11 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/builder.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/normalization.h>
-#include <ops/utils.h>
+#include "ops/normalization.h"
+
+#include "ir/builder.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
 
 namespace nvfuser {
 
