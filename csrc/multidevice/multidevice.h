@@ -19,5 +19,5 @@ using DeviceType = c10::Device;
 using Team = std::vector<DeviceIdxType>;
 
 // Supported backends.
-enum class CommunicatorBackend { kNccl, kUcc, kCuda };
+enum class CommunicatorBackend { kNccl, kUcc, kCuda, kNixl };
 } // namespace nvfuser

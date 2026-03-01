@@ -11,6 +11,9 @@
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
 
+#include <cstdint>
+#include <cstring>
+
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Backend.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
@@ -116,13 +119,20 @@ class NVF_API Communicator {
       return ucc_available_;
     } else if (backend == CommunicatorBackend::kNccl) {
       return nccl_available_;
+    } else if (backend == CommunicatorBackend::kNixl) {
+#ifdef USE_NIXL
+      return true;
+#else
+      return false;
+#endif
     }
     return false;
   }
 
   c10d::TCPStore* getTcpStore() {
     return store_.get();
-  }
+}
+
 
  private:
   Communicator(
@@ -154,5 +164,6 @@ class NVF_API Communicator {
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
 };
+
 
 } // namespace nvfuser

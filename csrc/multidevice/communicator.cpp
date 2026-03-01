@@ -41,6 +41,9 @@ std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
     case CommunicatorBackend::kCuda:
       out << "CUDA";
       break;
+    case CommunicatorBackend::kNixl:
+      out << "NIXL";
+      break;
   }
   return out;
 }

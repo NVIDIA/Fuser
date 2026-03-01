@@ -32,6 +32,7 @@ set(NVFUSER_CUTLASS "${NVFUSER_ROOT}/cutlass")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
+option(NVFUSER_STANDALONE_BUILD_WITH_NIXL "" OFF)
 option(NVFUSER_EXPLICIT_ERROR_CHECK "" OFF)
 option(NVFUSER_ENABLE_DEPENDENCY_REPORT "Enable Python-based dependency reporting and log capture" ON)
 
@@ -248,6 +249,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/ipc_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/nixl.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/execution_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/propagation.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/resharding.cpp
@@ -581,6 +583,37 @@ if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
   target_link_libraries(codegen_internal PRIVATE __nvfuser_ucc)
   target_compile_definitions(codegen_internal PRIVATE NVFUSER_BUILD_WITH_UCC)
+endif()
+
+if(NVFUSER_STANDALONE_BUILD_WITH_NIXL)
+  # User may need to set NIXL_PREFIX to the NIXL install directory.
+  find_path(NIXL_INCLUDE_DIR nixl.h
+    HINTS $ENV{NIXL_PREFIX}/include ENV CPATH
+  )
+  find_library(NIXL_LIBRARY nixl
+    HINTS $ENV{NIXL_PREFIX}/lib $ENV{NIXL_PREFIX}/lib64 $ENV{NIXL_PREFIX}/lib/x86_64-linux-gnu
+  )
+  find_library(NIXL_BUILD_LIBRARY nixl_build
+    HINTS $ENV{NIXL_PREFIX}/lib $ENV{NIXL_PREFIX}/lib64 $ENV{NIXL_PREFIX}/lib/x86_64-linux-gnu
+  )
+
+  if(NOT NIXL_INCLUDE_DIR OR NOT NIXL_LIBRARY)
+    message(FATAL_ERROR "NIXL not found. Set NIXL_PREFIX to the NIXL install directory.")
+  endif()
+
+  message(STATUS "Found NIXL: ${NIXL_LIBRARY} (include: ${NIXL_INCLUDE_DIR})")
+  if(NIXL_BUILD_LIBRARY)
+    message(STATUS "Found NIXL build lib: ${NIXL_BUILD_LIBRARY}")
+  endif()
+
+  add_library(__nvfuser_nixl INTERFACE)
+  target_include_directories(__nvfuser_nixl INTERFACE ${NIXL_INCLUDE_DIR})
+  target_link_libraries(__nvfuser_nixl INTERFACE ${NIXL_LIBRARY})
+  if(NIXL_BUILD_LIBRARY)
+    target_link_libraries(__nvfuser_nixl INTERFACE ${NIXL_BUILD_LIBRARY})
+  endif()
+  target_link_libraries(codegen_internal PRIVATE __nvfuser_nixl)
+  target_compile_definitions(codegen_internal PRIVATE USE_NIXL)
 endif()
 
 add_dependencies(codegen_internal flatc build_flatbuffer_config)
@@ -1031,6 +1064,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication_cuda.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_nixl.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_stream_parallel_type.cpp
@@ -1332,6 +1366,11 @@ if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCX_DIR : $ENV{UCX_DIR}")
 endif()
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
+message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_NIXL : ${NVFUSER_STANDALONE_BUILD_WITH_NIXL}")
+if(NVFUSER_STANDALONE_BUILD_WITH_NIXL)
+  message(STATUS "    NIXL_INCLUDE_DIR: ${NIXL_INCLUDE_DIR}")
+  message(STATUS "    NIXL_LIBRARY    : ${NIXL_LIBRARY}")
+endif()
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")

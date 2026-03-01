@@ -21,6 +21,7 @@ class BuildConfig:
     no_benchmark: bool = False
     no_ninja: bool = False
     build_with_ucc: bool = False
+    build_with_nixl: bool = False
     build_with_asan: bool = False
     build_without_distributed: bool = False
     explicit_error_check: bool = False
@@ -70,6 +71,8 @@ def override_build_config_from_env(config):
         config.no_ninja = get_env_flag_bool("NVFUSER_BUILD_NO_NINJA")
     if "NVFUSER_BUILD_WITH_UCC" in os.environ:
         config.build_with_ucc = get_env_flag_bool("NVFUSER_BUILD_WITH_UCC")
+    if "NVFUSER_BUILD_WITH_NIXL" in os.environ:
+        config.build_with_nixl = get_env_flag_bool("NVFUSER_BUILD_WITH_NIXL")
     if "NVFUSER_BUILD_WITH_ASAN" in os.environ:
         config.build_with_asan = get_env_flag_bool("NVFUSER_BUILD_WITH_ASAN")
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
@@ -277,6 +280,7 @@ def cmake(config, relative_path):
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         f"-DNVFUSER_BUILD_WITH_ASAN={on_or_off(config.build_with_asan)}",
         f"-DNVFUSER_STANDALONE_BUILD_WITH_UCC={on_or_off(config.build_with_ucc)}",
+        f"-DNVFUSER_STANDALONE_BUILD_WITH_NIXL={on_or_off(config.build_with_nixl)}",
         f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
         f"-DBUILD_TEST={on_or_off(not config.no_test)}",
         f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
