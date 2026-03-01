@@ -137,35 +137,43 @@ void lowerToAllgather(
       backend));
 }
 
-// Adds one or zero Broadcast communication to the vector 'comms'
+// Either of the following cases is happening:
+// 1. Same mesh: a broadcast-based allgather in a host for loop. `root` is the
+//    for-loop index.
+// 2. Different meshes: we pick the first device in the sender mesh as root.
 void lowerToBroadcast(
     TensorView* input_tv,
     TensorView* output_tv,
     const CommunicatorBackend backend,
+    Val* root,
     std::vector<Expr*>& comms) {
-  // Either of the following two cases is happening.
-  // 1. `sender_mesh` contains only one device. In this case, we broadcast
-  // from that device.
-  // 2. `sender_mesh` contains multiple devices but the input is not sharded.
-  // In this case, we arbitrarily choose the first device of the sender mesh
-  // to be the root.
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
 
-  NVF_ERROR_EQ(sender_mesh.rank(), 1, "sender: ", input_tv);
-  NVF_ERROR_EQ(receiver_mesh.rank(), 1, "receiver: ", output_tv);
-
-  DeviceIdxType root = sender_mesh.at(0);
   Team team = receiver_mesh.vector();
-  if (!receiver_mesh.has(root)) {
-    team.push_back(root);
+
+  if (sender_mesh == receiver_mesh) {
+    NVF_ERROR(
+        root != nullptr,
+        "Root must be provided for broadcast-based allgather in a host for "
+        "loop.");
+  } else {
+    NVF_ERROR_EQ(sender_mesh.rank(), 1, "sender: ", input_tv);
+    NVF_ERROR_EQ(receiver_mesh.rank(), 1, "receiver: ", output_tv);
+    DeviceIdxType root_device = sender_mesh.at(0);
+    if (!receiver_mesh.has(root_device)) {
+      team.push_back(root_device);
+    }
+    root = IrBuilder::create<Val>(
+        getRelativeIndex(team, root_device), DataType::Index);
   }
+
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Broadcast,
       output_tv,
       input_tv,
       team,
-      getRelativeIndex(team, root),
+      root,
       c10d::ReduceOp::RedOpType::UNUSED,
       backend));
 }
@@ -355,12 +363,21 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
   const std::unordered_map<IterDomain*, IterDomain*> c2p =
       pairwise_map.mapConsumerToProducer();
 
+  auto producing_logical_id = [](TensorView* tv,
+                                 IterDomain* loop_id) -> IterDomain* {
+    if (loop_id == nullptr) {
+      return nullptr;
+    }
+    return getLogicalFromLoopId(tv, loop_id);
+  };
+
   IterDomain* p_loop_id = getShardedIterDomain(producer, pt, DomainType::kLoop);
   IterDomain* c_loop_id = getShardedIterDomain(consumer, pt, DomainType::kLoop);
-  IterDomain* p_logical_id =
-      p_loop_id ? getLogicalFromLoopId(producer, p_loop_id) : nullptr;
-  IterDomain* c_logical_id =
-      c_loop_id ? getLogicalFromLoopId(consumer, c_loop_id) : nullptr;
+  IterDomain* p_logical_id = producing_logical_id(producer, p_loop_id);
+  IterDomain* c_logical_id = producing_logical_id(consumer, c_loop_id);
+  IterDomain* c_stream_id =
+      getShardedIterDomain(consumer, ParallelType::Stream, DomainType::kLoop);
+  IterDomain* c_logical_stream_id = producing_logical_id(consumer, c_stream_id);
 
   const DeviceMesh& producer_mesh = producer->getDeviceMesh();
   const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
@@ -381,6 +398,19 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
     }
 
     if (p_loop_id && !c_loop_id) {
+      // Check if we are going from DID -> Stream, which is a ring allgather.
+      // This can be executed as a broadcast or send recvs, which is decided
+      // by the presence of a swizzle in the stream id definition.
+      if (c_logical_stream_id == p2c.at(p_logical_id)) {
+        NVF_CHECK(
+            same_mesh,
+            "Broadcast based allgather in stream parallel requires same "
+            "mesh.")
+        return CommunicationInfo{
+            .type = CommunicationType::Broadcast,
+            .p_sharded_id = p_logical_id,
+            .c_sharded_id = c_logical_stream_id};
+      }
       CommunicationType type =
           same_mesh ? CommunicationType::Allgather : CommunicationType::Gather;
       return CommunicationInfo{
@@ -563,6 +593,7 @@ bool isCommunicationLayoutCompliant(Expr* e) {
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* e,
     DeviceIdxType my_device_idx,
+    Val* root,
     const CommunicatorBackend backend) {
   FusionGuard fg(e->fusion());
 
@@ -617,7 +648,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
       lowerToAllgather(input_tv, output_tv, backend, comms, my_device_idx);
       break;
     case CommunicationType::Broadcast:
-      lowerToBroadcast(input_tv, output_tv, backend, comms);
+      lowerToBroadcast(input_tv, output_tv, backend, root, comms);
       break;
     case CommunicationType::SendRecv:
       lowerToSendRecv(input_tv, output_tv, backend, comms);
