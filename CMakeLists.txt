@@ -408,19 +408,20 @@ endif()
 # "private" (not installed) static library.
 add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 
+
 if(NOT MSVC)
   if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     target_compile_options(codegen_internal PRIVATE
-      -Wall -Wno-unused-function -Werror
+      $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wno-unused-function -Werror
 
       # These warnings are not treated as errors because of gcc 12.2 used in
       # manylinux image. consider enable this when we upgrade.
       # linking comment:
       # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
-      -Wno-error=restrict -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized)
+      -Wno-error=restrict -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized>)
   else()
     target_compile_options(codegen_internal PRIVATE
-      -Wall -Wno-unused-function -Werror)
+      $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wno-unused-function -Werror>)
   endif()
 endif()
 
@@ -432,6 +433,9 @@ if (NVMMH_FOUND)
 endif()
 target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+  ${NVFUSER_THIRD_PARTY_DIR}/cutlass/include
+  ${NVFUSER_THIRD_PARTY_DIR}/cutlass/tools/util/include
+  /usr/local/cuda/include/cccl
   PRIVATE
   ${CUDA_INCLUDE_DIRS}
 )
@@ -928,7 +932,7 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
 
   if(NOT MSVC)
     target_compile_options(${TEST_NAME} PRIVATE
-      -Wall -Wno-unused-function -Werror
+      $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wno-unused-function -Werror>
     )
   endif()
 endfunction()
@@ -1028,6 +1032,8 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_fused_remote_matmul.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_fused_remote_matmul_kernel.cu
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication_cuda.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
