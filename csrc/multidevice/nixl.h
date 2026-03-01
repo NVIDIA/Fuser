@@ -52,17 +52,6 @@ inline TensorDesc toTensorDesc(const at::Tensor& tensor) {
   };
 }
 
-inline at::Tensor fromTensorDesc(const TensorDesc& desc) {
-  /*
-  Tensors must be valid on this device
-  */
-  return at::from_blob(
-    reinterpret_cast<void*>(desc.addr),
-    {static_cast<int64_t>(desc.size)},
-    at::TensorOptions().device(at::Device(at::kCUDA, desc.dev)).dtype(at::kByte)
-  );
-}
-
 inline std::vector<uint8_t> serializeTensorsDescs(
     const std::vector<TensorDesc>& descs) {
   size_t count = descs.size();

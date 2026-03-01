@@ -120,11 +120,7 @@ class NVF_API Communicator {
     } else if (backend == CommunicatorBackend::kNccl) {
       return nccl_available_;
     } else if (backend == CommunicatorBackend::kNixl) {
-#ifdef USE_NIXL
-      return true;
-#else
-      return false;
-#endif
+      return nixl_available_;
     }
     return false;
   }
@@ -159,6 +155,7 @@ class NVF_API Communicator {
   int master_port_;
   bool ucc_available_;
   bool nccl_available_;
+  bool nixl_available_;
   // stores the world's store used for the backend init
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // cache for the created backends. The keys are strings generated from Teams

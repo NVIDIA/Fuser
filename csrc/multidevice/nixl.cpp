@@ -26,8 +26,15 @@ namespace nvfuser {
 class NixlTransferHandleImpl {
  public:
 #ifdef USE_NIXL
-  // TODO - is it leaking when handleimpl is destroyed ? 
+  explicit NixlTransferHandleImpl(nixlAgent* agent) : agent(agent) {}
+  nixlAgent* agent;
   nixlXferReqH* xfer_handle = nullptr;
+
+  ~NixlTransferHandleImpl() {
+    if (xfer_handle) {
+      agent->releaseXferReq(xfer_handle);
+    }
+  }
 #endif
   bool prepared = false;
   bool posted = false;
@@ -173,26 +180,13 @@ NixlBackend::Impl::Impl(Communicator& communicator)
     uintptr_t addr = reinterpret_cast<uintptr_t>(probe.data_ptr());
     uint32_t dev_idx = static_cast<uint32_t>(probe.device().index());
 
-    std::cerr << "[NixlBackend probe] device=" << dev_idx
-              << " addr=0x" << std::hex << addr << std::dec
-              << " nbytes=" << nbytes
-              << " numel=" << probe.numel()
-              << " element_size=" << probe.element_size() << std::endl;
-
     NVF_ERROR(nbytes > 0, "NIXL probe: unexpected zero-byte tensor");
     NVF_ERROR(addr != 0, "NIXL probe: null data pointer");
 
     nixl_reg_dlist_t reg_dlist(VRAM_SEG);
     reg_dlist.addDesc({addr, nbytes, static_cast<uint64_t>(dev_idx)});
 
-    std::cerr << "[NixlBackend probe] reg_dlist desc: addr=0x" << std::hex
-              << reg_dlist[0].addr << std::dec
-              << " len=" << reg_dlist[0].len
-              << " devId=" << reg_dlist[0].devId << std::endl;
-
     nixl_status_t reg_status = agent_->registerMem(reg_dlist);
-    std::cerr << "[NixlBackend probe] registerMem returned "
-              << reg_status << std::endl;
     if (reg_status != NIXL_SUCCESS) {
       return;
     }
@@ -203,8 +197,6 @@ NixlBackend::Impl::Impl(Communicator& communicator)
     nixlDlistH* dlist_handle = nullptr;
     nixl_status_t prep_status =
         agent_->prepXferDlist(NIXL_INIT_AGENT, xfer_dlist, dlist_handle);
-    std::cerr << "[NixlBackend probe] prepXferDlist returned "
-              << prep_status << std::endl;
 
     if (dlist_handle) {
       agent_->releasedDlistH(dlist_handle);
@@ -358,7 +350,7 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
   nixl_xfer_dlist_t local_dlist = buildXferDlist(local_descs);
   nixl_xfer_dlist_t remote_dlist = buildXferDlist(remote_descs);
 
-  auto impl = std::make_unique<NixlTransferHandleImpl>();
+  auto impl = std::make_unique<NixlTransferHandleImpl>(agent_.get());
   nixl_status_t status = agent_->createXferReq(
       toNixlXferOp(op),
       local_dlist,
