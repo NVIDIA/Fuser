@@ -1311,13 +1311,6 @@ TensorView* asNested(
   NVF_ERROR(data != nullptr, "asNested: data tensor is null");
   NVF_ERROR(extents != nullptr, "asNested: extents tensor is null");
 
-  // Only 1D extents tensors are currently supported
-  NVF_ERROR_EQ(
-      std::ranges::distance(
-          extents->getLogicalDomain() | TensorDomain::kNoReductions),
-      1,
-      "asNested currently only supports 1D extents tensors");
-
   NVF_CHECK(
       !data->domain()->hasRaggedIterDomain(),
       "Multiple level of nesting is not supported: ",
@@ -1335,6 +1328,33 @@ TensorView* asNested(
   }
 
   ragged_dim = wrapDim(ragged_dim, inp_logical_size);
+
+  // Filter out reduction dimensions from extents tensor
+  auto extents_no_reduction =
+      extents->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto extents_ndim = std::ranges::distance(extents_no_reduction);
+  NVF_ERROR_GT(
+      extents_ndim,
+      0,
+      "asNested: extents tensor must have at least one non-reduction "
+      "dimension");
+
+  // Validate shape correspondence for multi-dimensional extents
+  // For N-D extents, outer dimensions must match outer dimensions of input
+  // tensor Rule: extents.ndim - 1 == ragged_dim (except 1D extents which are
+  // always valid).
+  if (extents_ndim > 1) {
+    NVF_ERROR_EQ(
+        extents_ndim - 1,
+        ragged_dim,
+        "asNested: Multi-dimensional extents require shape ",
+        "[d0, d1, ..., d(axis-1), num_components]. ",
+        "Got ",
+        extents_ndim,
+        "D extents for partitioning axis ",
+        ragged_dim);
+  }
+  // Note: 1D extents are always valid for any axis (uniform partition)
 
   // Partition the specified dimension in root domain
   // This replaces one IterDomain with (component_id, ragged_id)
