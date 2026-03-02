@@ -314,21 +314,20 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   }
 
   // Step 4: Schedule register TVs for per-thread access.
-  // Tile-2 was swizzled in smem, per-thread access should follow the swizzed
-  // layout.
-  // 1. split tile2 by elements_per_chunk defined in swizzle pattern
-  // 2. further split by chunks_per_thread to get the right granularity for each
-  // thread
-  // 3. merge remainings with tile1 and parallelize with TIDx
+  //
+  // The merge order is critical for bank conflicts on the non-swizzled smem
+  // side. By merging tile2_outer as the outer dim and tile1 as the inner dim,
+  // adjacent threads in a warp access adjacent tile1 positions. Since tile1 is
+  // the contiguous (inner) dimension of the non-swizzled smem layout, this
+  // means adjacent threads read from adjacent memory addresses.
   // [BIDx, tile1, tile2]
   ref_tv->split(-1, tparams->elements_per_chunk);
   // [BIDx, tile1, tile2/chunk, chunk]
   ref_tv->split(-2, tparams->chunks_per_thread);
   // [BIDx, tile1, tile2/chunk/cpt, cpt, chunk]
-  ref_tv->merge(-4, -3);
-  // [BIDx, tile1/chunk/cpt * tile2, cpt, chunk]
+  ref_tv->merge(-3, -4);
+  // [BIDx, tile2/chunk/cpt * tile1, cpt, chunk]
   ref_tv->axis(-3)->parallelize(ParallelType::TIDx);
-  // ref_tv->axis(-1)->parallelize(ParallelType::Unroll);
 
   // Propagate to all TVs except smem/output TVs managed by TMA
   std::unordered_set<TensorView*> skip_tvs(
