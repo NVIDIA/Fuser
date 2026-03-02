@@ -61,6 +61,7 @@ def retry_on_oom_or_skip_test(func):
             return output
 
         # We have hit an OOM error, so clear the cache and retry
+        import gc
         gc.collect()
         torch.cuda.empty_cache()
 
