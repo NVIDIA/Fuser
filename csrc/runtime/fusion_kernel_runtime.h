@@ -125,11 +125,11 @@ class FusionKernelRuntime {
   const ExecutorLog& getMostRecentExecutorLog() const;
 
   // Try to compute heuristics based on the SegmentedFusion managed
-  //  in this kernel runtime, and will return a nullopt if either
-  //  any segment cannot be scheduled or the parameters don't match
+  //  in this kernel runtime, and will return nullptr if either
+  //  any segment cannot be scheduled or the parameters don't match.
   //
   // Heuristics must use the index type of forced_index_type if given.
-  std::optional<std::unique_ptr<HeuristicParamsList>> getMaybeHeuristicsFor(
+  std::unique_ptr<HeuristicParamsList> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
