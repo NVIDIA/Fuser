@@ -314,20 +314,27 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   }
 
   // Step 4: Schedule register TVs for per-thread access.
-  //
+  // ref_tv's inner most tile is tile1
   // The merge order is critical for bank conflicts on the non-swizzled smem
   // side. By merging tile2_outer as the outer dim and tile1 as the inner dim,
   // adjacent threads in a warp access adjacent tile1 positions. Since tile1 is
   // the contiguous (inner) dimension of the non-swizzled smem layout, this
   // means adjacent threads read from adjacent memory addresses.
   // [BIDx, tile1, tile2]
+  const int64_t elem_per_bank = 2;
   ref_tv->split(-1, tparams->elements_per_chunk);
   // [BIDx, tile1, tile2/chunk, chunk]
   ref_tv->split(-2, tparams->chunks_per_thread);
   // [BIDx, tile1, tile2/chunk/cpt, cpt, chunk]
   ref_tv->merge(-3, -4);
   // [BIDx, tile2/chunk/cpt * tile1, cpt, chunk]
-  ref_tv->axis(-3)->parallelize(ParallelType::TIDx);
+  if (elem_per_bank > 1) {
+    ref_tv->split(-3, elem_per_bank);
+    // [BIDx, tile2/chunk/cpt * tile1/2, 2, cpt, chunk]
+    ref_tv->axis(-4)->parallelize(ParallelType::TIDx);
+  } else {
+    ref_tv->axis(-3)->parallelize(ParallelType::TIDx);
+  }
 
   // Propagate to all TVs except smem/output TVs managed by TMA
   std::unordered_set<TensorView*> skip_tvs(
@@ -350,18 +357,24 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
       /*parallelize_inputs_on_did=*/true);
 
   // Vectorize smem access at the transpose boundary.
+  auto vectorize_smem2regs = [&tma_load_tvs](int pos) {
+    for (auto tma_load_tv : tma_load_tvs) {
+      for (auto consumer : ir_utils::consumerTvsOf(tma_load_tv)) {
+        consumer->axis(pos)->parallelize(ParallelType::Vectorize);
+      }
+    }
+  };
   if (tparams->is_output_smem_transpose) {
     // Vectorize writes to output smem
     for (auto output_smem_cache : tma_store_tvs) {
       output_smem_cache->axis(-1)->parallelize(ParallelType::Vectorize);
     }
-  } else {
-    // Vectorize reads from input smem
-    for (auto tma_load_tv : tma_load_tvs) {
-      for (auto consumer : ir_utils::consumerTvsOf(tma_load_tv)) {
-        consumer->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
+    // [BIDx, tile2/chunk/cpt * tile1/2, 2, cpt, chunk]
+    if (elem_per_bank > 1) {
+      vectorize_smem2regs(-3);
     }
+  } else {
+    vectorize_smem2regs(-1);
   }
 
   inlineMost();
