@@ -109,7 +109,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   void handle(MatmulOp*) override;
   void handle(LinearOp*) override;
   void handle(kir::Allocate*) override;
-  void handle(Allocate*) override;
+  void handle(hir::Allocate*) override;
   void handle(LoadStoreOp*) override;
   void handle(BinaryOp*) override;
   void handle(ReductionOp*) override;
@@ -139,7 +139,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
-  const int64_t my_local_device_index_;
+  int64_t my_local_device_index_;
   IpcHandleCache ipc_handle_cache_;
   SymmetricMemoryHandleCache multicast_handle_cache_;
   // Allocation cache

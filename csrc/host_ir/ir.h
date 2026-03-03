@@ -167,7 +167,7 @@ class Allocate : public Expr {
 
   explicit Allocate(
       IrBuilderPasskey passkey,
-      Val* in,
+      TensorView* in,
       MemoryType memory_type,
       bool zero_init = false);
 

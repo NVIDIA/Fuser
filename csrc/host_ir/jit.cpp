@@ -760,7 +760,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
          smem});
   }
 
-  void handle(kir::Allocate* allocate) final {
+  void handle(hir::Allocate* allocate) final {
     llvm::LLVMContext& context = builder().getContext();
     llvm::Module* module = builder().GetInsertBlock()->getParent()->getParent();
 
@@ -769,16 +769,16 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
     inferTensorShapesAndStrides(
-        allocate->buffer()->as<TensorView>(),
+        allocate->in()->as<TensorView>(),
         valToValue(),
         builder(),
         tensor_sizes,
         tensor_strides);
 
-    const std::vector<IterDomain*>& logical_domain =
-        TensorDomain::noReductions(allocate->in()->getLogicalDomain());
+    auto logical_domain =
+        allocate->in()->getLogicalDomain() | TensorDomain::kNoReductions;
 
-    NVF_ERROR_EQ(tensor_sizes.size(), logical_domain.size());
+    NVF_ERROR_EQ(tensor_sizes.size(), std::ranges::distance(logical_domain));
 
     llvm::ArrayType* sizes_type = getInt64StaticArrayType(
         context, static_cast<int64_t>(tensor_sizes.size()));
@@ -840,7 +840,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
          dtype_constant,
          device_index_constant,
          out_tensor});
-    åval_to_value_[allocate->buffer()] = out_tensor;
+    valToValue()[allocate->in()] = out_tensor;
   }
 
   void handle(hir::Deallocate* deallocate) final {
