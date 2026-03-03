@@ -68,9 +68,8 @@ KernelArgumentHolder HostIrEvaluator::runWithInputs(
   FUSER_PERF_SCOPE("HostIrEvaluator::runWithInputs");
   expr_evaluator_ = ExpressionEvaluator();
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
-  NVF_ERROR(args.getCacheId().has_value());
-  expr_evaluator_.bind(
-      "cacheId", static_cast<int64_t>(args.getCacheId().value()));
+  auto cache_id = valueOrError(args.getCacheId());
+  expr_evaluator_.bind("cacheId", static_cast<int64_t>(cache_id));
 
   NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
   for (auto&& [in_val, arg] : zip(container_->inputs(), args)) {
