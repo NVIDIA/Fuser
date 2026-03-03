@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 #include <tuple>
 
+#include "device_lower/analysis/bank_conflict.h"
 #include "exceptions.h"
 #include "ops/all_ops.h"
 #include "optimization_pass.h"
@@ -1897,4 +1898,71 @@ INSTANTIATE_TEST_SUITE_P(
          << "_size_" << inner_dim;
       return os.str();
     });
+
+class TmaTransposeDtypeP : public TransposeTest,
+                           public testing::WithParamInterface<DataType> {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    TransposeTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaTranspose);
+  }
+};
+
+TEST_P(TmaTransposeDtypeP, OutputTransposeBankconflict) {
+  auto dtype = GetParam();
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = transpose(tv2, 0, 1);
+  auto tv4 = mul(tv3, tv3);
+  tv4 = maybeCastOp(dtype, tv4);
+  fusion.addOutput(tv4);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({16384, 8192}, options);
+  auto t1 = at::randn({16384, 8192}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+
+  // Check bank conflicts via the compiled kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  for (auto& executor : runtime->executors()) {
+    if (auto* ke = dynamic_cast<KernelExecutor*>(executor.get())) {
+      auto bank_conflicts = getBankConflictInfo(ke->compiledKernel()->kernel());
+      for (auto& [expr, ways] : bank_conflicts) {
+        auto [read_ways, write_ways] = ways;
+        std::cout << "  Bank conflict: " << expr->toString()
+                  << "  read=" << read_ways << "-way"
+                  << ", write=" << write_ways << "-way" << std::endl;
+      }
+      if (dtype == DataType::Float) {
+        EXPECT_TRUE(bank_conflicts.empty());
+      } else {
+        // TODO: update to EXPECT_TRUE once bf16 bank conflicts are resolved.
+        EXPECT_FALSE(bank_conflicts.empty());
+      }
+    }
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TransposeTest,
+    TmaTransposeDtypeP,
+    testing::Values(DataType::Float, DataType::BFloat16),
+    [](const testing::TestParamInfo<DataType>& info) {
+      std::ostringstream os;
+      os << info.param;
+      return os.str();
+    });
+
 } // namespace nvfuser
