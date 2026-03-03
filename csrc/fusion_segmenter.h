@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <algorithm>
+
 #include <debug.h>
 #include <exceptions.h>
 #include <fusion.h>
@@ -146,9 +148,9 @@ class SegmentedGroup {
   //! Returns a new scheduler with the same heuristics
   //!  for this group if possible.
   //!  Note that the schedule params can be different.
-  //! Returns a nullopt if this group cannot be scheduled
+  //! Returns nullptr if this group cannot be scheduled
   //!  with the same heuristics.
-  std::optional<std::unique_ptr<HeuristicParams>> getMaybeHeuristicParams(
+  std::unique_ptr<HeuristicParams> getMaybeHeuristicParams(
       SchedulerRuntimeInfo& runtime_info);
 
   //! Get the SegmentedFusion this group belongs to
@@ -742,10 +744,8 @@ class SegmentCandidateFinder {
 
   //! Query if a val is a fusion input or a forwarded input
   bool isFusionInput(Val* val) const {
-    return std::find(
-               forwarded_fusion_inputs_.begin(),
-               forwarded_fusion_inputs_.end(),
-               val) != forwarded_fusion_inputs_.end();
+    return std::ranges::find(forwarded_fusion_inputs_, val) !=
+        forwarded_fusion_inputs_.end();
   };
 
   // Get all auxiliary groups created for fusion inputs

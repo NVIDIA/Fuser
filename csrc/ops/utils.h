@@ -7,21 +7,22 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <scheduler/matmul_utils.h>
-#include <type.h>
-#include <visibility.h>
-
+#include <cstdint>
 #include <vector>
+
+#include "exceptions.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "scheduler/matmul_utils.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
-enum class AttnRole { Q = 0, K, V, Mask };
+enum class AttnRole : std::uint8_t { Q = 0, K, V, Mask };
 
 struct ScaledTensorView {
-  TensorView* tv;
+  TensorView* tv = nullptr;
   TensorView* block_scaling_factor = nullptr;
   TensorView* global_scaling_factor = nullptr;
 };

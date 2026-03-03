@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <ranges>
 #include <sstream>
 #include <vector>
@@ -580,10 +581,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Check if the current scope is aligned, i.e., guaranteed to cause
   //! no thread divergence
   bool isAligned() const {
-    return std::all_of(
-        aligned_scope_exprs_.begin(), aligned_scope_exprs_.end(), [](bool b) {
-          return b;
-        });
+    return std::ranges::all_of(aligned_scope_exprs_, std::identity());
   }
 
   std::ostream& indent() {
@@ -748,12 +746,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsGridRawSync(ti->view())) {
-      code_ << "*(volatile " << ti->getDataType().value() << "*)&";
+      code_ << "*(volatile " << ti->getDataType() << "*)&";
     }
 
     const bool different_dtype = ti->view()->dtype() != ti->dtype();
     if (different_dtype) {
-      code_ << "(*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
+      code_ << "(*reinterpret_cast<" << ti->getDataType() << "*>(&";
     }
     code_ << genVariableName(ti->view()) << "[" << genInline(ti->index())
           << "]";
@@ -975,10 +973,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       if (integer_op_str(op_type) && isIntegralType(data_type)) {
         auto int_op = integer_op_str(op_type);
-        expr << *int_op;
+        expr << valueOrError(int_op);
       } else if (bool_op_str(op_type) && isBooleanType(data_type)) {
         auto bool_op = bool_op_str(op_type);
-        expr << *bool_op;
+        expr << valueOrError(bool_op);
       } else {
         expr << op_type;
         if (needFloatSuffix(op_type) && data_type == DataType::Float) {
@@ -1133,11 +1131,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         } else {
           if (integer_op_str(op_type) && isIntegralType(bop->out()->dtype())) {
             auto int_op = integer_op_str(op_type);
-            code_ << " = " << *int_op << "(\n";
+            code_ << " = " << valueOrError(int_op) << "(\n";
           } else if (
               bool_op_str(op_type) && isBooleanType(bop->out()->dtype())) {
             auto bool_op = bool_op_str(op_type);
-            code_ << " = " << *bool_op << "(\n";
+            code_ << " = " << valueOrError(bool_op) << "(\n";
           } else {
             std::stringstream op_str;
             op_str << op_type;
@@ -1200,9 +1198,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             } else {
               // Note: currently arraySet option is not vectorized, so it will
               //  rely on auto vectorization pass of cuda compiler.
-              code_ << "arraySet<" << out_tv->getDataType().value() << ", "
+              code_ << "arraySet<" << out_tv->getDataType() << ", "
                     << vector_word_size << ">(&" << gen(top->out()) << ", ("
-                    << out_tv->getDataType().value() << ")" << gen(in) << ")";
+                    << out_tv->getDataType() << ")" << gen(in) << ")";
             }
           } else {
             generateVectorizedLdSt(
@@ -1829,7 +1827,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Validate group size based on input data type
     const auto input_dtype =
-        bqop->in()->as<kir::TensorIndex>()->view()->getDataType().value();
+        bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
     const bool is_half_precision =
         (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half);
     const bool is_valid_group_size = is_half_precision
@@ -1921,11 +1919,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     // Validate group size based on input data type
-    const auto input_dtype = grouped_bqop->in()
-                                 ->as<kir::TensorIndex>()
-                                 ->view()
-                                 ->getDataType()
-                                 .value();
+    const auto input_dtype =
+        grouped_bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
     const bool is_half_precision =
         (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half);
     const bool is_valid_group_size = is_half_precision
@@ -2108,7 +2103,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       template_args.arg(
           kernel_->paddedParallelDimensions().is_tidx_single_warp);
-      template_args.arg(/*Aligned=*/false);
+      template_args.arg(false); // not aligned
       template_args.arg(reduction_scheduler_utils::getComputeBdimx(
           warp_specialized_on_, lparams_.bdimx()));
 
@@ -2290,10 +2285,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           } else {
             // Note: currently arraySet option is not vectorized, so it will
             //  rely on auto vectorization pass of cuda compiler.
-            indent() << "arraySet<" << out_tv->getDataType().value() << ", "
+            indent() << "arraySet<" << out_tv->getDataType() << ", "
                      << vector_word_size << ">(&" << gen(ldst->out()) << ", "
-                     << "(" << out_tv->getDataType().value() << ")"
-                     << gen(ldst->in()) << ");\n";
+                     << "(" << out_tv->getDataType() << ")" << gen(ldst->in())
+                     << ");\n";
           }
         } else {
           // Vectorized load
@@ -2498,7 +2493,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     ArgumentBuilder template_args;
-    template_args.arg(out_avg->getDataType().value());
+    template_args.arg(out_avg->getDataType());
     if (is_predicated) {
       template_args.arg(output_gmem);
     }
@@ -2995,9 +2990,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Vector of indices of grouped loops
     std::vector<Val*> loop_indices;
-    std::transform(
-        grouped_loops_.begin(),
-        grouped_loops_.end(),
+    std::ranges::transform(
+        grouped_loops_,
         std::back_inserter(loop_indices),
         [](const kir::ForLoop* loop) { return loop->index(); });
 
@@ -3221,11 +3215,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       for (const auto& group_index : arange(index_replacement_maps.size())) {
         data_types.arg(data_type);
         index_types.arg(index_type);
-
-        auto work_buffer_offset = group_index == 0
-            ? "0"
-            : (genInline(grouped_gwop->buffer_stride()) + " * " +
-               std::to_string(group_index));
 
         // Setup arguments for avg, var, and N
         for (const auto i : arange(3)) {
@@ -3677,7 +3666,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::AllocateFusedReduction* alloc_fused_reduction) final {
     // See the runtime file of the fused reduction
-    enum class ReductionParallelTypeState { Reduce, Iter, Pred, Inactive };
+    enum class ReductionParallelTypeState : std::uint8_t {
+      Reduce,
+      Iter,
+      Pred,
+      Inactive
+    };
 
     using ReductionParallelTypeStateArray =
         ParallelTypeMap<ReductionParallelTypeState>;
@@ -4363,7 +4357,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       auto print_constraints_and_registers =
           [&](const auto& constraints_and_registers, std::string prefix) {
             int64_t counter = 0;
-            for (auto [constraint, register_] : constraints_and_registers) {
+            for (const auto& [constraint, register_] :
+                 constraints_and_registers) {
               auto next_line = [&]() {
                 (*asm_target) << ",";
                 if (multiline) {
@@ -4522,9 +4517,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     sync_call_template_parms.arg(bidx)
         .arg(bidy)
         .arg(bidz)
-        .arg(/*PERSISTENT=*/true)
-        .arg(/*Aligned=*/
-             has_warp_specialized_ ? false : isAligned());
+        .arg(true) // persistent
+        .arg(has_warp_specialized_ ? false : isAligned()); // aligned
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",
@@ -4806,11 +4800,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
   }
 
-  void handle(const LaunchDependentGridOp* launch) {
+  void handle(const LaunchDependentGridOp* launch) override {
     indent() << launch->getOpString() << "();\n";
   }
 
-  void handle(const WaitForPriorGridOp* wait) {
+  void handle(const WaitForPriorGridOp* wait) override {
     indent() << wait->getOpString() << "();\n";
   }
 

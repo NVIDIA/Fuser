@@ -52,7 +52,7 @@ Scope::Iterator Scope::insert(Iterator pos, Expr* expr) {
 }
 
 Scope::Iterator Scope::insert_before(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+  const auto it = std::ranges::find(exprs_, ref);
   NVF_ERROR(
       it != exprs_.end(),
       "Tried to insert ",
@@ -66,7 +66,7 @@ Scope::Iterator Scope::insert_before(Expr* ref, Expr* expr) {
 }
 
 Scope::Iterator Scope::insert_after(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+  const auto it = std::ranges::find(exprs_, ref);
   NVF_ERROR(
       it != exprs_.end(),
       "Tried to insert ",
@@ -87,14 +87,14 @@ void Scope::erase(Iterator pos) {
 }
 
 void Scope::erase(Expr* ref) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+  const auto it = std::ranges::find(exprs_, ref);
   if (it != exprs_.end()) {
     erase(it);
   }
 }
 
 bool Scope::contains(Expr* expr) const {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), expr);
+  const auto it = std::ranges::find(exprs_, expr);
   return it != exprs_.end();
 }
 
@@ -143,7 +143,7 @@ std::vector<PolymorphicValue> FullOp::evaluate(
   for (auto i : arange(inputs.size() - 1)) {
     shape.push_back(inputs.at(i).as<int64_t>());
   }
-  DataType dtype = getFillValue()->getDataType().value();
+  DataType dtype = getFillValue()->getDataType();
   const auto options =
       at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype));
   using namespace PolymorphicValue_functions;
@@ -469,7 +469,7 @@ IotaOp::IotaOp(
     Val* start,
     Val* step)
     : Expr(passkey) {
-  NVF_CHECK(isIntegralType(*length->getDataType()));
+  NVF_CHECK(isIntegralType(length->getDataType()));
   addInput(length);
   NVF_CHECK(start->getDataType() == step->getDataType());
   NVF_CHECK(start->getDataType() == out->getDataType());
@@ -585,16 +585,16 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       if (in.is<at::Tensor>()) {
         return {PolymorphicValue(
             in.as<at::Tensor>().to(data_type_to_aten(out()->dtype())))};
-      } else if (isIntegralType(*out()->getDataType())) {
+      } else if (isIntegralType(out()->getDataType())) {
         return {PolymorphicValue((int64_t)in)};
-      } else if (isFloatingPointType(*out()->getDataType())) {
+      } else if (isFloatingPointType(out()->getDataType())) {
         return {PolymorphicValue((double)in)};
       } else if (out()->getDataType() == DataType::Bool) {
         return {PolymorphicValue((bool)in)};
-      } else if (isComplexType(*out()->getDataType())) {
+      } else if (isComplexType(out()->getDataType())) {
         return {PolymorphicValue((std::complex<double>)in)};
       } else {
-        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", out()->getDataType());
       }
     case UnaryOpType::Reciprocal:
       return {1.0 / in};
@@ -626,10 +626,10 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       return {in};
       break;
     case UnaryOpType::Dereference:
-      if (*out()->getDataType() == DataType::Float) {
+      if (out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
       } else {
-        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", out()->getDataType());
       }
       break;
     case UnaryOpType::Sigmoid:
@@ -711,14 +711,13 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
     ss << inline_uop.value() << input;
   } else {
     if (op_type == UnaryOpType::Cast) {
-      std::optional<std::string> cast_str = cast_func_str(std::make_pair(
-          in()->getDataType().value(), out()->getDataType().value()));
+      std::optional<std::string> cast_str = cast_func_str(
+          std::make_pair(in()->getDataType(), out()->getDataType()));
       NVF_ERROR(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
       ss << op_type;
-      if (out()->getDataType().value() == DataType::Float &&
-          needFloatSuffix(op_type)) {
+      if (out()->getDataType() == DataType::Float && needFloatSuffix(op_type)) {
         ss << "f";
       }
     }
@@ -888,8 +887,7 @@ void BinaryOp::printHelper(
     ss << rhs;
   } else {
     ss << op_type;
-    if (out()->getDataType().value() == DataType::Float &&
-        needFloatSuffix(op_type)) {
+    if (out()->getDataType() == DataType::Float && needFloatSuffix(op_type)) {
       ss << "f";
     }
     ss << "(" << lhs;
@@ -1052,18 +1050,17 @@ ArrayConstruct::ArrayConstruct(
   DataType input_dtype = DataType::Null;
   for (auto in : inputs) {
     addInput(in);
-    auto in_dtype_opt = in->getDataType();
-    NVF_ERROR(in_dtype_opt.has_value());
+    auto in_dtype = in->getDataType();
     if (input_dtype == DataType::Null) {
-      input_dtype = *in_dtype_opt;
+      input_dtype = in_dtype;
     } else {
       NVF_CHECK(
-          input_dtype == *in_dtype_opt,
+          input_dtype == in_dtype,
           "All inputs to ArrayConstruct must have the same data type");
     }
   }
-  auto expected_output_dtype =
-      ArrayType{std::make_shared<DataType>(input_dtype), inputs.size()};
+  auto expected_output_dtype = ArrayType{
+      .type = std::make_shared<DataType>(input_dtype), .size = inputs.size()};
   NVF_CHECK(
       output->getDataType() == expected_output_dtype,
       "Output of ArrayConstruct must be an array of the same data type as the "
@@ -1136,7 +1133,7 @@ std::vector<PolymorphicValue> ReverseArray::evaluate(
   NVF_ERROR(inputs.size() == 1, "ReverseArray expects 1 input");
   PolymorphicValue array = inputs.at(0);
   auto& vec = array.as<std::vector>();
-  std::reverse(vec.begin(), vec.end());
+  std::ranges::reverse(vec);
   return {std::move(array)};
 }
 
@@ -1366,7 +1363,8 @@ RNGOp::RNGOp(
     addInput(philox_offset);
   }
   addOutput(out);
-  RNGOp::Attributes attr{type, dtype, parameters.size()};
+  RNGOp::Attributes attr{
+      .rtype = type, .dtype = dtype, .num_parameters = parameters.size()};
   addDataAttribute(attr);
   // adding nullptr to attributes triggers assert. Though I question if this
   // should be the default behavior and any use of attributes should check for
@@ -1416,8 +1414,8 @@ BroadcastOp::BroadcastOp(
     Val* in,
     std::vector<bool> is_broadcast_dims)
     : Expr(passkey) {
-  auto out_type = out->getValType().value();
-  auto in_type = in->getValType().value();
+  auto out_type = valueOrError(out->getValType());
+  auto in_type = valueOrError(in->getValType());
 
   NVF_ERROR(
       (out_type == ValType::TensorView && in_type == ValType::TensorView) ||
@@ -1521,8 +1519,8 @@ SqueezeOp::SqueezeOp(
     Val* in,
     std::vector<bool> is_squeeze_dims)
     : Expr(passkey) {
-  auto out_type = out->getValType().value();
-  auto in_type = in->getValType().value();
+  auto out_type = out->getValType();
+  auto in_type = in->getValType();
 
   NVF_ERROR(
       in_type == ValType::TensorView,
@@ -1680,8 +1678,8 @@ ReductionOp::ReductionOp(
     bool is_allreduce)
     : Expr(passkey) {
   NVF_CHECK(
-      out->getValType().value() == ValType::TensorView ||
-      out->getValType().value() == ValType::TensorIndex);
+      out->getValType() == ValType::TensorView ||
+      out->getValType() == ValType::TensorIndex);
 
   NVF_ERROR(
       (in->getValType() == ValType::TensorView &&
@@ -1879,7 +1877,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedReductionOp)
 
 std::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
     Val* val) const {
-  auto it = std::find(begin(), end(), val);
+  auto it = std::ranges::find(*this, val);
   if (it != end()) {
     return indexToValName((int)std::distance(begin(), it));
   }
@@ -1929,49 +1927,49 @@ WelfordOp::WelfordOp(
 
   // Check output type
   NVF_ERROR(
-      output.avg()->getValType().value() == ValType::TensorView ||
-      output.avg()->getValType().value() == ValType::TensorIndex);
+      output.avg()->getValType() == ValType::TensorView ||
+      output.avg()->getValType() == ValType::TensorIndex);
   NVF_ERROR(
-      output.var()->getValType().value() == ValType::TensorView ||
-      output.var()->getValType().value() == ValType::TensorIndex);
+      output.var()->getValType() == ValType::TensorView ||
+      output.var()->getValType() == ValType::TensorIndex);
   NVF_ERROR(
-      output.N()->getValType().value() == ValType::TensorView ||
-      output.N()->getValType().value() == ValType::TensorIndex);
+      output.N()->getValType() == ValType::TensorView ||
+      output.N()->getValType() == ValType::TensorIndex);
   NVF_ERROR(isIntegralType(output.N()->dtype()));
 
   // check initial value
-  NVF_ERROR(init.N()->getValType().value() == ValType::Others);
+  NVF_ERROR(init.N()->getValType() == ValType::Others);
   NVF_ERROR(isIntegralType(init.N()->dtype()));
   if (!init.N()->isZeroInt()) {
     // when initial count is zero, no initial variance or average is needed
     // initial value with a count of 1 is un-common enough that I'll push
     // the responsibility of creating all-zero var tensors to the user
     NVF_ERROR(
-        init.avg()->getValType().value() == ValType::TensorView ||
-        init.avg()->getValType().value() == ValType::TensorIndex);
+        init.avg()->getValType() == ValType::TensorView ||
+        init.avg()->getValType() == ValType::TensorIndex);
     NVF_ERROR(
-        init.var()->getValType().value() == ValType::TensorView ||
-            init.var()->getValType().value() == ValType::TensorIndex,
+        init.var()->getValType() == ValType::TensorView ||
+            init.var()->getValType() == ValType::TensorIndex,
         "Invalid initial var: ",
         init.var()->toString());
   }
 
   // check input
   NVF_ERROR(
-      input.avg()->getValType().value() == ValType::TensorView ||
-          input.avg()->getValType().value() == ValType::TensorIndex,
-      input.avg()->getValType().value());
+      input.avg()->getValType() == ValType::TensorView ||
+          input.avg()->getValType() == ValType::TensorIndex,
+      valueOrError(input.avg()->getValType()));
   NVF_ERROR(
-      input.N()->getValType().value() == ValType::Others ||
-      input.N()->getValType().value() == ValType::TensorView ||
-      input.N()->getValType().value() == ValType::TensorIndex);
+      input.N()->getValType() == ValType::Others ||
+      input.N()->getValType() == ValType::TensorView ||
+      input.N()->getValType() == ValType::TensorIndex);
   NVF_ERROR(isIntegralType(input.N()->dtype()));
   if (!input.N()->isOneInt()) {
     // when input is only one value, only the value is required through avg
     // input the var part is implicitly 0 and codegen will handle that.
     NVF_ERROR(
-        input.var()->getValType().value() == ValType::TensorView ||
-        input.var()->getValType().value() == ValType::TensorIndex);
+        input.var()->getValType() == ValType::TensorView ||
+        input.var()->getValType() == ValType::TensorIndex);
   } else {
     NVF_ERROR(
         input.var() == nullptr || input.var()->isZeroInt(),
@@ -2111,14 +2109,14 @@ GroupedWelfordOp::GroupedWelfordOp(
   for (const auto i : arange(num_grouped_ops)) {
     // Check output type
     NVF_ERROR(
-        output_vals[i].avg()->getValType().value() == ValType::TensorView ||
-        output_vals[i].avg()->getValType().value() == ValType::TensorIndex);
+        output_vals[i].avg()->getValType() == ValType::TensorView ||
+        output_vals[i].avg()->getValType() == ValType::TensorIndex);
     NVF_ERROR(
-        output_vals[i].var()->getValType().value() == ValType::TensorView ||
-        output_vals[i].var()->getValType().value() == ValType::TensorIndex);
+        output_vals[i].var()->getValType() == ValType::TensorView ||
+        output_vals[i].var()->getValType() == ValType::TensorIndex);
     NVF_ERROR(
-        output_vals[i].N()->getValType().value() == ValType::TensorView ||
-        output_vals[i].N()->getValType().value() == ValType::TensorIndex);
+        output_vals[i].N()->getValType() == ValType::TensorView ||
+        output_vals[i].N()->getValType() == ValType::TensorIndex);
     NVF_ERROR(isIntegralType(output_vals[i].N()->dtype()));
 
     // check initial value
@@ -2128,13 +2126,12 @@ GroupedWelfordOp::GroupedWelfordOp(
     NVF_ERROR(
         init_avg != nullptr && init_var != nullptr && init_N != nullptr,
         "nullptr init vals are not allowed");
-    NVF_ERROR(init_N->getValType().value() == ValType::Others);
+    NVF_ERROR(init_N->getValType() == ValType::Others);
     NVF_ERROR(isIntegralType(init_N->dtype()));
     NVF_ERROR(
-        init_avg->getValType().value() == ValType::TensorView ||
-            init_avg->getValType().value() == ValType::TensorIndex ||
-            (init_N->isZeroInt() &&
-             init_avg->getValType().value() == ValType::Others),
+        init_avg->getValType() == ValType::TensorView ||
+            init_avg->getValType() == ValType::TensorIndex ||
+            (init_N->isZeroInt() && init_avg->getValType() == ValType::Others),
         "Initial avg must be a tensor or, can be a scalar if initial N is "
         "zero.",
         " Initial avg: ",
@@ -2142,10 +2139,9 @@ GroupedWelfordOp::GroupedWelfordOp(
         ". Initial N: ",
         init_N->toString());
     NVF_ERROR(
-        init_var->getValType().value() == ValType::TensorView ||
-            init_var->getValType().value() == ValType::TensorIndex ||
-            (init_N->isZeroInt() &&
-             init_var->getValType().value() == ValType::Others),
+        init_var->getValType() == ValType::TensorView ||
+            init_var->getValType() == ValType::TensorIndex ||
+            (init_N->isZeroInt() && init_var->getValType() == ValType::Others),
         "Initial var must be a tensor or, can be a scalar if initial N is "
         "zero: ",
         init_var->toString());
@@ -2158,15 +2154,15 @@ GroupedWelfordOp::GroupedWelfordOp(
         in_avg != nullptr && in_var != nullptr && in_N != nullptr,
         "nullptr input vals are not allowed");
     NVF_ERROR(
-        in_N->getValType().value() == ValType::Others ||
-        in_N->getValType().value() == ValType::TensorView ||
-        in_N->getValType().value() == ValType::TensorIndex);
+        in_N->getValType() == ValType::Others ||
+        in_N->getValType() == ValType::TensorView ||
+        in_N->getValType() == ValType::TensorIndex);
     NVF_ERROR(isIntegralType(in_N->dtype()));
     NVF_ERROR(
-        in_avg->getValType().value() == ValType::TensorView ||
-            in_avg->getValType().value() == ValType::TensorIndex,
+        in_avg->getValType() == ValType::TensorView ||
+            in_avg->getValType() == ValType::TensorIndex,
         "Invalid input avg argument type: ",
-        in_avg->getValType().value());
+        valueOrError(in_avg->getValType()));
 
     if (in_N->isOneInt()) {
       // when input is only one value, only the value is required through avg
@@ -2178,9 +2174,9 @@ GroupedWelfordOp::GroupedWelfordOp(
           in_var->toString());
     } else {
       NVF_ERROR(
-          in_var->getValType().value() == ValType::TensorView ||
-              in_var->getValType().value() == ValType::TensorIndex,
-          in_var->getValType().value(),
+          in_var->getValType() == ValType::TensorView ||
+              in_var->getValType() == ValType::TensorIndex,
+          valueOrError(in_var->getValType()),
           ", ",
           in_N->toString());
     }
@@ -2242,7 +2238,9 @@ int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
 Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {
   auto expr_index = getExprIndexOfOutput(output_val);
 
-  auto val_name = outputVals().at(expr_index).getNameOf(output_val).value();
+  auto name_opt = outputVals().at(expr_index).getNameOf(output_val);
+  NVF_CHECK(name_opt.has_value());
+  auto val_name = *name_opt;
 
   return initVals().at(expr_index).get(val_name);
 }
@@ -2259,19 +2257,19 @@ MmaOp::MmaOp(
     Val* init)
     : Expr(passkey) {
   NVF_ERROR(
-      out->getValType().value() == ValType::TensorView ||
-          out->getValType().value() == ValType::TensorIndex,
-      out->getValType().value());
+      out->getValType() == ValType::TensorView ||
+          out->getValType() == ValType::TensorIndex,
+      valueOrError(out->getValType()));
 
   NVF_ERROR(
-      in_a->getValType().value() == ValType::TensorView ||
-          in_a->getValType().value() == ValType::TensorIndex,
-      in_a->getValType().value());
+      in_a->getValType() == ValType::TensorView ||
+          in_a->getValType() == ValType::TensorIndex,
+      valueOrError(in_a->getValType()));
 
   NVF_ERROR(
-      in_b->getValType().value() == ValType::TensorView ||
-          in_b->getValType().value() == ValType::TensorIndex,
-      in_b->getValType().value());
+      in_b->getValType() == ValType::TensorView ||
+          in_b->getValType() == ValType::TensorIndex,
+      valueOrError(in_b->getValType()));
 
   addOutput(out);
   addInput(in_a);
@@ -2331,7 +2329,7 @@ ExpandOp::ExpandOp(
 std::string ExpandOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = expand( " << in() << " )"
-                          << std::endl;
+                          << '\n';
   return ss.str();
 }
 
@@ -2575,7 +2573,7 @@ std::string LoadStoreOp::toString(int indent_size) const {
       << " = " << optype << modifier << "( " << in()->toString();
   // Fusion IR does not have predicate
   if (container()->isA<kir::Kernel>() && predicate() != nullptr) {
-    ss << ", " << std::endl;
+    ss << ", " << '\n';
     indent(ss, indent_size + 1)
         << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
   }
@@ -2788,8 +2786,7 @@ std::string Swizzle1D::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = Swizzle1D("
                           << in()->toString()
-                          << ", parallelType=" << parallelType() << ")"
-                          << std::endl;
+                          << ", parallelType=" << parallelType() << ")" << '\n';
   return ss.str();
 }
 
@@ -2986,7 +2983,7 @@ std::vector<PolymorphicValue> PadOp::evaluate(
     pad_widths.push_back(right_pad);
   }
 
-  if (isComplexType(*out()->getDataType())) {
+  if (isComplexType(out()->getDataType())) {
     std::complex<double> value =
         static_cast<std::complex<double>>(inputs.at(1));
     auto real = at::real(in);

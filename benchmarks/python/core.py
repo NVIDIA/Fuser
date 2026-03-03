@@ -27,7 +27,7 @@ BENCHMARK_CONFIG = {
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
 
-DEFAULT_EXECUTORS = ["eager", "torchcompile", "thunder"]
+DEFAULT_EXECUTORS = ["eager", "torchcompile"]
 
 
 def check_module_available(module_name):

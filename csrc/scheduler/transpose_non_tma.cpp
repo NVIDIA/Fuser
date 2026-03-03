@@ -277,8 +277,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   auto scan_max_dtype_size = [&](const auto& vals) {
     for (auto inp : ir_utils::filterByType<TensorView>(vals)) {
       max_io_dtype_size = std::max(
-          max_io_dtype_size,
-          dataTypeSizeByte(inp->getDataType().value(), index_type));
+          max_io_dtype_size, dataTypeSizeByte(inp->getDataType(), index_type));
       n_io_tensors++;
     }
   };
@@ -396,13 +395,12 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
             << "\n"
             << "reference2: " << reference2->toString() << "\n"
             << "inner_most_id2 position: " << inner_most_pos2_in_ref1
-            << " (in reference 1)" << std::endl;
+            << " (in reference 1)\n";
     if (utils::hasSmallTransposeDimensions(tparams)) {
-      debug() << "small transposed dim, needs virtual inner-most dim"
-              << std::endl;
+      debug() << "small transposed dim, needs virtual inner-most dim\n";
     }
-    debug() << std::endl;
-    debug() << tparams->toString() << std::endl;
+    debug() << '\n';
+    debug() << tparams->toString() << '\n';
   }
 
   return tparams;
