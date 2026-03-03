@@ -180,10 +180,10 @@ class NVF_API Fusion : public PolymorphicBase {
   Fusion();
 
   Fusion(const Fusion& other);
-  Fusion(Fusion&& other) noexcept;
+  Fusion(Fusion&& other);
 
   Fusion& operator=(const Fusion& other);
-  Fusion& operator=(Fusion&& other) noexcept;
+  Fusion& operator=(Fusion&& other);
 
   ~Fusion() override;
 
