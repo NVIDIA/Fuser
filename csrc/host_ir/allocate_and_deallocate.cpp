@@ -232,21 +232,56 @@ void insertAllocations(hir::HostIrContainer& hic) {
 }
 
 // For each TensorView that is allocated or used as an input, find its
-// least common ancestor in the Post-dominator Tree — the latest point at which
+// lowest common ancestor in the Post-dominator Tree — the latest point at which
 // it can be deallocated.
-std::unordered_map<TensorView*, const Node*> computeLeastCommonAncestor(
-    const PostDominatorTree& pdt) {
-  std::unordered_map<const Node*, int64_t> depth;
+class LowestCommonAncestor {
+ public:
+  explicit LowestCommonAncestor(const PostDominatorTree& pdt) : pdt_(pdt) {
+    computeLcaMap();
+  }
 
-  auto findLCA = [&](const Node* a, const Node* b) -> const Node* {
+  const std::unordered_map<TensorView*, const Node*>& getLcaMap() const {
+    return lca_;
+  }
+
+ private:
+  void computeLcaMap() {
+    int64_t current_depth = -1;
+    depthFirstTraverse(
+        /*root=*/pdt_.getRoot(),
+        /*pre_fn=*/
+        [&](const Node* node) {
+          current_depth++;
+          NVF_ERROR(depth_.insert({node, current_depth}).second);
+          Expr* e = node->getExpr();
+
+          // Temporary special-case for kir::Allocate. We will switch
+          // inserting a new `hir::Allocate` in host IR lowering where
+          // the allocated `tv` will be the expr input.
+          if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
+            auto* tv = alloc->buffer()->as<TensorView>();
+            lca_[tv] = findLca(lca_[tv], node);
+          }
+          for (auto* tv : ir_utils::filterByType<TensorView>(e->inputs())) {
+            lca_[tv] = findLca(lca_[tv], node);
+          }
+          for (auto* tv : ir_utils::filterByType<TensorView>(e->outputs())) {
+            lca_[tv] = findLca(lca_[tv], node);
+          }
+        },
+        /*post_fn=*/
+        [&](const Node*) { --current_depth; });
+  }
+
+  const Node* findLca(const Node* a, const Node* b) const {
     if (a == nullptr) {
       return b;
     }
     if (b == nullptr) {
       return a;
     }
-    int64_t depth_a = depth.at(a);
-    int64_t depth_b = depth.at(b);
+    int64_t depth_a = depth_.at(a);
+    int64_t depth_b = depth_.at(b);
     while (depth_a > depth_b) {
       a = a->parent();
       depth_a--;
@@ -260,38 +295,12 @@ std::unordered_map<TensorView*, const Node*> computeLeastCommonAncestor(
       b = b->parent();
     }
     return a;
-  };
+  }
 
-  std::unordered_map<TensorView*, const Node*> lca;
-  int64_t current_depth = -1;
-
-  depthFirstTraverse(
-      /*root=*/pdt.getRoot(),
-      /*pre_fn=*/
-      [&](const Node* node) {
-        current_depth++;
-        depth[node] = current_depth;
-        Expr* e = node->getExpr();
-
-        // Temporary special-case for kir::Allocate. We will switch
-        // inserting a new `hir::Allocate` in host IR lowering where
-        // the allocated `tv` will be the expr input.
-        if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
-          auto* tv = alloc->buffer()->as<TensorView>();
-          lca[tv] = findLCA(lca[tv], node);
-        }
-        for (auto* tv : ir_utils::filterByType<TensorView>(e->inputs())) {
-          lca[tv] = findLCA(lca[tv], node);
-        }
-        for (auto* tv : ir_utils::filterByType<TensorView>(e->outputs())) {
-          lca[tv] = findLCA(lca[tv], node);
-        }
-      },
-      /*post_fn=*/
-      [&](const Node*) { --current_depth; });
-
-  return lca;
-}
+  const PostDominatorTree& pdt_;
+  std::unordered_map<const Node*, int64_t> depth_;
+  std::unordered_map<TensorView*, const Node*> lca_;
+};
 
 void insertDeallocations(hir::HostIrContainer& hic) {
   const std::list<Expr*>& top_level_exprs = hic.topLevelExprs();
@@ -304,12 +313,9 @@ void insertDeallocations(hir::HostIrContainer& hic) {
   });
 
   PostDominatorTree pdt(hic);
-  const std::unordered_map<TensorView*, const Node*>& lca_map =
-      computeLeastCommonAncestor(pdt);
+  LowestCommonAncestor lcas(pdt);
 
-  // Insert deallocate at LCA for each tensorview that is not a fusion input or
-  // output.
-  for (const auto& [tv, lca_node] : lca_map) {
+  for (const auto& [tv, lca_node] : lcas.getLcaMap()) {
     if (tv->isFusionInput() || tv->isFusionOutput()) {
       continue;
     }
@@ -322,6 +328,43 @@ void insertDeallocations(hir::HostIrContainer& hic) {
   }
 }
 
+void checkMemoryLeak(hir::HostIrContainer& hic) {
+  PostDominatorTree pdt(hic);
+  std::unordered_set<TensorView*> allocated;
+
+  depthFirstTraverse(
+      pdt.getRoot(),
+      /*pre_fn=*/
+      [&](const Node* node) {
+        Expr* e = node->getExpr();
+        if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
+          allocated.insert(alloc->buffer()->as<TensorView>());
+        }
+        for (auto* tv : ir_utils::filterByType<TensorView>(e->inputs())) {
+          allocated.insert(tv);
+        }
+        for (auto* tv : ir_utils::filterByType<TensorView>(e->outputs())) {
+          allocated.insert(tv);
+        }
+      },
+      /*post_fn=*/
+      [&](const Node* node) {
+        Expr* e = node->getExpr();
+        if (auto* dealloc = dynamic_cast<hir::Deallocate*>(e)) {
+          allocated.erase(dealloc->buffer());
+        }
+      });
+
+  NVF_ERROR(
+      std::ranges::all_of(
+          allocated,
+          [](TensorView* tv) {
+            return tv->isFusionInput() || tv->isFusionOutput();
+          }),
+      "Memory leak detected in Host IR. Some TensorViews allocated in IR are "
+      "not deallocated and not fusion inputs/outputs.");
+}
+
 } // namespace
 
 void AllocateAndDeallocate::runPass(Fusion* fusion) {
@@ -330,6 +373,8 @@ void AllocateAndDeallocate::runPass(Fusion* fusion) {
   FusionGuard fg(hic);
   insertAllocations(*hic);
   insertDeallocations(*hic);
+
+  checkMemoryLeak(*hic);
 }
 
 } // namespace nvfuser::hir
