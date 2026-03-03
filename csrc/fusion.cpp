@@ -327,9 +327,11 @@ Fusion::Fusion(Fusion&& other) : Fusion() {
 // Copy Assignment -- shares the source's container
 Fusion& Fusion::operator=(const Fusion& other) {
   FUSER_PERF_SCOPE("Fusion copy assign");
-  Fusion copy(other);
-  clear();
-  swap(*this, copy);
+  if (this != &other) {
+    Fusion copy(other);
+    clear();
+    swap(*this, copy);
+  }
   return *this;
 }
 
