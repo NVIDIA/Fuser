@@ -19,6 +19,7 @@
 #include "runtime/fusion_executor_cache.h"
 #include "scheduler/all_schedulers.h"
 #include "scheduler/mma_utils.h"
+#include "scheduler/runtime_info.h"
 #include "scheduler/tools/inlining.h"
 #include "scheduler/transpose.h"
 #include "scheduler/utils.h"
@@ -1962,6 +1963,86 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<DataType>& info) {
       std::ostringstream os;
       os << info.param;
+      return os.str();
+    });
+
+// Test different combinations of TMA transpose parameters:
+// (is_output_smem, use_tma_load, use_tma_store)
+//   (false, true, false)  - input smem tranapose, TMA load only
+//   (false, true, true)   - input smem tranapose, TMA load + TMA store
+//   (true,  true, true)   - output smem tranapose, TMA load + TMA store
+//   (true,  false, true)  - output smem tranapose, TMA store only
+using TmaTransposeParamsTestP_Params =
+    std::tuple<bool, bool, bool>; // is_output_smem, tma_load, tma_store
+
+class TmaTransposeParamsTestP
+    : public TransposeTest,
+      public testing::WithParamInterface<TmaTransposeParamsTestP_Params> {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    TransposeTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaTranspose);
+  }
+};
+
+TEST_P(TmaTransposeParamsTestP, TmaTransposeParams) {
+  auto [is_output_smem, use_tma_load, use_tma_store] = GetParam();
+
+  // Build fusion: two inputs -> add -> transpose -> square -> output.
+  // Two inputs ensure the default heuristic picks output smem transpose.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = transpose(tv2, 0, 1);
+  auto tv4 = mul(tv3, tv3);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4096, 2048}, options);
+  auto t1 = at::randn({4096, 2048}, options);
+
+  // Compute default TMA heuristics, then override the 3 params.
+  SchedulerRuntimeInfo runtime_info(fusion.get(), {t0, t1});
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Transpose);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion.get(), runtime_info);
+  auto* tparams = heuristic_params->as<TransposeParams>();
+  tparams->is_output_smem_transpose = is_output_smem;
+  tparams->use_tma_load = use_tma_load;
+  tparams->use_tma_store = use_tma_store;
+
+  // Schedule, compile, and run.
+  scheduler->schedule(fusion.get(), tparams);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, tparams->lparams);
+  auto outputs = ke.run({t0, t1}, {}, tparams->lparams);
+  testValidate(fusion.get(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TransposeTest,
+    TmaTransposeParamsTestP,
+    testing::Values(
+        // (is_output_smem, tma_load, tma_store)
+        std::make_tuple(false, true, false), // input smem, TMA load only
+        std::make_tuple(false, true, true), // input smem, TMA load + store
+        std::make_tuple(true, true, true), // output smem, TMA load + store
+        std::make_tuple(true, false, true)), // output smem, TMA store only
+    [](const testing::TestParamInfo<TmaTransposeParamsTestP_Params>& info) {
+      bool is_output_smem = std::get<0>(info.param);
+      bool tma_load = std::get<1>(info.param);
+      bool tma_store = std::get<2>(info.param);
+      std::ostringstream os;
+      os << (is_output_smem ? "output_smem_transpose" : "input_smem_transpose")
+         << "_load_" << (tma_load ? "tma" : "off") << "_store_"
+         << (tma_store ? "tma" : "off");
       return os.str();
     });
 
