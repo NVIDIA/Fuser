@@ -76,9 +76,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
 
   // Vectorize along tile1 (the non-swizzled dim) to align with the 4-byte
   // smem bank width. For bf16 (2 bytes), this groups 2 elements per thread;
-  // for float (4 bytes), vectorize_factor1 = 1 (already bank-aligned).
-  tparams->vectorize_factor1 =
-      scheduler_utils::safeDiv(4L, swizzled_dtype_size);
+  // However, it leads to 2-way bank conflict in regs -> smem. Disable for now.
+  tparams->vectorize_factor1 = 1;
 
   // Heuristic for tile_size1 (the non-swizzled, tunable dim).
   // Target: 64KB of data loaded per SM, 256 threads per CTA.

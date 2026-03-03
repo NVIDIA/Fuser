@@ -1946,12 +1946,7 @@ TEST_P(TmaTransposeDtypeP, OutputTransposeBankconflict) {
                   << "  read=" << read_ways << "-way"
                   << ", write=" << write_ways << "-way" << std::endl;
       }
-      if (dtype == DataType::Float) {
-        EXPECT_TRUE(bank_conflicts.empty());
-      } else {
-        // TODO: update to EXPECT_TRUE once bf16 bank conflicts are resolved.
-        EXPECT_FALSE(bank_conflicts.empty());
-      }
+      EXPECT_TRUE(bank_conflicts.empty());
     }
   }
 }
