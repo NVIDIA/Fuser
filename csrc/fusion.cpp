@@ -112,28 +112,27 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
     return;
   }
 
+  NVF_ERROR(a.ir_container_ != nullptr, "Fusion::swap: a has null ir_container_");
+  NVF_ERROR(b.ir_container_ != nullptr, "Fusion::swap: b has null ir_container_");
+
   // Collect statements owned by each Fusion BEFORE swap so we can update
   // Statement::ir_container_ pointers afterward.
   std::vector<Val*> a_owned_vals, b_owned_vals;
   std::vector<Expr*> a_owned_exprs, b_owned_exprs;
 
-  if (a.ir_container_) {
-    const auto& av = a.ir_container_->valsOwnedBy(&a);
-    const auto& ae = a.ir_container_->exprsOwnedBy(&a);
-    a_owned_vals.assign(av.begin(), av.end());
-    a_owned_exprs.assign(ae.begin(), ae.end());
-  }
-  if (b.ir_container_) {
-    const auto& bv = b.ir_container_->valsOwnedBy(&b);
-    const auto& be = b.ir_container_->exprsOwnedBy(&b);
-    b_owned_vals.assign(bv.begin(), bv.end());
-    b_owned_exprs.assign(be.begin(), be.end());
-  }
+  const auto& av = a.ir_container_->valsOwnedBy(&a);
+  const auto& ae = a.ir_container_->exprsOwnedBy(&a);
+  a_owned_vals.assign(av.begin(), av.end());
+  a_owned_exprs.assign(ae.begin(), ae.end());
+
+  const auto& bv = b.ir_container_->valsOwnedBy(&b);
+  const auto& be = b.ir_container_->exprsOwnedBy(&b);
+  b_owned_vals.assign(bv.begin(), bv.end());
+  b_owned_exprs.assign(be.begin(), be.end());
 
   // Transfer Fusion registrations between containers before pointer swap.
   // After swap, a will own b's container and b will own a's container.
-  if (a.ir_container_ && b.ir_container_ &&
-      a.ir_container_.get() != b.ir_container_.get()) {
+  if (a.ir_container_.get() != b.ir_container_.get()) {
     a.ir_container_->transferFusion(&a, &b);
     b.ir_container_->transferFusion(&b, &a);
   }
@@ -176,21 +175,16 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
     expr->ir_container_ = &a;
   }
 
-  // Update per-Fusion tracking keys in containers
-  if (a.ir_container_ && b.ir_container_) {
-    if (a.ir_container_.get() == b.ir_container_.get()) {
-      // Same container: directly swap per-Fusion tracking entries
-      auto* c = a.ir_container_.get();
-      std::swap(c->per_fusion_vals_[&a], c->per_fusion_vals_[&b]);
-      std::swap(c->per_fusion_exprs_[&a], c->per_fusion_exprs_[&b]);
-    } else {
-      // Different containers: rename tracking keys to match new owners
-      a.ir_container_->transferStatementOwnership(&b, &a);
-      b.ir_container_->transferStatementOwnership(&a, &b);
-    }
-  } else if (a.ir_container_) {
+  // Update per-Fusion tracking keys in containers. At this point, both
+  // a and b are guaranteed to have non-null ir_container_ (verified above).
+  if (a.ir_container_.get() == b.ir_container_.get()) {
+    // Same container: directly swap per-Fusion tracking entries
+    auto* c = a.ir_container_.get();
+    std::swap(c->per_fusion_vals_[&a], c->per_fusion_vals_[&b]);
+    std::swap(c->per_fusion_exprs_[&a], c->per_fusion_exprs_[&b]);
+  } else {
+    // Different containers: rename tracking keys to match new owners
     a.ir_container_->transferStatementOwnership(&b, &a);
-  } else if (b.ir_container_) {
     b.ir_container_->transferStatementOwnership(&a, &b);
   }
 }
