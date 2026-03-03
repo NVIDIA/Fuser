@@ -59,7 +59,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   //
   // Pick the side with fewer tensors to minimize smem usage and swizzle cost.
   tparams->is_output_smem_transpose = n_input > n_output;
-  tparams->use_tma_load = true;
+  tparams->use_tma_load = false;
   tparams->use_tma_store = tparams->is_output_smem_transpose;
 
   // Inputs and outputs are grouped by their innermost dim into two groups.
@@ -77,7 +77,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   // Vectorize along tile1 (the non-swizzled dim) to align with the 4-byte
   // smem bank width. For bf16 (2 bytes), this groups 2 elements per thread;
   // However, it leads to 2-way bank conflict in regs -> smem. Disable for now.
-  tparams->vectorize_factor1 = 1;
+  tparams->vectorize_factor1 = 2;
 
   // Heuristic for tile_size1 (the non-swizzled, tunable dim).
   // Target: 64KB of data loaded per SM, 256 threads per CTA.
@@ -347,10 +347,15 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
 
   // Vectorize smem reads at the transpose boundary: each consumer of
   // a TMA-loaded smem TV reads with vectorized access.
-  auto vectorize_smem_reads = [&tma_load_tvs](int pos) {
+  auto vectorize_smem_reads = [&](int pos) {
     for (auto tma_load_tv : tma_load_tvs) {
       for (auto consumer : ir_utils::consumerTvsOf(tma_load_tv)) {
         consumer->axis(pos)->parallelize(ParallelType::Vectorize);
+      }
+    }
+    if (!tparams->use_tma_load) {
+      for (auto [cached_input, _] : cached_inputs) {
+        cached_input->axis(-3)->parallelize(ParallelType::Vectorize);
       }
     }
   };

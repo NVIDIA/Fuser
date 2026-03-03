@@ -15,6 +15,7 @@ def transpose_fusion_input_smem(
     is_copy_transpose: bool,
     axes: list,
     rank: int,
+    is_relu: bool = True,
 ):
     """Single input: the transposed input is read through shared memory."""
     shape = [-1] * rank
@@ -29,9 +30,12 @@ def transpose_fusion_input_smem(
     if dtype in PROMOTE_DTYPES:
         T1 = fd.ops.cast(T1, dtype=dtype)
 
-    S2 = fd.define_scalar(0.00000, dtype=DataType.Double)
-    T3 = fd.ops.gt(T1, S2)
-    T4 = fd.ops.where(T3, T1, S2)
+    if is_relu:
+        S2 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T3 = fd.ops.gt(T1, S2)
+        T4 = fd.ops.where(T3, T1, S2)
+    else:
+        T4 = T1
     # add segmenter set to avoid presegment passes setting the output as a
     # view of the input without any data movement. It leads to pointwise
     # instead of transpose scheduler.
@@ -51,6 +55,7 @@ def transpose_fusion_output_smem(
     is_copy_transpose: bool,
     axes: list,
     rank: int,
+    is_relu: bool = True,
 ):
     """Two inputs: the transposed output is written through shared memory."""
     shape = [-1] * rank
@@ -68,9 +73,12 @@ def transpose_fusion_output_smem(
     if dtype in PROMOTE_DTYPES:
         T3 = fd.ops.cast(T3, dtype=dtype)
 
-    S4 = fd.define_scalar(0.00000, dtype=DataType.Double)
-    T5 = fd.ops.gt(T3, S4)
-    T6 = fd.ops.where(T5, T3, S4)
+    if is_relu:
+        S4 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T5 = fd.ops.gt(T3, S4)
+        T6 = fd.ops.where(T5, T3, S4)
+    else:
+        T6 = T3
     # add segmenter set to avoid presegment passes setting the output as a
     # view of the input without any data movement. It leads to pointwise
     # instead of transpose scheduler.
@@ -89,21 +97,24 @@ def transpose_fusion_output_smem(
 # When compiled with thunder, contiguous version will use nvFuser's transpose scheduler, otherwise it will use the pointwise scheduler.
 def transpose_fwd_fn(
     inputs: list,
-):  # [input1, input2 (optional), axes, is_copy_transpose]
-    is_copy_transpose = inputs[-1]
-    axes = inputs[-2]
-    if len(inputs) == 4:
+):  # [input1, input2 (optional), axes, is_copy_transpose, is_relu]
+    is_relu = inputs[-1]
+    is_copy_transpose = inputs[-2]
+    axes = inputs[-3]
+    if len(inputs) == 5:
         data = inputs[0] + inputs[1]
     else:
         data = inputs[0]
-    relu_transpose_result = torch.nn.functional.relu(data.permute(axes))
+    permuted = data.permute(axes)
+    if is_relu:
+        permuted = torch.nn.functional.relu(permuted)
     if is_copy_transpose:
-        return relu_transpose_result.contiguous()
+        return permuted.contiguous()
     else:
-        return relu_transpose_result
+        return permuted
 
 
-def setup_input_smem(size, dtype, is_copy_transpose, axes, dims):
+def setup_input_smem(size, dtype, is_copy_transpose, axes, dims, is_relu=True):
     """Single input: the transposed input is read through shared memory."""
     input1 = torch.randn(size, device="cuda", dtype=dtype)
     nvfuser_inputs = [input1]
@@ -115,13 +126,14 @@ def setup_input_smem(size, dtype, is_copy_transpose, axes, dims):
             is_copy_transpose,
             axes,
             rank=dims,
+            is_relu=is_relu,
         )
 
-    eager_inputs = [input1, axes, is_copy_transpose]
+    eager_inputs = [input1, axes, is_copy_transpose, is_relu]
     return fd, nvfuser_inputs, eager_inputs
 
 
-def setup_output_smem(size, dtype, is_copy_transpose, axes, dims):
+def setup_output_smem(size, dtype, is_copy_transpose, axes, dims, is_relu=True):
     """Two inputs: the transposed output is written through shared memory."""
     input1 = torch.randn(size, device="cuda", dtype=dtype)
     input2 = torch.randn(size, device="cuda", dtype=dtype)
@@ -134,9 +146,10 @@ def setup_output_smem(size, dtype, is_copy_transpose, axes, dims):
             is_copy_transpose,
             axes,
             rank=dims,
+            is_relu=is_relu,
         )
 
-    eager_inputs = [input1, input2, axes, is_copy_transpose]
+    eager_inputs = [input1, input2, axes, is_copy_transpose, is_relu]
     return fd, nvfuser_inputs, eager_inputs
 
 
@@ -164,6 +177,11 @@ def _generate_transpose_params():
     ],
 )
 @pytest.mark.parametrize(
+    "is_relu",
+    [True, False],
+    ids=["with_relu", "without_relu"],
+)
+@pytest.mark.parametrize(
     "setup_fn",
     [setup_input_smem, setup_output_smem],
     ids=["input_smem", "output_smem"],
@@ -175,12 +193,13 @@ def test_transpose_nvf_benchmark(
     dtype: torch.dtype,
     axes: tuple,
     dims: int,
+    is_relu: bool,
     setup_fn,
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
     fd, nvfuser_inputs, eager_inputs = setup_fn(
-        size, dtype, is_copy_transpose, axes, dims
+        size, dtype, is_copy_transpose, axes, dims, is_relu
     )
 
     if not disable_validation:
@@ -200,6 +219,11 @@ def test_transpose_nvf_benchmark(
     ids=["copy", "view"],
 )
 @pytest.mark.parametrize(
+    "is_relu",
+    [True, False],
+    ids=["with_relu", "without_relu"],
+)
+@pytest.mark.parametrize(
     "setup_fn",
     [setup_input_smem, setup_output_smem],
     ids=["input_smem", "output_smem"],
@@ -209,6 +233,7 @@ def test_transpose_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     is_copy_transpose: bool,
+    is_relu: bool,
     axes: tuple,
     dims: int,
     setup_fn,
@@ -216,6 +241,6 @@ def test_transpose_baseline_benchmark(
 ):
     if executor == "torchcompile":
         clear_dynamo_cache()
-    _, _, eager_inputs = setup_fn(size, dtype, is_copy_transpose, axes, dims)
+    _, _, eager_inputs = setup_fn(size, dtype, is_copy_transpose, axes, dims, is_relu)
     benchmark_fn = with_executor(executor, transpose_fwd_fn)
     run_benchmark(benchmark, benchmark_fn, eager_inputs)
