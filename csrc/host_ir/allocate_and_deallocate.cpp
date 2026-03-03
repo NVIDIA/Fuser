@@ -236,7 +236,7 @@ void insertAllocations(hir::HostIrContainer& hic) {
 // it can be deallocated.
 class LowestCommonAncestor {
  public:
-  explicit LowestCommonAncestor(const PostDominatorTree& pdt) : pdt_(pdt) {
+  explicit LowestCommonAncestor(const PostDominatorTree& pdt) : pdt_(&pdt) {
     computeLcaMap();
   }
 
@@ -248,7 +248,7 @@ class LowestCommonAncestor {
   void computeLcaMap() {
     int64_t current_depth = -1;
     depthFirstTraverse(
-        /*root=*/pdt_.getRoot(),
+        /*root=*/pdt_->getRoot(),
         /*pre_fn=*/
         [&](const Node* node) {
           current_depth++;
@@ -297,7 +297,7 @@ class LowestCommonAncestor {
     return a;
   }
 
-  const PostDominatorTree& pdt_;
+  const PostDominatorTree* pdt_;
   std::unordered_map<const Node*, int64_t> depth_;
   std::unordered_map<TensorView*, const Node*> lca_;
 };
