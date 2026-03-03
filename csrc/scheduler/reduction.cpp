@@ -318,7 +318,7 @@ std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
   std::unique_ptr<HeuristicParams> rparams = nullptr;
 
   // Try outer TMA scheduler for outer reductions
-  if (mayUseTmaOuter(fusion, props)) {
+  if (tma_enabled && mayUseTmaOuter(fusion, props)) {
     rparams = reduction::outer_tma::getReductionHeuristics(
         fusion, runtime_info, data_cache, props);
   }
