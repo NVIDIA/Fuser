@@ -105,7 +105,7 @@ bool Fusion::sameDefinition(const Fusion& other) const {
   return true;
 }
 
-void Fusion::swap(Fusion& a, Fusion& b) noexcept {
+void Fusion::swap(Fusion& a, Fusion& b) {
   FUSER_PERF_SCOPE("Fusion swap");
 
   if (&a == &b) {

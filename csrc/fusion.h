@@ -187,7 +187,7 @@ class NVF_API Fusion : public PolymorphicBase {
 
   ~Fusion() override;
 
-  static void swap(Fusion& a, Fusion& b) noexcept;
+  static void swap(Fusion& a, Fusion& b);
 
   void clear() noexcept;
 
