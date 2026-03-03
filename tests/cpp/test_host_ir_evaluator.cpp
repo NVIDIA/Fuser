@@ -55,7 +55,8 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
     Val* in = ir_cloner.clone(fusion.inputs().at(0));
     Val* out = ir_cloner.clone(fusion.outputs().at(0));
 
-    auto allocate = IrBuilder::create<hir::Allocate>(out, MemoryType::Global);
+    auto allocate = IrBuilder::create<hir::Allocate>(
+        out->as<TensorView>(), MemoryType::Global);
     auto* cache_id =
         IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
     auto launch_kernel = IrBuilder::create<LaunchKernel>(

@@ -778,7 +778,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
     auto logical_domain =
         allocate->in()->getLogicalDomain() | TensorDomain::kNoReductions;
 
-    NVF_ERROR_EQ(tensor_sizes.size(), std::ranges::distance(logical_domain));
+    NVF_ERROR_EQ(
+        std::ssize(tensor_sizes), std::ranges::distance(logical_domain));
 
     llvm::ArrayType* sizes_type = getInt64StaticArrayType(
         context, static_cast<int64_t>(tensor_sizes.size()));
