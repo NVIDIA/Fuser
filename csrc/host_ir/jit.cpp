@@ -769,11 +769,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
     inferTensorShapesAndStrides(
-        allocate->in()->as<TensorView>(),
-        valToValue(),
-        builder(),
-        tensor_sizes,
-        tensor_strides);
+        allocate->in(), valToValue(), builder(), tensor_sizes, tensor_strides);
 
     auto logical_domain =
         allocate->in()->getLogicalDomain() | TensorDomain::kNoReductions;
