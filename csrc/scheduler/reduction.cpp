@@ -196,10 +196,15 @@ bool ReductionScheduler::canScheduleRunTime(
 namespace {
 
 bool mayUseTma(
+    Fusion* fusion,
     const reduction_scheduler_utils::FusionRuntimeProperties& props) {
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
 
   if (dev_prop->major < 9) {
+    return false;
+  }
+
+  if (!scheduler_utils::inputsHaveContiguousInnerDim(fusion)) {
     return false;
   }
 
@@ -251,10 +256,15 @@ bool mayUseTma(
 }
 
 bool mayUseTmaOuter(
+    Fusion* fusion,
     const reduction_scheduler_utils::FusionRuntimeProperties& props) {
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
 
   if (dev_prop->major < 9) {
+    return false;
+  }
+
+  if (!scheduler_utils::inputsHaveContiguousInnerDim(fusion)) {
     return false;
   }
 
@@ -308,13 +318,13 @@ std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
   std::unique_ptr<HeuristicParams> rparams = nullptr;
 
   // Try outer TMA scheduler for outer reductions
-  if (tma_enabled && mayUseTmaOuter(props)) {
+  if (mayUseTmaOuter(fusion, props)) {
     rparams = reduction::outer_tma::getReductionHeuristics(
         fusion, runtime_info, data_cache, props);
   }
 
   // Try inner TMA scheduler for inner reductions
-  if (rparams == nullptr && tma_enabled && mayUseTma(props)) {
+  if (rparams == nullptr && tma_enabled && mayUseTma(fusion, props)) {
     rparams = reduction::tma::getReductionHeuristics(
         fusion, runtime_info, data_cache, props);
   }

@@ -33,6 +33,11 @@ bool mayUseTma(Fusion* fusion, const PersistentKernelProperties& prop) {
     return false;
   }
 
+  // TMA requires compile-time known contiguous innermost dimension on inputs
+  if (!scheduler_utils::inputsHaveContiguousInnerDim(fusion)) {
+    return false;
+  }
+
   // TMA requires 16-byte alignment (128 bits) for memory transactions
   if (prop.vectorize_factor * prop.max_dtype_size_bit % 128 != 0) {
     return false;

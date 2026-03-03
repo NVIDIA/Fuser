@@ -1025,5 +1025,9 @@ std::pair<int64_t, int64_t> getRegisterSharing(
 // and non-stream IterDomains.
 int64_t countLeadingParallelDimensions(const TensorView*);
 
+// Check if all fusion input TensorViews have compile-time known contiguous
+// innermost dimension. TMA requires contiguity to be known at compile time.
+bool inputsHaveContiguousInnerDim(Fusion* fusion);
+
 } // namespace scheduler_utils
 } // namespace nvfuser
