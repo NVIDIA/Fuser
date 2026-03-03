@@ -205,8 +205,9 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     ir_cloner.clone(val);
   }
 
-  // Wire up definitions and uses on cloned vals
-  for (auto val : from->vals()) {
+  // Wire up definitions and uses on cloned vals in deterministic order
+  // to ensure exprs are inserted into exprs_up_ deterministically
+  for (auto val : from->deterministic_vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
@@ -318,7 +319,7 @@ Fusion::Fusion(const Fusion& other) : ir_container_(other.ir_container_) {
 }
 
 // Move constructor
-Fusion::Fusion(Fusion&& other) noexcept : Fusion() {
+Fusion::Fusion(Fusion&& other) : Fusion() {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
 }
@@ -331,7 +332,7 @@ Fusion& Fusion::operator=(const Fusion& other) {
   return *this;
 }
 
-Fusion& Fusion::operator=(Fusion&& other) noexcept {
+Fusion& Fusion::operator=(Fusion&& other) {
   FUSER_PERF_SCOPE("Fusion move assign");
   if (this == &other) {
     return *this;
