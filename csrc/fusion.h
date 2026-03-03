@@ -670,9 +670,6 @@ class NVF_API Fusion : public PolymorphicBase {
   StmtNameType expr_name_counter_ = 0;
 
   StmtNameType getValName(ValType vtype) {
-    if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
-      val_type_name_map_[vtype] = 0;
-    }
     return val_type_name_map_[vtype]++;
   }
 
