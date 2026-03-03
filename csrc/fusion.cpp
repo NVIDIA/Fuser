@@ -211,7 +211,15 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     ir_cloner.clone(val);
   }
 
+  // Wire up definitions and uses on cloned vals
+  for (auto val : from->vals()) {
+    ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
+    ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
+  }
+
   // Sync per-Fusion name counters from source to dest.
+  // Must be AFTER all cloning (vals and exprs) so that registerVal/registerExpr
+  // increments during cloning do not inflate the final counter values.
   // During cloning, registerVal increments the dest Fusion's counter for each
   // val, then IrBuilder::clone overrides the name with setName(src->name()).
   // If source names are non-sequential (e.g., {0..10, 22..27} from segmenter
@@ -220,12 +228,6 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   // vals created post-copy won't collide with existing names.
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
-
-  // Wire up definitions and uses on cloned vals
-  for (auto val : from->vals()) {
-    ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
-    ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
-  }
 
   // Remap cached special val pointers
   if (from->zero_val_) {
