@@ -23,7 +23,6 @@ namespace transpose {
 namespace tma {
 
 constexpr int64_t kBytesPerChunk = 16;
-constexpr int64_t kTmaSwizzleBytes = 128;
 
 std::unique_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
@@ -54,7 +53,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   // Choose between input smem transpose and output smem transpose.
   // Pick the side with fewer tensors to minimize smem usage and swizzle cost.
   tparams->is_output_smem_transpose = n_input > n_output;
-  tparams->use_tma_load = false;
+  tparams->use_tma_load = !tparams->is_output_smem_transpose;
   tparams->use_tma_store = tparams->is_output_smem_transpose;
 
   // Inputs and outputs are grouped by their innermost dim into two groups.
@@ -79,7 +78,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   int64_t swizzled_dtype_size = tparams->is_output_smem_transpose
       ? max_output_dtype_size
       : max_input_dtype_size;
-  constexpr int64_t kPreferredSwizzleBytes = 64;
+  const int64_t kPreferredSwizzleBytes =
+      tparams->is_output_smem_transpose ? 64 : 128;
   int64_t constrained_tile = kPreferredSwizzleBytes / swizzled_dtype_size;
   tparams->tile_size2 = constrained_tile;
 
@@ -87,9 +87,12 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   tparams->elements_per_chunk = kBytesPerChunk / swizzled_dtype_size;
 
   // Vectorize along tile1 (the non-swizzled dim).
-  // vec=2 for bf16 gives 4-byte stores (aligned to bank width), minimizing
-  // bank conflicts on the smem write path.
-  tparams->vectorize_factor1 = 2;
+  // Without vectorization, each thread loads one element
+  constexpr int64_t bytes_per_bank = 4L;
+  const int64_t elem_per_bank =
+      scheduler_utils::safeDiv(bytes_per_bank, swizzled_dtype_size);
+  tparams->vectorize_factor1 =
+      tparams->is_output_smem_transpose ? elem_per_bank : 1L;
 
   // Heuristic for tile_size1 (the non-swizzled, tunable dim).
   auto dev_props = at::cuda::getCurrentDeviceProperties();
@@ -102,7 +105,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   int64_t estimated_tile_size1 = bytes_per_tile / kPreferredSwizzleBytes;
 
   // Ensure each thread processes at least min_chunks_per_thread chunks.
-  constexpr int64_t min_chunks_per_thread = 2;
+  const int64_t min_chunks_per_thread =
+      tparams->is_output_smem_transpose ? 2 : 4;
   auto get_chunks_per_thread = [&]() {
     int64_t elements_per_thread =
         estimated_tile_size1 * tparams->tile_size2 / threads_per_cta;
@@ -112,7 +116,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   while (get_chunks_per_thread() < min_chunks_per_thread) {
     estimated_tile_size1 *= 2;
   }
-  tparams->tile_size1 = estimated_tile_size1;
+  tparams->tile_size1 =
+      std::min(estimated_tile_size1, kMaxElementsPerTmaTileDim);
   tparams->chunks_per_thread = get_chunks_per_thread();
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
