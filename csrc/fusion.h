@@ -565,13 +565,6 @@ class NVF_API Fusion : public PolymorphicBase {
     return std::ssize(ir_container()->valsOwnedBy(this));
   }
 
-  //! Return per-Fusion val count excluding shortcut vals (zero_val_, etc.).
-  //! Shortcut vals are registered in both per_fusion_vals_ and vals_up_, but
-  //! since they're singletons that should persist across StatementGuard scopes,
-  //! this count excludes them so the LIFO pop-back in
-  //! removeStatementsCreatedAfter correctly skips over them.
-  int64_t numValsExcludingShortcuts() const noexcept;
-
   // Shortcut values (frequently used constants)
   Val* zeroVal();
   Val* oneVal();
