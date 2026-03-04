@@ -11,7 +11,6 @@
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
 
-#include <cstdint>
 #include <cstring>
 
 #ifdef NVFUSER_DISTRIBUTED
@@ -128,7 +127,6 @@ class NVF_API Communicator {
   c10d::TCPStore* getTcpStore() {
     return store_.get();
 }
-
 
  private:
   Communicator(
