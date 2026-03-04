@@ -184,20 +184,6 @@ struct Fusion::ContainerMutator {
     }
   }
 
-  static int64_t numValsExcludingShortcuts(const Fusion* self) noexcept {
-    auto* c = self->ir_container();
-    // Use direct field access. Avoids re-entering valsOwnedBy() which acquires
-    // shared_lock.
-    const auto it = c->per_fusion_vals_.find(self);
-    int64_t count = it != c->per_fusion_vals_.end()
-        ? static_cast<int64_t>(it->second.size())
-        : 0;
-    count -= (self->zero_val_ != nullptr) + (self->one_val_ != nullptr) +
-        (self->true_val_ != nullptr) + (self->false_val_ != nullptr) +
-        (self->magic_zero_val_ != nullptr);
-    return count;
-  }
-
   // Null out self's shortcut-val pointer cache if v is one of them.
   static void nullOutShortcutIfNeeded(Fusion* self, Val* v) {
     if (v == self->zero_val_) {
@@ -211,16 +197,6 @@ struct Fusion::ContainerMutator {
     } else if (v == self->magic_zero_val_) {
       self->magic_zero_val_ = nullptr;
     }
-  }
-
-  // Returns true if v is one of self's shortcut singleton vals. Shortcuts
-  // created before a StatementGuard scope are kept on rollback; those created
-  // inside the scope are rolled back like any other val (nulling the cache
-  // pointer via nullOutShortcutIfNeeded).
-  static bool isShortcutVal(const Fusion* self, const Val* v) {
-    return v == self->zero_val_ || v == self->one_val_ ||
-        v == self->true_val_ || v == self->false_val_ ||
-        v == self->magic_zero_val_;
   }
 
   static void removeStatementsCreatedAfter(
@@ -686,10 +662,6 @@ void Fusion::removeStatementsCreatedAfter(
   std::unique_lock lock(ir_container()->mutex_);
   ContainerMutator::removeStatementsCreatedAfter(
       this, num_exprs_before, num_vals_before);
-}
-
-int64_t Fusion::numValsExcludingShortcuts() const noexcept {
-  return ContainerMutator::numValsExcludingShortcuts(this);
 }
 
 void Fusion::addInput(Val* input) {
