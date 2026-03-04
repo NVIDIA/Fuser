@@ -434,8 +434,8 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
             "Broadcast based allgather in stream parallel requires same "
             "mesh.")
         CommunicationType type = c_stream_id->definition()->isA<Swizzle1D>()
-            ? CommunicationType::Broadcast
-            : CommunicationType::CollectivePermute;
+            ? CommunicationType::CollectivePermute
+            : CommunicationType::Broadcast;
         return CommunicationInfo{
             .type = type,
             .p_sharded_id = p_logical_id,

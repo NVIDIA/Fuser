@@ -59,7 +59,8 @@ const std::vector<IterDomain*>& getDomainOf(
 std::pair<Val*, bool> computeLoopIndex(
     IterDomain* id,
     const std::vector<IterDomain*>& sources,
-    std::unordered_map<IterDomain*, std::pair<Val*, bool>>& id_to_index) {
+    std::unordered_map<IterDomain*, std::pair<Val*, bool>>& id_to_index,
+    const std::unordered_map<ParallelType, Val*>& pt_to_device_index) {
   if (id == nullptr) {
     return {nullptr, false};
   }
@@ -96,6 +97,18 @@ std::pair<Val*, bool> computeLoopIndex(
       id_to_index[out] = {
           add(mul(outer_info.first, inner->extent()), inner_info.first),
           outer_info.second || inner_info.second};
+    } else if (auto* swizzle = dynamic_cast<Swizzle1D*>(transform)) {
+      auto* in = swizzle->in()->as<IterDomain>();
+      auto* out = swizzle->out()->as<IterDomain>();
+
+      const auto& in_info = id_to_index.at(in);
+      Val* extent = out->extent();
+      Val* pt_val = pt_to_device_index.at(swizzle->parallelType());
+      // Inverse of the swizzle formula in_idx = (out_idx + pt_val) % extent:
+      //   out_idx = (in_idx - pt_val + extent) % extent
+      id_to_index[out] = {
+          mod(add(sub(in_info.first, pt_val), extent), extent),
+          in_info.second};
     } else {
       NVF_THROW("Unexpected transform: ", transform);
     }
@@ -303,6 +316,17 @@ bool haveDifferentShardings(
     }
   }
 
+  // Create symbolic Vals for each device parallel type, representing the
+  // device's index within the team for that type. These are used by
+  // computeLoopIndex to symbolically compute Swizzle1D outputs.
+  std::unordered_map<ParallelType, Val*> pt_to_device_index;
+  for (ParallelType pt : kParallelTypeDIDs) {
+    Val* device_idx = IrBuilder::create<Val>(DataType::Index);
+    pt_to_device_index[pt] = device_idx;
+    assumptions.push_back(
+        SimplifyingIrBuilder::leExpr(fusion->zeroVal(), device_idx));
+  }
+
   // For each parallel type, check whether the corresponding loop index in the
   // producer and that in the consumer are equivalent. If they can't be proven
   // to be equivalent, return is-resharding.
@@ -311,7 +335,10 @@ bool haveDifferentShardings(
     Val* p_index = nullptr;
     bool p_mapped = false;
     std::tie(p_index, p_mapped) = computeLoopIndex(
-        p_id, getDomainOf(producer, DomainType::kLogical), id_to_index);
+        p_id,
+        getDomainOf(producer, DomainType::kLogical),
+        id_to_index,
+        pt_to_device_index);
     if (!p_mapped) {
       p_index = nullptr;
     }
@@ -320,7 +347,10 @@ bool haveDifferentShardings(
     Val* c_index = nullptr;
     bool c_mapped = false;
     std::tie(c_index, c_mapped) = computeLoopIndex(
-        c_id, getDomainOf(consumer, DomainType::kRoot), id_to_index);
+        c_id,
+        getDomainOf(consumer, DomainType::kRoot),
+        id_to_index,
+        pt_to_device_index);
     if (!c_mapped) {
       c_index = nullptr;
     }
