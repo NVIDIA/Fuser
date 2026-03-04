@@ -371,18 +371,6 @@ options:
     category: dump
     env_var: NVFUSER_DUMP
 
-  - name: python_definition_segments
-    description: Python Frontend Fusion Definition of segments
-    type: bool
-    category: dump
-    env_var: NVFUSER_DUMP
-
-  - name: python_frontend_debug
-    description: Python Frontend debug information
-    type: bool
-    category: dump
-    env_var: NVFUSER_DUMP
-
   - name: transform_propagator
     description: Print propagation path and replay result
     type: bool

@@ -5,8 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/to_string.h>
-#include <ir/iostream.h>
+#include "id_model/to_string.h"
+
+#include "ir/iostream.h"
 
 namespace nvfuser {
 

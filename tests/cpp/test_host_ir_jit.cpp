@@ -95,11 +95,11 @@ TEST_F(HostIrJitTest, Deallocate) {
   TensorView* t2 = makeConcreteTensor(t2_sizes);
   t2->setMemoryType(MemoryType::Global);
 
-  auto* allocate_t0 = IrBuilder::create<kir::Allocate>(t0, MemoryType::Global);
+  auto* allocate_t0 = IrBuilder::create<hir::Allocate>(t0, MemoryType::Global);
   auto* deallocate_t0 = IrBuilder::create<Deallocate>(t0);
-  auto* allocate_t1 = IrBuilder::create<kir::Allocate>(t1, MemoryType::Global);
+  auto* allocate_t1 = IrBuilder::create<hir::Allocate>(t1, MemoryType::Global);
   auto* deallocate_t1 = IrBuilder::create<Deallocate>(t1);
-  auto* allocate_t2 = IrBuilder::create<kir::Allocate>(t2, MemoryType::Global);
+  auto* allocate_t2 = IrBuilder::create<hir::Allocate>(t2, MemoryType::Global);
 
   hic->pushBackTopLevelExprs(allocate_t0);
   hic->pushBackTopLevelExprs(allocate_t1);
@@ -132,7 +132,7 @@ TEST_F(HostIrJitTest, DynamicSizedTensorAllocate) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
   auto* allocate =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+      IrBuilder::create<hir::Allocate>(hic_out, MemoryType::Global);
   hic->pushBackTopLevelExprs(allocate);
 
   HostIrJit jit(std::move(hic));
@@ -158,7 +158,7 @@ TEST_F(HostIrJitTest, Reorder) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
   auto* allocate =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+      IrBuilder::create<hir::Allocate>(hic_out, MemoryType::Global);
   hic->pushBackTopLevelExprs(allocate);
 
   HostIrJit jit(std::move(hic));
@@ -184,7 +184,7 @@ TEST_F(HostIrJitTest, Permute) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
   auto* allocate =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+      IrBuilder::create<hir::Allocate>(hic_out, MemoryType::Global);
   hic->pushBackTopLevelExprs(allocate);
 
   HostIrJit jit(std::move(hic));
@@ -210,7 +210,7 @@ TEST_F(HostIrJitTest, AllocationDomainReorder) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
   auto* allocate =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+      IrBuilder::create<hir::Allocate>(hic_out, MemoryType::Global);
   hic->pushBackTopLevelExprs(allocate);
 
   HostIrJit jit(std::move(hic));
@@ -244,9 +244,9 @@ TEST_F(HostIrJitTest, BroadcastTest) {
   hic->addOutput(broadcast_tv);
   hic->addOutput(expand_tv);
   auto* allocate_broadcast =
-      IrBuilder::create<kir::Allocate>(broadcast_tv, MemoryType::Global);
+      IrBuilder::create<hir::Allocate>(broadcast_tv, MemoryType::Global);
   auto* allocate_expand =
-      IrBuilder::create<kir::Allocate>(expand_tv, MemoryType::Global);
+      IrBuilder::create<hir::Allocate>(expand_tv, MemoryType::Global);
   hic->pushBackTopLevelExprs(allocate_broadcast);
   hic->pushBackTopLevelExprs(allocate_expand);
 
@@ -292,7 +292,7 @@ TEST_F(HostIrJitTest, LaunchKernel) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
 
-  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto allocate = IrBuilder::create<hir::Allocate>(hic_out, MemoryType::Global);
   auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
@@ -332,7 +332,7 @@ TEST_F(HostIrJitTest, Matmul) {
   hic->addOutput(tv2);
 
   hic->pushBackTopLevelExprs(
-      IrBuilder::create<kir::Allocate>(tv2, MemoryType::Global));
+      IrBuilder::create<hir::Allocate>(tv2, MemoryType::Global));
   hic->pushBackTopLevelExprs(tv2->definition());
 
   HostIrJit jit(std::move(hic));
@@ -375,10 +375,10 @@ TEST_F(HostIrJitTest, Linear) {
   hic->addOutput(out_without_bias);
 
   hic->pushBackTopLevelExprs(
-      IrBuilder::create<kir::Allocate>(out_with_bias, MemoryType::Global));
+      IrBuilder::create<hir::Allocate>(out_with_bias, MemoryType::Global));
   hic->pushBackTopLevelExprs(out_with_bias->definition());
   hic->pushBackTopLevelExprs(
-      IrBuilder::create<kir::Allocate>(out_without_bias, MemoryType::Global));
+      IrBuilder::create<hir::Allocate>(out_without_bias, MemoryType::Global));
   hic->pushBackTopLevelExprs(out_without_bias->definition());
 
   HostIrJit jit(std::move(hic));

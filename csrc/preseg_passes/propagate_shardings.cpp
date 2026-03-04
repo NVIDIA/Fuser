@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "ir/interface_nodes.h"
-#include "ir/iostream.h"
 #include "ir/utils.h"
 #include "multidevice/propagation.h"
 #include "scheduler/utils.h"
@@ -148,7 +147,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
             getParallelTypesToPropagate(target);
         shardLoopLike(
             /*ref=*/ref_input,
-            /*tv=*/target,
+            /*target=*/target,
             selected_parallel_types,
             PropagateDirection::kForward);
       }
@@ -181,7 +180,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           getParallelTypesToPropagate(target);
       shardLoopLike(
           /*ref=*/ref_output,
-          /*tv=*/target,
+          /*target=*/target,
           selected_parallel_types,
           PropagateDirection::kBackward);
     }

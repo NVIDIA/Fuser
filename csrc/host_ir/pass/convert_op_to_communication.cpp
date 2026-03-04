@@ -18,7 +18,7 @@
 #include "ir/internal_base_nodes.h"
 #include "ir/utils.h"
 #include "kernel_ir.h"
-#include "multidevice/communication.h"
+#include "multidevice/post_communication.h"
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
 

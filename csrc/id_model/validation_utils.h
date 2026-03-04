@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <compute_at_map.h>
-#include <id_model/id_model.h>
-#include <val_graph.h>
+#include "compute_at_map.h"
+#include "id_model/id_model.h"
+#include "val_graph.h"
 
 namespace nvfuser {
 

@@ -9,15 +9,15 @@
 
 #include <unordered_set>
 
+#include "base.h"
 #include "compute_at_map.h"
 #include "expr_evaluator.h"
 #include "id_model/id_model.h"
 #include "instrumentation.h"
 #include "ir/builder.h"
-#include "ir/iostream.h"
+#include "ir/internal_base_nodes.h"
 #include "ir/printer.h"
 #include "iter_visitor.h"
-#include "multidevice/utils.h"
 #include "scheduler/registry.h"
 #include "scheduler/runtime_info.h"
 #include "scheduler/tools/resize_utils.h"
@@ -54,6 +54,25 @@ Val* commonOrConstExtent(
 Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
   return SimplifyingIrBuilder::eqExpr(
       getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
+}
+
+void ContiguousInnerDimensionsMapper::addProjectedExtent(
+    IterDomain* id,
+    Val* pe) {
+  if (!recording_) {
+    return;
+  }
+
+  NVF_ERROR(
+      projected_extent_.count(id) == 0,
+      "Already registered: ",
+      id->toString(),
+      ", existing: ",
+      projected_extent_.at(id)->toInlineString(),
+      ", new: ",
+      pe->toInlineString());
+
+  projected_extent_[id] = pe;
 }
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
@@ -97,11 +116,18 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // Ordering of dimensions is important in this analysis, if an ordering is
   // contiguous in the reference, but not the target tensor views, then we
   // cannot consider that a contiguous merge dimension for vectorization.
-  auto projected_logical = projectId(filtered_ids, logical_domain);
+  //
+  // `leaf` is logical here because the subsequent projectId will handle
+  // allocation. addProjectedExtent doesn't like the same ID being added
+  // multiple times.
+  filtered_ids = projectId(filtered_ids, logical_domain, logical_domain);
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
-      projectId(projected_logical, reference->getMaybeRootDomain()),
-      projected_logical,
+      projectId(
+          filtered_ids,
+          reference->getMaybeRootDomain(),
+          reference->getMaybeAllocationDomain()),
+      filtered_ids,
       reference->hasRoot() /*shouldn't matter how we initialize this*/);
 
   // Stop recording before traversal
@@ -206,7 +232,8 @@ void ContiguousInnerDimensionsMapper::distributePE(
 
 std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     const std::vector<IterDomain*>& from,
-    const std::vector<IterDomain*>& to) {
+    const std::vector<IterDomain*>& to,
+    const std::vector<IterDomain*>& leaf) {
   std::vector<IterDomain*> frontier = from;
 
   // Process `merge_or_split` and update `frontier`, where `merge_or_split` must
@@ -426,45 +453,49 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   // merge(I3, I4)}. If from is on the forward side only, then we will have
   // empty backward exprs, vice versa.
 
-  auto backward_exprs = StmtSort::getExprsBetween(
-      {to.begin(), to.end()}, {frontier.begin(), frontier.end()});
+  auto backward_project = [&](const std::vector<IterDomain*>& to) {
+    auto backward_exprs = StmtSort::getExprsBetween(
+        {to.begin(), to.end()}, {frontier.begin(), frontier.end()});
+    for (auto* expr : backward_exprs | std::views::reverse) {
+      if (Split* split = dynamic_cast<Split*>(expr)) {
+        propagateCombine(split);
+      } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+        propagateDistribute(merge);
+      } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
+        propagateResize(resize, false);
+      } else {
+        NVF_THROW(
+            "ProjectDimensions does not support expr type: ", expr->toString());
+      }
+    }
+  };
 
-  // Mapping from logical to root, reverse expressions
-  std::reverse(backward_exprs.begin(), backward_exprs.end());
+  auto forward_project = [&](const std::vector<IterDomain*>& to) {
+    auto forward_exprs = StmtSort::getExprsBetween(
+        {frontier.begin(), frontier.end()}, {to.begin(), to.end()});
+    for (auto* expr : forward_exprs) {
+      if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+        propagateCombine(merge);
+      } else if (Split* split = dynamic_cast<Split*>(expr)) {
+        propagateDistribute(split);
+      } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
+        propagateResize(resize, true);
+      } else {
+        NVF_THROW(
+            "ProjectDimensions does not support expr type: ", expr->toString());
+      }
+    }
+  };
 
-  for (auto* expr : backward_exprs) {
-    if (Split* split = dynamic_cast<Split*>(expr)) {
-      propagateCombine(split);
-    } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
-      propagateDistribute(merge);
-    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      propagateResize(resize, false);
-    } else {
-      // TODO: I wonder if we should just remove all inputs instead of erroring.
-      // Seems that would be safe.
-      NVF_THROW(
-          "ProjectDimensions does not support expr type: ", expr->toString());
-    } // switch on expr type
-  } // For loop on the transform expressions
+  // Projection is done in the following order to avoid addProjectedExtent for
+  // the same ID multiple times.
+  forward_project(to);
 
-  auto forward_exprs = StmtSort::getExprsBetween(
-      {frontier.begin(), frontier.end()}, {to.begin(), to.end()});
+  std::vector<IterDomain*> frontier_saved = frontier;
+  forward_project(leaf);
+  frontier = frontier_saved;
 
-  // Map forward through transforms since we're going from root to logical
-  for (auto* expr : forward_exprs) {
-    if (Merge* merge = dynamic_cast<Merge*>(expr)) {
-      propagateCombine(merge);
-    } else if (Split* split = dynamic_cast<Split*>(expr)) {
-      propagateDistribute(split);
-    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      propagateResize(resize, true);
-    } else {
-      // TODO: I wonder if we should just remove all inputs instead of erroring.
-      // Seems that would be safe.
-      NVF_THROW(
-          "ProjectDimensions does not support expr type: ", expr->toString());
-    } // switch on expr type
-  } // For loop on the transform expressions
+  backward_project(to);
 
   return frontier;
 }
@@ -540,7 +571,10 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     }
   }
   return MappedDomain::build(
-      projectId(producer_logical_ids, to->getMaybeRootDomain()),
+      projectId(
+          producer_logical_ids,
+          to->getMaybeRootDomain(),
+          to->getMaybeAllocationDomain()),
       producer_logical_ids,
       true);
 }
@@ -606,7 +640,10 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   }
   return MappedDomain::build(
       consumer_root_ids,
-      projectId(consumer_root_ids, to->getLogicalDomain()),
+      projectId(
+          consumer_root_ids,
+          to->getLogicalDomain(),
+          to->getMaybeAllocationDomain()),
       false);
 }
 
@@ -727,99 +764,76 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* tv) {
   FusionGuard fg(tv->fusion());
-  Val* product_of_inner_extents = tv->container()->oneVal();
+
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+  const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
 
   NVF_ERROR(hasMappedDims(tv));
-
   const std::vector<IterDomain*>& projected_dims = mappedLogicalIds(tv);
-  auto alloc_no_reductions = TensorDomain::noReductions(alloc);
 
-  std::vector<std::optional<bool>> contiguity = tv->domain()->contiguity();
-  NVF_ERROR_EQ(contiguity.size(), alloc.size());
-  // Appears after reductions the reduction domain often has a contiguity entry.
-  // This only matters if the result of the reduction is an output
-  if (contiguity.size() != alloc_no_reductions.size()) {
-    std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : arange(alloc.size())) {
-      if (!alloc[i]->isReduction()) {
-        new_contiguity.push_back(contiguity.at(i));
-      }
-    }
-    contiguity = new_contiguity;
-  }
-
-  auto alloc_no_reductions_size = alloc_no_reductions.size();
-
-  NVF_ERROR_EQ(alloc_no_reductions_size, contiguity.size());
-
+  Val* product_of_inner_extents = tv->container()->oneVal();
   // Order is important, need to make sure dimensions match up correctly with
-  // what was propogated through the mapper. The mapper's dimensions is
-  // propogated in the order of the reference, if that order doesn't match the
-  // tensor we're mapping too then a transpose interfered with expanded the
+  // what was propagated through the mapper. The mapper's dimensions are
+  // propagated in the order of the reference. If that order doesn't match the
+  // tensor we're mapping to then a transpose interfered with expanding the
   // vectorize dimension.
-  size_t projected_dims_i = projected_dims.size();
-
-  for (auto i : arange(alloc_no_reductions_size)) {
-    if (projected_dims_i == 0) {
-      break;
-    }
-    auto alloc_ii = alloc_no_reductions_size - i - 1;
-    auto alloc_iid = alloc_no_reductions.at(alloc_ii);
-
-    if (alloc_iid->extent()->isOneInt() || alloc_iid->isBroadcast()) {
-      if (projected_dims[projected_dims_i - 1] == alloc_iid) {
-        --projected_dims_i;
-      }
+  auto projected_dim = projected_dims.rbegin();
+  // Wish I could `zip(alloc, contiguity) | std::views::reverse` here. It
+  // doesn't compile.
+  NVF_ERROR_EQ(alloc.size(), contiguity.size());
+  for (auto [alloc_id, contig] :
+       zip(alloc | std::views::reverse, contiguity | std::views::reverse)) {
+    auto is_treated_as_size_one = [](IterDomain* id) {
+      return id->isReduction() || id->isBroadcast() || id->isParallelized() ||
+          id->extent()->isOneInt();
+    };
+    if (is_treated_as_size_one(alloc_id)) {
       continue;
     }
 
-    auto contiguity_i = contiguity.at(alloc_ii);
-    if (!contiguity_i.has_value()) {
-      NVF_THROW("contiguity flag at alloc_ii can't be null");
-    } else {
-      // Not contiguous
-      if (!contiguity_i.value()) {
-        break;
-      }
+    NVF_ERROR(contig.has_value());
+    if (!contig.value()) {
+      break;
     }
 
-    // Get the logical ID corresponding to the allocation ID.
-    auto exprs = DependencyCheck::getAllExprsBetween(
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-        {alloc_iid});
-    IterDomain* logical_id = alloc_iid;
-    Val* num_devices = tv->container()->oneVal();
-    bool only_valid_device_split = true;
-    for (Expr* expr : exprs | std::views::reverse) {
-      if (!isValidDeviceSplit(expr)) {
-        only_valid_device_split = false;
-        break;
-      }
-      auto* split = expr->as<Split>();
-      logical_id = split->in();
-      num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
+    while (projected_dim != projected_dims.rend() &&
+           is_treated_as_size_one(*projected_dim)) {
+      projected_dim++;
     }
 
-    // Non device split could lead to padding, which prevents vectorization
-    if (!only_valid_device_split) {
+    IterDomain* logical_id = [&]() {
+      std::vector<IterDomain*> reachable_ids =
+          ir_utils::getReachableIds(tv->getLogicalDomain(), {alloc_id});
+      NVF_ERROR_LE(reachable_ids.size(), 1);
+      return reachable_ids.empty() ? nullptr : reachable_ids.front();
+    }();
+
+    if (logical_id == nullptr) {
+      // In LayoutOp, allocation IDs may not be connected to logical IDs; skip
+      // expanding vectorization in that case.
       break;
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (projected_dims[--projected_dims_i] != logical_id) {
+    if (projected_dim == projected_dims.rend() ||
+        *projected_dim != logical_id) {
       break;
     }
+    // This assumes projected_dim can be matched only once. This assumption is
+    // OK for now but when we get to non-outermost sharding such as
+    // ```
+    //    [iS0]
+    //    /  \.
+    //  iS1  iS2
+    //       /  \.
+    // iDIDx3  iS4
+    // ```
+    // We may want to allow multiple contiguous allocation IDs to match
+    // projected_dim.
+    projected_dim++;
 
-    Val* sharded_extent;
-    if (logical_id->isDeviceDim()) {
-      sharded_extent = tv->container()->oneVal();
-    } else {
-      sharded_extent = SimplifyingIrBuilder::divExpr(
-          getProjectedExtent(logical_id), num_devices);
-    }
-    product_of_inner_extents =
-        SimplifyingIrBuilder::mulExpr(product_of_inner_extents, sharded_extent);
+    product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
+        product_of_inner_extents, getProjectedExtent(alloc_id));
   }
   return product_of_inner_extents;
 }

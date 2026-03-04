@@ -721,12 +721,8 @@ TEST_F(MultiDeviceTest, LoopShardedSplitReshapeIds) {
   auto mesh = DeviceMesh::createForNumDevices(d);
 
   tv0->setDeviceMesh(mesh);
-  tv0->split(-1, d, /*inner_split=*/false);
+  tv0->outer_split(-1, d);
   tv0->axis(-2)->parallelize(ParallelType::DIDx);
-
-  tv1->setDeviceMesh(mesh);
-  tv1->split(-2, d, /*inner_split=*/false);
-  tv1->axis(-3)->parallelize(ParallelType::DIDx);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor inp = at::randn({b, s, d * h * e}, tensor_options_);
@@ -758,12 +754,8 @@ TEST_F(MultiDeviceTest, LoopShardedMergeReshapeIds) {
 
   auto mesh = DeviceMesh::createForNumDevices(d);
   tv0->setDeviceMesh(mesh);
-  tv0->split(-2, d, /*inner_split=*/false);
+  tv0->outer_split(-2, d);
   tv0->axis(-3)->parallelize(ParallelType::DIDx);
-
-  tv1->setDeviceMesh(mesh);
-  tv1->split(-1, d, /*inner_split=*/false);
-  tv1->axis(-2)->parallelize(ParallelType::DIDx);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor inp = at::randn({b, s, d * h, e}, tensor_options_);
@@ -793,7 +785,7 @@ TEST_F(MultiDeviceTest, MultipleTransformReshape) {
 
   auto mesh = DeviceMesh::createForNumDevices(d);
   tv0->setDeviceMesh(mesh);
-  tv0->split(0, d, /*inner_split=*/false);
+  tv0->outer_split(0, d);
   tv0->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor inp = at::randn({d * b, s, h * e}, tensor_options_);

@@ -21,6 +21,7 @@
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
 #include "ops/utils.h"
+#include "runtime/executor.h"
 #include "runtime/executor_abstract.h"
 #include "transform_replay.h"
 
@@ -50,7 +51,7 @@ std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info) {
 
 class LoopNest {
  public:
-  LoopNest(Scope& top_level) : top_level_(top_level) {}
+  LoopNest(Scope* top_level) : top_level_(top_level) {}
 
   int64_t size() const {
     return std::ssize(loop_infos_);
@@ -73,7 +74,7 @@ class LoopNest {
   // Returns the scope of the innermost for-loop or the top-level scope if the
   // loop nest is empty.
   Scope& innermostScope() const {
-    return empty() ? top_level_ : innermost().loop->body();
+    return empty() ? *top_level_ : innermost().loop->body();
   }
 
   hir::ForLoop* openLoop(IterDomain* id) {
@@ -88,13 +89,13 @@ class LoopNest {
 
  private:
   std::vector<LoopInfo> loop_infos_;
-  Scope& top_level_;
+  Scope* top_level_;
 };
 
 std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
-  os << "LoopNest:" << std::endl;
+  os << "LoopNest:" << "\n";
   for (const auto& loop_info : loop_nest.loop_infos_) {
-    indent(os, 1) << loop_info << std::endl;
+    indent(os, 1) << loop_info << "\n";
   }
   return os;
 }
@@ -104,14 +105,14 @@ std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
 const std::vector<IterDomain*>& findMostParallelLoopDomain(
     const SegmentedGroup& group) {
   TensorView* reference = nullptr;
-  int max_parallel_count = -1;
+  int64_t max_parallel_count = -1;
   for (Expr* expr : group.exprs()) {
     TensorView* tv = findMostParallelTensorView(
         ir_utils::filterByType<TensorView>(expr->outputs()));
     if (tv == nullptr) {
       continue;
     }
-    auto parallel_count = numParallelIterDomains(tv);
+    int64_t parallel_count = numParallelIterDomains(tv);
     if (parallel_count > max_parallel_count) {
       max_parallel_count = parallel_count;
       reference = tv;
@@ -181,61 +182,61 @@ void lowerSegment(
       // TODO: `replacement_map` should be associated with the scope so
       // ShardByStream across segments in the same for-loop can be reused.
       std::unordered_map<Val*, Val*> replacement_map;
-      for (Expr* c : convertSingleOpToCommunication(
-               e, device_id, innermost.loop->index())) {
-        NVF_ERROR(
-            c->isA<Communication>() || c->isA<CollectivePermute>(),
-            "Exprs in a Communication group should be Communication or "
-            "CollectivePermute: ",
-            c);
-        TensorView* in = c->input(0)->as<TensorView>();
-        TensorView* out = c->output(0)->as<TensorView>();
-        bool can_shard_in = true;
-        if (c->isA<CollectivePermute>() ||
-            c->as<Communication>()->type() ==
-                CommunicationType::StreamBroadcast) {
-          can_shard_in = false;
-        }
-        if (can_shard_in &&
-            haveDifferentShardings(
-                in,
-                DomainType::kAllocation,
-                out,
-                DomainType::kLoop,
-                {ParallelType::Stream})) {
-          Val*& sharded_in = replacement_map[in];
-          if (sharded_in == nullptr) {
-            sharded_in = hir::shardByStream(in, innermost.loop->index(), c);
+
+      // All communications from a single expr share the same in/out TVs;
+      // only root and team vary. Handle input sharding and output
+      // allocation once, outside the per-communication loop.
+      TensorView* in = e->input(0)->as<TensorView>();
+      TensorView* out = e->output(0)->as<TensorView>();
+
+      if (haveDifferentShardings(
+              in,
+              DomainType::kAllocation,
+              out,
+              DomainType::kLoop,
+              {ParallelType::Stream})) {
+        if (!replacement_map.contains(in)) {
+          TensorView* sharded_in =
+              hir::shardByStream(in, innermost.loop->index(), e);
+          if (sharded_in != nullptr) {
+            // `sharded_in` is nullptr if the input cannot be sharded by
+            // stream such as in broadcast or collective-permute based
+            // decomposition of allgather.
+            replacement_map[in] = sharded_in;
             innermost_scope.pushBack(sharded_in->definition());
           }
         }
+      }
 
-        auto* allocate =
-            IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
-        if (getShardedIterDomain(
-                out, ParallelType::Stream, DomainType::kLoop) != nullptr &&
-            getShardedIterDomain(
-                out, ParallelType::Stream, DomainType::kAllocation) ==
-                nullptr) {
-          innermost.parent_scope->insert(
-              innermost.parent_insertion_point, allocate);
-          auto [i, inserted] = replacement_map.emplace(
-              out, hir::shardByStream(out, innermost.loop->index(), c));
-          NVF_ERROR(inserted, "The input segmented fusion should be SSA.");
-          innermost_scope.pushBack(i->second->definition());
-        } else {
-          innermost_scope.pushBack(allocate);
-        }
+      auto* allocate =
+          IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
+      if (getShardedIterDomain(out, ParallelType::Stream, DomainType::kLoop) !=
+              nullptr &&
+          getShardedIterDomain(
+              out, ParallelType::Stream, DomainType::kAllocation) == nullptr) {
+        innermost.parent_scope->insert(
+            innermost.parent_insertion_point, allocate);
+        NVF_ERROR(
+            !replacement_map.contains(out),
+            "The input segmented fusion should be SSA.");
+        TensorView* sharded_out =
+            hir::shardByStream(out, innermost.loop->index(), e);
+        NVF_ERROR(
+            sharded_out != nullptr,
+            "Output could not be sharded by stream: ",
+            out);
+        replacement_map[out] = sharded_out;
+        innermost_scope.pushBack(sharded_out->definition());
+      } else {
+        innermost_scope.pushBack(allocate);
+      }
 
-        if (auto* cp = dynamic_cast<CollectivePermute*>(c)) {
-          auto add_definition_chain = [&innermost_scope](Val* val) -> void {
-            for (Expr* expr : StmtSort::getExprsTo({val})) {
-              innermost_scope.pushBack(expr);
-            }
-          };
-          add_definition_chain(cp->sendPeer());
-          add_definition_chain(cp->recvPeer());
-        }
+      Val* root = loop_nest.empty() ? nullptr : innermost.loop->index();
+      for (Expr* c : convertSingleOpToCommunication(e, device_id, root)) {
+        NVF_ERROR(
+            c->isA<Communication>(),
+            "Exprs in a Communication group should be Communication: ",
+            c);
 
         Expr* new_c = cloneWithNewOperands(c, replacement_map);
         innermost_scope.pushBack(new_c);
@@ -315,6 +316,10 @@ void lowerSegment(
                   {ParallelType::Stream})) {
             TensorView* sharded_in =
                 hir::shardByStream(in, innermost.loop->index(), e);
+            NVF_ERROR(
+                sharded_in != nullptr,
+                "Input could not be sharded by stream: ",
+                in);
             replacement_map[in] = sharded_in;
             innermost_scope.pushBack(sharded_in->definition());
           }
@@ -328,13 +333,17 @@ void lowerSegment(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
             auto* allocate =
-                IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+                IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
             innermost.parent_scope->insert(
                 innermost.parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
             // `out` should be allocated outside the loop.
             TensorView* sharded_out =
                 hir::shardByStream(out, innermost.loop->index(), e);
+            NVF_ERROR(
+                sharded_out != nullptr,
+                "Output could not be sharded by stream: ",
+                out);
             replacement_map[out] = sharded_out;
             innermost_scope.pushBack(sharded_out->definition());
           }
@@ -365,7 +374,7 @@ void lowerSegment(
             alias);
 
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
+            IrBuilder::create<hir::Allocate>(out_tv, out_tv->getMemoryType());
         innermost_scope.pushBack(allocate);
       }
 
@@ -427,7 +436,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     hic->addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
   }
 
-  LoopNest loop_nest(hic->topLevel());
+  LoopNest loop_nest(&hic->topLevel());
 
   IdModel id_model(segmented_fusion.completeFusion(), /*build_graphs=*/false);
   id_model.buildExactGraph();
@@ -463,7 +472,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
         loop_nest,
         ir_cloner);
 
-    prev_ref_loop = std::move(curr_ref_loop);
+    prev_ref_loop = curr_ref_loop;
   }
 
   return hic;

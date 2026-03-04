@@ -532,8 +532,8 @@ TEST_F(MultiDeviceTest, SwizzleWithParallelType) {
       tv->axis(0)->parallelize(ParallelType::Stream);
     }
 
-    auto* allocate_out = IrBuilder::create<kir::Allocate>(
-        out_tv, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
+    auto* allocate_out = IrBuilder::create<hir::Allocate>(
+        out_tv, MemoryType::Global, /*zero_init=*/true);
     auto* stream_index = IrBuilder::create<Val>(DataType::Index);
     auto* for_loop = IrBuilder::create<ForLoop>(
         stream_index,

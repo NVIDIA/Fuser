@@ -1133,7 +1133,8 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
     const bool supported_by_cutlass_kernel =
         at::cuda::getCurrentDeviceProperties()->major == 10 &&
-        mat1.dim() == 2 && mat2.dim() == 3 && mat1.is_contiguous() &&
+        at::cuda::getCurrentDeviceProperties()->minor == 0 && mat1.dim() == 2 &&
+        mat2.dim() == 3 && mat1.is_contiguous() &&
         mat2.transpose(-1, -2).is_contiguous();
     if (supported_by_cutlass_kernel) {
       mat2 = mat2.transpose(-1, -2);

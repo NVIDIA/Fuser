@@ -11,7 +11,6 @@
 #include <device_lower/utils.h>
 #include <id_model/schedule.h>
 #include <index_compute.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>
@@ -400,7 +399,7 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   auto loop_domain =
       bqop->quantizedOutput()->as<TensorView>()->getLogicalDomain();
 
-  int64_t dim_count = logical_index.size();
+  int64_t dim_count = std::ssize(logical_index);
 
   // logical_index[2] * 1 + logical_index[1] * extent[2] + logical_index[0] *
   // extent[1] * extent[2]
@@ -498,7 +497,7 @@ void IndexLowering::handle(const SelectOp* sop) {
   // If the type of the index tensor is different from the kernel
   // index type, promote it to the kernel index type
   if (GpuLower::current()->kernel()->indexType() !=
-      sop->input(1)->getDataType().value()) {
+      sop->input(1)->getDataType()) {
     lowered_index_cast =
         IrBuilder::create<Val>(GpuLower::current()->kernel()->indexType());
     IrBuilder::create<UnaryOp>(
@@ -568,7 +567,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
       continue;
     }
     if (isParallelTypeThreadDim(pt) &&
-        std::any_of(td->loop().begin(), td->loop().end(), [&](auto out_id) {
+        std::ranges::any_of(td->loop(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -1067,11 +1066,8 @@ void IndexLowering::handleGridReduction(
       getGridCommWorkBufferSize(out_domain, for_loops_, is_persistent);
 
   std::vector<kir::Allocate*> work_buffers;
-  std::transform(
-      outputs.begin(),
-      outputs.end(),
-      std::back_inserter(work_buffers),
-      [&](Val* output) {
+  std::ranges::transform(
+      outputs, std::back_inserter(work_buffers), [&](Val* output) {
         return allocateUniqueBuffer(
             work_buf_size_info.size_of_privatized_buffer,
             output->dtype(),
@@ -1348,9 +1344,8 @@ std::vector<kir::Allocate*> IndexLowering::allocateWelfordWorkBuffer(
     Val* buffer_size) {
   std::vector<kir::Allocate*> work_buffers;
 
-  std::transform(
-      triplets.begin(),
-      triplets.end(),
+  std::ranges::transform(
+      triplets,
       std::back_inserter(work_buffers),
       [&](const WelfordTriplet& output) {
         return allocateUniqueBuffer(
@@ -1764,13 +1759,17 @@ static DataType getMmaInputAType(MmaMacro macro) {
   int64_t warp_group_size = isHopper(macro) ? 128L : 32L;
   int64_t size = getM(macro) * getK(macro) / warp_group_size /
       2L /* halves per 32bit register */;
-  return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
+  return ArrayType{
+      .type = std::make_shared<DataType>(DataType::UInt32),
+      .size = (size_t)size};
 }
 
 static DataType getMmaInputBType(MmaMacro macro) {
   int64_t size = getN(macro) * getK(macro) / 32L /* threads per warp */ /
       2L /* halves per 32bit register */;
-  return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
+  return ArrayType{
+      .type = std::make_shared<DataType>(DataType::UInt32),
+      .size = (size_t)size};
 }
 
 static inline DataType getMmaOutType(TensorView* mma_out) {
@@ -1780,7 +1779,9 @@ static inline DataType getMmaOutType(TensorView* mma_out) {
       size *= id->extent()->evaluate().as<int64_t>();
     }
   }
-  return ArrayType{std::make_shared<DataType>(DataType::Float), (size_t)size};
+  return ArrayType{
+      .type = std::make_shared<DataType>(DataType::Float),
+      .size = (size_t)size};
 }
 
 namespace {
@@ -2024,12 +2025,9 @@ Val* indexTMemLdSt(
   NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
   const auto& tmem_info = GpuLower::current()->tmemInfo();
   const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
-  TMemRegisterDataPath dp;
-  if (tmem_tv == consumer_tv) {
-    dp = tmem_info.store_data_path.at(tmem_tv);
-  } else {
-    dp = tmem_info.load_data_path.at(tmem_tv);
-  }
+  TMemRegisterDataPath dp = (tmem_tv == consumer_tv)
+      ? tmem_info.store_data_path.at(tmem_tv)
+      : tmem_info.load_data_path.at(tmem_tv);
   NVF_ERROR(
       dp == TMemRegisterDataPath::Path32x32b,
       "Data path ",
@@ -2166,15 +2164,16 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
         auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
         auto as_type = ArrayType{
-            std::make_shared<DataType>(DataType::UInt32),
-            static_cast<size_t>(num_regs)};
+            .type = std::make_shared<DataType>(DataType::UInt32),
+            .size = static_cast<size_t>(num_regs)};
 
         // Get the index for the input of stmatrix.
         out = lowerDstIndex(ldst->out(), {}, false, as_type, ld_st_matrix);
       } else {
         as_type = ArrayType{
-            std::make_shared<DataType>(DataType::UInt32),
-            (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
+            .type = std::make_shared<DataType>(DataType::UInt32),
+            .size = (size_t)ir_utils::getVectorizeSize(
+                        ldst->out()->as<TensorView>()) /
                 2};
       }
     } else if (ir_utils::isStMatrixOp(ldst)) {
@@ -2228,8 +2227,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
       auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
       auto as_type = ArrayType{
-          std::make_shared<DataType>(DataType::UInt32),
-          static_cast<size_t>(num_regs)};
+          .type = std::make_shared<DataType>(DataType::UInt32),
+          .size = static_cast<size_t>(num_regs)};
 
       // Get the index for the input of stmatrix.
       in = lowerSrcIndex(
@@ -2252,10 +2251,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         // See:
         // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
         as_type = ArrayType{
-            std::make_shared<DataType>(
+            .type = std::make_shared<DataType>(
                 dataTypeSizeByte(ldst->in()->dtype()) == 4 ? ldst->in()->dtype()
                                                            : DataType::UInt32),
-            (size_t)ir_utils::getTMemLdStVectorizeSize(
+            .size = (size_t)ir_utils::getTMemLdStVectorizeSize(
                 ldst->out()->as<TensorView>())};
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
@@ -2433,7 +2432,7 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
     auto to =
         (direction == Direction::Backward ? id_graph.outputGroups(expr)
                                           : id_graph.inputGroups(expr));
-    bool in_from = std::find(from.begin(), from.end(), inner) != from.end();
+    bool in_from = std::ranges::find(from, inner) != from.end();
     if (!in_from) {
       continue;
     }

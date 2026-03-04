@@ -222,21 +222,6 @@ IterDomain* getShardedIterDomain(
   return nullptr;
 }
 
-std::unordered_set<IterDomain*> getInputsInTargetDomain(
-    const std::vector<IterDomain*>& loop_id,
-    const std::vector<IterDomain*>& target_domain) {
-  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-      {loop_id.begin(), loop_id.end()},
-      {target_domain.begin(), target_domain.end()});
-
-  std::unordered_set<IterDomain*> inputs_as_iter_domains;
-  inputs_as_iter_domains.reserve(inputs_as_vals.size());
-  for (auto val : inputs_as_vals) {
-    inputs_as_iter_domains.insert(val->as<IterDomain>());
-  }
-  return inputs_as_iter_domains;
-}
-
 namespace {
 int64_t rankOfParallelType(ParallelType parallel_type) {
   // Currently, when reorderParallelizedToFront is called, the loop domain is
@@ -355,6 +340,12 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   }
 
   return rfactor_did_idx;
+}
+
+int64_t getRelativeIndex(const Team& team, DeviceIdxType rank) {
+  auto i = std::find(team.begin(), team.end(), rank);
+  NVF_ERROR(i != team.end(), "Unable to find rank ", rank, " in team ", team);
+  return std::distance(team.begin(), i);
 }
 
 std::pair<Val*, Val*> dispatchSwizzle1D(

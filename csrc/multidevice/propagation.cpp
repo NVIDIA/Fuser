@@ -16,6 +16,7 @@
 #include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
+#include "ir/utils.h"
 #include "linked_hash_map.h"
 #include "logical_domain_map.h"
 #include "multidevice/utils.h"
@@ -50,14 +51,13 @@ bool isSplitDivisible(IterDomain* id, Split* ref_split) {
 bool hasRootToLogicalTransform(IterDomain* id, const TensorView* tv) {
   auto logical_ids = IterVisitor::getInputsTo(
       {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-  return std::any_of(
-      logical_ids.begin(), logical_ids.end(), [&](Val* logical_val) {
-        return logical_val->definition() != nullptr;
-      });
+  return std::ranges::any_of(logical_ids, [&](Val* logical_val) {
+    return logical_val->definition() != nullptr;
+  });
 }
 
 bool isInDomain(IterDomain* id, const std::vector<IterDomain*>& domain) {
-  return std::find(domain.begin(), domain.end(), id) != domain.end();
+  return std::ranges::find(domain, id) != domain.end();
 }
 
 // Traverses root-to-logical transforms to find the outermost logical ID.
@@ -124,15 +124,15 @@ void transformLoopDomain(
     // Similarly, if target [h] -> ref [a, h/a], returns `h` for ref_id `a`.
     if (!ref2target.contains(ref_id)) {
       // Find the root domain id.
-      std::unordered_set<IterDomain*> inputs =
-          getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
+      std::vector<IterDomain*> inputs =
+          ir_utils::getReachableIds(ref->getMaybeRootDomain(), {ref_id});
       NVF_ERROR_EQ(
           inputs.size(),
           1,
           "Expected one input for ",
           ref_id,
           " in the root domain.");
-      ref_id = *inputs.begin();
+      ref_id = inputs.front();
     }
 
     NVF_ERROR(
@@ -261,7 +261,7 @@ void transformLoopDomain(
 
 } // namespace
 
-int numParallelIterDomains(const TensorView* tv) {
+int64_t numParallelIterDomains(const TensorView* tv) {
   return std::ranges::count_if(
       tv->getLoopDomain(), [](IterDomain* id) { return id->isParallelized(); });
 }
@@ -274,7 +274,7 @@ void shardLoopLike(
   if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
     debug() << "Propagating shardings from " << ref->toString() << " to "
             << target->toString() << " in " << direction << " for "
-            << toDelimitedString(selected_parallel_types) << std::endl;
+            << toDelimitedString(selected_parallel_types) << '\n';
   }
 
   std::unordered_set<IterDomain*> device_or_stream_ids;
@@ -306,17 +306,16 @@ void shardLoopLike(
 
     // Get input of device_id in the root / logical domain
     // that will be present in ref2target mapping.
-    std::unordered_set<IterDomain*> inputs =
-        direction == PropagateDirection::kForward
-        ? getInputsInTargetDomain({ref_id}, ref->getLogicalDomain())
-        : getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
+    std::vector<IterDomain*> inputs = direction == PropagateDirection::kForward
+        ? ir_utils::getReachableIds(ref->getLogicalDomain(), {ref_id})
+        : ir_utils::getReachableIds(ref->getMaybeRootDomain(), {ref_id});
     NVF_ERROR_EQ(
         inputs.size(),
         1,
         "Expected one input for ",
         ref_id,
         " in the root / logical domain.");
-    IterDomain* target_id = getOrDefault(ref2target, *inputs.begin());
+    IterDomain* target_id = getOrDefault(ref2target, inputs.front());
     if (target_id == nullptr) {
       continue;
     }
@@ -338,6 +337,62 @@ void shardLoopLike(
   }
 
   transformLoopDomain(target, ref, device_or_stream_ids, direction);
+}
+
+void canonicalizeLoopDomain(TensorView* tv) {
+  LinkedHashMap<IterDomain*, std::monostate> loop;
+  for (IterDomain* id : tv->getLoopDomain()) {
+    loop.pushBack(id, std::monostate());
+  }
+
+  for (Expr* transform :
+       DependencyCheck::getAllExprsBetween(
+           {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+           {tv->getLoopDomain().begin(), tv->getLoopDomain().end()}) |
+           std::views::reverse) {
+    if (auto* swizzle1d = dynamic_cast<Swizzle1D*>(transform)) {
+      if (swizzle1d->out()->isParallelized()) {
+        continue;
+      }
+      auto it = loop.erase(swizzle1d->out()).second;
+      loop.insert(it, swizzle1d->in(), std::monostate());
+      continue;
+    }
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      if (split->outer()->isParallelized() ||
+          split->inner()->isParallelized()) {
+        continue;
+      }
+
+      if (!loop.contains(split->outer()) || !loop.contains(split->inner())) {
+        continue;
+      }
+
+      loop.erase(split->outer());
+      const auto inner_i = loop.erase(split->inner()).second;
+      // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
+      // `outer` and `inner` are all serial, `in`'s position in the loop domain
+      // doesn't matter.
+      loop.insert(inner_i, split->in(), std::monostate());
+      continue;
+    }
+    NVF_THROW("Expected a swizzle1d or split transform. Got: ", transform);
+  }
+
+  auto new_loop = std::views::keys(loop);
+  tv->setLoopDomain({new_loop.begin(), new_loop.end()});
+}
+
+void unparallelize(
+    TensorView* tv,
+    const std::unordered_set<ParallelType>& parallel_types) {
+  for (IterDomain* id :
+       tv->getLoopDomain() | std::views::filter([&](IterDomain* id) {
+         return parallel_types.contains(id->getParallelType());
+       })) {
+    id->parallelize(ParallelType::Serial);
+  }
+  canonicalizeLoopDomain(tv);
 }
 
 } // namespace nvfuser

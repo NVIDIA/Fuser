@@ -24,7 +24,6 @@
 #include "scheduler/vectorize_helper.h"
 #include "tests/cpp/utils.h"
 #include "utils.h"
-#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -2211,6 +2210,33 @@ TEST_F(UtilsTest, GetOrDefault) {
 
   EXPECT_EQ(getOrDefault(m, in), 1);
   EXPECT_EQ(getOrDefault(m, out), 0);
+}
+
+TEST_F(UtilsTest, FilterByTypeRanges) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  auto filtered = ir_utils::filterByType<TensorView>(fusion->vals());
+  static_assert(std::ranges::range<decltype(filtered)>);
+
+  EXPECT_EQ(std::ranges::distance(filtered), 2);
+
+  auto it =
+      std::ranges::find_if(filtered, [in](TensorView* tv) { return tv == in; });
+  EXPECT_NE(it, std::ranges::end(filtered));
+  EXPECT_EQ(*it, in);
+
+  int64_t take_count = 0;
+  for (TensorView* tv : filtered | std::views::take(1)) {
+    (void)tv;
+    ++take_count;
+  }
+  EXPECT_EQ(take_count, 1);
 }
 
 } // namespace nvfuser

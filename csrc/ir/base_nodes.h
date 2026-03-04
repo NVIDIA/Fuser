@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <iosfwd>
 #include <limits>
 #include <unordered_map>
 #include <vector>
@@ -113,9 +114,6 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   virtual std::optional<ValType> getValType() const {
     return std::nullopt;
   }
-  virtual std::optional<DataType> getDataType() const {
-    return std::nullopt;
-  }
 
   // Short cut to figure out if it is a value/expression
   bool isVal() const {
@@ -214,7 +212,6 @@ inline std::string toString(Statement* stmt) {
 //!        Scalar::Scalar(const Val* src, IrCloner* ir_cloner)
 //! 2) dispatch.h/.cpp must be updated to include dispatch of the new Val
 //! 3) Default mutator function should be added to mutator.cpp
-//! 4a) Printing functions should be added to ir/iostream.h/.cpp
 //! 4b) Graphviz generation must be added to ir/graphviz.h/.cpp
 //! 5) An enum value must be added to ValType in type.h
 //! 6) A string entry must be added in val_type_string_map
@@ -309,8 +306,9 @@ class NVF_API Val : public Statement {
     return !value_.hasValue();
   }
 
-  // Throws if no DataType is found. Vals must have a DataType
-  std::optional<DataType> getDataType() const override;
+  // Returns this Val's data type. Unlike `dtype()`, it throws if dtype is Null
+  // (ill-formed Val).
+  DataType getDataType() const;
 
   bool isScalar() const {
     return vtype_ == ValType::Others || vtype_ == ValType::NamedScalar;
@@ -512,7 +510,6 @@ using newObjectFuncType = Expr*(
 //!      - Implementation of bool sameAs(...)
 //!  2) dispatch.h/.cpp must be updated to include dispatch of the new Expr
 //!  3) Default mutator function should be added to mutator.h/.cpp
-//!  4) Printing functions should be added to ir/iostream.h/.cpp
 //!  5) Lower case convenience functions should be added to arith.h/.cpp (If
 //!     user facing)
 //!  7) A string entry must be added in expr_type_string_map
@@ -718,5 +715,8 @@ bool Val::isDefinitionType() const {
     return IrBuilder::createInContainer<ClassName>(        \
         container, inputs, outputs, attributes);           \
   }
+
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement& stmt);
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);
 
 } // namespace nvfuser

@@ -12,7 +12,6 @@
 #include <expr_evaluator.h>
 #include <index_compute.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <predicate_compute.h>

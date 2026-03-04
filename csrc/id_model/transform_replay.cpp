@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/transform_replay.h>
+#include "id_model/transform_replay.h"
 
-#include <ir/builder.h>
+#include "ir/builder.h"
 
 namespace nvfuser {
 

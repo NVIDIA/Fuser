@@ -17,8 +17,6 @@
 #include "instrumentation.h"
 #include "ir/base_nodes.h"
 #include "preseg_passes/pre_segmenter.h"
-#include "python_frontend/fusion_definition.h"
-#include "python_frontend/translation.h"
 #include "runtime/executor.h"
 #include "runtime/executor_dispatch.h"
 #include "runtime/fusion_cache_utils.h"
@@ -49,8 +47,7 @@ PolymorphicValue convertMetadataArg(PolymorphicValue arg) {
 
 KernelArgumentHolder copyMetadataArg(const KernelArgumentHolder& src) {
   KernelArgumentHolder dst;
-  std::transform(
-      src.cbegin(), src.cend(), dst.getBackInserter(), convertMetadataArg);
+  std::ranges::transform(src, dst.getBackInserter(), convertMetadataArg);
   dst.setDeviceIndex(src.getDeviceIndex());
   return dst;
 }
@@ -83,8 +80,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     // Only the first local rank will print. Pre-segmenter fusion IR is device
     // agnostic, so letting all ranks print isn't any more useful.
     if (communicator.local_rank() == 0) {
-      debug() << "Fusion IR after pre-segmenter optimization passes:"
-              << std::endl;
+      debug() << "Fusion IR after pre-segmenter optimization passes:" << '\n';
       fusion->print();
     }
   }
@@ -106,10 +102,8 @@ FusionKernelRuntime::FusionKernelRuntime(
     // heuristic is persistent
     const flatbuffers::Vector<flatbuffers::Offset<serde::SegmentedGroup>>*
         segmented_groups = serde_buffer->segmented_fusion()->groups();
-    bool has_persistent_heuristic = std::any_of(
-        segmented_groups->begin(),
-        segmented_groups->end(),
-        [](const serde::SegmentedGroup* sg) {
+    bool has_persistent_heuristic = std::ranges::any_of(
+        *segmented_groups, [](const serde::SegmentedGroup* sg) {
           auto heuristic = static_cast<SchedulerType>(sg->heuristic());
           return heuristic == SchedulerType::InnerPersistent ||
               heuristic == SchedulerType::OuterPersistent ||
@@ -140,9 +134,8 @@ FusionKernelRuntime::FusionKernelRuntime(
   is_segmented_ = segmented_fusion_->groups().size() > 1;
 
   // Create Initial Heuristics for Segmented Fusion
-  auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
-  NVF_CHECK(maybe_heuristics.has_value());
-  heuristics_ = std::move(maybe_heuristics.value());
+  heuristics_ = getMaybeHeuristicsFor(args, forced_index_type);
+  NVF_ERROR(heuristics_ != nullptr);
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
@@ -158,10 +151,9 @@ bool FusionKernelRuntime::isCompiled() const {
     return hij_ != nullptr || hie_ != nullptr;
   } else {
     std::lock_guard<std::mutex> guard(mutex_);
-    return std::all_of(
-        executors_.begin(), executors_.end(), [](const auto& executor) {
-          return ExecutorDispatch::isCompiled(executor.get());
-        });
+    return std::ranges::all_of(executors_, [](const auto& executor) {
+      return ExecutorDispatch::isCompiled(executor.get());
+    });
   }
 }
 
@@ -290,7 +282,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "=================RUNNING HOSTIR EVALUATOR================="
-              << std::endl;
+              << '\n';
     }
 
     KernelArgumentHolder outputs;
@@ -304,14 +296,14 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
 
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
-              << std::endl;
+              << '\n';
     }
     return outputs;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "=================RUNNING FUSION SEGMENTS================="
-            << std::endl;
+            << '\n';
   }
 
   c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
@@ -319,7 +311,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "============= FINISHED RUNNING FUSION SEGMENTS ============"
-            << std::endl;
+            << '\n';
   }
 
   // Produce final global output
@@ -430,16 +422,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     FusionProfiler::startCompile();
   }
 
-  if (isDebugDumpEnabled(DebugDumpOption::PythonDefinitionSegments)) {
-    for (SegmentedGroup* group_to_run : runtime_workspace_.group_run_order) {
-      debug() << "Python definition for segmented group "
-              << group_to_run->groupId() << ":" << std::endl;
-      python_frontend::FusionDefinition fd(/*id=*/std::nullopt);
-      python_frontend::translate(group_to_run->getFusion(), &fd);
-      fd.print(debug());
-    }
-  }
-
   const std::vector<KernelArgumentHolder> all_runtime_inputs =
       prepareInputs(args);
 
@@ -547,10 +529,9 @@ const ExecutorLog& FusionKernelRuntime::getMostRecentExecutorLog() const {
   return most_recent_executor_log_;
 }
 
-std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
-    getMaybeHeuristicsFor(
-        const KernelArgumentHolder& args,
-        std::optional<PrimDataType> forced_index_type) {
+std::unique_ptr<HeuristicParamsList> FusionKernelRuntime::getMaybeHeuristicsFor(
+    const KernelArgumentHolder& args,
+    std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
 
   // The runtime group run order is different from the segmented_fusion group
@@ -618,18 +599,17 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
       // canScheduleRuntime, but it is safe to skip canScheduleCompileTime. We
       // skip it here to avoid performing expensive fusion traversals on the
       // dynamic shape path.
-      auto maybe_heuristic_params =
+      auto heuristic_params =
           group_to_run->getMaybeHeuristicParams(fusion_to_run_info);
-      // If unavailable, then return std::nullopt
-      if (!maybe_heuristic_params.has_value()) {
-        return std::nullopt;
+      // If unavailable, then return nullptr
+      if (!heuristic_params) {
+        return nullptr;
       }
       // Check if this scheduler entry matches the previous entry for this
-      // segmented group. If no match, then return std::nullptr
-      auto heuristic_params = std::move(maybe_heuristic_params.value());
+      // segmented group. If no match, then return nullptr
       if (!heuristic_params->sameAs(
               heuristics_->at(group_to_run->groupId()).get())) {
-        return std::nullopt;
+        return nullptr;
       }
       // Add new scheduler entry for this segmented group
       heuristics->at(group_to_run->groupId()) = std::move(heuristic_params);

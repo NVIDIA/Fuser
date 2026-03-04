@@ -37,7 +37,6 @@
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 
 #include <list>

@@ -20,6 +20,7 @@
 #include "ir/builder_passkey.h"
 #include "ir/cloner.h"
 #include "ir/iostream.h"
+#include "runtime/compiled_kernel.h"
 
 namespace nvfuser::hir {
 
@@ -108,7 +109,7 @@ std::string PostOnStream::toString(int indent_size) const {
   std::for_each(outputs().begin(), outputs().end(), [&ss](auto output) {
     ss << output->toString(0) << ", ";
   });
-  ss << "})" << std::endl;
+  ss << "})\n";
   return ss.str();
 }
 
@@ -148,13 +149,13 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 
 std::string LaunchKernel::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "LaunchKernel(" << std::endl;
-  indent(ss, indent_size + 1) << "Group ID: " << groupId() << "," << std::endl;
+  indent(ss, indent_size) << "LaunchKernel(\n";
+  indent(ss, indent_size + 1) << "Group ID: " << groupId() << ",\n";
   indent(ss, indent_size + 1)
-      << "Inputs: {" << toDelimitedString(inputs()) << "}," << std::endl;
+      << "Inputs: {" << toDelimitedString(inputs()) << "},\n";
   indent(ss, indent_size + 1)
-      << "Outputs: {" << toDelimitedString(outputs()) << "}," << std::endl;
-  indent(ss, indent_size) << ")" << std::endl;
+      << "Outputs: {" << toDelimitedString(outputs()) << "},\n";
+  indent(ss, indent_size) << ")\n";
   return ss.str();
 }
 
@@ -171,9 +172,9 @@ TensorView* Deallocate::buffer() const {
 
 std::string Deallocate::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "Deallocate {" << std::endl;
-  ss << buffer()->toString(indent_size + 1) << std::endl;
-  indent(ss, indent_size) << "}" << std::endl;
+  indent(ss, indent_size) << "Deallocate {\n";
+  ss << buffer()->toString(indent_size + 1) << '\n';
+  indent(ss, indent_size) << "}\n";
   return ss.str();
 }
 
@@ -229,8 +230,8 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
 
 std::string SetCurrentStream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "SetCurrentStream(" << stream()->toString() << ")"
-                          << std::endl;
+  indent(ss, indent_size) << "SetCurrentStream(" << stream()->toString()
+                          << ")\n";
   return ss.str();
 }
 
@@ -245,7 +246,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GetCurrentStream)
 std::string GetCurrentStream::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << stream()->toInlineString()
-                          << " = GetCurrentStream()" << std::endl;
+                          << " = GetCurrentStream()\n";
   return ss.str();
 }
 
@@ -322,7 +323,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(StartCoalescing)
 
 std::string StartCoalescing::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "StartCoalescing" << std::endl;
+  indent(ss, indent_size) << "StartCoalescing\n";
   return ss.str();
 }
 
@@ -342,7 +343,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(EndCoalescing)
 
 std::string EndCoalescing::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "EndCoalescing " << name() << std::endl;
+  indent(ss, indent_size) << "EndCoalescing " << name() << '\n';
   return ss.str();
 }
 
@@ -370,7 +371,7 @@ std::string ShareMemHandles::toString(int indent_size) const {
   for (auto communication : communications()) {
     ss << communication->toInlineString() << ", ";
   }
-  ss << std::endl;
+  ss << '\n';
   return ss.str();
 }
 
@@ -443,7 +444,7 @@ std::string ShardByStream::toString(int indent_size) const {
   indent(ss, indent_size) << out()->toString() << " = ShardByStream("
                           << in()->toString()
                           << ", stream_index=" << stream_index()->toString()
-                          << ")" << std::endl;
+                          << ")\n";
   return ss.str();
 }
 
@@ -465,7 +466,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SymmetricContiguousView)
 std::string SymmetricContiguousView::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = SymmetricContiguousView("
-                          << in()->toString() << ")" << std::endl;
+                          << in()->toString() << ")\n";
   return ss.str();
 }
 
@@ -487,7 +488,7 @@ std::string ForLoop::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "FOR " << index()->toString() << " from "
                           << start()->toInlineString() << " to "
-                          << stop()->toInlineString() << ":" << std::endl
+                          << stop()->toInlineString() << ":\n"
                           << body().toString(indent_size + 1);
   return ss.str();
 }
@@ -505,6 +506,40 @@ std::string ForLoop::toInlineString(int indent_size) const {
   auto* index = IrBuilder::create<Val>(DataType::Index);
   return IrBuilder::create<ForLoop>(
       index, iter_domain->start(), iter_domain->stop());
+}
+
+Allocate::Allocate(
+    IrBuilderPasskey passkey,
+    TensorView* in,
+    MemoryType memory_type,
+    bool zero_init)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+
+  addInput(in);
+  addDataAttribute(memory_type);
+  addDataAttribute(zero_init);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Allocate)
+
+std::string Allocate::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << in()->toString() << " = ALLOCATE("
+                          << "mem_type=" << memoryType() << ", "
+                          << "zero_init=" << std::boolalpha << zeroInit()
+                          << ")\n";
+  return ss.str();
+}
+
+std::string Allocate::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << in()->toInlineString() << " = ALLOCATE("
+                          << "mem_type=" << memoryType() << ", "
+                          << "zero_init=" << std::boolalpha << zeroInit()
+                          << ")";
+  return ss.str();
 }
 
 } // namespace nvfuser::hir

@@ -135,10 +135,7 @@ class build_ext(setuptools.command.build_ext.build_ext):
         self.copy_file(libnvfuser_path, install_dst)
 
     def build_extension(self, ext):
-        if ext.name == "nvfuser._C":
-            self.copy_library(ext, "libnvfuser")
-            self.copy_shared_library("libnvfuser_codegen.so")
-        elif ext.name == "nvfuser_direct._C_DIRECT":
+        if ext.name == "nvfuser_direct._C_DIRECT":
             self.copy_library(ext, "libnvfuser_direct")
             self.copy_shared_library("libnvfuser_codegen.so")
         else:
@@ -255,21 +252,8 @@ def cmake(config, relative_path):
     )
 
     from tools.gen_nvfuser_version import (
-        get_pytorch_cmake_prefix,
         get_pytorch_use_distributed,
     )
-
-    # this is used to suppress import error.
-    # so we can get the right pytorch prefix for cmake
-    import logging
-
-    logger = logging.getLogger("nvfuser")
-    logger_level = logger.getEffectiveLevel()
-    logger.setLevel(logging.CRITICAL)
-
-    pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
-
-    logger.setLevel(logger_level)
 
     pytorch_use_distributed = get_pytorch_use_distributed()
 
@@ -287,7 +271,6 @@ def cmake(config, relative_path):
     # clean and dirty builds.
     cmd_str = [
         get_cmake_bin(),
-        pytorch_cmake_config,
         f"-DCMAKE_BUILD_TYPE={config.build_type}",
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={config.cpp_standard}",
@@ -375,8 +358,7 @@ def run(config, version_tag, relative_path):
     from setuptools import Extension, setup, find_packages
 
     # NOTE(crcrpar): Deliberately build basically two dynamic libraries here so that they can
-    # be treated as "nvfuser_package_data". This function call will put the two of "nvfuser" and
-    # "nvfuser_codegen" into "./nvfuser/lib", and the former will be "nvfuser._C".
+    # be treated as "nvfuser_package_data".
     if config.build_setup:
         cmake(config, relative_path)
     if not config.cmake_only:
@@ -398,7 +380,6 @@ def run(config, version_tag, relative_path):
             "include/nvfuser/multidevice/*.h",
             "include/nvfuser/ops/*.h",
             "include/nvfuser/ir/*.h",
-            "include/nvfuser/python_frontend/*.h",
             "include/nvfuser/scheduler/*.h",
             "include/nvfuser/serde/*.h",
             "include/nvfuser/flatbuffers/*.h",
@@ -418,7 +399,6 @@ def run(config, version_tag, relative_path):
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=find_packages(),
             ext_modules=[
-                Extension(name="nvfuser._C", sources=[]),
                 Extension(name="nvfuser_direct._C_DIRECT", sources=[]),
             ],
             license_files=("LICENSE",),

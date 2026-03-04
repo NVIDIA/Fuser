@@ -9,7 +9,6 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 
 namespace nvfuser {
