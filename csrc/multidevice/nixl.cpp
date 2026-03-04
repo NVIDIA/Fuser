@@ -111,21 +111,19 @@ nixl_xfer_op_t toNixlXferOp(NixlXferOp op) {
 // NixlBackend::Impl
 // ===================================================================
 
+#ifdef USE_NIXL
+
 class NixlBackend::Impl {
  public:
-  explicit Impl(Communicator& communicator);
+  static std::unique_ptr<Impl> create(Communicator& communicator);
   ~Impl();
-
-  bool isAvailable() const {
-    return available_;
-  }
 
   void registerTensors(const std::vector<at::Tensor>& tensors);
   void deregisterTensors(const std::vector<at::Tensor>& tensors);
   void exchangeMetadata();
 
   NixlTransferHandle prepareTransfer(
-      const std::vector<TensorDesc>& local_descs, 
+      const std::vector<TensorDesc>& local_descs,
       const std::vector<TensorDesc>& remote_descs,
       int64_t remote_rank,
       NixlXferOp op);
@@ -135,14 +133,12 @@ class NixlBackend::Impl {
   void waitTransfer(NixlTransferHandle& handle);
 
  private:
+  explicit Impl(Communicator& communicator);
   inline std::string getAgentName(int64_t rank);
 
-#ifdef USE_NIXL
   std::unique_ptr<nixlAgent> agent_;
   nixlBackendH* backend_ = nullptr;
-#endif
   Communicator& communicator_;
-  bool available_ = false;
   bool metadata_exchanged_ = false;
 };
 
@@ -151,16 +147,21 @@ class NixlBackend::Impl {
 // -------------------------------------------------------------------
 
 NixlBackend::Impl::Impl(Communicator& communicator)
-    : communicator_(communicator) {
-#ifdef USE_NIXL
-  std::string agent_name = getAgentName(communicator_.deviceId());
+    : communicator_(communicator) {}
+
+std::unique_ptr<NixlBackend::Impl> NixlBackend::Impl::create(
+    Communicator& communicator) {
+  std::unique_ptr<Impl> impl(new Impl(communicator));
+
+  std::string agent_name = impl->getAgentName(communicator.deviceId());
   nixlAgentConfig cfg(false);
-  agent_ = std::make_unique<nixlAgent>(agent_name, cfg);
+  impl->agent_ = std::make_unique<nixlAgent>(agent_name, cfg);
 
   nixl_b_params_t params;
-  nixl_status_t status = agent_->createBackend("UCX", params, backend_);
+  nixl_status_t status =
+      impl->agent_->createBackend("UCX", params, impl->backend_);
   if (status != NIXL_SUCCESS) {
-    agent_.reset();
+    impl->agent_.reset();
     NVF_THROW("Failed to create UCX backend for NIXL agent");
   }
 
@@ -175,7 +176,7 @@ NixlBackend::Impl::Impl(Communicator& communicator)
     auto probe = at::empty(
         {kProbeBytes},
         at::TensorOptions().dtype(at::kByte).device(
-            at::kCUDA, communicator_.deviceId()));
+            at::kCUDA, communicator.deviceId()));
     size_t nbytes = static_cast<size_t>(probe.nbytes());
     uintptr_t addr = reinterpret_cast<uintptr_t>(probe.data_ptr());
     uint32_t dev_idx = static_cast<uint32_t>(probe.device().index());
@@ -186,9 +187,9 @@ NixlBackend::Impl::Impl(Communicator& communicator)
     nixl_reg_dlist_t reg_dlist(VRAM_SEG);
     reg_dlist.addDesc({addr, nbytes, static_cast<uint64_t>(dev_idx)});
 
-    nixl_status_t reg_status = agent_->registerMem(reg_dlist);
+    nixl_status_t reg_status = impl->agent_->registerMem(reg_dlist);
     if (reg_status != NIXL_SUCCESS) {
-      return;
+      return nullptr;
     }
 
     nixl_xfer_dlist_t xfer_dlist(VRAM_SEG);
@@ -196,25 +197,24 @@ NixlBackend::Impl::Impl(Communicator& communicator)
 
     nixlDlistH* dlist_handle = nullptr;
     nixl_status_t prep_status =
-        agent_->prepXferDlist(NIXL_INIT_AGENT, xfer_dlist, dlist_handle);
+        impl->agent_->prepXferDlist(NIXL_INIT_AGENT, xfer_dlist, dlist_handle);
 
     if (dlist_handle) {
-      agent_->releasedDlistH(dlist_handle);
+      impl->agent_->releasedDlistH(dlist_handle);
     }
-    agent_->deregisterMem(reg_dlist);
+    impl->agent_->deregisterMem(reg_dlist);
 
     if (prep_status != NIXL_SUCCESS) {
-      return;
+      return nullptr;
     }
   }
 
-  available_ = true;
-#endif
+  return impl;
 }
 
 NixlBackend::Impl::~Impl() = default;
 
-std::string NixlBackend::Impl::getAgentName(int64_t rank){
+std::string NixlBackend::Impl::getAgentName(int64_t rank) {
   return "rank_" + std::to_string(rank);
 }
 
@@ -225,8 +225,6 @@ std::string NixlBackend::Impl::getAgentName(int64_t rank){
 // TODO - consider adding RAII wrapper
 void NixlBackend::Impl::registerTensors(
     const std::vector<at::Tensor>& tensors) {
-#ifdef USE_NIXL
-  NVF_ERROR(available_, "NIXL backend is not available");
   validateCudaTensors(tensors);
 
   nixl_reg_dlist_t dlist = buildRegDlist(tensors);
@@ -237,16 +235,10 @@ void NixlBackend::Impl::registerTensors(
       static_cast<int>(status));
 
   metadata_exchanged_ = false;
-#else
-  (void)tensors;
-  NVF_THROW("NIXL support not compiled");
-#endif
 }
 
 void NixlBackend::Impl::deregisterTensors(
     const std::vector<at::Tensor>& tensors) {
-#ifdef USE_NIXL
-  NVF_ERROR(available_, "NIXL backend is not available");
   validateCudaTensors(tensors);
 
   nixl_reg_dlist_t dlist = buildRegDlist(tensors);
@@ -257,10 +249,6 @@ void NixlBackend::Impl::deregisterTensors(
       static_cast<int>(status));
 
   metadata_exchanged_ = false;
-#else
-  (void)tensors;
-  NVF_THROW("NIXL support not compiled (USE_NIXL not defined)");
-#endif
 }
 
 // -------------------------------------------------------------------
@@ -268,9 +256,6 @@ void NixlBackend::Impl::deregisterTensors(
 // -------------------------------------------------------------------
 
 void NixlBackend::Impl::exchangeMetadata() {
-#ifdef USE_NIXL
-  NVF_ERROR(available_, "NIXL backend is not available");
-
   nixl_blob_t local_md;
   nixl_status_t md_status = agent_->getLocalMD(local_md);
   NVF_ERROR(
@@ -291,7 +276,7 @@ void NixlBackend::Impl::exchangeMetadata() {
     if (rank == my_rank) {
       continue;
     }
-    // Fetch & load MD 
+    // Fetch & load MD
     auto bytes = store->get(md_key_prefix + std::to_string(rank));
     nixl_blob_t remote_md(bytes.begin(), bytes.end());
     std::string remote_agent_name;
@@ -309,9 +294,6 @@ void NixlBackend::Impl::exchangeMetadata() {
 
   store->deleteKey(md_key_prefix + std::to_string(my_rank));
   metadata_exchanged_ = true;
-#else
-  NVF_THROW("NIXL support not compiled (USE_NIXL not defined)");
-#endif
 }
 
 // -------------------------------------------------------------------
@@ -326,13 +308,10 @@ void NixlBackend::Impl::exchangeMetadata() {
 //   kWrite -- data flows from local into remote
 //
 NixlTransferHandle NixlBackend::Impl::prepareTransfer(
-    const std::vector<TensorDesc>& local_descs, // Local addresses
-    const std::vector<TensorDesc>& remote_descs, // Remote tensors (cannot be dereferenced on this rank)
+    const std::vector<TensorDesc>& local_descs,
+    const std::vector<TensorDesc>& remote_descs,
     int64_t remote_rank,
     NixlXferOp op) {
-  NixlTransferHandle handle;
-#ifdef USE_NIXL
-  NVF_ERROR(available_, "NIXL backend is not available");
   NVF_ERROR(metadata_exchanged_, "exchangeMetadata() must be called first");
   NVF_ERROR(
       local_descs.size() == remote_descs.size(),
@@ -359,14 +338,8 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
       static_cast<int>(status));
 
   impl->prepared = true;
+  NixlTransferHandle handle;
   handle.impl_ = std::move(impl);
-#else
-  (void)local_descs;
-  (void)remote_descs;
-  (void)remote_rank;
-  (void)op;
-  NVF_THROW("NIXL support not compiled (USE_NIXL not defined)");
-#endif
   return handle;
 }
 
@@ -375,8 +348,6 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
 // -------------------------------------------------------------------
 
 void NixlBackend::Impl::postTransfer(NixlTransferHandle& handle) {
-#ifdef USE_NIXL
-  NVF_ERROR(available_, "NIXL backend is not available");
   NVF_ERROR(handle.isValid(), "Cannot post an invalid transfer handle");
   NVF_ERROR(
       !handle.impl_->posted,
@@ -389,10 +360,6 @@ void NixlBackend::Impl::postTransfer(NixlTransferHandle& handle) {
       static_cast<int>(status));
 
   handle.impl_->posted = true;
-#else
-  (void)handle;
-  NVF_THROW("NIXL support not compiled (USE_NIXL not defined)");
-#endif
 }
 
 // -------------------------------------------------------------------
@@ -401,8 +368,6 @@ void NixlBackend::Impl::postTransfer(NixlTransferHandle& handle) {
 
 NixlXferStatus NixlBackend::Impl::getTransferStatus(
     const NixlTransferHandle& handle) const {
-#ifdef USE_NIXL
-  NVF_ERROR(available_, "NIXL backend is not available");
   NVF_ERROR(handle.isValid(), "Cannot query status of an invalid handle");
   NVF_ERROR(handle.impl_->posted, "Transfer has not been posted yet");
 
@@ -415,15 +380,9 @@ NixlXferStatus NixlBackend::Impl::getTransferStatus(
     default:
       return NixlXferStatus::kError;
   }
-#else
-  (void)handle;
-  NVF_THROW("NIXL support not compiled (USE_NIXL not defined)");
-#endif
 }
 
 void NixlBackend::Impl::waitTransfer(NixlTransferHandle& handle) {
-#ifdef USE_NIXL
-  NVF_ERROR(available_, "NIXL backend is not available");
   NVF_ERROR(handle.isValid(), "Cannot wait on an invalid handle");
   NVF_ERROR(handle.impl_->posted, "Transfer has not been posted yet");
 
@@ -437,18 +396,23 @@ void NixlBackend::Impl::waitTransfer(NixlTransferHandle& handle) {
   } while (xfer_status == NixlXferStatus::kInProgress);
 
   handle.impl_->posted = false;
-#else
-  (void)handle;
-  NVF_THROW("NIXL support not compiled (USE_NIXL not defined)");
-#endif
 }
+
+#else // !USE_NIXL
+
+class NixlBackend::Impl {};
+
+#endif // USE_NIXL
 
 // ===================================================================
 // NixlBackend singleton + public API
 // ===================================================================
 
-NixlBackend::NixlBackend()
-    : impl_(std::make_unique<Impl>(Communicator::getInstance())) {}
+NixlBackend::NixlBackend() {
+#ifdef USE_NIXL
+  impl_ = Impl::create(Communicator::getInstance());
+#endif
+}
 
 NixlBackend& NixlBackend::getInstance() {
   static auto* instance = new NixlBackend();
@@ -462,7 +426,7 @@ void NixlBackend::cleanup() {
 }
 
 bool NixlBackend::isAvailable() const {
-  return impl_ && impl_->isAvailable();
+  return impl_ != nullptr;
 }
 
 void NixlBackend::registerTensors(const std::vector<at::Tensor>& tensors) {
