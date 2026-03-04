@@ -180,9 +180,18 @@ class NVF_API Fusion : public PolymorphicBase {
   Fusion();
 
   Fusion(const Fusion& other);
+
+  // Not marked noexcept: Fusion::swap allocates local std::vectors to collect
+  // statement ownership before the swap, which can throw. Since Fusions are not
+  // expected to be moved into containers, the performance trade-off is
+  // acceptable.
+  // NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations)
   Fusion(Fusion&& other);
 
   Fusion& operator=(const Fusion& other);
+
+  // Not marked noexcept: See move constructor above.
+  // NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations)
   Fusion& operator=(Fusion&& other);
 
   ~Fusion() override;

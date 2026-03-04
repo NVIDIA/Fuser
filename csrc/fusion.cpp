@@ -112,8 +112,10 @@ void Fusion::swap(Fusion& a, Fusion& b) {
     return;
   }
 
-  NVF_ERROR(a.ir_container_ != nullptr, "Fusion::swap: a has null ir_container_");
-  NVF_ERROR(b.ir_container_ != nullptr, "Fusion::swap: b has null ir_container_");
+  NVF_ERROR(
+      a.ir_container_ != nullptr, "Fusion::swap: a has null ir_container_");
+  NVF_ERROR(
+      b.ir_container_ != nullptr, "Fusion::swap: b has null ir_container_");
 
   // Collect statements owned by each Fusion BEFORE swap so we can update
   // Statement::ir_container_ pointers afterward.
@@ -319,6 +321,11 @@ Fusion::Fusion(const Fusion& other) : ir_container_(other.ir_container_) {
 }
 
 // Move constructor
+// Not marked noexcept: Fusion::swap allocates local std::vectors to collect
+// statement ownership before the swap, which can throw. Since Fusions are not
+// expected to be moved into containers, the performance trade-off is
+// acceptable.
+// NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations)
 Fusion::Fusion(Fusion&& other) : Fusion() {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
@@ -335,6 +342,8 @@ Fusion& Fusion::operator=(const Fusion& other) {
   return *this;
 }
 
+// Not marked noexcept: See move constructor above.
+// NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations)
 Fusion& Fusion::operator=(Fusion&& other) {
   FUSER_PERF_SCOPE("Fusion move assign");
   if (this != &other) {
