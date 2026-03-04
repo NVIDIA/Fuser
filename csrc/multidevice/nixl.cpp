@@ -325,13 +325,9 @@ void NixlBackend::Impl::exchangeMetadata() {
 //   kRead  -- data flows from remote into local
 //   kWrite -- data flows from local into remote
 //
-// remote_tensors are LOCAL tensors whose data_ptr identifies the
-// corresponding registration slot. The actual remote addresses are
-// looked up from the descriptors exchanged during exchangeMetadata().
-// This requires all ranks to register tensors in the same order.
 NixlTransferHandle NixlBackend::Impl::prepareTransfer(
     const std::vector<TensorDesc>& local_descs, // Local addresses
-    const std::vector<TensorDesc>& remote_descs, // Remote tensors (not valid on this rank)
+    const std::vector<TensorDesc>& remote_descs, // Remote tensors (cannot be dereferenced on this rank)
     int64_t remote_rank,
     NixlXferOp op) {
   NixlTransferHandle handle;
