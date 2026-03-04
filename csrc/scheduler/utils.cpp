@@ -3774,6 +3774,7 @@ bool inputsHaveContiguousInnerDim(Fusion* fusion) {
       return false;
     }
     const auto& alloc_dom = tv->getMaybeAllocationDomain();
+    NVF_ERROR(contig.size() == alloc_dom.size());
     bool found_inner = false;
     for (int64_t i = static_cast<int64_t>(alloc_dom.size()) - 1; i >= 0; --i) {
       if (alloc_dom[i]->isBroadcast()) {
