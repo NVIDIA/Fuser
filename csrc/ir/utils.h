@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 #include <unordered_map>
 #include <vector>
 
@@ -67,7 +68,10 @@ class FilterIterator {
   using difference_type = std::ptrdiff_t;
   using value_type = FilterType*;
   using pointer = value_type*;
-  using reference = value_type&;
+  // Proxy iterator: operator* returns by value so reference is value_type.
+  using reference = value_type;
+
+  FilterIterator() : current_(), end_() {}
 
   FilterIterator(Iterator begin, Iterator end) : current_(begin), end_(end) {
     advance();
@@ -120,16 +124,21 @@ class FilterIterator {
 // An iterable view to a given container of Val pointers. Only returns
 // Vals of a given Val type.
 // NOTE: Add a non-const iterator if needed.
+// Models std::ranges::input_range so it works with std::ranges::all_of, etc.
 template <typename FilterType, typename InputIt>
-class FilteredView {
+class FilteredView : public std::ranges::view_base {
  public:
   using value_type = FilterType*;
   using const_iterator = FilterIterator<FilterType, InputIt>;
+  using iterator = const_iterator;
+  using sentinel = const_iterator;
 
-  FilteredView(InputIt first, InputIt last) : input_it_(first), last_(last) {}
+  FilteredView() = default;
+
+  FilteredView(InputIt first, InputIt last) : first_(first), last_(last) {}
 
   const_iterator cbegin() const {
-    return const_iterator(input_it_, last_);
+    return const_iterator(first_, last_);
   }
 
   const_iterator begin() const {
@@ -161,8 +170,8 @@ class FilteredView {
   }
 
  private:
-  const InputIt input_it_;
-  const InputIt last_;
+  InputIt first_;
+  InputIt last_;
 };
 
 template <typename FilterType, typename InputIt>
@@ -180,7 +189,7 @@ auto filterByType(const ContainerType& inputs) {
 
 //! Returns a list of new-to-old mappings.
 //!
-//! This funcion canonicalizes the dimensions and validates that multiple old
+//! This function canonicalizes the dimensions and validates that multiple old
 //! dimension are mapped to the same new dimension.
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
@@ -587,11 +596,10 @@ inline TensorView* getSoleProducerTv(const TensorView* tv) {
   // Filter out schedule operations used for programmatic dependent launch
   // because they are not traditional producers
   std::vector<TensorView*> producers;
-  std::copy_if(
-      all_producers.begin(),
-      all_producers.end(),
-      std::back_inserter(producers),
-      [](TensorView* tv) { return !ir_utils::isScheduleOp(tv); });
+  std::ranges::copy_if(
+      all_producers, std::back_inserter(producers), [](TensorView* tv) {
+        return !ir_utils::isScheduleOp(tv);
+      });
   NVF_ERROR(
       producers.size() == 1,
       "Expected only one producer of ",
@@ -839,7 +847,7 @@ class TVDomainGuard {
  public:
   explicit TVDomainGuard(TensorView* tv, TensorDomain* td);
   TVDomainGuard(const TVDomainGuard&) = delete;
-  NVF_API TVDomainGuard(TVDomainGuard&&);
+  NVF_API TVDomainGuard(TVDomainGuard&&) noexcept;
 
   //! An utility to access the tensordomain before the temporary
   //!  view. This is used to retrieve information, like swizzle

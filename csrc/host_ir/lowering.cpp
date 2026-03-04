@@ -48,7 +48,7 @@ std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info) {
 
 class LoopNest {
  public:
-  LoopNest(Scope& top_level) : top_level_(top_level) {}
+  LoopNest(Scope* top_level) : top_level_(top_level) {}
 
   int64_t size() const {
     return std::ssize(loop_infos_);
@@ -71,7 +71,7 @@ class LoopNest {
   // Returns the scope of the innermost for-loop or the top-level scope if the
   // loop nest is empty.
   Scope& innermostScope() const {
-    return empty() ? top_level_ : innermost().loop->body();
+    return empty() ? *top_level_ : innermost().loop->body();
   }
 
   hir::ForLoop* openLoop(IterDomain* id) {
@@ -86,8 +86,7 @@ class LoopNest {
 
  private:
   std::vector<LoopInfo> loop_infos_;
-  Scope&
-      top_level_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  Scope* top_level_;
 };
 
 std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
@@ -180,59 +179,61 @@ void lowerSegment(
       // TODO: `replacement_map` should be associated with the scope so
       // ShardByStream across segments in the same for-loop can be reused.
       std::unordered_map<Val*, Val*> replacement_map;
-      Val* root = loop_nest.empty() ? nullptr : innermost.loop->index();
-      for (Expr* c : convertSingleOpToCommunication(e, device_id, root)) {
+
+      // All communications from a single expr share the same in/out TVs;
+      // only root and team vary. Handle input sharding and output
+      // allocation once, outside the per-communication loop.
+      TensorView* in = e->input(0)->as<TensorView>();
+      TensorView* out = e->output(0)->as<TensorView>();
+
+      if (haveDifferentShardings(
+              in,
+              DomainType::kAllocation,
+              out,
+              DomainType::kLoop,
+              {ParallelType::Stream})) {
+        if (!replacement_map.contains(in)) {
+          TensorView* sharded_in =
+              hir::shardByStream(in, innermost.loop->index(), communication);
+          if (sharded_in != nullptr) {
+            // `sharded_in` is nullptr if the input cannot be sharded by
+            // stream such as in broadcast or collective-permute based
+            // decomposition of allgather.
+            replacement_map[in] = sharded_in;
+            innermost_scope.pushBack(sharded_in->definition());
+          }
+        }
+      }
+
+      auto* allocate =
+          IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
+      if (getShardedIterDomain(out, ParallelType::Stream, DomainType::kLoop) !=
+              nullptr &&
+          getShardedIterDomain(
+              out, ParallelType::Stream, DomainType::kAllocation) == nullptr) {
+        innermost.parent_scope->insert(
+            innermost.parent_insertion_point, allocate);
+        NVF_ERROR_EQ(
+            replacement_map.contains(out),
+            false,
+            "The input segmented fusion should be SSA.");
+        TensorView* sharded_out =
+            hir::shardByStream(out, innermost.loop->index(), communication);
+        NVF_ERROR(
+            sharded_out != nullptr,
+            "Output could not be sharded by stream: ",
+            out);
+        replacement_map[out] = sharded_out;
+        innermost_scope.pushBack(sharded_out->definition());
+      } else {
+        innermost_scope.pushBack(allocate);
+      }
+
+      for (Expr* c : convertSingleOpToCommunication(e, device_id)) {
         NVF_ERROR(
             c->isA<Communication>(),
             "Exprs in a Communication group should be Communication: ",
             c);
-        auto* communication = c->as<Communication>();
-        TensorView* in = communication->in();
-        TensorView* out = communication->out();
-        if (haveDifferentShardings(
-                in,
-                DomainType::kAllocation,
-                out,
-                DomainType::kLoop,
-                {ParallelType::Stream})) {
-          if (!replacement_map.contains(in)) {
-            TensorView* sharded_in =
-                hir::shardByStream(in, innermost.loop->index(), communication);
-            if (sharded_in != nullptr) {
-              // `sharded_in` is nullptr if the input cannot be sharded by
-              // stream such as in broadcast or collective-permute based
-              // decomposition of allgather.
-              replacement_map[in] = sharded_in;
-              innermost_scope.pushBack(sharded_in->definition());
-            }
-          }
-        }
-
-        // Allocate the recv buffers of communications
-        auto* allocate =
-            IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
-        if (getShardedIterDomain(
-                out, ParallelType::Stream, DomainType::kLoop) != nullptr &&
-            getShardedIterDomain(
-                out, ParallelType::Stream, DomainType::kAllocation) ==
-                nullptr) {
-          innermost.parent_scope->insert(
-              innermost.parent_insertion_point, allocate);
-          NVF_ERROR_EQ(
-              replacement_map.contains(out),
-              false,
-              "The input segmented fusion should be SSA.");
-          TensorView* sharded_out =
-              hir::shardByStream(out, innermost.loop->index(), communication);
-          NVF_ERROR(
-              sharded_out != nullptr,
-              "Output could not be sharded by stream: ",
-              out);
-          replacement_map[out] = sharded_out;
-          innermost_scope.pushBack(sharded_out->definition());
-        } else {
-          innermost_scope.pushBack(allocate);
-        }
 
         Expr* new_c = cloneWithNewOperands(c, replacement_map);
         innermost_scope.pushBack(new_c);
@@ -328,7 +329,7 @@ void lowerSegment(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
             auto* allocate =
-                IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+                IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
             innermost.parent_scope->insert(
                 innermost.parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
@@ -369,7 +370,7 @@ void lowerSegment(
             alias);
 
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
+            IrBuilder::create<hir::Allocate>(out_tv, out_tv->getMemoryType());
         innermost_scope.pushBack(allocate);
       }
 
@@ -431,7 +432,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     hic->addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
   }
 
-  LoopNest loop_nest(hic->topLevel());
+  LoopNest loop_nest(&hic->topLevel());
 
   IdModel id_model(segmented_fusion.completeFusion(), /*build_graphs=*/false);
   id_model.buildExactGraph();
