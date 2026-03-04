@@ -52,35 +52,46 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   }
 
   // Choose between input smem transpose and output smem transpose.
-  // Input smem: swizzle applied to input shared memory, transpose happens
-  //   during smem->register reads.
-  // Output smem: swizzle applied to output shared memory, transpose happens
-  //   during register->smem writes.
-  //
   // Pick the side with fewer tensors to minimize smem usage and swizzle cost.
   tparams->is_output_smem_transpose = n_input > n_output;
   tparams->use_tma_load = false;
   tparams->use_tma_store = tparams->is_output_smem_transpose;
 
   // Inputs and outputs are grouped by their innermost dim into two groups.
-  // Group 2 is the swizzled side. tile_size2 is constrained by the TMA
-  // swizzle size (128 bytes).
+  // Group 2 is the swizzled side. tile_size2 is constrained by TMA swizzle.
+  //
+  // swizzleTMABox decomposes the tile into:
+  //   [KO, KIO, KII, NIO, NII] where KI=8 rows, NII=8 elements
+  //   KIO = 128 / swizzle_bytes, then applies XOR(KIO, NIO)
+  //
+  // For bf16 with B128: tile_size2=64, KIO = 128/128 = 1.
+  //   XOR with a single KIO value is the identity — no actual swizzle.
+  //   tile_size2=64 -> Array<bf16,64,2> per input -> 80 regs -> 34% occupancy.
+  //
+  // For bf16 with B64: tile_size2=32, KIO = 128/64 = 2.
+  //   XOR(KIO=2, NIO=4) produces a real 2-way column permutation: rows
+  //   in even vs odd KIO groups have their NIO chunks swapped.
+  //   tile_size2=32 -> Array<bf16,32,2> per input -> 48 regs -> 57% occupancy.
+  //
+  // The main performance gain comes from halving tile_size2 which halves
+  // register usage (48 vs 80) and smem footprint (16KB vs 32KB per tile),
+  // allowing higher occupancy to hide DRAM latency.
   int64_t swizzled_dtype_size = tparams->is_output_smem_transpose
       ? max_output_dtype_size
       : max_input_dtype_size;
-  int64_t constrained_tile = kTmaSwizzleBytes / swizzled_dtype_size;
+  constexpr int64_t kPreferredSwizzleBytes = 64;
+  int64_t constrained_tile = kPreferredSwizzleBytes / swizzled_dtype_size;
   tparams->tile_size2 = constrained_tile;
 
   // 16 bytes per chunk: 4 float32 or 8 bfloat16 elements.
   tparams->elements_per_chunk = kBytesPerChunk / swizzled_dtype_size;
 
-  // Vectorize along tile1 (the non-swizzled dim) to align with the 4-byte
-  // smem bank width. For bf16 (2 bytes), this groups 2 elements per thread;
-  // However, it leads to 2-way bank conflict in regs -> smem. Disable for now.
+  // Vectorize along tile1 (the non-swizzled dim).
+  // vec=2 for bf16 gives 4-byte stores (aligned to bank width), minimizing
+  // bank conflicts on the smem write path.
   tparams->vectorize_factor1 = 2;
 
   // Heuristic for tile_size1 (the non-swizzled, tunable dim).
-  // Target: 64KB of data loaded per SM, 256 threads per CTA.
   auto dev_props = at::cuda::getCurrentDeviceProperties();
   constexpr int64_t bytes_per_sm = 64 * 1024;
   constexpr int64_t threads_per_cta = 256;
@@ -88,12 +99,10 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
       dev_props->maxThreadsPerMultiProcessor / threads_per_cta;
   const int64_t bytes_per_cta = bytes_per_sm / cta_per_sm;
   const int64_t bytes_per_tile = bytes_per_cta / n_input;
-  int64_t estimated_tile_size1 = bytes_per_tile / kTmaSwizzleBytes;
+  int64_t estimated_tile_size1 = bytes_per_tile / kPreferredSwizzleBytes;
 
   // Ensure each thread processes at least min_chunks_per_thread chunks.
-  // tile1 * tile2 = elements_per_chunk * chunks_per_thread *
-  //   vectorize_factor1 * threads_per_cta
-  constexpr int64_t min_chunks_per_thread = 4;
+  constexpr int64_t min_chunks_per_thread = 2;
   auto get_chunks_per_thread = [&]() {
     int64_t elements_per_thread =
         estimated_tile_size1 * tparams->tile_size2 / threads_per_cta;
@@ -256,9 +265,15 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
 
   // Step 2: Schedule output TMA store.
   if (tparams->is_output_smem_transpose) {
-    // Output smem path: apply TMA swizzle to output shared memory.
+    // Output smem path: apply swizzle to output shared memory.
+    // For bf16, tile_size2=64 gives 128-byte rows. B128 swizzle gives KIO=1
+    // (trivial). Use B64 instead: splits row into 32-elem halves, KIO=2,
+    // giving real XOR swizzle that eliminates bank conflicts.
+    // Override: use B64 for bf16, B32 for fp32 (anything where B128 would be
+    // trivial).
     MmaInputSmemSwizzle swizzle =
         mma_utils::tmaSwizzleSharedMemory(tma_store_tvs.at(0));
+
     for (auto output_smem_cache : tma_store_tvs) {
       mma_utils::scheduleTMAStoreForMmaOutput(output_smem_cache, swizzle);
     }
