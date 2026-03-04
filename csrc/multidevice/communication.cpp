@@ -46,6 +46,9 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
     case CommunicationType::AllToAll:
       os << "AllToAll";
       break;
+    case CommunicationType::CollectivePermute:
+      os << "CollectivePermute";
+      break;
   }
   return os;
 }

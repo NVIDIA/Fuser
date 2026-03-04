@@ -234,13 +234,22 @@ void lowerSegment(
       Val* root = loop_nest.empty() ? nullptr : innermost.loop->index();
       for (Expr* c : convertSingleOpToCommunication(e, device_id, root)) {
         NVF_ERROR(
-            c->isA<Communication>(),
-            "Exprs in a Communication group should be Communication: ",
+            c->isA<Communication>() || c->isA<CollectivePermute>(),
+            "Exprs in a Communication group should be Communication or CollectivePermute: ",
             c);
+
+        if (auto* cp = dynamic_cast<CollectivePermute*>(c)) {
+          auto add_definition_chain = [&innermost_scope](Val* val) -> void {
+            for (Expr* expr : StmtSort::getExprsTo({val})) {
+              innermost_scope.pushBack(expr);
+            }
+          };
+          add_definition_chain(cp->sendPeer());
+          add_definition_chain(cp->recvPeer());
+        }
 
         Expr* new_c = cloneWithNewOperands(c, replacement_map);
         innermost_scope.pushBack(new_c);
-        debug() << "Cloned new_c: " << new_c << std::endl;
 
         auto* wait = IrBuilder::create<hir::Wait>(new_c);
         innermost_scope.pushBack(wait);

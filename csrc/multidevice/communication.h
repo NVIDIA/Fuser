@@ -31,7 +31,8 @@ enum class CommunicationType {
   ReduceScatter,
   Broadcast,
   SendRecv,
-  AllToAll
+  AllToAll,
+  CollectivePermute
 };
 
 std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
@@ -123,8 +124,7 @@ class Communication : public Expr {
 };
 
 // CollectivePermute: send to send_peer, recv from recv_peer. Separate from
-// Communication (no root, no reduce op). Layout: inputs [in, send_peer,
-// recv_peer], output [out], attributes [type, team, backend].
+// Communication (no root, no reduce op).
 class CollectivePermute : public Expr {
  public:
   using Expr::Expr;

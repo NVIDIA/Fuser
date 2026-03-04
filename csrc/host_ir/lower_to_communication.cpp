@@ -426,15 +426,18 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
 
     if (p_loop_id && !c_loop_id) {
       // Check if we are going from DID -> Stream, which is a ring allgather.
-      // This can be executed as a broadcast or send recvs, which is decided
+      // This can be executed as a broadcast or collective permute, which is decided
       // by the presence of a swizzle in the stream id definition.
       if (c_logical_stream_id == p2c.at(p_logical_id)) {
         NVF_CHECK(
             same_mesh,
             "Broadcast based allgather in stream parallel requires same "
             "mesh.")
+        CommunicationType type = c_stream_id->definition()->isA<Swizzle1D>()
+            ? CommunicationType::Broadcast
+            : CommunicationType::CollectivePermute;
         return CommunicationInfo{
-            .type = CommunicationType::Broadcast,
+            .type = type,
             .p_sharded_id = p_logical_id,
             .c_sharded_id = c_logical_stream_id};
       }
@@ -552,7 +555,8 @@ Layout getCommunicationLayout(
       type == CommunicationType::Allreduce ||
       type == CommunicationType::Broadcast ||
       type == CommunicationType::SendRecv ||
-      type == CommunicationType::AllToAll) {
+      type == CommunicationType::AllToAll ||
+      type == CommunicationType::CollectivePermute) {
     return layout;
   }
 
@@ -693,6 +697,9 @@ std::vector<Expr*> convertSingleOpToCommunication(
       break;
     case CommunicationType::AllToAll:
       lowerToAllToAll(input_tv, output_tv, backend, comms);
+      break;
+    case CommunicationType::CollectivePermute:
+      lowerToCollectivePermute(input_tv, output_tv, backend, comms, root, my_device_idx);
       break;
   }
 
