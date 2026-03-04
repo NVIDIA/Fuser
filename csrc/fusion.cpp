@@ -198,48 +198,103 @@ struct Fusion::ContainerMutator {
     return count;
   }
 
+  // Null out self's shortcut-val pointer cache if v is one of them.
+  static void nullOutShortcutIfNeeded(Fusion* self, Val* v) {
+    if (v == self->zero_val_) {
+      self->zero_val_ = nullptr;
+    } else if (v == self->one_val_) {
+      self->one_val_ = nullptr;
+    } else if (v == self->true_val_) {
+      self->true_val_ = nullptr;
+    } else if (v == self->false_val_) {
+      self->false_val_ = nullptr;
+    } else if (v == self->magic_zero_val_) {
+      self->magic_zero_val_ = nullptr;
+    }
+  }
+
+  // Returns true if v is one of self's shortcut singleton vals. These persist
+  // across StatementGuard scopes and must not be removed on rollback.
+  static bool isShortcutVal(const Fusion* self, const Val* v) {
+    return v == self->zero_val_ || v == self->one_val_ ||
+        v == self->true_val_ || v == self->false_val_ ||
+        v == self->magic_zero_val_;
+  }
+
   static void removeStatementsCreatedAfter(
       Fusion* self,
       int64_t num_exprs_before,
       int64_t num_vals_before) {
     auto* c = self->ir_container();
 
-    // Remove expressions before values because we need to change Val::uses_.
-    while (std::ssize(c->per_fusion_exprs_[self]) > num_exprs_before) {
-      // Pop from global deque back — statements created by this Fusion during
-      // the guard scope are at the tail (LIFO invariant).
-      Expr* e = c->exprs_up_.back().get();
-      NVF_ERROR(
-          c->per_fusion_exprs_[self].count(e) > 0,
-          "removeStatementsCreatedAfter: tail expr belongs to another Fusion");
-      for (Val* in : e->inputs()) {
-        in->removeUse(e);
+    if (!c->hasMultipleFusions()) {
+      // Fast path: single Fusion owns this container, so the LIFO invariant
+      // holds — self's newest statements are always at the global deque tail.
+      // Remove expressions before values because we need to change Val::uses_.
+      while (std::ssize(c->per_fusion_exprs_[self]) > num_exprs_before) {
+        Expr* e = c->exprs_up_.back().get();
+        NVF_ERROR(
+            c->per_fusion_exprs_[self].count(e) > 0,
+            "removeStatementsCreatedAfter: tail expr belongs to another Fusion");
+        for (Val* in : e->inputs()) {
+          in->removeUse(e);
+        }
+        c->per_fusion_exprs_[self].erase(e);
+        c->exprs_.erase(e);
+        c->exprs_up_.pop_back();
       }
-      c->per_fusion_exprs_[self].erase(e);
-      c->exprs_.erase(e);
-      c->exprs_up_.pop_back();
-    }
+      while (numValsExcludingShortcuts(self) > num_vals_before) {
+        Val* v = c->vals_up_.back().get();
+        NVF_ERROR(
+            c->per_fusion_vals_[self].count(v) > 0,
+            "removeStatementsCreatedAfter: tail val belongs to another Fusion");
+        nullOutShortcutIfNeeded(self, v);
+        c->per_fusion_vals_[self].erase(v);
+        c->vals_.erase(v);
+        c->vals_up_.pop_back();
+      }
+    } else {
+      // Slow path: shared container — other Fusions' statements may be
+      // interleaved at the tail of the global deques. Use std::erase_if
+      // (C++20) to scan forward: skip the first num_before of self's
+      // statements (old, to keep), then erase the remainder (added during
+      // the guard scope).  Only taken on the error/rollback path when
+      // segment compilation fails; O(total statements in container).
+      int64_t exprs_kept = 0;
+      std::erase_if(c->exprs_up_, [&](const std::unique_ptr<Expr>& e_up) {
+        Expr* e = e_up.get();
+        if (c->per_fusion_exprs_[self].count(e) == 0) {
+          return false; // belongs to another Fusion — keep
+        }
+        if (exprs_kept < num_exprs_before) {
+          ++exprs_kept;
+          return false; // self's old expr — keep
+        }
+        // self's new expr — remove (clean up uses and index maps first)
+        for (Val* in : e->inputs()) {
+          in->removeUse(e);
+        }
+        c->per_fusion_exprs_[self].erase(e);
+        c->exprs_.erase(e);
+        return true;
+      });
 
-    while (numValsExcludingShortcuts(self) > num_vals_before) {
-      Val* v = c->vals_up_.back().get();
-      NVF_ERROR(
-          c->per_fusion_vals_[self].count(v) > 0,
-          "removeStatementsCreatedAfter: tail val belongs to another Fusion");
-      // Null out shortcut caches if they point to vals about to be destroyed
-      if (v == self->zero_val_) {
-        self->zero_val_ = nullptr;
-      } else if (v == self->one_val_) {
-        self->one_val_ = nullptr;
-      } else if (v == self->true_val_) {
-        self->true_val_ = nullptr;
-      } else if (v == self->false_val_) {
-        self->false_val_ = nullptr;
-      } else if (v == self->magic_zero_val_) {
-        self->magic_zero_val_ = nullptr;
-      }
-      c->per_fusion_vals_[self].erase(v);
-      c->vals_.erase(v);
-      c->vals_up_.pop_back();
+      int64_t vals_kept = 0;
+      std::erase_if(c->vals_up_, [&](const std::unique_ptr<Val>& v_up) {
+        Val* v = v_up.get();
+        if (c->per_fusion_vals_[self].count(v) == 0 ||
+            isShortcutVal(self, v)) {
+          return false; // another Fusion's val, or a persistent shortcut — keep
+        }
+        if (vals_kept < num_vals_before) {
+          ++vals_kept;
+          return false; // self's old val — keep
+        }
+        // self's new val — remove
+        c->per_fusion_vals_[self].erase(v);
+        c->vals_.erase(v);
+        return true;
+      });
     }
   }
 };
