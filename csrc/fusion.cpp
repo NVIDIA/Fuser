@@ -260,8 +260,9 @@ struct Fusion::ContainerMutator {
       // interleaved at the tail of the global deques. Use std::erase_if
       // (C++20) to scan forward: skip the first num_before of self's
       // statements (old, to keep), then erase the remainder (added during
-      // the guard scope).  Only taken on the error/rollback path when
-      // segment compilation fails; O(total statements in container).
+      // the guard scope). Entered whenever the container is shared,
+      // regardless of success or failure; if no new statements were added
+      // the scan completes trivially. O(total statements in container).
       int64_t exprs_kept = 0;
       std::erase_if(c->exprs_up_, [&](const std::unique_ptr<Expr>& e_up) {
         Expr* e = e_up.get();
@@ -273,6 +274,9 @@ struct Fusion::ContainerMutator {
           return false; // self's old expr — keep
         }
         // self's new expr — remove (clean up uses and index maps first)
+        for (Val* out : e->outputs()) {
+          out->setDefinition(nullptr);
+        }
         for (Val* in : e->inputs()) {
           in->removeUse(e);
         }
