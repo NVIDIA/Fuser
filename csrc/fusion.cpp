@@ -213,8 +213,10 @@ struct Fusion::ContainerMutator {
     }
   }
 
-  // Returns true if v is one of self's shortcut singleton vals. These persist
-  // across StatementGuard scopes and must not be removed on rollback.
+  // Returns true if v is one of self's shortcut singleton vals. Shortcuts
+  // created before a StatementGuard scope are kept on rollback; those created
+  // inside the scope are rolled back like any other val (nulling the cache
+  // pointer via nullOutShortcutIfNeeded).
   static bool isShortcutVal(const Fusion* self, const Val* v) {
     return v == self->zero_val_ || v == self->one_val_ ||
         v == self->true_val_ || v == self->false_val_ ||
@@ -248,7 +250,7 @@ struct Fusion::ContainerMutator {
         c->exprs_.erase(e);
         c->exprs_up_.pop_back();
       }
-      while (numValsExcludingShortcuts(self) > num_vals_before) {
+      while (std::ssize(c->per_fusion_vals_[self]) > num_vals_before) {
         Val* v = c->vals_up_.back().get();
         NVF_ERROR(
             c->per_fusion_vals_[self].count(v) > 0,
@@ -291,15 +293,15 @@ struct Fusion::ContainerMutator {
       int64_t vals_kept = 0;
       std::erase_if(c->vals_up_, [&](const std::unique_ptr<Val>& v_up) {
         Val* v = v_up.get();
-        if (c->per_fusion_vals_[self].count(v) == 0 ||
-            isShortcutVal(self, v)) {
-          return false; // another Fusion's val, or a persistent shortcut — keep
+        if (c->per_fusion_vals_[self].count(v) == 0) {
+          return false; // belongs to another Fusion — keep
         }
         if (vals_kept < num_vals_before) {
           ++vals_kept;
           return false; // self's old val — keep
         }
-        // self's new val — remove
+        // self's new val — remove (null shortcut cache pointer if applicable)
+        nullOutShortcutIfNeeded(self, v);
         c->per_fusion_vals_[self].erase(v);
         c->vals_.erase(v);
         return true;
