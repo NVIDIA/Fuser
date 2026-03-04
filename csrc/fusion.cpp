@@ -348,12 +348,9 @@ void Fusion::removeExpr(Expr* expr) {
   }
 
   auto* c = ir_container();
-  auto expr_in_deque = std::find_if(
-      c->exprs_up_.begin(),
-      c->exprs_up_.end(),
-      [expr](std::unique_ptr<Expr>& expr_up) {
-        return expr_up.get() == expr;
-      });
+  auto expr_in_deque = std::ranges::find_if(
+      c->exprs_up_,
+      [expr](std::unique_ptr<Expr>& expr_up) { return expr_up.get() == expr; });
   NVF_ERROR(
       expr_in_deque != c->exprs_up_.end(),
       "Wanted to remove an expression but its unique ptr is missing.");
@@ -410,9 +407,8 @@ void Fusion::removeVal(Val* val) {
   }
 
   auto* c = ir_container();
-  auto val_in_deque = std::find_if(
-      c->vals_up_.begin(),
-      c->vals_up_.end(),
+  auto val_in_deque = std::ranges::find_if(
+      c->vals_up_,
       [val](std::unique_ptr<Val>& val_up) { return val_up.get() == val; });
   NVF_ERROR(
       val_in_deque != c->vals_up_.end(),
@@ -633,6 +629,7 @@ void Fusion::validateInputs() {
       input_dims.emplace(id->extent());
     }
   }
+  // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
   for (Val* input : all_inputs) {
     if (!input->isConstScalar()) {
       NVF_CHECK(
