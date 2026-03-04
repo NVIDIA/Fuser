@@ -71,7 +71,7 @@ class DynamicTransformConcretizationInfo;
 
 // Set the enum base to `int` so it can be safely serialized as a part of
 // serde::InputOutputAlias.
-enum class AllocationType : int {
+enum class AllocationType : int { // NOLINT(performance-enum-size)
   New, // Allocate a new buffer
   // Reuse the buffer allocated to `aliased_io`. For example, the tensor storing
   // BatchNorm's running mean. The output EMA is updated in place.
@@ -88,7 +88,7 @@ enum class AllocationType : int {
 
 std::ostream& operator<<(std::ostream& os, AllocationType);
 
-enum class OutputVisibility : int {
+enum class OutputVisibility : int { // NOLINT(performance-enum-size)
   kHidden,
   kVisible,
 };

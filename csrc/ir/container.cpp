@@ -7,7 +7,6 @@
 // clang-format on
 #include "ir/container.h"
 
-#include "fusion.h"
 #include "instrumentation.h"
 #include "ir/base_nodes.h"
 #include "ir/builder.h"
@@ -19,9 +18,8 @@ namespace nvfuser {
 //! Return values in insertion order
 const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
   std::deque<Val*> vals_deque;
-  std::transform(
-      vals_up_.begin(),
-      vals_up_.end(),
+  std::ranges::transform(
+      vals_up_,
       std::back_inserter(vals_deque),
       [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
   return vals_deque;
@@ -30,9 +28,8 @@ const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
 //! Return expression in insertion order
 const std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
   std::deque<Expr*> exprs_deque;
-  std::transform(
-      exprs_up_.begin(),
-      exprs_up_.end(),
+  std::ranges::transform(
+      exprs_up_,
       std::back_inserter(exprs_deque),
       [](const std::unique_ptr<Expr>& expr_up) { return expr_up.get(); });
   return exprs_deque;
@@ -43,9 +40,8 @@ const std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
     const noexcept {
   std::unordered_map<Val*, int64_t> vals_map;
   int64_t count = 0;
-  std::transform(
-      vals_up_.begin(),
-      vals_up_.end(),
+  std::ranges::transform(
+      vals_up_,
       std::inserter(vals_map, vals_map.end()),
       [&count](const std::unique_ptr<Val>& val_up) {
         return std::make_pair(val_up.get(), count++);
@@ -58,9 +54,8 @@ const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
     const noexcept {
   std::unordered_map<Expr*, int64_t> exprs_map;
   int64_t count = 0;
-  std::transform(
-      exprs_up_.begin(),
-      exprs_up_.end(),
+  std::ranges::transform(
+      exprs_up_,
       std::inserter(exprs_map, exprs_map.end()),
       [&count](const std::unique_ptr<Expr>& expr_up) {
         return std::make_pair(expr_up.get(), count++);
@@ -119,9 +114,8 @@ void IrContainer::removeExpr(Expr* expr) {
   NVF_ERROR(
       exprs_.find(expr) != exprs_.end(),
       "Wanted to remove an expression but it doesn't exist in this container.");
-  auto expr_in_deque = std::find_if(
-      exprs_up_.begin(),
-      exprs_up_.end(),
+  auto expr_in_deque = std::ranges::find_if(
+      exprs_up_,
       [expr](std::unique_ptr<Expr>& expr_up) { return expr_up.get() == expr; });
 
   NVF_ERROR(
@@ -138,10 +132,9 @@ void IrContainer::removeVal(Val* val) {
   NVF_ERROR(
       vals_.find(val) != vals_.end(),
       "Wanted to remove a value but it doesn't exist in this container.");
-  auto val_in_deque = std::find_if(
-      vals_up_.begin(), vals_up_.end(), [val](std::unique_ptr<Val>& val_up) {
-        return val_up.get() == val;
-      });
+  auto val_in_deque = std::ranges::find_if(
+      vals_up_,
+      [val](std::unique_ptr<Val>& val_up) { return val_up.get() == val; });
 
   NVF_ERROR(
       val_in_deque != vals_up_.end(),

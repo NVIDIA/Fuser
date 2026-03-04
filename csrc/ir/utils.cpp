@@ -46,7 +46,7 @@ std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
     int64_t ndims) {
   NVF_CHECK(
-      (int64_t)new2old_in.size() == ndims,
+      std::cmp_equal(new2old_in.size(), ndims),
       "There must be a transpose mapping for each dimension in domain");
 
   // Canonicalize dimensions by wrapping each dim for the given ndims
@@ -74,7 +74,8 @@ std::vector<int64_t> normalizeNew2Old(
 
   // Error out if duplicate values are found.
   NVF_CHECK(
-      (int64_t)new2old.size() == ndims && old_pos_set.size() == new2old.size(),
+      std::cmp_equal(new2old.size(), ndims) &&
+          old_pos_set.size() == new2old.size(),
       "Duplicate entries in transformation map.");
 
   // END VALIDATION CHECKS
@@ -534,6 +535,7 @@ class ValReplacementMutator : public OptOutMutator {
           expr->outputs().begin(),
           expr->outputs().end());
     }
+    // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
     for (auto input : inputs) {
       outputs.erase(input);
     }
@@ -1057,6 +1059,7 @@ CompareDomainResult compareDomains(
     return v->as<IterDomain>()->getIterType() == IterType::Symbolic;
   };
   std::vector<Val*> ids_to_remove;
+  // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
   for (Val* id : frontier) {
     if (is_symb(id) && dom1_set.count(id)) {
       ids_to_remove.push_back(id);
