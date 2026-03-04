@@ -135,7 +135,7 @@ class NixlBackend::Impl {
   void waitTransfer(NixlTransferHandle& handle);
 
  private:
-  std::string constructAgentName(int64_t rank);
+  inline std::string getAgentName(int64_t rank);
 
 #ifdef USE_NIXL
   std::unique_ptr<nixlAgent> agent_;
@@ -153,7 +153,7 @@ class NixlBackend::Impl {
 NixlBackend::Impl::Impl(Communicator& communicator)
     : communicator_(communicator) {
 #ifdef USE_NIXL
-  std::string agent_name = constructAgentName(communicator_.deviceId());
+  std::string agent_name = getAgentName(communicator_.deviceId());
   nixlAgentConfig cfg(false);
   agent_ = std::make_unique<nixlAgent>(agent_name, cfg);
 
@@ -214,7 +214,7 @@ NixlBackend::Impl::Impl(Communicator& communicator)
 
 NixlBackend::Impl::~Impl() = default;
 
-std::string NixlBackend::Impl::constructAgentName(int64_t rank){
+std::string NixlBackend::Impl::getAgentName(int64_t rank){
   return "rank_" + std::to_string(rank);
 }
 
@@ -345,7 +345,7 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
       " vs ",
       remote_descs.size());
 
-  std::string remote_agent_name = constructAgentName(remote_rank);
+  std::string remote_agent_name = getAgentName(remote_rank);
 
   nixl_xfer_dlist_t local_dlist = buildXferDlist(local_descs);
   nixl_xfer_dlist_t remote_dlist = buildXferDlist(remote_descs);
