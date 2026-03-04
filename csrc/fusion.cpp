@@ -227,7 +227,9 @@ struct Fusion::ContainerMutator {
       int64_t num_vals_before) {
     auto* c = self->ir_container();
 
-    if (!c->hasMultipleFusions()) {
+    // Use direct field access — hasMultipleFusions() acquires shared_lock which
+    // deadlocks since the caller already holds unique_lock on mutex_.
+    if (c->sharing_fusions_.size() <= 1) {
       // Fast path: single Fusion owns this container, so the LIFO invariant
       // holds — self's newest statements are always at the global deque tail.
       // Remove expressions before values because we need to change Val::uses_.
