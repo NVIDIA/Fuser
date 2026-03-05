@@ -153,6 +153,8 @@ int64_t IrContainer::numVals() const noexcept {
 void IrContainer::addFusion(Fusion* fusion) {
   std::unique_lock lock(mutex_);
   sharing_fusions_.insert(fusion);
+  per_fusion_vals_[fusion];   // Pre-insert key so no outer-map rehash occurs during concurrent val/expr registration
+  per_fusion_exprs_[fusion];
 }
 
 void IrContainer::removeFusion(Fusion* fusion) {
