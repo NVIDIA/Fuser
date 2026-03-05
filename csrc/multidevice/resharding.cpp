@@ -60,7 +60,7 @@ std::pair<Val*, bool> computeLoopIndex(
     IterDomain* id,
     const std::vector<IterDomain*>& sources,
     std::unordered_map<IterDomain*, std::pair<Val*, bool>>& id_to_index,
-    const std::unordered_map<ParallelType, Val*>& pt_to_device_index) {
+    const std::unordered_map<ParallelType, Val*>& pt_to_index) {
   if (id == nullptr) {
     return {nullptr, false};
   }
@@ -103,7 +103,7 @@ std::pair<Val*, bool> computeLoopIndex(
 
       const auto& in_info = id_to_index.at(in);
       Val* extent = out->extent();
-      Val* pt_val = pt_to_device_index.at(swizzle->parallelType());
+      Val* pt_val = pt_to_index.at(swizzle->parallelType());
       // Inverse of the swizzle formula in_idx = (out_idx + pt_val) % extent:
       //   out_idx = (in_idx - pt_val + extent) % extent
       id_to_index[out] = {
@@ -254,8 +254,27 @@ bool haveDifferentShardings(
   std::vector<Val*> assumptions;
   assumptions.reserve(
       (producer->getLogicalDomain().size() +
-       consumer->getMaybeRootDomain().size()) *
+       consumer->getMaybeRootDomain().size() +
+       kParallelTypeDIDs.size()) *
       2);
+  
+  // Create symbolic Vals for each device parallel type present in the mesh,
+  // representing the device's index within the team for that type. These are
+  // used by computeLoopIndex to symbolically compute Swizzle1D outputs.
+  std::unordered_map<ParallelType, Val*> pt_to_index;
+  const DeviceMesh& mesh = producer->getDeviceMesh();
+  for (ParallelType pt : kParallelTypeDIDs) {
+    if (!mesh.hasParallelType(pt)) {
+      continue;
+    }
+    Val* device_idx = IrBuilder::create<Val>(DataType::Index);
+    pt_to_index[pt] = device_idx;
+    Val* team_size = IrBuilder::create<Val>(mesh.size(pt), DataType::Index);
+    assumptions.push_back(
+        SimplifyingIrBuilder::leExpr(fusion->zeroVal(), device_idx));
+    assumptions.push_back(
+        SimplifyingIrBuilder::ltExpr(device_idx, team_size));
+  }
 
   auto create_index = [&](IterDomain* id, bool mapped) {
     auto* index = IrBuilder::create<Val>(DataType::Index);
@@ -316,17 +335,6 @@ bool haveDifferentShardings(
     }
   }
 
-  // Create symbolic Vals for each device parallel type, representing the
-  // device's index within the team for that type. These are used by
-  // computeLoopIndex to symbolically compute Swizzle1D outputs.
-  std::unordered_map<ParallelType, Val*> pt_to_device_index;
-  for (ParallelType pt : kParallelTypeDIDs) {
-    Val* device_idx = IrBuilder::create<Val>(DataType::Index);
-    pt_to_device_index[pt] = device_idx;
-    assumptions.push_back(
-        SimplifyingIrBuilder::leExpr(fusion->zeroVal(), device_idx));
-  }
-
   // For each parallel type, check whether the corresponding loop index in the
   // producer and that in the consumer are equivalent. If they can't be proven
   // to be equivalent, return is-resharding.
@@ -338,7 +346,7 @@ bool haveDifferentShardings(
         p_id,
         getDomainOf(producer, DomainType::kLogical),
         id_to_index,
-        pt_to_device_index);
+        pt_to_index);
     if (!p_mapped) {
       p_index = nullptr;
     }
@@ -350,7 +358,7 @@ bool haveDifferentShardings(
         c_id,
         getDomainOf(consumer, DomainType::kRoot),
         id_to_index,
-        pt_to_device_index);
+        pt_to_index);
     if (!c_mapped) {
       c_index = nullptr;
     }

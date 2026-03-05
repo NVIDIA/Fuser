@@ -631,8 +631,6 @@ TEST_F(ReshardingSelectOpTest, ReshardingSelectIntoNonDeviceDim) {
   EXPECT_TRUE(isResharding(tv1->definition()));
 }
 
-// DID -> Stream with Swizzle (the collective permute pattern).
-// Producer is sharded on DIDx, consumer has swizzle1d + Stream.
 TEST_F(ReshardingTest, Swizzle1D_DIDToStream) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -652,14 +650,19 @@ TEST_F(ReshardingTest, Swizzle1D_DIDToStream) {
 
   EXPECT_TRUE(haveDifferentShardings(
       in,
-      DomainType::kAllocation,
+      DomainType::kLoop,
       out,
       DomainType::kLoop,
       {ParallelType::Stream}));
+  
+  EXPECT_TRUE(haveDifferentShardings(
+      in,
+      DomainType::kLoop,
+      out,
+      DomainType::kLoop,
+      {ParallelType::DIDx}));
 }
 
-// Both sides have the same split + swizzle1d + Stream.
-// Symbolic expressions should match, so this is not resharding.
 TEST_F(ReshardingTest, Swizzle1D_ConsistentSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -680,28 +683,6 @@ TEST_F(ReshardingTest, Swizzle1D_ConsistentSwizzle) {
 
   EXPECT_FALSE(haveDifferentShardings(
       in, DomainType::kLoop, out, DomainType::kLoop, {ParallelType::Stream}));
-}
-
-// Same topology as DIDToStream, but checking DIDx only.
-// The DIDx path doesn't traverse the swizzle (consumer has no DIDx loop ID).
-TEST_F(ReshardingTest, Swizzle1D_DIDxCheck) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  const int d = 2;
-  auto mesh = DeviceMesh::createForNumDevices(d);
-
-  TensorView* in = makeContigTensor(1);
-  in->setDeviceMesh(mesh);
-  in->outer_split(0, d);
-  in->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* out = set(in);
-  out->setDeviceMesh(mesh);
-  out->outer_split(0, d);
-  out->swizzle1d(0, ParallelType::DIDx);
-  out->axis(0)->parallelize(ParallelType::Stream);
-
-  EXPECT_TRUE(haveDifferentShardings(in, out, {ParallelType::DIDx}));
 }
 
 } // namespace nvfuser
