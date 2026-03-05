@@ -1220,9 +1220,26 @@ class AllocationInserter : public kir::ExprMutator {
     return alloc_expr;
   }
 
+  // Compute a warp-uniform warp ID for use in warp-specialization predicates.
+  //
+  // Warp-specialized kernels split a CTA into compute warps and async (TMA
+  // loader) warps. Branch predicates like `warp_id >= num_compute_warps` need
+  // to be recognized as warp-uniform by PTXAS to avoid redundant VOTEU.ALL
+  // and WARPSYNC.ALL instructions. A simple `flat_tid / 32` is mathematically
+  // uniform within a warp, but PTXAS cannot prove this statically. Following
+  // the CUTLASS canonical_warp_idx_sync() pattern, we broadcast the warp ID
+  // from lane 0 via __shfl_sync, which is an explicit proof of uniformity.
+  //
+  // Generated code:
+  //   unsigned T1 = warp::uniformWarpId(
+  //       (unsigned)((threadIdx.x + threadIdx.y * blockDim.x) / 32));
+  //
+  // The result is stored in GpuLower and reused by all warp-dispatch
+  // predicates (getAsyncWarpPredicate, selectFirstWarpElectSyncPredicate,
+  // createElectSyncPredicateAsync, createMultipleExpressionElectSync).
   void computeUniformWarpId() {
-    // Compute flat thread id: tid = threadIdx.x + threadIdx.y * blockDim.x +
-    // threadIdx.z * blockDim.x * blockDim.y
+    // flat_tid = threadIdx.x + threadIdx.y * blockDim.x
+    //          + threadIdx.z * blockDim.x * blockDim.y
     const auto& pdim = GpuLower::current()->info().parallelDimensionMap();
     Val* tid = FusionGuard::getCurFusion()->zeroVal();
     Val* bdimx = pdim.getRaw(ParallelType::TIDx);
@@ -1250,13 +1267,10 @@ class AllocationInserter : public kir::ExprMutator {
       tid = SimplifyingIrBuilder::addExpr(tid, tidz);
     }
 
-    // Compute warp_id = tid / 32
     Val* warp_size = IrBuilder::create<Val>(32L, DataType::Index);
     Val* warp_id = SimplifyingIrBuilder::divExpr(tid, warp_size);
 
-    // Cast to UInt32 and broadcast from lane 0 via __shfl_sync to make the
-    // value provably warp-uniform to PTXAS. Without this, PTXAS inserts
-    // redundant VOTEU.ALL/WARPSYNC.ALL uniformity checks.
+    // Broadcast from lane 0 via __shfl_sync to prove warp-uniformity.
     Val* warp_id_u32 =
         SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, warp_id);
     Val* uniform_warp_id = IrBuilder::create<Val>(DataType::UInt32);

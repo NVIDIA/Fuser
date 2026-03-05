@@ -1565,17 +1565,15 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     insertion_info_.erase(loop);
   }
 
-  // Create predicate for warp-specialized IfThenElse:
-  // If uniform warp ID is available, use warp-ID-based predicate (warp_id >=
-  // num_compute_warps)
+  // Create predicate for warp-specialized IfThenElse.
+  // Uses uniform warp ID (warp_id >= num_compute_warps) when available,
+  // otherwise falls back to threadIdx comparison.
   kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
     const ParallelDimensionMap& pdim_map =
         GpuLower::current()->info().parallelDimensionMap();
 
     Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
     if (uniform_warp_id != nullptr) {
-      // Use uniform warp ID approach: async warps have warp_id >=
-      // num_compute_warps
       Val* num_compute_warps = pdim_map.getNumComputeWarps();
       NVF_ERROR(
           num_compute_warps != nullptr,
@@ -2032,7 +2030,8 @@ kir::ForLoop* HopperPingPongMbarriers::initializePingPongMbarrier() {
       GpuLower::current()
           ->info()
           .parallelDimensionMap()
-          .getNumComputeThreadsEachBlock(true));
+          .getNumComputeThreadsEachBlock(
+              /*only_count_same_compute_warp_groups=*/true));
   kir::TensorIndex* ping_pong_mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());
   kir::MBarrierInit* ping_pong_mbarrier_init =
