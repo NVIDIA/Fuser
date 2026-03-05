@@ -180,14 +180,23 @@ class NVF_API Fusion : public PolymorphicBase {
   Fusion();
 
   Fusion(const Fusion& other);
-  Fusion(Fusion&& other) noexcept;
+
+  // Not marked noexcept: Fusion::swap allocates local std::vectors to collect
+  // statement ownership before the swap, which can throw. Since Fusions are not
+  // expected to be moved into containers, the performance trade-off is
+  // acceptable.
+  // NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations)
+  Fusion(Fusion&& other);
 
   Fusion& operator=(const Fusion& other);
-  Fusion& operator=(Fusion&& other) noexcept;
+
+  // Not marked noexcept: See move constructor above.
+  // NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations)
+  Fusion& operator=(Fusion&& other);
 
   ~Fusion() override;
 
-  static void swap(Fusion& a, Fusion& b) noexcept;
+  static void swap(Fusion& a, Fusion& b);
 
   void clear() noexcept;
 
@@ -661,6 +670,21 @@ class NVF_API Fusion : public PolymorphicBase {
   std::unique_ptr<std::vector<Val*>> axioms_;
 
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
+
+  // Per-Fusion name counters. Each Fusion independently tracks name assignment
+  // so that cloned Fusions get matching names (T0→T0) regardless of whether
+  // they share an IrContainer. This is required by downstream consumers that
+  // use tv->name() as a map key (alias_memory, GreedyParams, etc.).
+  std::unordered_map<ValType, StmtNameType> val_type_name_map_;
+  StmtNameType expr_name_counter_ = 0;
+
+  StmtNameType getValName(ValType vtype) {
+    return val_type_name_map_[vtype]++;
+  }
+
+  StmtNameType getExprName() {
+    return expr_name_counter_++;
+  }
 };
 
 // Template implementations for Fusion::manage<T>() that use IrCloner
