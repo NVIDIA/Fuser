@@ -181,6 +181,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"fast_math", EnableOption::FastMath},
           {"p2p_protocol", EnableOption::P2pProtocol},
           {"multicast_protocol", EnableOption::MulticastProtocol},
+          {"symmetric_memory_backend", EnableOption::SymmetricMemoryBackend},
           {"parallel_serde", EnableOption::ParallelSerde},
       };
   return available_options;
