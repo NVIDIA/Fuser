@@ -212,7 +212,8 @@ struct Fusion::ContainerMutator {
         Expr* e = c->exprs_up_.back().get();
         NVF_ERROR(
             c->per_fusion_exprs_[self].count(e) > 0,
-            "removeStatementsCreatedAfter: tail expr belongs to another Fusion");
+            "removeStatementsCreatedAfter: tail expr belongs to another "
+            "Fusion");
         for (Val* out : e->outputs()) {
           out->setDefinition(nullptr);
         }
