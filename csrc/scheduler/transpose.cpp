@@ -407,9 +407,11 @@ std::unique_ptr<HeuristicParams> TransposeScheduler::computeHeuristics(
 
   std::unique_ptr<TransposeParams> tparams = nullptr;
 
-  // Try TMA path first
-  tparams =
-      transpose::tma::getTransposeHeuristics(fusion, runtime_info, data_cache);
+  // Try TMA path first if enabled
+  if (isOptionEnabled(EnableOption::TmaTranspose)) {
+    tparams = transpose::tma::getTransposeHeuristics(
+        fusion, runtime_info, data_cache);
+  }
 
   // Fallback to non-TMA scheduler if TMA is not applicable
   if (tparams == nullptr) {
@@ -431,7 +433,7 @@ void TransposeScheduler::schedule(
       "Incorrect parameters sent to TransposeScheduler::schedule",
       params);
 
-  if (tparams->use_tma_load) {
+  if (tparams->use_tma_load || tparams->use_tma_store) {
     transpose::tma::scheduleTranspose(fusion, tparams);
   } else {
     transpose::non_tma::scheduleTranspose(fusion, tparams);

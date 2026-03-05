@@ -11,6 +11,7 @@
 #include <visibility.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -22,7 +23,7 @@ namespace nvfuser {
 //!
 //! These can be set through the `NVFUSER_DUMP` environment variable
 //!
-enum class DebugDumpOption {
+enum class DebugDumpOption : std::uint8_t {
   CutlassCompile, //!< Dump compile commands and compile times for
                   //!< CutlassExecutor
   FunctionTrace, //!< Dump the function trace of selected internal function. The
@@ -97,7 +98,7 @@ enum class DebugDumpOption {
 //!
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
-enum class EnableOption {
+enum class EnableOption : std::uint8_t {
   CutlassScheduler, //! Enable the CUTLASS scheduler and executor
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
@@ -118,6 +119,7 @@ enum class EnableOption {
   TmaPointwise, //! Enable TMA pointwise kernel
   TmaInnerPersistent, //! Enable TMA inner persistent kernel
   TmaReduction, //! Enable TMA reduction kernel
+  TmaTranspose, //! Enable TMA transpose kernel
   WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   HostIrJit, //! Enable Host IR JIT compilation with LLVM
@@ -134,7 +136,7 @@ enum class EnableOption {
 //!
 //! These can be set through the `NVFUSER_DISABLE` environment variable
 //!
-enum class DisableOption {
+enum class DisableOption : std::uint8_t {
   CompileToSass, //! Disable direct compilation to sass so the ptx can be
                  //! examined
   ContigIndexing, //! Disable contiguous indexing
@@ -176,7 +178,7 @@ enum class DisableOption {
 //!
 //! These can be set through the `NVFUSER_PROF` environment variable
 //!
-enum class ProfilerOption {
+enum class ProfilerOption : std::uint8_t {
   Enable, //! Enables the profiler.
   EnableNocupti, //! Enables the profiler, but disables CUPTI specific
                  //! profiling inorder to measure true host time without
@@ -197,10 +199,11 @@ class Options {
  public:
   Options() : options_(getOptionsFromEnv()) {}
 
-  Options(const Options& other) {
-    std::lock_guard<std::mutex> lock_other(other.mutex_);
-    options_ = other.options_;
-  }
+  Options(const Options& other)
+      : options_([&other]() {
+          std::lock_guard<std::mutex> lock_other(other.mutex_);
+          return other.options_;
+        }()) {}
 
   Options& operator=(const Options& other) {
     std::lock_guard<std::mutex> lock_other(other.mutex_);

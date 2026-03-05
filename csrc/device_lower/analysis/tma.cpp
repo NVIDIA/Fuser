@@ -53,13 +53,15 @@ std::unordered_set<const Expr*> getBatchableTmaLoads(
     // We have some tests where TMA load is used in an untraditional way.
     // e.g. parallelized with threads, serial load, which requires multiple
     // mbarriers or reuse of the same mbarrier.
-    if (std::any_of(
-            tv->getLoopDomain().begin(),
-            tv->getLoopDomain().end(),
-            [](const IterDomain* id) {
-              return id->isThreadDim() ||
-                  id->getParallelType() == ParallelType::Serial;
-            })) {
+    auto non_trivial_ids =
+        tv->getLoopDomain() | std::views::filter([](const IterDomain* id) {
+          return !id->extent()->isConstScalar() ||
+              id->extent()->evaluate().as<int64_t>() > 1;
+        });
+    if (std::ranges::any_of(non_trivial_ids, [](const IterDomain* id) {
+          return id->isThreadDim() ||
+              id->getParallelType() == ParallelType::Serial;
+        })) {
       return {};
     }
     non_cb_tma_load_exprs.push_back(expr);

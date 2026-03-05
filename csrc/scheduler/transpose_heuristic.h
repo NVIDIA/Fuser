@@ -22,7 +22,7 @@ namespace nvfuser {
 // are equivelent!
 class TransposeParams : public HeuristicParams {
  public:
-  TransposeParams() : HeuristicParams(SchedulerType::Transpose) {};
+  TransposeParams() : HeuristicParams(SchedulerType::Transpose){};
   static constexpr int64_t getMaxThreadsPerBlock() {
     return 128;
   }
@@ -39,6 +39,20 @@ class TransposeParams : public HeuristicParams {
 
   // Whether to use TMA for loading inputs
   bool use_tma_load = false;
+  bool use_tma_store = false;
+
+  // Which side of shared memory holds the transposed (swizzled) layout.
+  // false: input smem is swizzled, transpose happens on smem->register read.
+  // true:  output smem is swizzled, transpose happens on register->smem write.
+  // This is independent of use_tma_load/use_tma_store — TMA can be used for
+  // either side regardless of where the transpose swizzle lives.
+  bool is_output_smem_transpose = false;
+
+  // In 128-bytes swizzled tma load, inner most dim is split into 8 chunks each
+  // with 16 bytes. Each thread may handle multiple chunks along the inner most
+  // dim.
+  int64_t chunks_per_thread = 1;
+  int64_t elements_per_chunk = 1;
 
   // Vectorization factor for tensors in the first group
   int64_t vectorize_factor1 = 1;
@@ -65,6 +79,10 @@ class TransposeParams : public HeuristicParams {
     }
     bool attr_equal = other->cparams == cparams &&
         other->use_tma_load == use_tma_load &&
+        other->use_tma_store == use_tma_store &&
+        other->is_output_smem_transpose == is_output_smem_transpose &&
+        other->chunks_per_thread == chunks_per_thread &&
+        other->elements_per_chunk == elements_per_chunk &&
         other->split_before_tiling == split_before_tiling &&
         other->dims_merged_with_1 == dims_merged_with_1 &&
         other->dims_merged_with_2 == dims_merged_with_2 &&
@@ -98,6 +116,14 @@ class TransposeParams : public HeuristicParams {
     int64_t unroll_factor2 = elements_per_thread / vectorize_factor2;
     if (unroll_factor2 > 1) {
       ss << "Unroll group 2, Factor: " << unroll_factor2 << "\n";
+    }
+    if (use_tma_load || use_tma_store) {
+      ss << "TMA: load=" << (use_tma_load ? "true" : "false")
+         << " store=" << (use_tma_store ? "true" : "false")
+         << " is_output_smem_transpose="
+         << (is_output_smem_transpose ? "true" : "false")
+         << " chunks_per_thread=" << chunks_per_thread
+         << " elements_per_chunk=" << elements_per_chunk << "\n";
     }
     if (!split_before_tiling.empty() || !dims_merged_with_1.empty() ||
         !dims_merged_with_2.empty()) {
@@ -146,6 +172,10 @@ class TransposeParams : public HeuristicParams {
   size_t hash() const override {
     return c10::get_hash(
         use_tma_load,
+        use_tma_store,
+        is_output_smem_transpose,
+        chunks_per_thread,
+        elements_per_chunk,
         split_before_tiling,
         dims_merged_with_1,
         dims_merged_with_2,
