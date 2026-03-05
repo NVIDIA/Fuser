@@ -5,9 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <scheduler/tools/maxinfo_propagator.h>
+#include "scheduler/tools/maxinfo_propagator.h"
+
+#include "ir/utils.h"
+#include "logical_domain_map.h"
 
 namespace nvfuser {
 

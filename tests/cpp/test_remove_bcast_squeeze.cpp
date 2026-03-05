@@ -10,7 +10,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "ir/all_nodes.h"
 #include "ir/utils.h"
 #include "ops/all_ops.h"
@@ -18,17 +18,11 @@
 #include "preseg_passes/pre_segmenter.h"
 #include "preseg_passes/remove_bcast_squeeze.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class RemoveBcastSqueezeTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using RemoveBcastSqueezeTest = NVFuserTest;
 
 namespace {
 

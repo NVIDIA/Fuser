@@ -17,7 +17,7 @@
 
 #include <c10/cuda/CUDAStream.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "grouped_reduction.h"
 #include "ir/utils.h"
 #include "kernel_ir.h"
@@ -28,18 +28,12 @@
 #include "scheduler/tools/inlining.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class SerialGridReductionTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using SerialGridReductionTest = NVFuserTest;
 
 TEST_F(SerialGridReductionTest, Scheduling) {
   for (bool serial : {true, false}) {

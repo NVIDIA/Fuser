@@ -84,22 +84,20 @@ class FusionInspector : private IterVisitor {
     auto out = ir_utils::getTvOutput(rop);
     // Check if this reduction can use staticWarpAllReduceTIDX optimization.
     // Ensure there is only one reduction domain and it is parallelized with
-    // TIDx and its size is a multiple of warp size (32).
+    // TIDx. Warp specialization ensures that TIDx is padded to a multiple of
+    // warp size.
     auto is_static_warp_reduction = [](TensorView* out,
                                        bool has_warp_specialization) {
       if (!has_warp_specialization) {
         return false;
       }
 
-      constexpr int64_t kThreadsPerWarp = 32L;
       int reduction_count = 0;
       bool has_valid_tidx_reduction = false;
       for (auto ld : out->getLoopDomain()) {
         if (ld->isReduction()) {
           reduction_count++;
-          if (ld->getParallelType() == ParallelType::TIDx &&
-              ld->extent()->isConst() &&
-              ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
+          if (ld->getParallelType() == ParallelType::TIDx) {
             has_valid_tidx_reduction = true;
           }
         }

@@ -181,7 +181,7 @@ struct TensorSlicingCache {
 
     auto td = IrBuilder::create<TensorDomain>(
         new_root, TensorDomain::getContiguityFilledWith(new_root, true));
-    auto out = IrBuilder::create<TensorView>(td, *tensor->getDataType());
+    auto out = IrBuilder::create<TensorView>(td, tensor->getDataType());
     out->setDeviceMesh(tensor->getDeviceMesh());
     auto result = IrBuilder::create<hir::HirAliasSelect>(
         tensor, out, stream_axis_index, index);
@@ -202,7 +202,7 @@ std::list<Expr*> groupStreamParallelRegions(
 
   for (Expr* expr : top_level_exprs) {
     // Skip expressions with no outputs
-    if (expr->outputs().size() == 0) {
+    if (expr->outputs().empty()) {
       new_top_level_exprs.push_back(expr);
       continue;
     }
@@ -319,7 +319,7 @@ std::list<Expr*> processForLoopBodies(
           new_loop_body.push_back(slicing);
         }
         expr = ir_utils::replaceValInExprInputs(expr, tensor, slicing->out());
-        if (expr->outputs().size() > 0 && expr->outputs()[0] == tensor) {
+        if (!expr->outputs().empty() && expr->outputs()[0] == tensor) {
           expr =
               ir_utils::transferDefinitionToNewOutputs(expr, {slicing->out()});
         }
@@ -520,10 +520,10 @@ std::list<Expr*> processForLoopBodies(
 
         auto [slicing_input, is_new] = tensor_slicing_cache.get(
             input_tv,
-            /*dim=*/0,
+            /*stream_axis_index=*/0,
             /*index=*/FusionGuard::getCurFusion()->zeroVal());
-        auto [slicing_output, is_new_] =
-            tensor_slicing_cache.get(output_tv, /*dim=*/0, /*index=*/recv_peer);
+        auto [slicing_output, is_new_] = tensor_slicing_cache.get(
+            output_tv, /*stream_axis_index=*/0, /*index=*/recv_peer);
         new_loop_body.push_back(slicing_output);
 
         if (params.offset_stream_indexing_by_rank == false) {
@@ -608,6 +608,35 @@ std::list<Expr*> processForLoopBodies(
                 communicator_backend);
           }
           new_loop_body.push_back(if_sending_to_self);
+        }
+
+        if (params.inter_stream_synchronization) {
+          // if i < numberOfStreams, synchronize stream i+1 with stream i
+          auto* number_of_streams =
+              IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
+
+          auto* curr_stream_idx = mod(for_loop->index(), number_of_streams);
+          auto* curr_stream = IrBuilder::create<hir::Stream>(curr_stream_idx);
+
+          auto* one = FusionGuard::getCurFusion()->oneVal();
+          auto* next_stream_idx = add(for_loop->index(), one);
+          auto* no_wraparound = IrBuilder::create<kir::Predicate>(
+              lt(next_stream_idx, number_of_streams));
+          auto* sync_if = IrBuilder::create<kir::IfThenElse>(no_wraparound);
+
+          auto* next_stream = IrBuilder::create<hir::Stream>(next_stream_idx);
+          auto* set_next_stream =
+              IrBuilder::create<hir::SetCurrentStream>(next_stream);
+          sync_if->thenBody().pushBack(set_next_stream);
+
+          auto* sync = IrBuilder::create<hir::Synchronize>(curr_stream);
+          sync_if->thenBody().pushBack(sync);
+
+          auto* set_curr_stream =
+              IrBuilder::create<hir::SetCurrentStream>(curr_stream);
+          sync_if->thenBody().pushBack(set_curr_stream);
+
+          new_loop_body.push_back(sync_if);
         }
       } else {
         // Process inputs and outputs normally

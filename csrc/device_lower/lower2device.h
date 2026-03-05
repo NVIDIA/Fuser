@@ -83,6 +83,10 @@ class GpuLower : public NonCopyable {
     return cparams_.index_type.value();
   }
 
+  const CompileParams& compileParams() const {
+    return cparams_;
+  }
+
   const auto& minDeviceVersion() const {
     return min_device_version_;
   }
@@ -197,6 +201,17 @@ class GpuLower : public NonCopyable {
 
   const std::unordered_map<const Expr*, TensorView*>& mbarrierMap() const {
     return mbarrier_map_;
+  }
+
+  // Map from batched (non-circular-buffered) TMA load expressions to their
+  // indexed mbarrier TensorIndex for batched TMA path
+  std::unordered_map<const Expr*, kir::TensorIndex*>& batchedTmaMbarrierMap() {
+    return batched_tma_mbarrier_map_;
+  }
+
+  const std::unordered_map<const Expr*, kir::TensorIndex*>&
+  batchedTmaMbarrierMap() const {
+    return batched_tma_mbarrier_map_;
   }
 
   bool isNvFuserZeroEnabled() {
@@ -418,6 +433,9 @@ class GpuLower : public NonCopyable {
 
   // Keep track of the mbarrier used for each load/store and blackwell utcmma
   std::unordered_map<const Expr*, TensorView*> mbarrier_map_;
+
+  // Keep track of indexed mbarriers for batched non-circular-buffered TMA loads
+  std::unordered_map<const Expr*, kir::TensorIndex*> batched_tma_mbarrier_map_;
 
   // Information about tensor memory usage
   TensorMemoryInfo tmem_info_;

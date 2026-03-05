@@ -10,7 +10,6 @@
 #include <fusion.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <linked_hash_map.h>
@@ -215,10 +214,6 @@ class ReplayRFactor : public ReplayTransformations {
   }
 
   void handle(Swizzle* swizzle) override {
-    NVF_THROW("Unexpected expression: ", swizzle->toString());
-  }
-
-  void handle(Swizzle2D* swizzle) override {
     NVF_THROW("Unexpected expression: ", swizzle->toString());
   }
 

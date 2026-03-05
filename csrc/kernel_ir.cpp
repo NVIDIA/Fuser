@@ -297,7 +297,8 @@ class ExprFinder : kir::ConstIrVisitor {
   }
 
  private:
-  const std::unordered_set<std::type_index>& expr_types_;
+  const std::unordered_set<std::type_index>&
+      expr_types_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   bool is_found_ = false;
 };
 
@@ -390,9 +391,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
 }
 
 Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
-    : Val(passkey, ValType::Predicate, DataType::Bool),
-      ptype_(PredicateType::Manual),
-      value_(value) {
+    : Val(passkey, ValType::Predicate, DataType::Bool), value_(value) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
@@ -420,14 +419,15 @@ TensorIndex::TensorIndex(
     DataType dtype)
     : Val(passkey,
           ValType::TensorIndex,
-          dtype != DataType::Null ? dtype : view->getDataType().value()),
+          dtype != DataType::Null ? dtype : view->getDataType()),
       view_(view),
       index_(index) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  auto uint16x2 = ArrayType{std::make_shared<DataType>(DataType::UInt16), 2};
+  auto uint16x2 = ArrayType{
+      .type = std::make_shared<DataType>(DataType::UInt16), .size = 2};
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
           isStructType(index->dtype()) ||
@@ -1741,8 +1741,7 @@ int64_t GroupedGridWelford::getSmemBufferSize(
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {
-    return bdimx * bdimy * bdimz *
-        dataTypeSizeByte(out_tv->getDataType().value()) * 2 +
+    return bdimx * bdimy * bdimz * dataTypeSizeByte(out_tv->getDataType()) * 2 +
         bdimx * bdimy * bdimz *
         dataTypeSizeByte(DataType::Index, kernel->indexType());
   }
@@ -1764,8 +1763,8 @@ int64_t GroupedGridWelford::getSmemBufferSize(
   int64_t num_warps = bdimx * bdimy / 32;
   NVF_ERROR((bdimx * bdimy) % 32 == 0);
 
-  int64_t buf_size_for_avg_var = bdimx * num_warps * group_count *
-      dataTypeSizeByte(out_tv->getDataType().value());
+  int64_t buf_size_for_avg_var =
+      bdimx * num_warps * group_count * dataTypeSizeByte(out_tv->getDataType());
   int64_t buf_size_for_N =
       num_warps * dataTypeSizeByte(DataType::Index, kernel->indexType());
 
@@ -1966,22 +1965,23 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
   NVF_CHECK(std::holds_alternative<ArrayType>(global_dim->dtype().type));
   size_t tensor_rank = std::get<ArrayType>(global_dim->dtype().type).size;
   ArrayType expect_global_dim_type{
-      std::make_shared<DataType>(DataType::Index), tensor_rank};
+      .type = std::make_shared<DataType>(DataType::Index), .size = tensor_rank};
   NVF_CHECK(global_dim->dtype() == expect_global_dim_type);
   addInput(global_dim);
 
   ArrayType expect_global_strides_type{
-      std::make_shared<DataType>(DataType::Index), tensor_rank - 1};
+      .type = std::make_shared<DataType>(DataType::Index),
+      .size = tensor_rank - 1};
   NVF_CHECK(global_strides->dtype() == expect_global_strides_type);
   addInput(global_strides);
 
   ArrayType expect_box_dim_type{
-      std::make_shared<DataType>(DataType::Index), tensor_rank};
+      .type = std::make_shared<DataType>(DataType::Index), .size = tensor_rank};
   NVF_CHECK(box_dim->dtype() == expect_box_dim_type);
   addInput(box_dim);
 
   ArrayType expect_element_strides_type{
-      std::make_shared<DataType>(DataType::Index), tensor_rank};
+      .type = std::make_shared<DataType>(DataType::Index), .size = tensor_rank};
   NVF_CHECK(element_strides->dtype() == expect_element_strides_type);
   addInput(element_strides);
 

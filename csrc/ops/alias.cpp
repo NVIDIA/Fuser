@@ -5,23 +5,24 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ops/alias.h>
+#include "ops/alias.h"
 
 #include <ranges>
 
-#include <expr_evaluator.h>
-#include <expr_simplifier.h>
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-#include <transform_view.h>
-#include <type_promotion.h>
+#include "base.h"
+#include "expr_evaluator.h"
+#include "expr_simplifier.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "transform_view.h"
+#include "type_promotion.h"
 
 namespace nvfuser {
 
 Val* set(Val* v) {
-  Val* out = ops::newValLike(v, v->getDataType().value());
+  Val* out = ops::newValLike(v, v->getDataType());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v);
   return out;
 }
@@ -31,7 +32,7 @@ TensorView* set(TensorView* tv) {
 }
 
 Val* segment_set(Val* v) {
-  Val* out = ops::newValLike(v, v->getDataType().value());
+  Val* out = ops::newValLike(v, v->getDataType());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterSet, out, v);
   return out;
 }
@@ -46,7 +47,7 @@ TensorView* view(TensorView* x, DataType dtype) {
     return x;
   }
 
-  auto input_type = x->getDataType().value();
+  auto input_type = x->getDataType();
   auto input_size = dataTypeSizeByte(input_type);
   auto newsize = dataTypeSizeByte(dtype);
 
@@ -67,9 +68,7 @@ TensorView* reshape(
       original_sizes.size());
 
   // handle empty reshapes by converting to full
-  if (std::any_of(original_sizes.begin(), original_sizes.end(), [](int64_t s) {
-        return s == 0l;
-      })) {
+  if (std::ranges::any_of(original_sizes, [](int64_t s) { return s == 0l; })) {
     // The original
     bool has_dynamic_axis = false;
     bool has_zero_output_size = false;
@@ -135,11 +134,15 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   auto inp_dom = TensorDomain::noReductions(inp_tv->getLogicalDomain());
 
   NVF_CHECK(
-      std::none_of(
-          inp_dom.begin(),
-          inp_dom.end(),
-          [](auto inp_id) { return inp_id->maybePartial(); }),
+      std::ranges::none_of(
+          inp_dom, [](auto inp_id) { return inp_id->maybePartial(); }),
       "Unsupported input tensor to reshape as its axes may be partial: ",
+      inp_tv->toString());
+
+  NVF_CHECK(
+      !inp_tv->domain()->hasRaggedIterDomain(),
+      "Reshape operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
       inp_tv->toString());
 
   auto static_reshape_output = tryStaticReshape(inp_tv, inp_dom, new_sizes);
@@ -215,7 +218,7 @@ NVF_API TensorView* reshape(
           logical_domain,
           logical_domain,
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
-      x->getDataType().value());
+      x->getDataType());
   IrBuilder::create<ReshapeOp>(out_tv, x);
   return out_tv;
 }
@@ -239,6 +242,12 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
       end_dim);
   NVF_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
 
+  NVF_CHECK(
+      !x->domain()->hasRaggedIterDomain(),
+      "Flatten operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      x->toString());
+
   if (start_dim == end_dim) {
     return x;
   }
@@ -246,7 +255,7 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   auto out = IrBuilder::createInContainer<TensorView>(
       x->container(),
       x->domain()->flatten(start_dim, end_dim),
-      x->getDataType().value());
+      x->getDataType());
 
   IrBuilder::create<ReshapeOp>(out, x);
   return out;
@@ -339,12 +348,12 @@ TensorView* squeeze(
   auto* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      *x->getDataType());
+      x->getDataType());
   if (x->hasDeviceMesh()) {
     out->setDeviceMesh(x->getDeviceMesh());
   }
 
-  if (std::none_of(to_squeeze.begin(), to_squeeze.end(), std::identity())) {
+  if (std::ranges::none_of(to_squeeze, std::identity())) {
     // If we did not squeeze any axes, this is just set()
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
   } else {
@@ -422,7 +431,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
           out_logical,
           out_logical,
           TensorDomain::getContiguityFilledWith(out_logical, true)),
-      x->getDataType().value());
+      x->getDataType());
   if (x->hasDeviceMesh()) {
     out_tensor->setDeviceMesh(x->getDeviceMesh());
   }
@@ -518,7 +527,12 @@ TensorView* pad(
     const std::vector<Val*>& pad_widths,
     Val* value,
     std::optional<IterType> iter_type_opt) {
-  DataType dt = inp->getDataType().value();
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Padding a tensor with RaggedIterDomain not supported: ",
+      inp->toString());
+
+  DataType dt = inp->getDataType();
   if (!value) {
     // Create a zero of the appropriate type
     if (isComplexType(dt)) {
@@ -533,7 +547,7 @@ TensorView* pad(
     }
   }
   NVF_CHECK(
-      hasSimilarDtype(dt, value->getDataType().value()),
+      hasSimilarDtype(dt, value->getDataType()),
       "Tensor arg and pad value must have the same dtype.");
   const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
   const auto ndims = inp_dom.size();
@@ -606,7 +620,7 @@ TensorView* pad(
           logical_ids,
           logical_ids,
           TensorDomain::getContiguityFilledWith(logical_ids, true)),
-      *inp->getDataType());
+      inp->getDataType());
 
   IrBuilder::create<PadOp>(out, inp, normalized_pad_widths, value);
 
@@ -624,18 +638,26 @@ TensorView* cat(
     bool manual_padding) {
   NVF_CHECK(!inputs.empty(), "No input tensor given");
 
-  const auto dtype = inputs.at(0)->getDataType().value();
+  NVF_CHECK(
+      std::ranges::none_of(
+          inputs,
+          [](TensorView* inp_tv) {
+            return inp_tv->domain()->hasRaggedIterDomain();
+          }),
+      "Concat with a tensor with RaggedIterDomain not supported");
+
+  const auto dtype = inputs.at(0)->getDataType();
 
   std::vector<std::vector<IterDomain*>> inp_doms;
   int64_t ndims = -1;
 
   for (auto inp : inputs) {
     NVF_CHECK(
-        inp->getDataType().value() == dtype,
+        inp->getDataType() == dtype,
         "Can't concatenate tensors with different data types: ",
         dtype,
         ", ",
-        inp->getDataType().value());
+        inp->getDataType());
     inp_doms.emplace_back(TensorDomain::noReductions(inp->getLogicalDomain()));
     auto i_ndims = static_cast<int64_t>(inp_doms.back().size());
     if (ndims == -1) {
@@ -667,10 +689,8 @@ TensorView* cat(
   // Primarily used for FusionTranslation, which adds the padOp for each tensor
   // separately.
   if (manual_padding) {
-    bool all_padded =
-        std::all_of(inputs.begin(), inputs.end(), [](TensorView* tv) {
-          return tv->definition()->isA<PadOp>();
-        });
+    bool all_padded = std::ranges::all_of(
+        inputs, [](TensorView* tv) { return tv->definition()->isA<PadOp>(); });
     NVF_ERROR(
         all_padded,
         "Expected all inputs to be padded when manual_padding is True.");
@@ -783,7 +803,12 @@ TensorView* slice(
   NVF_CHECK_EQ(
       ndims,
       std::ssize(ranges),
-      "The range vector must have the same number of Slice descriptors.")
+      "The range vector must have the same number of Slice descriptors.");
+
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Slicing a tensor with RaggedIterDomain not supported: ",
+      inp->toString());
 
   ExpressionEvaluator expr_eval;
 
@@ -944,7 +969,7 @@ TensorView* slice(
           logical_ids,
           logical_ids,
           TensorDomain::getContiguityFilledWith(logical_ids, true)),
-      *inp->getDataType());
+      inp->getDataType());
 
   IrBuilder::create<SliceOp>(out, inp, normalized_ranges);
   return out;
@@ -1047,7 +1072,7 @@ TensorView* broadcast(
   TensorView* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
+      inp->getDataType());
   if (inp->hasDeviceMesh()) {
     out->setDeviceMesh(inp->getDeviceMesh());
   }
@@ -1057,6 +1082,12 @@ TensorView* broadcast(
 
 TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Expand operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp->toString());
 
   NVF_CHECK_GE(expanded_sizes.size(), inp_domain.size());
 
@@ -1143,7 +1174,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
+      inp->getDataType());
   if (!expanded) {
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, inp);
   } else {
@@ -1180,6 +1211,12 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
 TensorView* repeat(
     TensorView* inp_tv,
     const std::vector<int64_t>& repeat_times) {
+  NVF_CHECK(
+      !inp_tv->domain()->hasRaggedIterDomain(),
+      "Repeat operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp_tv->toString());
+
   const auto ndims =
       TensorDomain::noReductions(inp_tv->getLogicalDomain()).size();
 
@@ -1281,6 +1318,11 @@ TensorView* asNested(
       1,
       "asNested currently only supports 1D extents tensors");
 
+  NVF_CHECK(
+      !data->domain()->hasRaggedIterDomain(),
+      "Multiple level of nesting is not supported: ",
+      data->toString());
+
   // Get the logical domain of the input, excluding reductions
   auto inp_logical = data->getLogicalDomain() | TensorDomain::kNoReductions;
   auto inp_logical_size = std::ranges::distance(inp_logical);
@@ -1320,7 +1362,7 @@ TensorView* asNested(
           logical_domain,
           logical_domain,
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
-      data->getDataType().value());
+      data->getDataType());
 
   // For now, just use LoadStoreOp to represent the nesting
   // operation. Does it make more sense to have a specific TensorView

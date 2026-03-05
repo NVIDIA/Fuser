@@ -8,18 +8,14 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <mma_type.h>
-#include <scheduler/matmul_heuristic.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/registry.h>
-#include <visibility.h>
 
-// This file contains:
-// - MatmulScheduler: The entry point for scheduler registry
-// - namespace schedule_matmul: Implementation detail for
-//   MatmulScheduler::schedule
+#include "exceptions.h"
+#include "fusion.h"
+#include "mma_type.h"
+#include "scheduler/matmul_heuristic.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/registry.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -46,7 +42,7 @@ class MatmulScheduler : public SchedulerEntry {
 
 namespace schedule_matmul {
 
-// Base class for AmpereMinus and HopperPlus
+// Base class for HopperPlus
 class Common {
  public:
   Common(Fusion* fusion, const MatmulParams* params)

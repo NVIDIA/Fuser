@@ -7,15 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <compute_at_map.h>
-#include <exceptions.h>
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/utils.h>
-
 #include <optional>
 #include <vector>
+
+#include "compute_at_map.h"
+#include "exceptions.h"
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "scheduler/tools/domain_map.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 

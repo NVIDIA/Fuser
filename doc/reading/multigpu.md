@@ -404,6 +404,8 @@ In this setup, the fusion IR just before segmentation becomes:
 
 ### Fully Sharded Data Parallelism (FSDP)
 
+This isn't implemented yet; it's included to show how it can be done in nvFuser.
+
 [FSDP](https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html)
 shards both activations and parameters. Before forward and backward, sharded
 parameters are all-gathered into unsharded parameters.
@@ -447,6 +449,8 @@ nvFuser will (a) deallocate all-gathered parameters right after they are used, a
 overlapped with computation.
 
 ### Pipeline Parallelism (PP)
+
+This is not implemented yet.
 
 So far, I've assumed all `TensorView`s share the same `DeviceMesh`, spanning all GPUs.
 In practice, they may each use different `DeviceMesh`es and
@@ -590,9 +594,25 @@ overlapping. I've omitted those details here for brevity.
 
 ### Context Parallelism (CP)
 
+This is not implemented yet.
+
 Internal design doc: http://nv/nvfuser-cp
 
 TODO: move some content to public docs
+
+### Expert Parallelism (EP)
+
+This is not implemented yet.
+
+Supporting expert parallelism requires the tensor list abstraction, which is
+being implemented following [the design
+doc](../dev/ragged_iter_domain_design_doc.md).
+
+The figure below shows how Llama 4 MoE is expert-parallelized with the tensor
+list abstraction. For conciseness, it shows only the router and dispatch
+steps.
+
+<img src="multigpu/expert_parallelism.png" alt="Figure 2" width="600">
 
 ## Debugging
 

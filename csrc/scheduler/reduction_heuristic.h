@@ -6,10 +6,10 @@
  */
 // clang-format on
 #pragma once
-#include <ir/interface_nodes.h>
-#include <scheduler/heuristic.h>
-
 #include <sstream>
+
+#include "ir/interface_nodes.h"
+#include "scheduler/heuristic.h"
 
 namespace nvfuser {
 

@@ -24,24 +24,17 @@ def softmax_fwd_fusion(
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
     T2 = fd.ops.max(T0, dims=[reduction_axis], keepdim=False, dtype=DataType.Null)
 
-    if reduction_axis:
-        shape_v6 = [T0.size(0), 1]
-    else:
-        shape_v6 = [1, T0.size(1)]
-    bcast_dim = 1 - reduction_axis
+    bcast_dims = [False, False]
+    bcast_dims[reduction_axis] = True
 
-    T7 = fd.ops.broadcast_in_dim(T2, shape=shape_v6, broadcast_dims=[bcast_dim])
-
-    V11 = T0.shape()
-    T12 = fd.ops.broadcast_in_dim(T7, shape=V11, broadcast_dims=[0, 1])
-    T13 = fd.ops.sub(T0, T12)
+    T7 = fd.ops.broadcast(T2, is_broadcast_dim=bcast_dims)
+    T13 = fd.ops.sub(T0, T7)
     T14 = fd.ops.exp(T13)
     T15 = fd.ops.sum(T14, dims=[reduction_axis], keepdim=False, dtype=DataType.Null)
 
-    T20 = fd.ops.broadcast_in_dim(T15, shape=shape_v6, broadcast_dims=[bcast_dim])
-    T25 = fd.ops.broadcast_in_dim(T20, shape=V11, broadcast_dims=[0, 1])
+    T20 = fd.ops.broadcast(T15, is_broadcast_dim=bcast_dims)
 
-    T26 = fd.ops.reciprocal(T25)
+    T26 = fd.ops.reciprocal(T20)
     T27 = fd.ops.mul(T14, T26)
 
     if dtype in PROMOTE_DTYPES:

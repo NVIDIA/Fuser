@@ -15,15 +15,7 @@
 #include "ir/base_nodes.h"
 #include "ir/builder.h"
 #include "multidevice/communication.h"
-
-namespace nvfuser {
-// This works around a circular dependency: compiled_kernel.h ==>
-// expr_evaluator.h ==> ir/all_nodes.h ==> host_ir/ir.h ==> compiled_kernel.h
-//
-// ir/all_nodes.h probably shouldn't include host_ir/ir.h. The former is for
-// fusion IR and the latter is for host IR.
-class CompiledKernel;
-} // namespace nvfuser
+#include "runtime/compiled_kernel.h"
 
 namespace nvfuser::hir {
 
@@ -167,6 +159,42 @@ class LaunchKernel : public Expr {
 
  private:
   CompiledKernel* compiled_kernel_ = nullptr;
+};
+
+class Allocate : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit Allocate(
+      IrBuilderPasskey passkey,
+      TensorView* in,
+      MemoryType memory_type,
+      bool zero_init = false);
+
+  Allocate(const Allocate& other) = delete;
+  Allocate& operator=(const Allocate& other) = delete;
+  Allocate(Allocate&& other) = delete;
+  Allocate& operator=(Allocate&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::Allocate";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  MemoryType memoryType() const {
+    return attribute<MemoryType>(0);
+  }
+
+  bool zeroInit() const {
+    return attribute<bool>(1);
+  }
 };
 
 class Deallocate : public Expr {

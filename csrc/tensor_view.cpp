@@ -134,7 +134,6 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       memory_type_(src->memory_type_),
       circular_buffer_options_(src->circular_buffer_options_),
       cpu_scalar_(src->cpu_scalar_),
-      has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_),
       promote_reuse_(src->promote_reuse_),
@@ -721,9 +720,8 @@ TensorView* TensorView::reorder(
 TensorView* TensorView::reorder(const std::vector<int64_t>& permutation) {
   std::unordered_map<int64_t, int64_t> reorder_map;
   int64_t idx = 0;
-  std::transform(
-      permutation.begin(),
-      permutation.end(),
+  std::ranges::transform(
+      permutation,
       std::inserter(reorder_map, reorder_map.end()),
       [&idx](const int64_t v) { return std::make_pair(idx++, v); });
 
@@ -769,81 +767,12 @@ TensorView* TensorView::swizzle(
   return this;
 }
 
-TensorView* TensorView::swizzle(
-    Swizzle2DType swizzle_type,
-    int64_t x,
-    int64_t y,
-    SwizzleMode swizzle_mode) {
-  has_swizzle_op_ = true;
-  x = wrapDim(x);
-  y = wrapDim(y);
-
+TensorView* TensorView::swizzle1d(int64_t x, ParallelType pt) {
   NVF_CHECK(
-      !(getMemoryType() == MemoryType::Global &&
-        swizzle_mode == SwizzleMode::Data),
-      "Data swizzle on global memory is not supported.");
-
-  NVF_CHECK(
-      x >= getMaxComputePosition(),
-      "Cannot swizzle axes within compute at position. Axis ",
-      x,
-      " is within computePosition = ",
-      getMaxComputePosition());
-
-  NVF_CHECK(
-      y >= getMaybeMaxProducerPosition(),
-      "Cannot swizzle axes within max producer position. Axis ",
-      y,
-      " is within maxProducerPosition = ",
-      getMaybeMaxProducerPosition());
-
-  // Disable unsupported use cases at the current step.
-  //  Currently do not support reducing or broadcasting
-  //   swizzled dimensions.
-  auto all_inputs = InputsOf::outputs({axis(x), axis(y)});
-  for (auto id : ir_utils::filterByType<IterDomain>(all_inputs)) {
-    NVF_ERROR(
-        !id->isBroadcast() && !id->isReduction(),
-        "Unsupported use case for swizzle.");
-  }
-
-  // Also checking that the scheduler is not trying to
-  //  compose swizzles, which is not yet supported either.
-  auto all_exprs = DependencyCheck::getAllValsBetween(
-      {all_inputs.begin(), all_inputs.end()}, {axis(x), axis(y)});
-  for (auto expr : all_exprs) {
-    NVF_ERROR(
-        !expr->isA<Swizzle2D>(), "Composing swizzles is not yet supported");
-  }
-
-  // Check swizzle specific constraints on the input axes:
-  if (swizzle_type != Swizzle2DType::ZShape) {
-    auto x_id = axis(x);
-    auto y_id = axis(y);
-
-    NVF_ERROR(
-        x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
-        "Only constant iterdomains supported on given swizzle type");
-
-    int64_t in_x_size = x_id->extent()->evaluate().as<int64_t>();
-    int64_t in_y_size = y_id->extent()->evaluate().as<int64_t>();
-
-    // Check size constraints based on swizzle type
-    if (swizzle_type == Swizzle2DType::XOR ||
-        swizzle_type == Swizzle2DType::CyclicShift) {
-      NVF_ERROR(in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");
-    }
-
-    if (swizzle_type == Swizzle2DType::XOR) {
-      // XOR swizzle only support power of 2 swizzle unit sizes:
-      bool is_pow_of_2 = in_x_size > 1 && ((in_x_size & (in_x_size - 1)) == 0);
-      NVF_ERROR(
-          is_pow_of_2, "XOR swizzle only support power of 2 domain sizes.");
-    }
-  }
-
-  domain()->swizzle(swizzle_type, x, y, swizzle_mode);
-
+      deviceParallelTypes().contains(pt),
+      "Swizzle1D only supports device parallel types, given: ",
+      pt);
+  domain()->swizzle1d(x, pt);
   return this;
 }
 
@@ -883,7 +812,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =
-      IrBuilder::create<TensorView>(producer_domain, getDataType().value());
+      IrBuilder::create<TensorView>(producer_domain, getDataType());
 
   producer->setDeviceMesh(mesh_);
 
@@ -1020,7 +949,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =
-      IrBuilder::create<TensorView>(producer_domain, tv->getDataType().value());
+      IrBuilder::create<TensorView>(producer_domain, tv->getDataType());
 
   // Set domain of consumer
   tv->setDomain(consumer_domain);
@@ -1171,7 +1100,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(container(), domain()),
-      getDataType().value());
+      getDataType());
 
   // Set domain of consumer
   TensorView* consumer = this;
@@ -1263,7 +1192,7 @@ TensorView* TensorView::cacheFork() {
           container(),
           IterDomain::clone(logical_domain),
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
-      getDataType().value());
+      getDataType());
 
   // Create write operation from this TV to new output
   IrBuilder::createInContainer<LoadStoreOp>(
@@ -1362,7 +1291,7 @@ TensorView* TensorView::cacheAfter(
           container(),
           new_logical_domain,
           TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
-      getDataType().value());
+      getDataType());
 
   // Set domain of producer - No Change
   TensorView* producer = this;
@@ -1466,10 +1395,8 @@ void TensorView::circularBuffer(
 
 bool TensorView::isEmptyTensor() const {
   auto& logical_domain = getLogicalDomain();
-  return std::all_of(
-      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
-        return id->extent()->isZeroInt();
-      });
+  return std::ranges::all_of(
+      logical_domain, [](IterDomain* id) { return id->extent()->isZeroInt(); });
 }
 
 void TensorView::applyMmaSwizzle(MmaOperand operand) {
@@ -1496,7 +1423,7 @@ void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
 }
 
 void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
-  auto dtype = getDataType().value();
+  auto dtype = getDataType();
   // Input is on the form:
   // [...., K (assume is 16), N (16 .. say dtype is half and swizzle
   // size is 32B]. Here the TMA box is [16,16]. This box could have
@@ -1648,10 +1575,9 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
   // domain. We don't need this and we should be able to just use stride_order_,
   // but currently alloc_domain support isn't ideal and could prevent
   // vectorization. Adding this workaround to restore performance.
-  if (std::adjacent_find(
-          stride_order.begin(), stride_order.end(), [](int64_t l, int64_t r) {
-            return l <= r;
-          }) != stride_order.end()) {
+  if (std::ranges::adjacent_find(stride_order, [](int64_t l, int64_t r) {
+        return l <= r;
+      }) != stride_order.end()) {
     // stride_order is not in descending order, we cannot skip it.
     stride_order_ = std::move(stride_order);
   }

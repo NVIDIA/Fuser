@@ -19,11 +19,11 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include "codegen.h"
-#include "csrc/exceptions.h"
 #include "device_lower/analysis/fusion_info.h"
 #include "device_lower/lower2device.h"
 #include "device_lower/pass/magic_zero.h"
 #include "disjoint_set.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "fusion_segmenter.h"
@@ -47,22 +47,16 @@
 #include "scheduler/utils.h"
 #include "tensor_metadata.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_replay.h"
 #include "transform_rfactor.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
 using namespace at::indexing;
 
-class Gpu2Test : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using Gpu2Test = NVFuserTest;
 
 TEST_F(Gpu2Test, FusionGlobalIntermediate_CUDA) {
   Fusion fusion;

@@ -24,62 +24,64 @@ def test_grouped_mlp(multidevice_test):
     k = 16
     n = 16 * d
 
-    def _definition(fd: FusionDefinition):
-        inp = fd.define_tensor([-1, k], dtype=DataType.BFloat16, contiguity=True)
-        gate_w = fd.define_tensor([g, k, n], dtype=DataType.BFloat16, contiguity=True)
-        up_w = fd.define_tensor([g, k, n], dtype=DataType.BFloat16, contiguity=True)
-        down_w = fd.define_tensor([g, n, k], dtype=DataType.BFloat16, contiguity=True)
-        offsets = fd.define_tensor([g], dtype=DataType.Int32, contiguity=True)
+    with FusionDefinition() as fd:
+        inp_tv = fd.define_tensor([-1, k], dtype=DataType.BFloat16, contiguity=True)
+        gate_w_tv = fd.define_tensor(
+            [g, k, n], dtype=DataType.BFloat16, contiguity=True
+        )
+        up_w_tv = fd.define_tensor([g, k, n], dtype=DataType.BFloat16, contiguity=True)
+        down_w_tv = fd.define_tensor(
+            [g, n, k], dtype=DataType.BFloat16, contiguity=True
+        )
+        offsets_tv = fd.define_tensor([g], dtype=DataType.Int32, contiguity=True)
 
-        gate_out = fd.ops.grouped_mm(inp, gate_w, offsets)
+        gate_out = fd.ops.grouped_mm(inp_tv, gate_w_tv, offsets_tv)
         gate_out = fd.ops.cast(gate_out, DataType.Float)
 
-        up_out = fd.ops.grouped_mm(inp, up_w, offsets)
+        up_out = fd.ops.grouped_mm(inp_tv, up_w_tv, offsets_tv)
 
         mul_out = fd.ops.mul(fd.ops.silu(gate_out), up_out)
         mul_out = fd.ops.cast(mul_out, DataType.BFloat16)
 
-        out = fd.ops.grouped_mm(mul_out, down_w, offsets)
+        out = fd.ops.grouped_mm(mul_out, down_w_tv, offsets_tv)
 
         fd.add_output(out)
 
-    def _multidevice_schedule(fd: FusionDefinition):
-        inp, gate_w, up_w, down_w, offsets = fd.fusion.inputs()
-        for t in [inp, gate_w, up_w, down_w, offsets]:
+        for t in [inp_tv, gate_w_tv, up_w_tv, down_w_tv, offsets_tv]:
             t.set_device_mesh(mesh)
 
-        for w in [gate_w, up_w]:
+        for w in [gate_w_tv, up_w_tv]:
             w.split(-1, d, False)
             w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-        down_w.split(-2, d, False)
-        down_w.axis(-3).parallelize(nvfuser.ParallelType.mesh_x)
+        down_w_tv.split(-2, d, False)
+        down_w_tv.axis(-3).parallelize(nvfuser.ParallelType.mesh_x)
 
     m = 32
-    inp = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
-    gate_w = torch.randn(g, k, n, dtype=torch.bfloat16)
-    up_w = torch.randn(g, k, n, dtype=torch.bfloat16)
-    down_w = torch.randn(g, n, k, dtype=torch.bfloat16)
-    sharded_gate_w = multidevice_test.shard_tensor_1d(gate_w, -1, mesh)
-    sharded_up_w = multidevice_test.shard_tensor_1d(up_w, -1, mesh)
-    sharded_down_w = multidevice_test.shard_tensor_1d(down_w, -2, mesh)
     assert m % g == 0
     group_sizes = [m // g] * g
-    offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
-
+    inp_ref = torch.randn(m, k, dtype=torch.bfloat16)
+    gate_w_ref = torch.randn(g, k, n, dtype=torch.bfloat16)
+    up_w_ref = torch.randn(g, k, n, dtype=torch.bfloat16)
+    down_w_ref = torch.randn(g, n, k, dtype=torch.bfloat16)
+    offsets_ref = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32)
     group_outs = [
-        (F.silu(group_in.cpu() @ group_gate_w) * (group_in.cpu() @ group_up_w))
-        @ group_down_w
+        (F.silu(group_in @ group_gate_w) * (group_in @ group_up_w)) @ group_down_w
         for group_in, group_gate_w, group_up_w, group_down_w in zip(
-            inp.split(group_sizes), gate_w.unbind(), up_w.unbind(), down_w.unbind()
+            inp_ref.split(group_sizes),
+            gate_w_ref.unbind(),
+            up_w_ref.unbind(),
+            down_w_ref.unbind(),
         )
     ]
-    expected_out = torch.cat(group_outs, dim=0)
+    out_ref = torch.cat(group_outs, dim=0)
 
-    with FusionDefinition() as fd:
-        _definition(fd)
-        _multidevice_schedule(fd)
-    (out,) = fd.execute([inp, sharded_gate_w, sharded_up_w, sharded_down_w, offsets])
+    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
+    gate_w = multidevice_test.shard_tensor(gate_w_ref, gate_w_tv)
+    up_w = multidevice_test.shard_tensor(up_w_ref, up_w_tv)
+    down_w = multidevice_test.shard_tensor(down_w_ref, down_w_tv)
+    offsets = multidevice_test.shard_tensor(offsets_ref, offsets_tv)
+    (out,) = fd.execute([inp, gate_w, up_w, down_w, offsets])
 
     # Unfortunately, I couldn't come up with meaningful thresholds to pass the
     # comparison even with one GPU. I manually examined the results. They are
@@ -91,7 +93,7 @@ def test_grouped_mlp(multidevice_test):
     #
     # None of them significantly reduce the error. It could be a problem in the
     # grouped gemm kernel.
-    torch.testing.assert_close(out.cpu(), expected_out, rtol=1.0, atol=float("inf"))
+    torch.testing.assert_close(out.cpu(), out_ref, rtol=1.0, atol=float("inf"))
 
 
 # The following benchmarks the fusion generated from NanoGPTBlockBenchmark in Thunder.
@@ -1097,7 +1099,7 @@ def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallel
         b, h, s, e // h, dtype=torch.bfloat16, device="cpu"
     )
 
-    sdpa_log_sumexp = torch.testing.make_tensor(
+    sdpa_logsumexp = torch.testing.make_tensor(
         b, h, s, dtype=torch.float32, device="cpu"
     )
     mha_linear0_weight = torch.testing.make_tensor(
@@ -1133,7 +1135,7 @@ def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallel
         .transpose(1, 2)
         .contiguous()
         .transpose(1, 2),
-        multidevice_test.shard_tensor_1d(sdpa_log_sumexp, 1, mesh),
+        multidevice_test.shard_tensor_1d(sdpa_logsumexp, 1, mesh),
         sdpa_philox_seed,
         sdpa_philox_offset,
         multidevice_test.shard_tensor_1d(mha_linear0_weight, 0, mesh),

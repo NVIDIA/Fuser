@@ -5,11 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
 #include "device_lower/lower2device.h"
 #include "dynamic_transform.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
@@ -23,7 +24,7 @@
 #include "scheduler/tools/cub_utils.h"
 #include "tests/cpp/topk_test_helper.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -476,13 +477,7 @@ TEST_F(TopKDynamicTest, KZeroConcretization) {
       << tv3->definition()->toString();
 }
 
-class TopKTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using TopKTest = NVFuserTest;
 
 // Parameterized test fixture for BasicExecution with different data types
 class TopKTestBasicExecution : public TopKTest,

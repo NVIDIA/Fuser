@@ -6,11 +6,12 @@
  */
 // clang-format on
 
-#include <ir/allocation_utils.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <linked_hash_map.h>
-#include <logical_domain_map.h>
+#include "ir/allocation_utils.h"
+
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "linked_hash_map.h"
+#include "logical_domain_map.h"
 
 namespace nvfuser {
 

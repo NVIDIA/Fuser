@@ -13,7 +13,7 @@
 #include "optimization_pass.h"
 #include "preseg_passes/mark_aliases_prepare.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -96,7 +96,7 @@ TEST_F(SegmentationTest, SegmenterHint) {
   FusionGuard fg(fusion.get());
   std::vector<int64_t> input_shape{32, 64, 8, 128};
   auto tv0 = TensorViewBuilder()
-                 .ndims(input_shape.size())
+                 .ndims(std::ssize(input_shape))
                  .dtype(DataType::Double)
                  .build();
   fusion->addInput(tv0);
@@ -474,6 +474,9 @@ TEST_F(SegmentationTest, ForceFp16NotAllCast) {
   // Check that the edge that wasn't fp16 is the producer of the
   //  reduction op, i.e. tv8 = sum(tv5,{1});.
   for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    if (!edge->val->isA<TensorView>()) {
+      continue;
+    }
     auto* edge_tv = edge->val->as<TensorView>();
     if (edge_tv->getDataType() == DataType::Float) {
       Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
@@ -535,6 +538,9 @@ TEST_F(SegmentationTest, ForceBf16NotAllCast) {
   // Check that the edge that wasn't fp16 is the producer of the
   //  reduction op, i.e. tv8 = sum(tv5,{1});.
   for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    if (!edge->val->isA<TensorView>()) {
+      continue;
+    }
     auto* edge_tv = edge->val->as<TensorView>();
     if (edge_tv->getDataType() == DataType::Float) {
       Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
@@ -810,16 +816,7 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
   auto t0 = at::randn({16, 32}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  KernelArgumentHolder outputs;
-
-  // Make sure NVFUSER_DUMP=segmented_fusion works
-  {
-    DebugDumpOptionsGuard options_guard;
-    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::FusionSegments);
-    std::ostringstream tmp_buf;
-    DebugStreamGuard debug_stream_guard(tmp_buf);
-    outputs = executor_cache.runFusionWithInputs({t0});
-  }
+  KernelArgumentHolder outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
@@ -901,16 +898,7 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcastAndSqueeze) {
   auto t0 = at::randn({16, 32}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  KernelArgumentHolder outputs;
-
-  // Make sure NVFUSER_DUMP=segmented_fusion works
-  {
-    DebugDumpOptionsGuard options_guard;
-    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::FusionSegments);
-    std::ostringstream tmp_buf;
-    DebugStreamGuard debug_stream_guard(tmp_buf);
-    outputs = executor_cache.runFusionWithInputs({t0});
-  }
+  KernelArgumentHolder outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 

@@ -48,6 +48,7 @@ jobs:
 
           export NVFUSER_BUILD_NO_CUTLASS=true
           export NVFUSER_BUILD_CPP_STANDARD=23
+          export NVFUSER_BUILD_ENABLE_PCH=true
           pip install -v -e ./python --no-build-isolation
       - name: Show ccache statistics
         if: always()

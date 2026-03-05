@@ -7,20 +7,20 @@
 // clang-format on
 #pragma once
 
-#include <dynamic_transform.h>
-#include <evaluator_common.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <runtime/fusion_cache_utils.h>
-#include <scheduler/heuristic.h>
-#include <serde/fusion_cache_generated.h>
-
-#include <c10/util/ArrayRef.h>
-
 #include <mutex>
 #include <type_traits>
 #include <unordered_map>
+
+#include <c10/util/ArrayRef.h>
+
+#include "dynamic_transform.h"
+#include "evaluator_common.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "runtime/fusion_cache_utils.h"
+#include "scheduler/heuristic.h"
+#include "serde/fusion_cache_generated.h"
 
 namespace nvfuser {
 class DynamicTransformConcretizationInfo;
@@ -145,8 +145,10 @@ class NVF_API FusionExecutorCache {
   //! query if there's a kernel ready to go for given inputs
   bool isCompiled(const KernelArgumentHolder& inputs, int8_t device = 0);
 
+  // Returns the pointer to the original fusion that's passed into the
+  // constructor. Concretization and pre-segmentation optimizations modify
+  // **copies** of this fusion, not this fusion itself.
   Fusion* fusion();
-
   const Fusion* fusion() const;
 
   void printFusion();

@@ -11,7 +11,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "id_model/id_model.h"
 #include "id_model/indexing.h"
@@ -27,12 +27,12 @@
 #include "scheduler/tools/resize_utils.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
 using IndexingTest = NVFuserTest;
-using PredicateIndexingTest = NVFuserFixtureParamTest<bool>;
+using PredicateIndexingTest = NVFuserTest;
 using ContigIndexingTest = NVFuserTest;
 using ContigPredicateIndexingTest = NVFuserTest;
 
@@ -282,8 +282,6 @@ class IndexValidator : public kir::IrVisitor {
       bool enable_contig_indexing,
       Args... args) {
     EnableOptionsGuard enable_options_guard;
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::IdModel, {"consumer_index", "producer_index"});
 
     // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
@@ -425,7 +423,6 @@ class PredicateIndexValidator : public kir::IrVisitor {
       bool enable_contig_indexing,
       Args... args) {
     EnableOptionsGuard enable_options_guard;
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
     // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
@@ -3095,7 +3092,6 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
   at::Tensor t0 = at::randn({1000}, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -3193,7 +3189,6 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
   at::Tensor t0 = at::randn({1000}, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -3360,7 +3355,6 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
   at::Tensor t0 = at::randn({1000}, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -3435,7 +3429,6 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
   at::Tensor t0 = at::randn({99}, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -3520,7 +3513,6 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
   at::Tensor t0 = at::randn({1000}, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -3535,7 +3527,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
 // tensors should not affect the unswitch predicate, which should
 // always be generated based on the circular buffered tensor as it has
 // more restrictive conditions.
-TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
+TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3574,11 +3566,7 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
   tv4->axis(1)->parallelize(ParallelType::Unswitch);
 
   // Only one of the two inputs is circular buffered
-  if (GetParam()) {
-    tv2->circularBuffer(/*number_of_stages=*/3);
-  } else {
-    tv3->circularBuffer(/*number_of_stages=*/3);
-  }
+  tv2->circularBuffer(/*number_of_stages=*/3);
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer, const IdModel& id_model)
@@ -3622,7 +3610,6 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
   at::Tensor t1 = at::randn({1000}, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
@@ -3630,12 +3617,6 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    PredicateIndexingTest,
-    testing::Bool(),
-    testing::PrintToStringParamName());
 
 // Repro for the issue with unswitched double buffer loops
 // (https://github.com/NVIDIA/Fuser/issues/2159)
@@ -3698,7 +3679,6 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
   // Running this fusion with the legacy indexer would result in an
   // error if run with compute-sanitizer.
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16}, options);
@@ -3790,7 +3770,6 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplit1) {
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({999}, options);
@@ -3881,7 +3860,6 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({999}, options);
@@ -3975,7 +3953,6 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({999}, options);
@@ -4085,7 +4062,6 @@ TEST_F(
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({999}, options);
@@ -4098,7 +4074,7 @@ TEST_F(
 }
 
 // Repro of unswitch predicate issue #681
-TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
+TEST_F(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4166,13 +4142,6 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
   };
 
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
-
-  EnableOptionsGuard enable_options_guard;
-  if (GetParam()) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  } else {
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-  }
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -4331,7 +4300,6 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
   at::Tensor t1 = at::randn({5, 100}, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
@@ -4345,8 +4313,6 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
 TEST_F(PredicateIndexingTest, NonDivisibleSplitWithNonLogicalToLoopDomains) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   std::vector<int64_t> shape{5, 2};
 
@@ -4564,7 +4530,6 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
   at::Tensor t1 = at::randn({1000}, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
@@ -4746,7 +4711,6 @@ TEST_F(
     PredicateIndexingTest,
     ParallelDimensionPredicateWithUnswitchAndSetLoopDomain) {
   // EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -5242,7 +5206,6 @@ TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
   IndexValidator<GetReference>::validate(&fusion, true);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({5, 6}, options);
@@ -5355,7 +5318,6 @@ TEST_F(ContigIndexingTest, Transpose) {
   IndexValidator<GetReference>::validate(&fusion, true);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({100, 100}, options);
@@ -5583,7 +5545,6 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
   PredicateIndexValidator<GetReference>::validate(&fusion, true);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({10, 20}, options);
@@ -5680,7 +5641,6 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
   };
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   DisableOptionsGuard disable_options_guard;
   DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
   DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
@@ -5800,7 +5760,6 @@ TEST_F(IndexingTest, ResizeRotation) {
   const int64_t i0 = 32;
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto zero = fusion.zeroVal();
 
@@ -5873,7 +5832,6 @@ TEST_F(PredicateIndexingTest, VectorizedResizeRotation) {
   const int64_t i0 = 32;
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto zero = fusion.zeroVal();
 
@@ -5976,7 +5934,6 @@ TEST_F(IndexingTest, Issue3505Repro1) {
   const auto zero = fusion.zeroVal();
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeContigConcreteTensor({i1, i2});
   fusion.addInput(tv0);
@@ -6019,7 +5976,6 @@ TEST_F(IndexingTest, Issue3505Repro2) {
   const auto zero = fusion.zeroVal();
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeContigConcreteTensor({i0});
   fusion.addInput(tv0);
@@ -6058,7 +6014,6 @@ TEST_F(IndexingTest, Issue3505Repro2) {
 
 TEST_F(IndexingTest, AlmostExactIndexingUpdate) {
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -6131,7 +6086,6 @@ TEST_F(IndexingTest, BroadcastLogicalDomainIndexing) {
 
 TEST_F(IndexingTest, Rng) {
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -6164,7 +6118,6 @@ TEST_F(IndexingTest, Rng) {
 // loop may not be unrolled.
 TEST_F(IndexingTest, StaticIndexing) {
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -6252,8 +6205,6 @@ TEST_F(PredicateIndexingTest, NonTrivialSizeOneDomain) {
 
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({8}, options);
 
@@ -6268,8 +6219,6 @@ TEST_F(PredicateIndexingTest, NonTrivialSizeOneDomain) {
 TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplit) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeContigConcreteTensor({8});
   fusion.addInput(tv0);
@@ -6321,8 +6270,6 @@ TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplit) {
 TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplitAfterDivisibleSplit) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeContigConcreteTensor({8});
   fusion.addInput(tv0);

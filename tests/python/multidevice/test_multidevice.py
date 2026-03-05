@@ -29,7 +29,6 @@ def test_sizes_and_ranks(multidevice_test):
 @pytest.mark.mpi
 def test_pointwise(multidevice_test):
     num_devices = multidevice_test.size
-    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
 
     with FusionDefinition() as fd:
         inp_tv = fd.define_tensor((-1, -1), contiguity=False, dtype=DataType.Float)
@@ -37,18 +36,77 @@ def test_pointwise(multidevice_test):
         tv2 = fd.ops.add(tv1, tv1)
         fd.add_output(tv2)
 
+        mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
         for tv in [inp_tv, tv1, tv2]:
             tv.set_device_mesh(mesh)
 
         inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     inp_ref = torch.randn(num_devices, 4)
-    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
+    out_ref = inp_ref.relu() * 2
 
+    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
     (out,) = fd.execute([inp])
-    (out_sharding,) = fd.fec.get_output_shardings()
-    torch.testing.assert_close(out.cpu(), inp_ref.relu() * 2)
-    assert out_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
+    torch.testing.assert_close(out.cpu(), out_ref)
+
+
+@pytest.mark.mpi
+def test_pointwise_vectorization(multidevice_test):
+    # Repro for https://github.com/NVIDIA/Fuser/issues/5920
+    d = multidevice_test.size
+    cp_size = 2
+    if d % (cp_size * cp_size) != 0:
+        pytest.skip(
+            f"We only support even split, so {d=} has to be divisible by {cp_size * cp_size} for {cp_size=}."
+        )
+    dp_size = d // (cp_size * cp_size)
+
+    c = 128
+    with FusionDefinition() as fd:
+        inp_tv = fd.define_tensor(
+            (-1, c, -1, -1, cp_size), contiguity=True, dtype=DataType.BFloat16
+        )
+        out_tv = fd.ops.set(inp_tv)
+        fd.add_output(out_tv)
+
+        mesh = nvfuser.multidevice.DeviceMesh(
+            torch.arange(d).reshape(dp_size, cp_size, cp_size)
+        )
+        for tv in [inp_tv, out_tv]:
+            tv.set_device_mesh(mesh)
+
+        inp_tv.axis(4).parallelize(nvfuser.ParallelType.mesh_y)
+        inp_tv.outer_split(3, cp_size)
+        inp_tv.axis(3).parallelize(nvfuser.ParallelType.mesh_x)
+        inp_tv.outer_split(0, dp_size)
+        inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_z)
+
+        out_tv.axis(4).parallelize(nvfuser.ParallelType.mesh_y)
+        out_tv.outer_split(3, cp_size)
+        out_tv.axis(3).parallelize(nvfuser.ParallelType.mesh_x)
+        out_tv.outer_split(0, dp_size)
+        out_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_z)
+        out_tv.set_allocation_domain(
+            (
+                out_tv.axis(3),
+                out_tv.axis(0),
+                out_tv.axis(1),
+                out_tv.axis(2),
+                out_tv.axis(4),
+                out_tv.axis(5),
+                out_tv.axis(6),
+            ),
+            True,
+        )
+
+    b = dp_size * 3
+    s = cp_size * 5
+    inp_ref = torch.randn(b, c, s, s, cp_size, dtype=torch.bfloat16)
+    out_ref = inp_ref
+
+    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
+    (out,) = fd.execute([inp])
+    torch.testing.assert_close(out, multidevice_test.shard_tensor(out_ref, out_tv))
 
 
 class QkvFormat(Enum):
@@ -89,7 +147,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
         # positive probability.
         dropout_p = fd.define_scalar(0.0, dtype=DataType.Double)
         is_causal = fd.define_scalar(True, dtype=DataType.Bool)
-        attn, log_sumexp, seed, offset = fd.ops.sdpfa_fwd(
+        attn, logsumexp, seed, offset = fd.ops.sdpfa_fwd(
             q, k, v, dropout_p=dropout_p, is_causal=is_causal
         )
 
@@ -99,7 +157,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
             k,
             v,
             attn,
-            log_sumexp,
+            logsumexp,
             dropout_p,
             is_causal,
             seed,
@@ -206,7 +264,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
         # positive probability.
         dropout_p = fd.define_scalar(0.0, dtype=DataType.Double)
         is_causal = fd.define_scalar(True, dtype=DataType.Bool)
-        attn, log_sumexp, seed, offset = fd.ops.sdpfa_fwd(
+        attn, logsumexp, seed, offset = fd.ops.sdpfa_fwd(
             q, k, v, dropout_p=dropout_p, is_causal=is_causal
         )
 
@@ -216,7 +274,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             k,
             v,
             attn,
-            log_sumexp,
+            logsumexp,
             dropout_p,
             is_causal,
             seed,
@@ -327,19 +385,18 @@ def test_inner_reduction(multidevice_test):
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     with FusionDefinition() as fd:
         inp_tv = fd.define_tensor((-1, -1), dtype=DataType.Float)
-        out_tv = fd.ops.sum(inp_tv, [1])
-        fd.add_output(out_tv)
+        out = fd.ops.sum(inp_tv, [1])
+        fd.add_output(out)
 
         inp_tv.set_device_mesh(mesh)
         inp_tv.outer_split(0, d)
         inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     inp_ref = torch.ones(d * 3, 5)
-    out_ref = inp_ref.sum(1)
 
     inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
     (out,) = fd.execute([inp])
-    torch.testing.assert_close(out, multidevice_test.shard_tensor(out_ref, out_tv))
+    torch.testing.assert_close(out, inp.sum(1))
 
 
 @pytest.mark.mpi
@@ -349,14 +406,14 @@ def test_insert_resharding_after(multidevice_test):
 
     with FusionDefinition() as fd:
         inp_tv = fd.define_tensor((-1, -1), contiguity=True)
-        out_tv = fd.ops.relu(inp_tv)
-        fd.add_output(out_tv)
+        out = fd.ops.relu(inp_tv)
+        fd.add_output(out)
 
         inp_tv.set_device_mesh(mesh)
         inp_tv.outer_split(0, d)
         inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
-        out_tv.set_device_mesh(mesh)
+        out.set_device_mesh(mesh)
 
     inp_ref = torch.randn(d * 3, 5)
     inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
@@ -398,8 +455,8 @@ def test_binary(multidevice_test):
     with FusionDefinition() as fd:
         x_tv = fd.define_tensor((-1, -1), contiguity=True, dtype=DataType.Half)
         y_tv = fd.define_tensor((-1, -1), contiguity=True, dtype=DataType.Half)
-        z_tv = fd.ops.add(x_tv, y_tv)
-        fd.add_output(z_tv)
+        z = fd.ops.add(x_tv, y_tv)
+        fd.add_output(z)
 
         x_tv.set_device_mesh(mesh)
         y_tv.set_device_mesh(mesh)
@@ -410,11 +467,11 @@ def test_binary(multidevice_test):
     y_ref = torch.randn(d * 2, 3, dtype=torch.float16)
     z_ref = x_ref.float() + y_ref.float()
 
+    x = multidevice_test.shard_tensor(x_ref, x_tv)
     y = multidevice_test.shard_tensor(y_ref, y_tv)
+    (z,) = fd.execute([x, y])
 
-    (z,) = fd.execute([x_ref.cuda(), y])
-
-    torch.testing.assert_close(z, multidevice_test.shard_tensor(z_ref, z_tv))
+    torch.testing.assert_close(z, multidevice_test.shard_tensor_1d(z_ref, 0, mesh))
 
 
 @pytest.mark.mpi
@@ -427,33 +484,31 @@ def test_reduction_with_2d_mesh(multidevice_test):
         pytest.skip(f"Number of devices ({d}) must be divisible by tp_size ({tp_size})")
 
     dp_size = d // tp_size
-    rank = multidevice_test.rank
 
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dp_size, tp_size))
 
     with FusionDefinition() as fd:
-        inp = fd.define_tensor([-1, -1], dtype=DataType.Float, contiguity=True)
-        out = fd.ops.sum(inp, [1])
+        inp_tv = fd.define_tensor([-1, -1], dtype=DataType.Float, contiguity=True)
+        out = fd.ops.sum(inp_tv, [1])
         fd.add_output(out)
 
-        inp.set_device_mesh(mesh)
-        inp.outer_split(0, dp_size)
-        inp.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
-        inp.outer_split(-1, tp_size)
-        inp.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+        inp_tv.set_device_mesh(mesh)
+        inp_tv.outer_split(0, dp_size)
+        inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
+        inp_tv.outer_split(-1, tp_size)
+        inp_tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-    dp_rank = rank // tp_size
-    tp_rank = rank % tp_size
-
+    rank = multidevice_test.rank
     rows_per_rank, cols_per_rank = 2, 3
     rows, cols = dp_size * rows_per_rank, tp_size * cols_per_rank
-    inp_ref = torch.arange(rows * cols).reshape(rows, cols).to(torch.float)
+
+    inp_ref = torch.arange(rows * cols, dtype=torch.float).reshape(rows, cols)
     out_ref = inp_ref.sum([-1])
-    inp = inp_ref[
-        dp_rank * rows_per_rank : (dp_rank + 1) * rows_per_rank,
-        tp_rank * cols_per_rank : (tp_rank + 1) * cols_per_rank,
-    ].cuda()
+
+    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
     (out,) = fd.execute([inp])
+
+    dp_rank = rank // tp_size
     torch.testing.assert_close(
         out.cpu(), out_ref[dp_rank * rows_per_rank : (dp_rank + 1) * rows_per_rank]
     )

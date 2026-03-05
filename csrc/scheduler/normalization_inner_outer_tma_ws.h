@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <scheduler/reduction_heuristic.h>
+#include "fusion.h"
+#include "scheduler/reduction_heuristic.h"
 
 namespace nvfuser {
 namespace inner_outer_tma_warp_specialized {

@@ -23,6 +23,7 @@
 #include "device_lower/lower2device.h"
 #include "device_lower/pass/magic_zero.h"
 #include "device_lower/pass/replace_size.h"
+#include "device_lower/utils.h"
 #include "disjoint_set.h"
 #include "exceptions.h"
 #include "expr_evaluator.h"
@@ -52,21 +53,15 @@
 #include "scheduler/tools/loop_domain_scheduler.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_replay.h"
 #include "transform_rfactor.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
 using namespace at::indexing;
 
-class Gpu3Test : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using Gpu3Test = NVFuserTest;
 
 TEST_F(Gpu3Test, FusionNonDivisibleSplit1_CUDA) {
   Fusion fusion;
@@ -3399,8 +3394,6 @@ TEST_F(Gpu3Test, FusionIssueRepro1844_CUDA) {
 }
 
 TEST_F(Gpu3Test, FusionInsertMagicZero1_CUDA) {
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3745,28 +3738,6 @@ TEST_F(Gpu3Test, FusionDependencyCheck_CUDA) {
     }
     NVF_CHECK(all_vals_set.empty());
   }
-}
-
-// Repro for issue #1925
-TEST_F(Gpu3Test, FusionScheduleTransposeRepro1_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(4);
-  auto tv1 = makeConcreteTensor({-1, -1, -1, 1});
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  auto tv2 = add(tv0, tv1);
-  fusion.addOutput(tv2);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input0 = at::randn({1, 1, 333, 1}, options);
-  at::Tensor t1 = at::randn({1, 1, 333, 1}, options);
-
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, t1}, false)
-          .outputs;
-  testValidate(&fusion, cg_outputs, {input0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(Gpu3Test, FusionPredicateUnshare_CUDA) {
@@ -4918,41 +4889,41 @@ TEST_F(Gpu3Test, FusionFloatingPointType_CUDA) {
     NVF_CHECK(
         f2->getDataType() == DataType::Float,
         "Invalid data type: ",
-        f2->getDataType().value());
+        f2->getDataType());
 
     auto d3 = IrBuilder::create<Val>(double_val, DataType::Double);
     NVF_CHECK(
         d3->getDataType() == DataType::Double,
         "Invalid data type: ",
-        d3->getDataType().value());
+        d3->getDataType());
 
     // Adding two Floats produces a Float
     auto f4 = add(f2, f2);
     NVF_CHECK(
         f4->getDataType() == DataType::Float,
         "Invalid data type: ",
-        f4->getDataType().value());
+        f4->getDataType());
 
     // Adding a Double and a Float produces a Double
     auto d5 = add(f2, d3);
     NVF_CHECK(
         d5->getDataType() == DataType::Double,
         "Invalid data type: ",
-        d5->getDataType().value());
+        d5->getDataType());
 
     // Adding a Float and a Double produces a Double
     auto d6 = add(d3, f2);
     NVF_CHECK(
         d6->getDataType() == DataType::Double,
         "Invalid data type: ",
-        d6->getDataType().value());
+        d6->getDataType());
 
     // Adding two Doubles produce a Double
     auto d7 = add(d5, d6);
     NVF_CHECK(
         d7->getDataType() == DataType::Double,
         "Invalid data type: ",
-        d7->getDataType().value());
+        d7->getDataType());
 
     // Adding a Float to a Float tensor produces a Float tensor
     auto tv1 = add(tv0, f4);
@@ -4960,7 +4931,7 @@ TEST_F(Gpu3Test, FusionFloatingPointType_CUDA) {
         tv1->getDataType() == DataType::Float,
         tv1->toString(),
         " has an invalid data type: ",
-        tv1->getDataType().value());
+        tv1->getDataType());
 
     // Adding a Double to a Float tensor still produces a Float tensor
     auto tv2 = add(tv1, d7);
@@ -4968,7 +4939,7 @@ TEST_F(Gpu3Test, FusionFloatingPointType_CUDA) {
         tv2->getDataType() == DataType::Float,
         tv2->toString(),
         " has an invalid data type: ",
-        tv2->getDataType().value());
+        tv2->getDataType());
 
     fusion.addOutput(tv2);
   }
@@ -5024,7 +4995,7 @@ TEST_F(Gpu3Test, FusionIntegerType_CUDA) {
         tv1->getDataType() == DataType::Int32,
         tv1->toString(),
         " has an invalid data type: ",
-        tv1->getDataType().value());
+        tv1->getDataType());
 
     // Adding an Int to an Int32 tensor still produces an Int32 tensor
     auto tv2 = add(tv1, i6);
@@ -5032,7 +5003,7 @@ TEST_F(Gpu3Test, FusionIntegerType_CUDA) {
         tv2->getDataType() == DataType::Int32,
         tv2->toString(),
         " has an invalid data type: ",
-        tv2->getDataType().value());
+        tv2->getDataType());
 
     fusion.addOutput(tv2);
   }
@@ -8326,6 +8297,9 @@ TEST_F(Gpu3Test, MoveNonConcretizedBroadcastInNormalization) {
     if (tv->isFusionInput()) {
       continue;
     }
+    if (ir_utils::isScheduleOp(tv)) {
+      continue;
+    }
 
     EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv->getLoopDomain().at(0), ref_outermost))
@@ -8605,8 +8579,6 @@ TEST_F(Gpu3Test, BestEffortReplayWithMismatchedRootToLogical) {
             PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
             /*replay_forward_id_map=*/{},
             /*target_forward_id_map=*/{},
-            /*skip_replay_swizzle=*/false,
-            /*skip_target_swizzle=*/false,
             /*skip_resize=*/false,
             /*error_on_failure=*/true);
       },
@@ -8620,8 +8592,6 @@ TEST_F(Gpu3Test, BestEffortReplayWithMismatchedRootToLogical) {
       PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
       /*replay_forward_id_map=*/{},
       /*target_forward_id_map=*/{},
-      /*skip_replay_swizzle=*/false,
-      /*skip_target_swizzle=*/false,
       /*skip_resize=*/false,
       /*error_on_failure=*/false);
 }

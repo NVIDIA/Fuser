@@ -47,7 +47,7 @@ def test_softmax_logsumexp(nvfuser_direct_test):
         ) = fd.ops.sdpfa_fwd(q, k, v, dropout_p=None, is_causal=None, scale=None)
         fd.add_output(lse)
 
-    n, h, l, s, e = 1, 1, 4, 4, 2
+    n, h, l, s, e = 1, 1, 4, 4, 8
     inputs = [
         torch.ones((n, h, l, e), dtype=torch.bfloat16, device="cuda"),
         torch.ones((n, h, s, e), dtype=torch.bfloat16, device="cuda"),
@@ -280,7 +280,7 @@ def test_sdpa_bwd(nvfuser_direct_test):
             dtype=DataType.BFloat16,
             is_cpu=False,
         )
-        log_sumexp = fd.define_tensor(
+        logsumexp = fd.define_tensor(
             shape=[-1, -1, -1],
             contiguity=True,
             dtype=DataType.Float,
@@ -302,7 +302,7 @@ def test_sdpa_bwd(nvfuser_direct_test):
             k,
             v,
             output,
-            log_sumexp,
+            logsumexp,
             dropout_p,
             is_causal,
             philox_seed,
@@ -325,7 +325,7 @@ def test_sdpa_bwd(nvfuser_direct_test):
 
             (
                 output,
-                log_sumexp,
+                logsumexp,
                 cum_seq_q,
                 cum_seq_k,
                 query_seq_len,
@@ -348,7 +348,7 @@ def test_sdpa_bwd(nvfuser_direct_test):
                 k,
                 v,
                 output,
-                log_sumexp,
+                logsumexp,
                 cum_seq_q,
                 cum_seq_k,
                 query_seq_len,
@@ -370,7 +370,7 @@ def test_sdpa_bwd(nvfuser_direct_test):
                 k,
                 v,
                 output,
-                log_sumexp,
+                logsumexp,
                 philox_seed,
                 philox_offset,
             ]
@@ -436,7 +436,7 @@ def test_sdpa_fwd_bwd(nvfuser_direct_test):
         if has_scale:
             scale = fd.define_scalar(value=None, dtype=DataType.Double)
 
-        output, log_sumexp, philox_seed, philox_offset = fd.ops.sdpfa_fwd(
+        output, logsumexp, philox_seed, philox_offset = fd.ops.sdpfa_fwd(
             q, k, v, dropout_p=dropout_p, is_causal=is_causal, scale=scale
         )
         grad_query, grad_key, grad_value = fd.ops.sdpfa_bwd(
@@ -445,7 +445,7 @@ def test_sdpa_fwd_bwd(nvfuser_direct_test):
             k,
             v,
             output,
-            log_sumexp,
+            logsumexp,
             dropout_p,
             is_causal,
             philox_seed,

@@ -5,16 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <debug.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <options.h>
-#include <preseg_passes/remove_bcast_squeeze.h>
-#include <transform_replay.h>
+#include "preseg_passes/remove_bcast_squeeze.h"
+
+#include "debug.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "options.h"
+#include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {
 

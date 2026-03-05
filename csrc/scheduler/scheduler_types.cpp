@@ -6,8 +6,9 @@
  */
 // clang-format on
 
-#include <exceptions.h>
-#include <scheduler/scheduler_types.h>
+#include "scheduler/scheduler_types.h"
+
+#include "exceptions.h"
 
 namespace nvfuser {
 

@@ -9,10 +9,10 @@
 
 #include <memory>
 
-#include <fusion.h>
-#include <scheduler/normalization_inner.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_heuristic.h>
+#include "fusion.h"
+#include "scheduler/normalization_inner.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/reduction_heuristic.h"
 
 namespace nvfuser {
 

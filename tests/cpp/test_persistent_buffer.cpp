@@ -28,13 +28,7 @@ namespace nvfuser {
 using testing::Contains;
 using testing::UnorderedElementsAre;
 
-class PersistentBufferTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using PersistentBufferTest = NVFuserTest;
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   Fusion fusion;
@@ -1263,6 +1257,13 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
   // persistent is not supported yet for 3D reduction.
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
+  // expect reduction and pointwise scheduler
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::Reduction)));
+
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -1947,7 +1948,9 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   auto tv2 = sum(tv1, {1});
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 = broadcast(index_tv, {false, true});
-  auto tv5 = gather(tv0, 1, tv4);
+  // Use takeAlongAxis rather than gather as codegen does not support
+  // the latter
+  auto tv5 = takeAlongAxis(tv0, tv4, 1);
   auto tv6 = maybeCastOp(DataType::BFloat16, tv5);
   auto tv7 = add(tv3, tv6);
   auto tv8 = add(tv1, tv7);
@@ -1976,11 +1979,22 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   // register So, we should expect two uses of tv0, one is a gather op, the
   // other is a load op
   const auto& tv0_uses = tv0->uses();
-  EXPECT_THAT(
-      tv0_uses,
-      testing::UnorderedElementsAre(
-          testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
-          testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    EXPECT_THAT(
+        tv0_uses,
+        testing::UnorderedElementsAre(
+            testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
+            testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+  } else {
+    // Expect Programmatic Dependent Launch for Hopper+ devices
+    EXPECT_THAT(
+        tv0_uses,
+        testing::UnorderedElementsAre(
+            testing::Truly(
+                [](Expr* e) { return e->isA<WaitForPriorGridOp>(); }),
+            testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
+            testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+  }
 
   // index_tv is a indicies tv, should be cached in register
   // Gather op will use the cached version
@@ -2182,7 +2196,6 @@ class TmaPersistentTestP
   void SetUp() override {
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
     NVFuserFixtureParamTest<ParamType>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
   }
 };
@@ -2197,8 +2210,8 @@ TEST_P(TmaPersistentTestP, TmaInnerPersistentRmsNorm) {
   const float kEps = 1e-6;
   Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
-  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
-  auto tv1 = makeContigConcreteTensor({y}, dtype);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   tv0 = maybeCastOp(DataType::Float, tv0);
@@ -2300,7 +2313,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(
             deviceSMCount() / 2, // small batch, can't do grid stride loop
             2048), // batch size, less or larger than sm count
-        testing::ValuesIn(Pow2Vals1to1Million)), // hidden size
+        testing::ValuesIn(LLM_EMBEDDING_SIZES)), // hidden size
     [](const testing::TestParamInfo<TmaPersistentTestParams>& info) {
       auto dtype = std::get<0>(info.param);
       auto x = std::get<1>(info.param);
@@ -2309,4 +2322,107 @@ INSTANTIATE_TEST_SUITE_P(
       os << dtype << "_" << x << "_" << y;
       return os.str();
     });
+
+TEST_F(TmaPersistentTestF, KernelReuse) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // Create an RMS norm fusion that will use inner persistent scheduler
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigTensor(2, DataType::BFloat16);
+  auto tv1 = makeContigTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto rms_norm_results = rms_norm(tv0, 1, tv1, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, rms_norm_results.output);
+  fusion.addOutput(output);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+
+  // Helper to get the number of compiled kernel runtimes
+  auto numRuntimes = [&executor_cache]() -> size_t {
+    // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
+    const auto& runtime_map = executor_cache.getKernelRuntimes();
+    if (runtime_map.empty()) {
+      return 0;
+    }
+    return runtime_map
+        .begin() // There should be only one device/concretization pair
+        ->second.size();
+  };
+
+  // Helper to run fusion with given dimensions and return the runtime
+  auto runAndValidate = [&](int64_t outer_dim,
+                            int64_t inner_dim) -> FusionKernelRuntime* {
+    auto input = at::randn({outer_dim, inner_dim}, options);
+    auto weight = at::randn({inner_dim}, options);
+    auto outputs = executor_cache.runFusionWithInputs({input, weight});
+    testValidate(
+        executor_cache.fusion(), outputs, {input, weight}, __LINE__, __FILE__);
+    return executor_cache.getMostRecentKernelRuntime();
+  };
+
+  // First run with specific dimensions that will produce launch config A
+  auto first_runtime = runAndValidate(2048, 4096);
+  EXPECT_EQ(numRuntimes(), 1);
+
+  // Second run with different outer dimension - should reuse the kernel
+  auto second_runtime = runAndValidate(2048 + 8, 4096);
+  EXPECT_EQ(numRuntimes(), 1);
+  EXPECT_EQ(first_runtime, second_runtime);
+
+  // Third run with slightly smaller inner dimension - should reuse the kernel
+  auto third_runtime = runAndValidate(2048 + 8, 4096 - 8);
+  EXPECT_EQ(first_runtime, third_runtime);
+
+  // Fourth run with slightly larger inner dimension - should NOT reuse the
+  // kernel
+  auto fourth_runtime = runAndValidate(2048 + 8, 4096 + 8);
+  EXPECT_NE(first_runtime, fourth_runtime);
+  EXPECT_EQ(numRuntimes(), 2);
+
+  // Fifth run with different inner dimension - should not reuse the kernel
+  // 1280 after vectorization of 8 is 160, after persistent batch size of 2 is
+  // 80, it requires 80 threads current heuristic pads to 96 threads and won't
+  // use warp specialized version. to use warp specialized version, it should
+  // pad to 128 threads.
+  auto fifth_runtime = runAndValidate(2048, 1280);
+  EXPECT_NE(first_runtime, fifth_runtime);
+  EXPECT_EQ(numRuntimes(), 3);
+}
+
+// can't use warp specialized version due to irregular iter size
+TEST_F(TmaPersistentTestF, TmaInnerPersistentIrregularIterSize) {
+  DataType dtype = DataType::BFloat16;
+  int x = 2049;
+  int y = 10240;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = maybeCastOp(DataType::Float, tv0); // tv1 is the persistent buffer
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

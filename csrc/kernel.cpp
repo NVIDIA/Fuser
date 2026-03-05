@@ -10,7 +10,6 @@
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel.h>
@@ -321,6 +320,10 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(BlockQuantizationOp* bqop) final {
+    summary_.has_block_quantize_op = true;
+  }
+
+  void handle(GroupedBlockQuantizationOp* bqop) final {
     summary_.has_block_quantize_op = true;
   }
 

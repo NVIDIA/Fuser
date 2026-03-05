@@ -38,8 +38,8 @@ class DistributedMatmulTest : public MultiDeviceTest {
 
   void SetUp() override {
     MultiDeviceTest::SetUp();
-    if (!deviceMajorMinorCheck(8)) {
-      GTEST_SKIP() << "Distributed matmul tests require Ampere or newer";
+    if (!deviceMajorMinorCheck(9)) {
+      GTEST_SKIP() << "Distributed matmul tests require Hopper or newer";
     }
   }
 

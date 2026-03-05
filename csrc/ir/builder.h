@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <fusion_guard.h>
-#include <ir/builder_passkey.h>
-#include <ir/container.h>
-#include <utils.h>
-#include <visibility.h>
+#include "base.h"
+#include "exceptions.h"
+#include "fusion_guard.h"
+#include "ir/builder_passkey.h"
+#include "ir/container.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -39,16 +39,11 @@ class IrBuilder {
   }
 
   //! Allocate a new IR node, forwarding the arguments to the appropriate
-  //! constructor and registering with the container
+  //! constructor and registering with the container.
+  //! Implementation provided at the end of fusion.h after Fusion is fully
+  //! defined.
   template <class T, class... Args>
-  static T* createInContainer(IrContainer* container, Args&&... args) {
-    NVF_ERROR(container != nullptr, "Need an active container to build IR.");
-    T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
-
-    container->registerStmt(IrBuilderPasskey(container), node);
-
-    return node;
-  }
+  static T* createInContainer(Fusion* container, Args&&... args);
 
   //! Clone an IR node, forwarding the arguments to the IrCloner constructor.
   //! Register clones with IrCloner's target container.

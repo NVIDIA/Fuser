@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <ATen/core/Tensor.h>
 #include <cuda.h>
 
 #include "multidevice/ipc_handle.h"
@@ -42,5 +43,30 @@ void waitWithCudaBackend(
     SymmetricMemoryHandle* multicast_handle,
     CUstream stream,
     int64_t root);
+
+struct AlltoallvMetadata {
+  at::Tensor send_counts; // CUDA [R]
+  at::Tensor recv_counts; // CUDA [R]
+  at::Tensor send_offsets; // CUDA [R]
+  at::Tensor recv_offsets; // CUDA [R]
+  int64_t total_recv = 0;
+  int64_t max_recv = 0;
+  int64_t max_send_total = 0;
+  int64_t max_send_bytes = 0;
+  int64_t world_size = 0;
+};
+
+AlltoallvMetadata prepareAlltoallvMetadata(
+    const at::Tensor& send_counts,
+    const std::string& tag);
+
+void alltoallvWithCudaBackend(
+    const at::Tensor& send,
+    const at::Tensor& recv,
+    const AlltoallvMetadata& metadata,
+    const std::vector<void*>& recv_ptrs,
+    CUstream stream);
+
+void alltoallvBarrier(const std::string& tag);
 
 } // namespace nvfuser

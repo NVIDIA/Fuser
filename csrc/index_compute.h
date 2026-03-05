@@ -81,7 +81,6 @@ class IndexCompute : public BackwardVisitor {
   void handle(Split*) override;
   void handle(Merge*) override;
   void handle(Swizzle*) override;
-  void handle(Swizzle2D*) override;
   void handle(Resize*) override;
 
   // return extent_map_[id] if exists, else return id->extent()
@@ -327,38 +326,6 @@ class IndexCompute : public BackwardVisitor {
   void run(const LoopIndexing& loop_indexing);
 
   virtual void run();
-};
-
-//! Apply swizzle and update allocation indices accordingly
-class IndexSwizzle : public IndexCompute {
- public:
-  IndexSwizzle(
-      const TensorView* tv,
-      std::unordered_map<IterDomain*, Val*> initial_index_map,
-      std::unordered_map<IterDomain*, Val*> extent_map,
-      std::unordered_set<IterDomain*> zero_domains,
-      std::unordered_set<IterDomain*> zero_merged_in);
-
-  IndexSwizzle(
-      const TensorView* tv,
-      const TensorDomain* domain,
-      std::unordered_map<IterDomain*, Val*> initial_index_map,
-      std::unordered_map<IterDomain*, Val*> extent_map,
-      std::unordered_set<IterDomain*> zero_domains,
-      std::unordered_set<IterDomain*> zero_merged_in);
-
-  void run() override;
-
- protected:
-  using IndexCompute::handle;
-
-  void dispatch(Expr* e) override;
-
-  void handle(Swizzle2D* swizzle_2d) override;
-
- private:
-  const TensorView* tv_ = nullptr;
-  std::unordered_set<IterDomain*> swizzled_ids_;
 };
 
 //! Information about a predicate. By default, it corresponds to a

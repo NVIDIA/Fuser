@@ -8,24 +8,18 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "ops/all_ops.h"
 #include "runtime/executor.h"
 #include "runtime/executor_utils.h"
 #include "runtime/fusion_executor_cache.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class MoveRepeatForwardTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using MoveRepeatForwardTest = NVFuserTest;
 
 TEST_F(MoveRepeatForwardTest, Simple) {
   auto fusion_ptr = std::make_unique<Fusion>();

@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <scheduler/matmul_heuristic.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "scheduler/matmul_heuristic.h"
 
 namespace nvfuser {
 

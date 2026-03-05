@@ -5,20 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <instrumentation.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/normalization_inner.h>
-#include <scheduler/normalization_inner_non_tma.h>
-#include <scheduler/normalization_inner_tma.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
+#include "scheduler/normalization_inner.h"
+
+#include <memory>
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <memory>
+#include "instrumentation.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/normalization_inner_non_tma.h"
+#include "scheduler/normalization_inner_tma.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 using PersistentKernelProperties =

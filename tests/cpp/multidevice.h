@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 
-#include "multidevice/communication.h"
 #include "multidevice/communicator.h"
 #include "multidevice/execution_utils.h"
 #include "multidevice/executor.h"
+#include "multidevice/post_communication.h"
 #include "multidevice/utils.h"
 #include "tests/cpp/utils.h"
 

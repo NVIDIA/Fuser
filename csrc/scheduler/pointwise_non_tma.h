@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <scheduler/pointwise.h>
+#include "fusion.h"
+#include "scheduler/pointwise.h"
 
 namespace nvfuser {
 namespace pointwise {

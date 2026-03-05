@@ -8,16 +8,12 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <scheduler/reduction_heuristic.h>
-#include <scheduler/registry.h>
-#include <scheduler/utils.h>
 
-// TODO: If caching inputs would require persistence we are sending it to the
-// persistent kerenl scheduler. This isn't necessary if the only persistent
-// buffers are inputs as we could re-read them from global memory. Need to
-// consider if this is worth implementing.
+#include "exceptions.h"
+#include "fusion.h"
+#include "scheduler/reduction_heuristic.h"
+#include "scheduler/registry.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 

@@ -216,13 +216,7 @@ collect_kernels() {
         # python tests
         # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
         "${bashcmd[@]}" -o "$pyopsdir" -- \
-            python -m pytest "$nvfuserdir/tests/python/opinfo/test_legacy_ops.py" -n 0 -v -s --color=yes
-        "${bashcmd[@]}" -o "$pyopsdir" -- \
             python -m pytest "$nvfuserdir/tests/python/opinfo/test_direct_ops.py" -n 0 -v -s --color=yes
-        "${bashcmd[@]}" -o "$pyschedopsdir" -- \
-            python -m pytest "$nvfuserdir/tests/python/test_schedule_ops.py" -n 0 -v -s --color=yes
-        "${bashcmd[@]}" -o "$pyfrontenddir" -- \
-            python -m pytest "$nvfuserdir/tests/python/test_python_frontend.py" -n 0 -v -s --color=yes
 
         # binary tests
         "${bashcmd[@]}" -o "$binarytestdir" -- \

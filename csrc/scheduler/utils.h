@@ -7,15 +7,14 @@
 // clang-format on
 #pragma once
 
-#include <disjoint_set.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/cloner.h>
-#include <scheduler/reduction_heuristic.h>
-#include <scheduler/tools/maxinfo_propagator.h>
-#include <visibility.h>
-#include "utils.h"
+#include "base.h"
+#include "disjoint_set.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/interface_nodes.h"
+#include "scheduler/reduction_heuristic.h"
+#include "scheduler/tools/maxinfo_propagator.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -28,6 +27,8 @@ class HeuristicDataCache;
 //! For example, in sharding propagation or
 //! BoundedDirectionalTransformPropagator.
 enum class PropagateDirection { kBackward = 0, kForward };
+
+std::ostream& operator<<(std::ostream& os, PropagateDirection direction);
 
 namespace scheduler_utils {
 
@@ -387,6 +388,14 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion);
+
+// Given the return values from cacheInputs and cacheAndForkOutputs, add
+// WaitForPriorGridOp before the first fusion input and LaunchDependentGridOp
+// before storing results for last fusion output
+void applyPDL(
+    Fusion* fusion,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs);
 
 // Returns the pairs of <cache, input_index> for each cached fusion input.
 // input_index is the position in fusion->inputs(). Otherwise return empty

@@ -15,7 +15,6 @@
 #include "fusion.h"
 #include "ir/interface_nodes.h"
 #include "multidevice/device_mesh.h"
-#include "multidevice/multidevice.h"
 #include "visibility.h"
 
 namespace nvfuser {

@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/scheduler_types.h>
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
+#include "fusion.h"
+#include "scheduler/pointwise_utils.h"
+#include "scheduler/scheduler_types.h"
+#include "scheduler/tools/domain_map.h"
+#include "scheduler/utils.h"
+#include "scheduler/vectorize_helper.h"
 
 namespace nvfuser {
 
@@ -144,11 +144,11 @@ class ReductionTVs {
 };
 
 //! Entry type definition class for `HAS_BLOCK_QUANTIZATION_OPS`,
-//!  stores a boolean flag indicating whether the fusion contains any
-//!  BlockQuantizationOp operations.
-class HasBlockQuantizationOps {
+//!  stores any BlockQuantizationOp operations (including
+//!  GroupedBlockQuantizationOp).
+class BlockQuantizationOps {
  public:
-  using DataType = bool;
+  using DataType = std::vector<Expr*>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::HAS_BLOCK_QUANTIZATION_OPS;
 };

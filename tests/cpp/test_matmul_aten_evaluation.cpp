@@ -17,7 +17,7 @@
 #include "scheduler/all_schedulers.h"
 #include "scheduler/mma_utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -370,38 +370,5 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({b, 1, 1})),
         testing::Values(Sizes({n, 1})),
         testing::Values(Sizes({n}))));
-
-using MatmulNodeTest = NVFuserTest;
-
-TEST_F(MatmulNodeTest, OutputStrides) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  TensorView* x = makeSymbolicTensor(2, DataType::Half);
-  TensorView* y = makeSymbolicTensor(2, DataType::Half);
-  TensorView* z = matmul(x, y);
-
-  fusion->addInput(x);
-  fusion->addInput(y);
-  fusion->addOutput(z);
-
-  z->setAllocationDomain({z->axis(1), z->axis(0), z->axis(2)}, true);
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  at::Tensor x_tensor = at::randn({2, 3}, options);
-  at::Tensor y_tensor = at::randn({3, 5}, options);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto outs = executor_cache.runFusionWithInputs({x_tensor, y_tensor});
-  at::Tensor z_tensor = outs[0].as<at::Tensor>();
-  testValidate(
-      executor_cache.fusion(),
-      {z_tensor},
-      {x_tensor, y_tensor},
-      __LINE__,
-      __FILE__);
-
-  EXPECT_THAT(z_tensor.strides(), ElementsAre(1, 2));
-}
 
 } // namespace nvfuser

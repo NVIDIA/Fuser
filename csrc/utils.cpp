@@ -14,7 +14,7 @@
 #include <debug.h>
 #include <options.h>
 #include <runtime/executor_kernel_arg.h>
-#include <utils.h>
+#include "base.h"
 
 #include <cstdlib>
 #include <optional>

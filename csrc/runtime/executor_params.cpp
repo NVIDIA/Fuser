@@ -5,11 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <debug.h>
-#include <runtime/executor_params.h>
-#include <utils.h>
+#include "runtime/executor_params.h"
 
 #include <ATen/cuda/CUDAContext.h>
+
+#include "base.h"
+#include "debug.h"
 
 namespace nvfuser {
 

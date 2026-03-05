@@ -15,8 +15,8 @@
 // for operator<<(std::ostream&, const std::vector<T>&)
 #include <c10/util/Logging.h>
 
+#include "base.h"
 #include "type.h"
-#include "utils.h"
 
 namespace nvfuser {
 
@@ -133,7 +133,7 @@ int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
       isParallelTypeDeviceDim(parallel_type),
       "Attempting to index into DeviceMesh with a non-device parallel type: ",
       parallel_type);
-  int64_t offset = static_cast<int64_t>(parallel_type) -
+  auto offset = static_cast<int64_t>(parallel_type) -
       static_cast<int64_t>(ParallelType::DIDx);
   const int64_t ndims = rank();
   if (offset >= ndims) {

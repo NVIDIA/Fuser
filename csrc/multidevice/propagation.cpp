@@ -12,9 +12,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "base.h"
 #include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
+#include "ir/utils.h"
 #include "linked_hash_map.h"
 #include "logical_domain_map.h"
 #include "multidevice/utils.h"
@@ -49,14 +51,13 @@ bool isSplitDivisible(IterDomain* id, Split* ref_split) {
 bool hasRootToLogicalTransform(IterDomain* id, const TensorView* tv) {
   auto logical_ids = IterVisitor::getInputsTo(
       {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-  return std::any_of(
-      logical_ids.begin(), logical_ids.end(), [&](Val* logical_val) {
-        return logical_val->definition() != nullptr;
-      });
+  return std::ranges::any_of(logical_ids, [&](Val* logical_val) {
+    return logical_val->definition() != nullptr;
+  });
 }
 
 bool isInDomain(IterDomain* id, const std::vector<IterDomain*>& domain) {
-  return std::find(domain.begin(), domain.end(), id) != domain.end();
+  return std::ranges::find(domain, id) != domain.end();
 }
 
 // Traverses root-to-logical transforms to find the outermost logical ID.
@@ -123,15 +124,15 @@ void transformLoopDomain(
     // Similarly, if target [h] -> ref [a, h/a], returns `h` for ref_id `a`.
     if (!ref2target.contains(ref_id)) {
       // Find the root domain id.
-      std::unordered_set<IterDomain*> inputs =
-          getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
+      std::vector<IterDomain*> inputs =
+          ir_utils::getReachableIds(ref->getMaybeRootDomain(), {ref_id});
       NVF_ERROR_EQ(
           inputs.size(),
           1,
           "Expected one input for ",
           ref_id,
           " in the root domain.");
-      ref_id = *inputs.begin();
+      ref_id = inputs.front();
     }
 
     NVF_ERROR(
@@ -180,51 +181,66 @@ void transformLoopDomain(
       {device_or_stream_ids.begin(), device_or_stream_ids.end()});
 
   for (Expr* transform : transforms) {
-    auto* split = dynamic_cast<Split*>(transform);
-    NVF_ERROR(
-        split != nullptr,
-        "Expected a split transform producing the device/stream id. Got: ",
-        transform);
-
-    IterDomain* ref_id = split->in();
-    IterDomain* target_id = get_target_id(ref_id);
-    NVF_ERROR(
-        transformed_loop.contains(target_id),
-        "Expected the target ID, ",
-        target_id,
-        ", to be in the loop domain.");
-
-    // Sharding on producer logical id is equivalent to sharding on the
-    // outermost consumer reshaped id iff:
-    // 1. The reference is outer split by num_devices.
-    // 2. The extent of sharded id in producer / consumer is divisible by
-    // split_factor. NOTE: We can only check if DID(d) is on the outer of the
-    // split regardless of the split_factor. However, when applying the split to
-    // the target, the split_factor will need to be num_devices. For e.g.: A[h]
-    // -> reshape -> B[a, h/a] If A is inner split `h/d`, then directly
-    // replaying the split on `a` will produce `a/(h/d), h/d` instead of `d,
-    // a/d`. So we should instead outer split by num_devices.
-
-    // Find the consumer between the reference and target.
-    auto [consumer_id, consumer_tv] = direction == PropagateDirection::kForward
-        ? std::make_pair(target_id, target)
-        : std::make_pair(ref_id, ref);
-
-    if (hasRootToLogicalTransform(consumer_id, consumer_tv)) {
-      validate_split(split, target_id);
+    if (auto* swizzle1d = dynamic_cast<Swizzle1D*>(transform)) {
+      IterDomain* ref_id = swizzle1d->in();
+      IterDomain* target_id = get_target_id(ref_id);
+      NVF_ERROR(
+          transformed_loop.contains(target_id),
+          "Expected the target ID, ",
+          target_id,
+          ", to be in the loop domain.");
+      auto it = transformed_loop.erase(target_id).second;
+      auto replayed_id =
+          IterDomain::swizzle1d(target_id, swizzle1d->parallelType());
+      transformed_loop.insert(it, replayed_id, std::monostate());
+      ref2target[swizzle1d->out()] = replayed_id;
+      continue;
     }
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      IterDomain* ref_id = split->in();
+      IterDomain* target_id = get_target_id(ref_id);
+      NVF_ERROR(
+          transformed_loop.contains(target_id),
+          "Expected the target ID, ",
+          target_id,
+          ", to be in the loop domain.");
 
-    auto it = transformed_loop.erase(target_id).second;
-    auto [outer, inner] =
-        IterDomain::split(target_id, split->factor(), split->innerSplit());
+      // Sharding on producer logical id is equivalent to sharding on the
+      // outermost consumer reshaped id iff:
+      // 1. The reference is outer split by num_devices.
+      // 2. The extent of sharded id in producer / consumer is divisible by
+      // split_factor. NOTE: We can only check if DID(d) is on the outer of the
+      // split regardless of the split_factor. However, when applying the split
+      // to the target, the split_factor will need to be num_devices. For e.g.:
+      // A[h]
+      // -> reshape -> B[a, h/a] If A is inner split `h/d`, then directly
+      // replaying the split on `a` will produce `a/(h/d), h/d` instead of `d,
+      // a/d`. So we should instead outer split by num_devices.
 
-    transformed_loop.insert(it, outer, std::monostate());
-    transformed_loop.insert(it, inner, std::monostate());
+      // Find the consumer between the reference and target.
+      auto [consumer_id, consumer_tv] =
+          direction == PropagateDirection::kForward
+          ? std::make_pair(target_id, target)
+          : std::make_pair(ref_id, ref);
 
-    // Add mapping between ref and target for the propagated DID split.
-    // This is used to propagate 2D sharding and parallelization.
-    ref2target[split->outer()] = outer;
-    ref2target[split->inner()] = inner;
+      if (hasRootToLogicalTransform(consumer_id, consumer_tv)) {
+        validate_split(split, target_id);
+      }
+
+      auto it = transformed_loop.erase(target_id).second;
+      auto [outer, inner] =
+          IterDomain::split(target_id, split->factor(), split->innerSplit());
+
+      transformed_loop.insert(it, outer, std::monostate());
+      transformed_loop.insert(it, inner, std::monostate());
+
+      // Add mapping between ref and target for the propagated DID split.
+      // This is used to propagate 2D sharding and parallelization.
+      ref2target[split->outer()] = outer;
+      ref2target[split->inner()] = inner;
+      continue;
+    }
+    NVF_THROW("Expected a split or swizzle1d transform. Got: ", transform);
   }
 
   // Parallelize based on the ref2target map.
@@ -245,19 +261,25 @@ void transformLoopDomain(
 
 } // namespace
 
-int numParallelIterDomains(const TensorView* tv) {
+int64_t numParallelIterDomains(const TensorView* tv) {
   return std::ranges::count_if(
       tv->getLoopDomain(), [](IterDomain* id) { return id->isParallelized(); });
 }
 
 void shardLoopLike(
     const TensorView* ref,
-    TensorView* tv,
+    TensorView* target,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction) {
+  if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
+    debug() << "Propagating shardings from " << ref->toString() << " to "
+            << target->toString() << " in " << direction << " for "
+            << toDelimitedString(selected_parallel_types) << '\n';
+  }
+
   std::unordered_set<IterDomain*> device_or_stream_ids;
   const std::unordered_map<IterDomain*, IterDomain*> ref2target =
-      getRef2TargetMap(ref, tv, direction);
+      getRef2TargetMap(ref, target, direction);
 
   const auto& ref_mesh = ref->getDeviceMesh();
 
@@ -271,8 +293,8 @@ void shardLoopLike(
     // 1. The device id parallel type is present in the device mesh.
     // 2. The number of devices corresponding to the parallel type is same
     // between the reference and target.
-    if (ref_id->isDeviceDim() && tv->hasDeviceMesh()) {
-      const auto& target_mesh = tv->getDeviceMesh();
+    if (ref_id->isDeviceDim() && target->hasDeviceMesh()) {
+      const auto& target_mesh = target->getDeviceMesh();
       const auto parallel_type = ref_id->getParallelType();
       if (!target_mesh.hasParallelType(parallel_type)) {
         continue;
@@ -284,17 +306,16 @@ void shardLoopLike(
 
     // Get input of device_id in the root / logical domain
     // that will be present in ref2target mapping.
-    std::unordered_set<IterDomain*> inputs =
-        direction == PropagateDirection::kForward
-        ? getInputsInTargetDomain({ref_id}, ref->getLogicalDomain())
-        : getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
+    std::vector<IterDomain*> inputs = direction == PropagateDirection::kForward
+        ? ir_utils::getReachableIds(ref->getLogicalDomain(), {ref_id})
+        : ir_utils::getReachableIds(ref->getMaybeRootDomain(), {ref_id});
     NVF_ERROR_EQ(
         inputs.size(),
         1,
         "Expected one input for ",
         ref_id,
         " in the root / logical domain.");
-    IterDomain* target_id = getOrDefault(ref2target, *inputs.begin());
+    IterDomain* target_id = getOrDefault(ref2target, inputs.front());
     if (target_id == nullptr) {
       continue;
     }
@@ -303,19 +324,68 @@ void shardLoopLike(
     // This is the ID to which the sharding will be propagated.
     // For e.g., if ref [h] -> target [a, h/a], then the outermost logical ID
     // is `a`.
-    IterDomain* outermost_target_id = getOutermostLogicalId(target_id, tv);
+    IterDomain* outermost_target_id = getOutermostLogicalId(target_id, target);
 
     if (outermost_target_id->isParallelized()) {
       continue;
     }
     // Skip if the target is not in the loop domain (i.e. further transformed).
-    if (!isInDomain(outermost_target_id, tv->getLoopDomain())) {
+    if (!isInDomain(outermost_target_id, target->getLoopDomain())) {
       continue;
     }
     device_or_stream_ids.insert(ref_id);
   }
 
-  transformLoopDomain(tv, ref, device_or_stream_ids, direction);
+  transformLoopDomain(target, ref, device_or_stream_ids, direction);
+}
+
+void canonicalizeLoopDomain(TensorView* tv) {
+  LinkedHashMap<IterDomain*, std::monostate> loop;
+  for (IterDomain* id : tv->getLoopDomain()) {
+    loop.pushBack(id, std::monostate());
+  }
+
+  for (Expr* transform :
+       DependencyCheck::getAllExprsBetween(
+           {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+           {tv->getLoopDomain().begin(), tv->getLoopDomain().end()}) |
+           std::views::reverse) {
+    auto* split = dynamic_cast<Split*>(transform);
+    NVF_ERROR(
+        split != nullptr,
+        "Only splits are expected so far, but found: ",
+        transform);
+
+    if (split->outer()->isParallelized() || split->inner()->isParallelized()) {
+      continue;
+    }
+
+    if (!loop.contains(split->outer()) || !loop.contains(split->inner())) {
+      continue;
+    }
+
+    loop.erase(split->outer());
+    const auto inner_i = loop.erase(split->inner()).second;
+    // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
+    // `outer` and `inner` are all serial, `in`'s position in the loop domain
+    // doesn't matter.
+    loop.insert(inner_i, split->in(), std::monostate());
+  }
+
+  auto new_loop = std::views::keys(loop);
+  tv->setLoopDomain({new_loop.begin(), new_loop.end()});
+}
+
+void unparallelize(
+    TensorView* tv,
+    const std::unordered_set<ParallelType>& parallel_types) {
+  for (IterDomain* id :
+       tv->getLoopDomain() | std::views::filter([&](IterDomain* id) {
+         return parallel_types.contains(id->getParallelType());
+       })) {
+    id->parallelize(ParallelType::Serial);
+  }
+  canonicalizeLoopDomain(tv);
 }
 
 } // namespace nvfuser

@@ -7,15 +7,14 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <visibility.h>
-
-#include <ir/base_nodes.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ops/utils.h>
-#include <type.h>
-#include <type_promotion.h>
+#include "exceptions.h"
+#include "ir/base_nodes.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ops/utils.h"
+#include "type.h"
+#include "type_promotion.h"
+#include "visibility.h"
 
 /*
  * The operations defined in this header is intended as user facing functions.
@@ -853,6 +852,22 @@ NVF_API BlockQuantizationResults blockQuantize(
     TensorView* global_scaling_factor = nullptr,
     int64_t block_size = 16,
     bool swizzle_scales = false,
+    DataType out_dtype = DataType::Float4_e2m1fn);
+
+// API for grouped block quantization.
+// This operation combines blockQuantizationOp and
+// PreprocessGroupedMatmulInputSf together, where it computes the quantized
+// output and block scaling factor, as well as handling the swizzle layout
+// required by block scaling factor. Refer to blockQuantize and
+// preprocessGroupedMatmulInputSf for implementation details regarding these two
+// operations.
+NVF_API BlockQuantizationResults groupedBlockQuantize(
+    TensorView* input,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
+    BlockScalingFactorLayout layout,
+    TensorView* global_scaling_factor = nullptr,
+    int64_t block_size = 16,
     DataType out_dtype = DataType::Float4_e2m1fn);
 
 } // namespace nvfuser

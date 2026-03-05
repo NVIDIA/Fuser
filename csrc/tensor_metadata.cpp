@@ -11,7 +11,6 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
@@ -358,6 +357,12 @@ inferAndValidateAllocationSizesAndStrides(
   if (tv->definition() && tv->definition()->isA<BlockQuantizationOp>()) {
     auto bqop = tv->definition()->as<BlockQuantizationOp>();
     if (bqop->isSwizzledScales() && tv == bqop->blockScales()) {
+      skip_validation = true;
+    }
+  } else if (
+      tv->definition() && tv->definition()->isA<GroupedBlockQuantizationOp>()) {
+    auto bqop = tv->definition()->as<GroupedBlockQuantizationOp>();
+    if (tv == bqop->blockScales()) {
       skip_validation = true;
     }
   }

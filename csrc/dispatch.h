@@ -10,8 +10,8 @@
 #include <unordered_map>
 
 #include <exceptions.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 // dispatch.h prevents the need from adding manual dispatch in every class that
 // wants to define how to process a series of nodes. dispatch.h provides 4
@@ -112,12 +112,16 @@ class Val;
   f(CutlassNvfp4GroupedMmaOp);       \
   f(PreprocessGroupedMatmulInputSf); \
   f(BlockQuantizationOp);            \
+  f(GroupedBlockQuantizationOp);     \
   f(TopKOp);                         \
   f(ScanOp);                         \
   f(Merge);                          \
   f(Partition);                      \
+  f(Combine);                        \
+  f(MoeDispatch);                    \
+  f(MoeCombine);                     \
   f(Swizzle);                        \
-  f(Swizzle2D);                      \
+  f(Swizzle1D);                      \
   f(Resize);                         \
   f(MatmulOp);                       \
   f(LinearOp);                       \
@@ -177,6 +181,7 @@ class Val;
   f(ShareMemHandles);                 \
   f(HirAliasSelect);                  \
   f(ShardByStream);                   \
+  f(Allocate);                        \
   f(Deallocate);                      \
   f(ForLoop);                         \
   f(SymmetricContiguousView);
@@ -342,7 +347,7 @@ class NVF_API OptOutMutator : public PolymorphicBase {
   }
 
  protected:
-  virtual void removeExpr(IrContainer*, Expr*) const;
+  virtual void removeExpr(Fusion*, Expr*) const;
   virtual void registerNewExpr(Expr*) {}
 
  private:

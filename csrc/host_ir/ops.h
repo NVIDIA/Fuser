@@ -15,8 +15,8 @@
 
 #pragma once
 
-#include <host_ir/ir.h>
-#include <ir/interface_nodes.h>
+#include "host_ir/ir.h"
+#include "ir/interface_nodes.h"
 
 namespace nvfuser::hir {
 
