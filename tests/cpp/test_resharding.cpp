@@ -654,7 +654,7 @@ TEST_F(ReshardingTest, Swizzle1D_DIDToStream) {
       out,
       DomainType::kLoop,
       {ParallelType::Stream}));
-  
+
   EXPECT_TRUE(haveDifferentShardings(
       in,
       DomainType::kLoop,

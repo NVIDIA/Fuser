@@ -257,7 +257,7 @@ bool haveDifferentShardings(
        consumer->getMaybeRootDomain().size() +
        kParallelTypeDIDs.size()) *
       2);
-  
+
   // Create symbolic Vals for each device parallel type present in the mesh,
   // representing the device's index within the team for that type. These are
   // used by computeLoopIndex to symbolically compute Swizzle1D outputs.
