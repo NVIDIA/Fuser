@@ -9,6 +9,7 @@
 #include "runtime/allocations.h"
 
 #include "expr_evaluator.h"
+#include "ir/internal_nodes.h"
 #include "instrumentation.h"
 #include "multidevice/execution_utils.h"
 #include "multidevice/utils.h"
@@ -595,11 +596,23 @@ class ForwardTraverseFromAllocToLogical {
     }
   }
 
+  void handle(Swizzle1D* swizzle1d) {
+    auto in = swizzle1d->in();
+    auto out = swizzle1d->out();
+    auto in_it = std::find(frontier_.begin(), frontier_.end(), in);
+    if (in_it == frontier_.end()) {
+      return;
+    }
+    *in_it = out;
+  }
+
   void handle(Expr* expr) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       handle(split);
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
+    } else if (auto swizzle1d = dynamic_cast<Swizzle1D*>(expr)) {
+      handle(swizzle1d);
     } else {
       NVF_THROW("Unsupported transormation in allocation domain");
     }
@@ -728,11 +741,23 @@ class BackwardTraverseFromAllocToLogical {
     frontier_.erase(out_it);
   }
 
+  void handle(Swizzle1D* swizzle1d) {
+    auto out = swizzle1d->out();
+    auto in = swizzle1d->in();
+    auto out_it = std::find(frontier_.begin(), frontier_.end(), out);
+    if (out_it == frontier_.end()) {
+      return;
+    }
+    *out_it = in;
+  }
+
   void handle(Expr* expr) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       handle(split);
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
+    } else if (auto swizzle1d = dynamic_cast<Swizzle1D*>(expr)) {
+      handle(swizzle1d);
     } else {
       NVF_THROW("Unsupported transormation in allocation domain");
     }

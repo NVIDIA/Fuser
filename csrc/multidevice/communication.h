@@ -31,7 +31,8 @@ enum class CommunicationType {
   ReduceScatter,
   Broadcast,
   SendRecv,
-  AllToAll
+  AllToAll,
+  CollectivePermute
 };
 
 std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
@@ -120,6 +121,61 @@ class Communication : public Expr {
 
  private:
   void validate();
+};
+
+// CollectivePermute: send to send_peer, recv from recv_peer. Separate from
+// Communication (no root, no reduce op).
+class CollectivePermute : public Expr {
+ public:
+  using Expr::Expr;
+
+  CollectivePermute(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* in,
+      Team team,
+      Val* send_peer,
+      Val* recv_peer,
+      CommunicatorBackend backend = CommunicatorBackend::kNccl);
+
+  CollectivePermute(const CollectivePermute& other) = delete;
+  CollectivePermute& operator=(const CollectivePermute& other) = delete;
+  CollectivePermute(CollectivePermute&& other) = delete;
+  CollectivePermute& operator=(CollectivePermute&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "CollectivePermute";
+  }
+
+  CommunicationType type() const {
+    return attribute<CommunicationType>(0);
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+  Val* sendPeer() const {
+    return input(1);
+  }
+  Val* recvPeer() const {
+    return input(2);
+  }
+  const Team& team() const {
+    return attribute<Team>(1);
+  }
+  int64_t team_size() const {
+    return static_cast<int64_t>(team().size());
+  }
+  CommunicatorBackend backend() const {
+    return attribute<CommunicatorBackend>(2);
+  }
 };
 
 enum class P2PCommunicationType { SEND, RECV };

@@ -631,4 +631,58 @@ TEST_F(ReshardingSelectOpTest, ReshardingSelectIntoNonDeviceDim) {
   EXPECT_TRUE(isResharding(tv1->definition()));
 }
 
+TEST_F(ReshardingTest, Swizzle1D_DIDToStream) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const int d = 2;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* in = makeContigTensor(1);
+  in->setDeviceMesh(mesh);
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  TensorView* out = set(in);
+  out->setDeviceMesh(mesh);
+  out->outer_split(0, d);
+  out->swizzle1d(0, ParallelType::DIDx);
+  out->axis(0)->parallelize(ParallelType::Stream);
+
+  EXPECT_TRUE(haveDifferentShardings(
+      in,
+      DomainType::kLoop,
+      out,
+      DomainType::kLoop,
+      {ParallelType::Stream}));
+
+  EXPECT_TRUE(haveDifferentShardings(
+      in,
+      DomainType::kLoop,
+      out,
+      DomainType::kLoop,
+      {ParallelType::DIDx}));
+}
+
+TEST_F(ReshardingTest, Swizzle1D_ConsistentSwizzle) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const int d = 2;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* in = makeContigTensor(1);
+  in->setDeviceMesh(mesh);
+  in->outer_split(0, d);
+  in->swizzle1d(0, ParallelType::DIDx);
+  in->axis(0)->parallelize(ParallelType::Stream);
+
+  TensorView* out = set(in);
+  out->setDeviceMesh(mesh);
+  out->outer_split(0, d);
+  out->swizzle1d(0, ParallelType::DIDx);
+  out->axis(0)->parallelize(ParallelType::Stream);
+
+  EXPECT_FALSE(haveDifferentShardings(
+      in, DomainType::kLoop, out, DomainType::kLoop, {ParallelType::Stream}));
+}
+
 } // namespace nvfuser

@@ -91,4 +91,10 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 // Returns the relative index of the rank in the team.
 int64_t getRelativeIndex(const Team& team, DeviceIdxType rank);
 
+std::pair<Val*, Val*> dispatchSwizzle1D(
+    Val* my_rank,
+    DeviceIdxType device_id,
+    ParallelType pt,
+    const DeviceMesh& mesh);
+
 } // namespace nvfuser

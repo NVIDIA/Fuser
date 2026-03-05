@@ -503,6 +503,27 @@ TensorView
     A TensorView with the swizzled axes in its loop domain.
 )")
       .def(
+          "swizzle1d",
+          [](TensorView* self, int64_t x, ParallelType parallel_type) {
+            return self->swizzle1d(x, parallel_type);
+          },
+          py::return_value_policy::reference,
+          py::arg("x"),
+          py::arg("parallel_type"),
+          R"(
+Swizzle the specified axis with the device index corresponding to the given parallel type.
+Parameters
+----------
+x : int
+The axis to swizzle.
+parallel_type : ParallelType
+The device parallel type for the 1D swizzle.
+Returns
+-------
+TensorView
+A TensorView with the swizzled axis in its loop domain.
+)")
+      .def(
           "rfactor",
           static_cast<TensorView* (TensorView::*)(const std::vector<int64_t>&)>(
               &TensorView::rFactor),

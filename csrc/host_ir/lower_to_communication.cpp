@@ -334,6 +334,33 @@ void lowerToAllToAll(
       backend));
 }
 
+void lowerToCollectivePermute(
+    TensorView* input_tv,
+    TensorView* output_tv,
+    const CommunicatorBackend backend,
+    std::vector<Expr*>& comms,
+    Val* root,
+    DeviceIdxType my_device_idx) {
+  NVF_ERROR_EQ(
+      input_tv->getDeviceMesh(),
+      output_tv->getDeviceMesh(),
+      "CollectivePermute sender and receiver meshes must be the same. Given ",
+      input_tv->getDeviceMesh(),
+      " and ",
+      output_tv->getDeviceMesh());
+
+  IterDomain* stream_id =
+      getShardedIterDomain(output_tv, ParallelType::Stream, DomainType::kLoop);
+  Swizzle1D* swizzle = stream_id->definition()->as<Swizzle1D>();
+  ParallelType pt = swizzle->parallelType();
+
+  const auto& [recv_peer, send_peer] =
+      dispatchSwizzle1D(root, my_device_idx, pt, input_tv->getDeviceMesh());
+  Team team = input_tv->getDeviceMesh().vector();
+  comms.push_back(IrBuilder::create<CollectivePermute>(
+      output_tv, input_tv, team, send_peer, recv_peer, backend));
+}
+
 IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
   std::vector<IterDomain*> logical_ids =
       ir_utils::getReachableIds(tv->getLogicalDomain(), {loop_id});
@@ -399,15 +426,18 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
 
     if (p_loop_id && !c_loop_id) {
       // Check if we are going from DID -> Stream, which is a ring allgather.
-      // This can be executed as a broadcast or send recvs, which is decided
+      // This can be executed as a broadcast or collective permute, which is decided
       // by the presence of a swizzle in the stream id definition.
       if (c_logical_stream_id == p2c.at(p_logical_id)) {
         NVF_CHECK(
             same_mesh,
             "Broadcast based allgather in stream parallel requires same "
             "mesh.")
+        CommunicationType type = c_stream_id->definition()->isA<Swizzle1D>()
+            ? CommunicationType::CollectivePermute
+            : CommunicationType::Broadcast;
         return CommunicationInfo{
-            .type = CommunicationType::Broadcast,
+            .type = type,
             .p_sharded_id = p_logical_id,
             .c_sharded_id = c_logical_stream_id};
       }
@@ -525,7 +555,8 @@ Layout getCommunicationLayout(
       type == CommunicationType::Allreduce ||
       type == CommunicationType::Broadcast ||
       type == CommunicationType::SendRecv ||
-      type == CommunicationType::AllToAll) {
+      type == CommunicationType::AllToAll ||
+      type == CommunicationType::CollectivePermute) {
     return layout;
   }
 
@@ -666,6 +697,9 @@ std::vector<Expr*> convertSingleOpToCommunication(
       break;
     case CommunicationType::AllToAll:
       lowerToAllToAll(input_tv, output_tv, backend, comms);
+      break;
+    case CommunicationType::CollectivePermute:
+      lowerToCollectivePermute(input_tv, output_tv, backend, comms, root, my_device_idx);
       break;
   }
 

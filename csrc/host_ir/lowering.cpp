@@ -12,8 +12,11 @@
 #include "host_ir/ir.h"
 #include "host_ir/lower_to_communication.h"
 #include "host_ir/ops.h"
+#include "ir/builder.h"
 #include "ir/iostream.h"
 #include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
 #include "multidevice/propagation.h"
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
@@ -231,9 +234,19 @@ void lowerSegment(
       Val* root = loop_nest.empty() ? nullptr : innermost.loop->index();
       for (Expr* c : convertSingleOpToCommunication(e, device_id, root)) {
         NVF_ERROR(
-            c->isA<Communication>(),
-            "Exprs in a Communication group should be Communication: ",
+            c->isA<Communication>() || c->isA<CollectivePermute>(),
+            "Exprs in a Communication group should be Communication or CollectivePermute: ",
             c);
+
+        if (auto* cp = dynamic_cast<CollectivePermute*>(c)) {
+          auto add_definition_chain = [&innermost_scope](Val* val) -> void {
+            for (Expr* expr : StmtSort::getExprsTo({val})) {
+              innermost_scope.pushBack(expr);
+            }
+          };
+          add_definition_chain(cp->sendPeer());
+          add_definition_chain(cp->recvPeer());
+        }
 
         Expr* new_c = cloneWithNewOperands(c, replacement_map);
         innermost_scope.pushBack(new_c);
