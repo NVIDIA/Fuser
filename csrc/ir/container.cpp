@@ -75,14 +75,15 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
 
   std::swap(a.val_type_name_map_, b.val_type_name_map_);
   std::swap(a.expr_name_counter_, b.expr_name_counter_);
-
-  std::swap(a.parent_, b.parent_);
 }
 
-IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
+IrCloner IrContainer::copy(
+    const IrContainer* from,
+    IrContainer* to,
+    Fusion* dest_fusion) {
   to->clear();
 
-  IrCloner ir_cloner(to->parent());
+  IrCloner ir_cloner(dest_fusion);
 
   // Copy values in deterministic order
   for (auto val : from->deterministic_vals()) {
@@ -133,7 +134,7 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
   }
 
   NVF_ERROR(
-      const_stmt->container() == this->parent(),
+      sharing_fusions_.count(const_stmt->container()) > 0,
       "Container claims to own stmt, but stmt disagrees.");
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
@@ -150,6 +151,31 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
   }
 
   return true;
+}
+
+void IrContainer::addFusion(Fusion* fusion) {
+  sharing_fusions_.insert(fusion);
+}
+
+void IrContainer::removeFusion(Fusion* fusion) {
+  sharing_fusions_.erase(fusion);
+}
+
+void IrContainer::transferFusion(Fusion* from, Fusion* to) {
+  sharing_fusions_.erase(from);
+  sharing_fusions_.insert(to);
+}
+
+size_t IrContainer::sharingCount() const {
+  return sharing_fusions_.size();
+}
+
+bool IrContainer::hasMultipleFusions() const {
+  return sharing_fusions_.size() > 1;
+}
+
+const std::unordered_set<Fusion*>& IrContainer::sharingFusions() const {
+  return sharing_fusions_;
 }
 
 } // namespace nvfuser
