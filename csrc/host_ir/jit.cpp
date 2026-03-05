@@ -760,7 +760,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
          smem});
   }
 
-  void handle(kir::Allocate* allocate) final {
+  void handle(hir::Allocate* allocate) final {
     llvm::LLVMContext& context = builder().getContext();
     llvm::Module* module = builder().GetInsertBlock()->getParent()->getParent();
 
@@ -769,16 +769,13 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
     inferTensorShapesAndStrides(
-        allocate->buffer()->as<TensorView>(),
-        valToValue(),
-        builder(),
-        tensor_sizes,
-        tensor_strides);
+        allocate->in(), valToValue(), builder(), tensor_sizes, tensor_strides);
 
-    const std::vector<IterDomain*>& logical_domain = TensorDomain::noReductions(
-        allocate->buffer()->as<TensorView>()->getLogicalDomain());
+    auto logical_domain =
+        allocate->in()->getLogicalDomain() | TensorDomain::kNoReductions;
 
-    NVF_ERROR_EQ(tensor_sizes.size(), logical_domain.size());
+    NVF_ERROR_EQ(
+        std::ssize(tensor_sizes), std::ranges::distance(logical_domain));
 
     llvm::ArrayType* sizes_type = getInt64StaticArrayType(
         context, static_cast<int64_t>(tensor_sizes.size()));
@@ -819,9 +816,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     // Create constants for type and device from params
     at::ScalarType data_type = data_type_to_aten(
-        allocate->buffer()->dtype() == DataType::Index
-            ? PrimDataType::Int
-            : allocate->buffer()->dtype());
+        allocate->in()->dtype() == DataType::Index ? PrimDataType::Int
+                                                   : allocate->in()->dtype());
     llvm::Value* dtype_constant =
         builder().getInt32(static_cast<int32_t>(data_type));
     llvm::Value* device_index_constant =
@@ -841,7 +837,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
          dtype_constant,
          device_index_constant,
          out_tensor});
-    valToValue()[allocate->buffer()] = out_tensor;
+    valToValue()[allocate->in()] = out_tensor;
   }
 
   void handle(hir::Deallocate* deallocate) final {

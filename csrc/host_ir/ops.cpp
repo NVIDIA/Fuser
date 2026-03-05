@@ -32,7 +32,7 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
       source);
 
   auto* destination =
-      ops::newValLike(source, *source->getDataType())->as<TensorView>();
+      ops::newValLike(source, source->getDataType())->as<TensorView>();
 
   if (std::ranges::find(e->inputs(), source) != e->inputs().end()) {
     // Propagate the allocation domain from `source` to `destination`.

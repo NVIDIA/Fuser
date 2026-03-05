@@ -179,46 +179,47 @@ void lowerSegment(
       // TODO: `replacement_map` should be associated with the scope so
       // ShardByStream across segments in the same for-loop can be reused.
       std::unordered_map<Val*, Val*> replacement_map;
+
+      // All communications from a single expr share the same in/out TVs;
+      // only root and team vary. Handle input sharding and output
+      // allocation once, outside the per-communication loop.
+      TensorView* in = e->input(0)->as<TensorView>();
+      TensorView* out = e->output(0)->as<TensorView>();
+
+      if (haveDifferentShardings(
+              in,
+              DomainType::kAllocation,
+              out,
+              DomainType::kLoop,
+              {ParallelType::Stream})) {
+        Val*& sharded_in = replacement_map[in];
+        if (sharded_in == nullptr) {
+          sharded_in = hir::shardByStream(in, innermost.loop->index(), e);
+          innermost_scope.pushBack(sharded_in->definition());
+        }
+      }
+
+      auto* allocate =
+          IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
+      if (getShardedIterDomain(out, ParallelType::Stream, DomainType::kLoop) !=
+              nullptr &&
+          getShardedIterDomain(
+              out, ParallelType::Stream, DomainType::kAllocation) == nullptr) {
+        innermost.parent_scope->insert(
+            innermost.parent_insertion_point, allocate);
+        auto [i, inserted] = replacement_map.emplace(
+            out, hir::shardByStream(out, innermost.loop->index(), e));
+        NVF_ERROR(inserted, "The input segmented fusion should be SSA.");
+        innermost_scope.pushBack(i->second->definition());
+      } else {
+        innermost_scope.pushBack(allocate);
+      }
+
       for (Expr* c : convertSingleOpToCommunication(e, device_id)) {
         NVF_ERROR(
             c->isA<Communication>(),
             "Exprs in a Communication group should be Communication: ",
             c);
-        auto* communication = c->as<Communication>();
-        TensorView* in = communication->in();
-        TensorView* out = communication->out();
-        if (haveDifferentShardings(
-                in,
-                DomainType::kAllocation,
-                out,
-                DomainType::kLoop,
-                {ParallelType::Stream})) {
-          Val*& sharded_in = replacement_map[in];
-          if (sharded_in == nullptr) {
-            sharded_in =
-                hir::shardByStream(in, innermost.loop->index(), communication);
-            innermost_scope.pushBack(sharded_in->definition());
-          }
-        }
-
-        // Allocate the recv buffers of communications
-        auto* allocate =
-            IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
-        if (getShardedIterDomain(
-                out, ParallelType::Stream, DomainType::kLoop) != nullptr &&
-            getShardedIterDomain(
-                out, ParallelType::Stream, DomainType::kAllocation) ==
-                nullptr) {
-          innermost.parent_scope->insert(
-              innermost.parent_insertion_point, allocate);
-          auto [i, inserted] = replacement_map.emplace(
-              out,
-              hir::shardByStream(out, innermost.loop->index(), communication));
-          NVF_ERROR(inserted, "The input segmented fusion should be SSA.");
-          innermost_scope.pushBack(i->second->definition());
-        } else {
-          innermost_scope.pushBack(allocate);
-        }
 
         Expr* new_c = cloneWithNewOperands(c, replacement_map);
         innermost_scope.pushBack(new_c);
@@ -310,7 +311,7 @@ void lowerSegment(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
             auto* allocate =
-                IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+                IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
             innermost.parent_scope->insert(
                 innermost.parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
@@ -347,7 +348,7 @@ void lowerSegment(
             alias);
 
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
+            IrBuilder::create<hir::Allocate>(out_tv, out_tv->getMemoryType());
         innermost_scope.pushBack(allocate);
       }
 

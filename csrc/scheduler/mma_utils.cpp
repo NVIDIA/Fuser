@@ -7,6 +7,7 @@
 // clang-format on
 #include "scheduler/mma_utils.h"
 
+#include <cstdint>
 #include <ranges>
 #include <variant>
 
@@ -120,9 +121,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // Create a temporary CircularBufferOptions with full circular buffering, for
   // estimating shared memory size.
   MatmulParams::CircularBufferOptions circular_buffer_options{
-      /*circular_buffer_smem_write=*/true,
-      /*circular_buffer_smem_read=*/true,
-      smem_circular_buffer_stage};
+      .circular_buffer_smem_write = true,
+      .circular_buffer_smem_read = true,
+      .smem_circular_buffer_stage = smem_circular_buffer_stage};
 
   const auto [smem_a, smem_b, smem_c] =
       computeSharedMemorySizes(gemm_tile, circular_buffer_options, data_types);
@@ -489,6 +490,7 @@ std::vector<MatmulDimRole> makeTile(
       "Tensor dimension must equal number of provided axis roles");
 
   std::vector<std::unordered_set<MatmulDimRole>> axis_role_sets;
+  axis_role_sets.reserve(axis_roles.size());
   for (const MatmulDimRole role : axis_roles) {
     axis_role_sets.push_back({role});
   }
@@ -500,7 +502,7 @@ std::vector<MatmulDimRole> makeTile(
   std::vector<MatmulDimRole> new_axis_roles;
   new_axis_roles.reserve(abten.size());
   for (int64_t i : arange((int64_t)abten.size())) {
-    new_axis_roles.push_back(abten.getTag(i).value());
+    new_axis_roles.push_back(valueOrError(abten.getTag(i)));
   }
 
   return new_axis_roles;
@@ -633,7 +635,7 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
 namespace {
 
 // Utility for mma dimension matching
-enum class MmaDimension { M = 0, N, K };
+enum class MmaDimension : std::uint8_t { M = 0, N, K };
 
 // Preliminary checks to try to validate that loop is
 //  a innermost dim of root of exactly the given size.
@@ -972,7 +974,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
     // [Ko, No, K8, N8]
     num_ids_to_skip += 2;
   } else {
-    auto dtype = tv->getDataType().value();
+    auto dtype = tv->getDataType();
 
     // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
 
@@ -1183,7 +1185,7 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
   for (size_t i : arange(tv->nDims())) {
     IterDomain* id = tv->axis((int64_t)i);
     const ValGroup& g = graph.toGroup(id);
-    auto order_it = std::find(ordering.begin(), ordering.end(), g);
+    auto order_it = std::ranges::find(ordering, g);
     NVF_ERROR(
         order_it != ordering.end(),
         "Couldn't find ordering entry for ",
@@ -1215,7 +1217,7 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     prev_role = role;
   }
   // Roles are inserted in reverse order
-  std::reverse(roles.begin(), roles.end());
+  std::ranges::reverse(roles);
   return roles;
 }
 
@@ -1289,7 +1291,7 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
     // [Ko, K8, No, N8]
     tv->reorder({{-2, -3}});
   } else {
-    auto dtype = tv->getDataType().value();
+    auto dtype = tv->getDataType();
 
     // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
 
@@ -1580,7 +1582,7 @@ TensorRolesMapOpt getTensorRoles(
     // NOTE: sort role tvs in descending order by uses() size, and
     //  if equal then by name() to ensure the stable ordering of tensor
     //  views in collections assigned to the supported roles
-    std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+    std::ranges::sort(tvs, [](TensorView* a, TensorView* b) {
       return (a->uses().size() == b->uses().size())
           ? (a->name() < b->name())
           : (a->uses().size() > b->uses().size());
@@ -1655,10 +1657,8 @@ bool broadcastsAreValid(
 
   // Also ensure that it's not the same dim for the two muls. that's
   // getting broadcast.
-  auto idx_l = std::find(bcastFlags_l.begin(), bcastFlags_l.end(), true) -
-      bcastFlags_l.begin();
-  auto idx_r = std::find(bcastFlags_r.begin(), bcastFlags_r.end(), true) -
-      bcastFlags_r.begin();
+  auto idx_l = std::ranges::find(bcastFlags_l, true) - bcastFlags_l.begin();
+  auto idx_r = std::ranges::find(bcastFlags_r, true) - bcastFlags_r.begin();
   if (idx_l == idx_r) {
     return false;
   }
@@ -1885,7 +1885,8 @@ class MatmulTranslator : public OptInDispatch {
   static MatmulPattern::TranslationResult translate(MatmulPattern& pattern) {
     MatmulTranslator trans(pattern);
     trans.dispatch(pattern.output->definition());
-    return MatmulPattern::TranslationResult{trans.mma_, trans.replacements_};
+    return MatmulPattern::TranslationResult{
+        .mma = trans.mma_, .replacements = trans.replacements_};
   }
 
  private:
@@ -1965,7 +1966,7 @@ class MatmulTranslator : public OptInDispatch {
       if (!perm_opt.has_value()) {
         continue;
       }
-      std::vector<int64_t> perm = perm_opt.value();
+      const std::vector<int64_t>& perm = perm_opt.value();
       std::vector<int64_t> target_perm;
       target_perm.reserve(out_tv->getLogicalDomain().size());
       for (size_t i : c10::irange(out_tv->getLogicalDomain().size())) {
@@ -2126,7 +2127,8 @@ class MatmulTranslator : public OptInDispatch {
   }
 
  private:
-  MatmulPattern& pattern_;
+  MatmulPattern&
+      pattern_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   MatmulPattern::TranslationResult result_;
   MmaOp* mma_ = nullptr;
   std::unordered_map<TensorView*, TensorView*> replacements_;
@@ -2476,8 +2478,7 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
-  const int64_t data_type_size =
-      dataTypeSizeByte(*shared_mem_tv->getDataType());
+  const int64_t data_type_size = dataTypeSizeByte(shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
@@ -2715,7 +2716,7 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
   const int64_t inner_dim_size =
       swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
 
-  auto dtype = shared_mem_tv->getDataType().value();
+  auto dtype = shared_mem_tv->getDataType();
   const int64_t B128_elements = 128 / dataTypeSizeByte(dtype);
   const int64_t B64_elements = 64 / dataTypeSizeByte(dtype);
   const int64_t B32_elements = 32 / dataTypeSizeByte(dtype);
@@ -2735,18 +2736,18 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
 
 std::string toString(const mma_utils::AbstractMatmulTensor& abten) {
   std::ostringstream ss;
-  ss << "AbstractMatmulTensor (" << abten.size() << "):" << std::endl;
+  ss << "AbstractMatmulTensor (" << abten.size() << "):\n";
   for (size_t i : arange(abten.size())) {
     const AbstractId& abs_id = abten[(int64_t)i];
-    const std::optional<MatmulDimRole> role = abten.getTag((int64_t)i).value();
-    ss << "  " << (role.has_value() ? toString(role.value()) : "no role");
+    const std::optional<MatmulDimRole> role = abten.getTag((int64_t)i);
+    ss << "  " << (role.has_value() ? toString(*role) : "no role");
     if (abs_id.is<ValGroupAndItsGraph>()) {
       const ValGroup& g = abs_id.as<ValGroupAndItsGraph>().group;
       for (Val* v : g->vector()) {
         ss << " " << v->toString();
       }
     }
-    ss << std::endl;
+    ss << '\n';
   }
   return ss.str();
 }
