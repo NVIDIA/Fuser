@@ -59,8 +59,7 @@ struct Fusion::ContainerMutator {
 
     auto* c = self->ir_container();
     auto expr_in_deque = std::ranges::find_if(
-        c->exprs_up_,
-        [expr](std::unique_ptr<Expr>& expr_up) {
+        c->exprs_up_, [expr](std::unique_ptr<Expr>& expr_up) {
           return expr_up.get() == expr;
         });
     NVF_ERROR(

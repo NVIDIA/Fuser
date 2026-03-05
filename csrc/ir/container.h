@@ -143,9 +143,8 @@ class IrContainer {
  private:
   // Lock-free implementations for use by Fusion (which holds mutex_ directly)
   bool inContainerImpl(const Statement* stmt) const;
-  void assertInContainerImpl(
-      const Statement* stmt,
-      const std::string& msg) const;
+  void assertInContainerImpl(const Statement* stmt, const std::string& msg)
+      const;
 
   std::unordered_set<Fusion*> sharing_fusions_;
   std::unordered_map<const Fusion*, std::unordered_set<Val*>> per_fusion_vals_;
