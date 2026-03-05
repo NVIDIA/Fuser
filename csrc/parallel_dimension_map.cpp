@@ -152,7 +152,8 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
-int64_t ParallelDimensionMap::getStaticComputeThreadsInDim(ParallelType pt) {
+int64_t ParallelDimensionMap::getStaticComputeThreadsInDim(
+    ParallelType pt) const {
   if (!dim_map_.contains(pt)) {
     return 1;
   }
@@ -327,7 +328,8 @@ Val* ParallelDimensionMap::getNumComputeWarps() const {
   Val* num_compute_warps = SimplifyingIrBuilder::divExpr(
       num_compute_threads, IrBuilder::create<Val>(32L, DataType::Index));
 
-  return num_compute_warps;
+  return SimplifyingIrBuilder::maybeCastExpr(
+      DataType::UInt32, num_compute_warps);
 }
 
 // For warp-specialization, the CTA is padded so the AsyncWarp contains 128
@@ -399,7 +401,7 @@ bool ParallelDimensionMap::canUseWarpIdBasedPredicate() const {
     if (pt == ws_pt) {
       found_ws_pt = true;
     } else if (found_ws_pt) {
-      int64_t thread_count = getThreadCountInDim(pt);
+      int64_t thread_count = getStaticComputeThreadsInDim(pt);
       if (thread_count == -1 || thread_count > 1) {
         return false;
       }

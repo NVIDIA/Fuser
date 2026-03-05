@@ -121,14 +121,14 @@ class ParallelDimensionMap {
   //!   No dimensions after TIDz -> consecutive warps (WORKS)
   //!
   //! Returns true if:
-  //!   - No warp specialization is used, OR
+  //!   - Warp specialization is used, AND
   //!   - All dimensions after the warp-specialized dimension are 1
   bool canUseWarpIdBasedPredicate() const;
 
  private:
   //! Get number of threads for ParallelType axis
   //! Not used: 1, Const: n, Dynamic: -1
-  int64_t getStaticComputeThreadsInDim(ParallelType pt);
+  int64_t getStaticComputeThreadsInDim(ParallelType pt) const;
 
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.

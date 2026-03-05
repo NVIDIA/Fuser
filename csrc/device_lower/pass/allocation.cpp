@@ -1220,7 +1220,7 @@ class AllocationInserter : public kir::ExprMutator {
     return alloc_expr;
   }
 
-  void computeUniformWarpId(Expr* expr) {
+  void computeUniformWarpId() {
     // Compute flat thread id: tid = threadIdx.x + threadIdx.y * blockDim.x +
     // threadIdx.z * blockDim.x * blockDim.y
     const auto& pdim = GpuLower::current()->info().parallelDimensionMap();
@@ -1254,9 +1254,14 @@ class AllocationInserter : public kir::ExprMutator {
     Val* warp_size = IrBuilder::create<Val>(32L, DataType::Index);
     Val* warp_id = SimplifyingIrBuilder::divExpr(tid, warp_size);
 
-    // Cast to UInt32 for use in predicates and store in GpuLower
-    Val* uniform_warp_id =
+    // Cast to UInt32 and broadcast from lane 0 via __shfl_sync to make the
+    // value provably warp-uniform to PTXAS. Without this, PTXAS inserts
+    // redundant VOTEU.ALL/WARPSYNC.ALL uniformity checks.
+    Val* warp_id_u32 =
         SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, warp_id);
+    Val* uniform_warp_id = IrBuilder::create<Val>(DataType::UInt32);
+    IrBuilder::create<UnaryOp>(
+        UnaryOpType::UniformWarpId, uniform_warp_id, warp_id_u32);
 
     GpuLower::current()->setUniformWarpId(uniform_warp_id);
   }
@@ -1794,7 +1799,7 @@ class AllocationInserter : public kir::ExprMutator {
     if (gpu_lower_->info()
             .parallelDimensionMap()
             .canUseWarpIdBasedPredicate()) {
-      computeUniformWarpId(exprs.at(0));
+      computeUniformWarpId();
     }
     // insert cluster reduction mbarrier at top-level scope
     if (GpuLower::current()->clusterReductionCount() >= 1) {
