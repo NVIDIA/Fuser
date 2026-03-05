@@ -36,18 +36,16 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   int64_t max_input_dtype_size = 1;
   int64_t n_input = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    max_input_dtype_size = std::max(
-        max_input_dtype_size,
-        dataTypeSizeByte(valueOrError(inp->getDataType())));
+    max_input_dtype_size =
+        std::max(max_input_dtype_size, dataTypeSizeByte(inp->getDataType()));
     n_input++;
   }
 
   int64_t max_output_dtype_size = 1;
   int64_t n_output = 0;
   for (auto out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    max_output_dtype_size = std::max(
-        max_output_dtype_size,
-        dataTypeSizeByte(valueOrError(out->getDataType())));
+    max_output_dtype_size =
+        std::max(max_output_dtype_size, dataTypeSizeByte(out->getDataType()));
     n_output++;
   }
 
@@ -82,7 +80,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   // Heuristic for tile_size1 (the non-swizzled, tunable dim).
   // Target: 64KB of data loaded per SM, 256 threads per CTA.
   auto dev_props = at::cuda::getCurrentDeviceProperties();
-  constexpr int64_t bytes_per_sm = 64 * 1024;
+  constexpr int64_t bytes_per_sm = 64L * 1024L;
   constexpr int64_t threads_per_cta = 256;
   const int64_t cta_per_sm =
       dev_props->maxThreadsPerMultiProcessor / threads_per_cta;
