@@ -1,0 +1,131 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Claude CLI PR Review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+run-name: Claude review for PR ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  claude-code-review:
+    name: Run Claude Code Review
+    # Skip if PR is in draft
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    env:
+      CLAUDE_OUTPUT_DIR: artifacts/claude_review/${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
+
+      - name: Install Claude Code Router
+        run: npm install -g @musistudio/claude-code-router@1.0.66
+
+      - name: Setup Claude Code Router config
+        run: |
+          mkdir -p $HOME/.claude-code-router
+          cat <<EOF > $HOME/.claude-code-router/config.json
+          {
+            "LOG": true,
+            "API_TIMEOUT_MS": 60000,
+            "NON_INTERACTIVE_MODE": true,
+            "Providers": [
+              {
+                "name": "anthropic",
+                "api_base_url": "\$ANTHROPIC_BASE_URL",
+                "api_key": "\$ANTHROPIC_API_KEY",
+                "models": [
+                  "\$ANTHROPIC_LLM_MODEL"
+                ],
+                "transformer": {
+                  "use": ["anthropic", "proxy-handler"]
+                }
+              }
+            ],
+            "Router": {
+              "default": "anthropic,\$ANTHROPIC_LLM_MODEL"
+            },
+            "transformers": [
+              {
+                "path": "$GITHUB_WORKSPACE/tools/proxy.js"
+              }
+            ]
+          }
+          EOF
+        shell: bash
+
+      - name: Start Claude Code Router background service
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_LLM_MODEL: ${{ secrets.ANTHROPIC_LLM_MODEL }}
+        run: |
+          nohup ccr start &
+          sleep 5  # Give it some time to start
+        shell: bash
+
+      - name: Check Claude CLI availability
+        run: |
+          echo "PATH=$PATH"
+          which claude || echo "claude not found on PATH"
+          claude --version || true
+          echo "npm prefix bin: $(npm config get prefix)/bin" || true
+
+      - name: Run Claude Code via wrapper
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: http://localhost:3456
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          python -m tools.pr_preflight_launcher --ai-backend claude --output-dir "${CLAUDE_OUTPUT_DIR}"
+      
+      - name: Print Claude error (if any)
+        if: always()
+        run: |
+          if [ -f "${{ env.CLAUDE_OUTPUT_DIR }}/error.txt" ]; then
+            echo "===== Claude error.txt ====="
+            sed -n '1,200p' "${{ env.CLAUDE_OUTPUT_DIR }}/error.txt"
+          else
+            echo "No error.txt found in ${{ env.CLAUDE_OUTPUT_DIR }}"
+          fi
+
+      - name: Upload Claude review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ env.CLAUDE_OUTPUT_DIR }}/**
+
+      # TODO: Add step to post results to PR
+      # - name: Post results to PR
+      #   run: |
+      #     # Parse output and post to PR
