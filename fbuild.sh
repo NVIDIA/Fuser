@@ -1,0 +1,24 @@
+#!/bin/bash
+
+export CC=clang-20
+export CXX=clang++-20
+export LDFLAGS="-fuse-ld=mold"
+
+export NVFUSER_BUILD_ENABLE_PCH
+
+export UCC_HOME="/opt/hpcx/ucc"
+export UCC_DIR="/opt/hpcx/ucc/lib/cmake/ucc"
+export UCX_HOME="/opt/hpcx/ucx"
+export UCX_DIR="/opt/hpcx/ucx/lib/cmake/ucx"
+
+# export TORCH_CUDA_ARCH_LIST="9.0"
+
+export NVFUSER_BUILD_WITH_UCC=1
+export NVFUSER_BUILD_INSTALL_DIR=$BUILD_DIRECTORY/nvfuser
+export NVFUSER_BUILD_DIR=$BUILD_DIRECTORY
+
+# Enable debug mode, leave empty for non-debug compilation
+export NVFUSER_BUILD_BUILD_TYPE=Debug
+export RUN_CMAKE=""
+
+pip install -v -e ./python --no-build-isolation
