@@ -41,6 +41,9 @@ std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
     case CommunicatorBackend::kCuda:
       out << "CUDA";
       break;
+    case CommunicatorBackend::kNixl:
+      out << "NIXL";
+      break;
   }
   return out;
 }
@@ -183,7 +186,8 @@ Communicator::Communicator(
       master_port_(
           c10d::TCPStoreOptions::kDefaultPort + 42), // to avoid collision
       ucc_available_(false),
-      nccl_available_(false) {
+      nccl_available_(false),
+      nixl_available_(false) {
   if (isOptionDisabled(DisableOption::Multidevice)) {
     TORCH_WARN(
         "Multi-device support is disabled. All communication operations will "
@@ -235,6 +239,10 @@ Communicator::Communicator(
 
 #ifdef USE_C10D_NCCL
   nccl_available_ = true;
+#endif
+
+#ifdef USE_NIXL
+  nixl_available_ = true;
 #endif
 }
 
