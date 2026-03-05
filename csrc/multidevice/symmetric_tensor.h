@@ -51,6 +51,8 @@ class SymmetricTensor {
   // Setup remote access (lazy, init-once)
   void setupRemoteHandles(const std::string& tag = "");
   at::Tensor remoteTensor(int64_t rank) const;
+  // Returns a device pointer table of peer pointers (void** on device).
+  void** devicePeerPointers() const;
 
   // Setup multicast (CUDA 13.0+, init-once)
   void setupMulticast(int64_t exporter_rank, const std::string& tag = "");
@@ -79,6 +81,7 @@ class SymmetricTensor {
   int peer_fd_{-1};
   bool is_contiguous_view_setup_ = false;
   at::Tensor contiguous_view_;
+  mutable void** device_peer_ptrs_ = nullptr;
 };
 
 } // namespace nvfuser
