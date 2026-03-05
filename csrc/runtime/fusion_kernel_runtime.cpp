@@ -26,9 +26,6 @@
 
 namespace nvfuser {
 
-// TODO: Remove when std::shared_mutex is added to IrContainer.
-constexpr bool kPhase2DisableParallelCompile = true;
-
 namespace {
 // Replace CUDA tensor with Meta tensor because storing tensors can cause
 // out-of-memory issues. Other arguments are returned as-is.
@@ -439,8 +436,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   try {
     for (const auto& [group_to_run, group_runtime_inputs] :
          zip(runtime_workspace_.group_run_order, all_runtime_inputs)) {
-      if (num_groups == 1 || kPhase2DisableParallelCompile ||
-          isOptionDisabled(DisableOption::ParallelCompile)) {
+      if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
         compileKernel(group_runtime_inputs, group_to_run);
       } else {
         // launch compileKernel thread here
@@ -474,8 +470,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     throw;
   }
 
-  if (num_groups != 1 && !kPhase2DisableParallelCompile &&
-      !isOptionDisabled(DisableOption::ParallelCompile)) {
+  if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
     // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
