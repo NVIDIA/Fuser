@@ -481,6 +481,61 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   return mapped_ids;
 }
 
+void mapSplitOfSplit(ValGraph& graph) {
+  // The following is a subpattern of
+  // https://github.com/NVIDIA/Fuser/blob/main/doc/reading/iterdomain.md#2-properties-of-iterdomain-transformations
+  //
+  // outer, _ = split(root)
+  // outermost_grand, _ = split(outer)
+  // outer', _ = split(root)
+  //
+  // If outermost_grand and outer' have the same extent, map them.
+  std::vector<std::pair<Val*, Val*>> ids_to_map;
+  for (const ValGroup& root : graph.disjointValSets().disjointSets()) {
+    const ExprGroups& uses_of_root = graph.getUses(root);
+    std::vector<ValGroup> outermost_grands;
+    for (const ExprGroup& use_of_root : uses_of_root) {
+      auto* split0 = dynamic_cast<Split*>(use_of_root->front());
+      if (split0 == nullptr) {
+        continue;
+      }
+      // Only follow the outer output of the first split; outer and inner
+      // must not be conflated.
+      const ValGroup& outer = graph.toGroup(split0->outer());
+      for (const ExprGroup& use_of_outer : graph.getUses(outer)) {
+        auto* split1 = dynamic_cast<Split*>(use_of_outer->front());
+        if (split1 == nullptr) {
+          continue;
+        }
+        const ValGroup& outermost_grand = graph.toGroup(split1->outer());
+        outermost_grands.push_back(outermost_grand);
+      }
+    }
+
+    for (const ValGroup& outermost_grand : outermost_grands) {
+      Val* extent_of_grand =
+          outermost_grand->front()->as<IterDomain>()->extent();
+
+      for (const ExprGroup& use_of_root : uses_of_root) {
+        auto* split = dynamic_cast<Split*>(use_of_root->front());
+        if (split == nullptr) {
+          continue;
+        }
+
+        const ValGroup& outer = graph.toGroup(split->outer());
+        if (outer->front()->as<IterDomain>()->extent()->sameAs(
+                extent_of_grand)) {
+          ids_to_map.emplace_back(outermost_grand->front(), outer->front());
+        }
+      }
+    }
+  }
+
+  for (const auto& [id1, id2] : ids_to_map) {
+    graph.mapVals(id1, id2);
+  }
+}
+
 } // namespace
 
 ValGraph& IdModel::buildAlmostExactGraph() {
@@ -539,6 +594,8 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   for (const auto& [id1, id2] : ids_to_map) {
     almost_exact_graph.mapVals(id1, id2);
   }
+
+  mapSplitOfSplit(almost_exact_graph);
 
   almost_exact_graph.validateConsistency();
 
