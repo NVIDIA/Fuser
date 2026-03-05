@@ -24,7 +24,8 @@ class TransformRFactor {
   // Transform the provided tensor domain to two domains, a producer and
   // consumer domain. These domains are created by taking axes and reducing them
   // in the producer domain, and taking the remaining reduction axes and
-  // reducing them in the consumer domain.
+  // reducing them in the consumer domain. We also replay any allocation domain
+  // present in the original domain.
   static std::pair<TensorDomain*, TensorDomain*> runReplay(
       TensorDomain*,
       std::vector<int64_t> axes);
