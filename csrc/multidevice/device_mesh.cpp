@@ -143,7 +143,7 @@ int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
 }
 
 bool DeviceMesh::hasParallelType(ParallelType parallel_type) const {
-  return parallelTypeToAxis(parallel_type) != -1;
+  return size() > 0 && parallelTypeToAxis(parallel_type) != -1;
 }
 
 int64_t DeviceMesh::size(const ParallelType parallel_type) const {
