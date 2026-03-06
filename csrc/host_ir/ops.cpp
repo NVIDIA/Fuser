@@ -35,13 +35,13 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
       ops::newValLike(source, source->getDataType())->as<TensorView>();
 
   if (std::ranges::find(e->inputs(), source) != e->inputs().end()) {
-    // Propagate the allocation domain from `source` to `destination`.
-    // Consider adding a config to TransformReplay::selfReplay to control what
-    // to propagate, so we don't have to reset the loop domain.
+    // Propagate the domain from `source` to `destination`.
+    // Unparallelize the destination on `ParallelType::Stream` which
+    // will be inferred based on the output of the expression.
     TransformReplay::selfReplay(source->domain(), destination->domain());
-    destination->setLoopDomain(destination->getLogicalDomain());
+    unparallelize(destination, {ParallelType::Stream});
 
-    // Propagate the loop domain from `e` to `destination`. There are two
+    // Propagate ParallelType::Stream from `e` to `destination`. There are two
     // technical challenges:
     // 1. Loop domains are associated with TensorViews, not Exprs. So we
     // find e's reference output, `ref_out`, and propagate its loop domain.
@@ -58,7 +58,7 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
     shardLoopLike(
         ref_out,
         destination,
-        deviceAndStreamParallelTypes(),
+        {ParallelType::Stream},
         PropagateDirection::kBackward);
     temp_e->fusion()->removeExpr(temp_e);
     // Fusion::removeExpr sets all outputs' definitions to nullptr, so we need
@@ -67,6 +67,14 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
     // definition to nullptr if the definition is not `expr`.
     for (auto* out : e->outputs()) {
       out->setDefinition(e);
+    }
+
+    // Destination's loop domain may not be stream-parallelized if the
+    // corresponding id is already sharded such as in
+    // broadcast/collective-permute based decomposition of allgather.
+    if (getShardedIterDomain(
+            destination, ParallelType::Stream, DomainType::kLoop) == nullptr) {
+      return nullptr;
     }
   } else {
     NVF_ERROR(
@@ -89,8 +97,10 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
           destination, ParallelType::Stream, DomainType::kAllocation) !=
           nullptr,
       "Destination allocation should be sharded on stream after "
-      "shardAllocationAsLoop: ",
-      destination);
+      "shardAllocationAsLoop. ",
+      destination->name(),
+      ":",
+      destination->domain()->toString(0, /*loop_only=*/false));
 
   // Refine the contiguity flags so `out` aliases `in`. This is done similar
   // to AliasFinder::handle(const SliceOp*). We scan through the allocation
