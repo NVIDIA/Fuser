@@ -501,7 +501,6 @@ def test_column_parallel_linear_forward(multidevice_test):
 @pytest.mark.mpi
 @pytest.mark.benchmark
 def test_column_parallel_linear_forward_benchmark(multidevice_test, benchmark):
-    # This is a port of CollectiveBasedOverlapTest.RowParallelLinear_Forward.
     h, t = 8192, 8192
     d = multidevice_test.size
     if (4 * h) % d != 0:

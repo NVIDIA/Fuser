@@ -363,21 +363,16 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
   const std::unordered_map<IterDomain*, IterDomain*> c2p =
       pairwise_map.mapConsumerToProducer();
 
-  auto producing_logical_id = [](TensorView* tv,
-                                 IterDomain* loop_id) -> IterDomain* {
-    if (loop_id == nullptr) {
-      return nullptr;
-    }
-    return getLogicalFromLoopId(tv, loop_id);
-  };
-
   IterDomain* p_loop_id = getShardedIterDomain(producer, pt, DomainType::kLoop);
+  IterDomain* p_logical_id =
+      p_loop_id ? getLogicalFromLoopId(producer, p_loop_id) : nullptr;
   IterDomain* c_loop_id = getShardedIterDomain(consumer, pt, DomainType::kLoop);
-  IterDomain* p_logical_id = producing_logical_id(producer, p_loop_id);
-  IterDomain* c_logical_id = producing_logical_id(consumer, c_loop_id);
+  IterDomain* c_logical_id =
+      c_loop_id ? getLogicalFromLoopId(consumer, c_loop_id) : nullptr;
   IterDomain* c_stream_id =
       getShardedIterDomain(consumer, ParallelType::Stream, DomainType::kLoop);
-  IterDomain* c_logical_stream_id = producing_logical_id(consumer, c_stream_id);
+  IterDomain* c_logical_stream_id =
+      c_stream_id ? getLogicalFromLoopId(consumer, c_stream_id) : nullptr;
 
   const DeviceMesh& producer_mesh = producer->getDeviceMesh();
   const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
