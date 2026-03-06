@@ -468,7 +468,7 @@ def test_column_parallel_linear_forward(multidevice_test):
     d = multidevice_test.size
     if (h * 4) % d != 0:
         pytest.skip(
-            f"Row-parallel linear requires {h * 4} to be divisible by world size {d}."
+            f"Column-parallel linear requires {h * 4} to be divisible by world size {d}."
         )
     if t % d != 0:
         pytest.skip(
