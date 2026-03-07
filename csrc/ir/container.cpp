@@ -226,8 +226,13 @@ void IrContainer::removeStatementsOwnedBy(const Fusion* fusion) {
     const auto& owned = vals_it->second;
     std::erase_if(vals_up_, [&](const std::unique_ptr<Val>& v) {
       if (owned.count(v.get()) > 0) {
+        // Multi-owner guard: only free if this is the last owning Fusion.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        if (!v->removeOwningFusion(const_cast<Fusion*>(fusion))) {
+          return false; // other Fusions still own this Val — keep alive
+        }
         vals_.erase(v.get());
-        return true;
+        return true; // last owner gone → Val freed
       }
       return false;
     });

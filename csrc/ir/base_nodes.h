@@ -411,6 +411,24 @@ class NVF_API Val : public Statement {
     definition_ = expr;
   }
 
+  // Multi-owner tracking for Phase 3 scalar sharing.
+  // owning_fusions_[0] = original creator (by convention, set at registration).
+  // Grows to 2+ only for shared scalars (IrCloner reuse path).
+  bool isShared() const {
+    return owning_fusions_.size() > 1;
+  }
+
+  bool isOwnedBy(const Fusion* f) const;
+
+  void addOwningFusion(Fusion* f);
+
+  // Remove an owning Fusion. Returns true if this was the last owner.
+  bool removeOwningFusion(Fusion* f);
+
+  const std::vector<Fusion*>& owningFusions() const {
+    return owning_fusions_;
+  }
+
   NVFUSER_DECLARE_CLONE
 
  protected:
@@ -453,6 +471,9 @@ class NVF_API Val : public Statement {
   // resolving the index data type from nvfuser to either Int or Int32 for
   // welford operations.
   DataType dtype_;
+
+  // Tracks all Fusions that own this Val. Seeded at registration.
+  std::vector<Fusion*> owning_fusions_;
 
   // Following is managed by Fusion and can change.
   bool is_fusion_input_ = false;

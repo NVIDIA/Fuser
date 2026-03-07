@@ -90,6 +90,25 @@ kir::Kernel* Statement::kernel() const {
 
 NVFUSER_DEFINE_CLONE(Val)
 
+bool Val::isOwnedBy(const Fusion* f) const {
+  return std::find(owning_fusions_.begin(), owning_fusions_.end(), f) !=
+      owning_fusions_.end();
+}
+
+void Val::addOwningFusion(Fusion* f) {
+  if (!isOwnedBy(f)) {
+    owning_fusions_.push_back(f);
+  }
+}
+
+bool Val::removeOwningFusion(Fusion* f) {
+  auto it = std::find(owning_fusions_.begin(), owning_fusions_.end(), f);
+  if (it != owning_fusions_.end()) {
+    owning_fusions_.erase(it);
+  }
+  return owning_fusions_.empty();
+}
+
 void Val::addDependency(Val* dependency) {
   NVF_ERROR(dependency != nullptr);
 

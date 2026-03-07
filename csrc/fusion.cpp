@@ -137,6 +137,11 @@ struct Fusion::ContainerMutator {
     c->vals_.insert(val);
     c->per_fusion_vals_[self].insert(val);
     val->setName(IrContainerPasskey(), self->getValName(val->vtype()));
+
+    // Seed owning_fusions_ with the registering Fusion (original creator).
+    if (val->owning_fusions_.empty()) {
+      val->owning_fusions_.push_back(self);
+    }
   }
 
   static void registerExpr(Fusion* self, Expr* expr) {
@@ -458,10 +463,16 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   }
 
   // Wire up definitions and uses on cloned vals in deterministic order
-  // to ensure exprs are inserted into exprs_up_ deterministically
+  // to ensure exprs are inserted into exprs_up_ deterministically.
+  // Skip reused vals (shared scalars) — their definition/uses belong to
+  // the source Fusion and must not be overwritten.
   for (auto val : from->deterministic_vals()) {
-    ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
-    ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
+    auto* cloned = ir_cloner.clone(val);
+    if (cloned == val) {
+      continue; // reused (shared scalar) — don't rewire
+    }
+    cloned->setDefinition(ir_cloner.clone(val->definition_));
+    cloned->setUses(ir_cloner.clone(val->uses_));
   }
 
   // Sync per-Fusion name counters from source to dest.
