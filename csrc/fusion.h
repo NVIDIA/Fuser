@@ -591,6 +591,7 @@ class NVF_API Fusion : public PolymorphicBase {
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
   friend class TranslateApplicableWelford;
+  friend class IrCloner;
   friend Val;
 
   //! Constructor that shares an existing container. Creates an empty Fusion

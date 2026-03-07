@@ -157,7 +157,13 @@ void IterVisitor::traverseBetween(
   if (to.empty()) {
     return;
   }
-  Fusion* fusion = to.front()->fusion();
+  // Use the active FusionGuard rather than deriving the Fusion from a val.
+  // This avoids calling fusion() on shared scalars whose ir_container_
+  // points to the original creator Fusion, not the current traversal target.
+  Fusion* fusion = FusionGuard::getCurFusion();
+  if (fusion == nullptr) {
+    fusion = to.front()->fusion();
+  }
   FusionGuard fg(fusion);
 
   std::unordered_set<Statement*> visited;
@@ -468,7 +474,10 @@ void BackwardVisitor::traverseTo(
   if (from.empty()) {
     return;
   }
-  Fusion* fusion = from.front()->fusion();
+  Fusion* fusion = FusionGuard::getCurFusion();
+  if (fusion == nullptr) {
+    fusion = from.front()->fusion();
+  }
   FusionGuard fg(fusion);
 
   // Reset members

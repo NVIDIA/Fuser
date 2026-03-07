@@ -153,7 +153,8 @@ int64_t IrContainer::numVals() const noexcept {
 void IrContainer::addFusion(Fusion* fusion) {
   std::unique_lock lock(mutex_);
   sharing_fusions_.insert(fusion);
-  per_fusion_vals_[fusion];   // Pre-insert key so no outer-map rehash occurs during concurrent val/expr registration
+  per_fusion_vals_[fusion]; // Pre-insert key so no outer-map rehash occurs
+                            // during concurrent val/expr registration
   per_fusion_exprs_[fusion];
 }
 
@@ -225,8 +226,13 @@ void IrContainer::removeStatementsOwnedBy(const Fusion* fusion) {
     const auto& owned = vals_it->second;
     std::erase_if(vals_up_, [&](const std::unique_ptr<Val>& v) {
       if (owned.count(v.get()) > 0) {
+        // Multi-owner guard: only free if this is the last owning Fusion.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        if (!v->removeOwningFusion(const_cast<Fusion*>(fusion))) {
+          return false; // other Fusions still own this Val — keep alive
+        }
         vals_.erase(v.get());
-        return true;
+        return true; // last owner gone → Val freed
       }
       return false;
     });
