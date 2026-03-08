@@ -36,7 +36,6 @@ class NixlTransferHandleImpl {
     }
   }
 #endif
-  bool prepared = false;
   bool posted = false;
 };
 
@@ -46,17 +45,6 @@ NixlTransferHandle::NixlTransferHandle(NixlTransferHandle&&) noexcept =
     default;
 NixlTransferHandle& NixlTransferHandle::operator=(
     NixlTransferHandle&&) noexcept = default;
-
-bool NixlTransferHandle::isValid() const {
-  if (!impl_) {
-    return false;
-  }
-#ifdef USE_NIXL
-  return impl_->prepared;
-#else
-  return false;
-#endif
-}
 
 // ===================================================================
 // Tensor validation and descriptor helpers
@@ -339,7 +327,6 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
       "NIXL createXferReq failed with status ",
       static_cast<int>(status));
 
-  impl->prepared = true;
   NixlTransferHandle handle;
   handle.impl_ = std::move(impl);
   return handle;
@@ -350,7 +337,7 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
 // -------------------------------------------------------------------
 
 void NixlBackend::Impl::postTransfer(NixlTransferHandle& handle) {
-  NVF_ERROR(handle.isValid(), "Cannot post an invalid transfer handle");
+  NVF_ERROR(handle.impl_, "Transfer handle is empty - was it moved from?");
   NVF_ERROR(
       !handle.impl_->posted,
       "Transfer already posted. Wait for completion before re-posting.");
@@ -370,7 +357,7 @@ void NixlBackend::Impl::postTransfer(NixlTransferHandle& handle) {
 
 NixlXferStatus NixlBackend::Impl::getTransferStatus(
     const NixlTransferHandle& handle) const {
-  NVF_ERROR(handle.isValid(), "Cannot query status of an invalid handle");
+  NVF_ERROR(handle.impl_, "Transfer handle is empty - was it moved from?");
   NVF_ERROR(handle.impl_->posted, "Transfer has not been posted yet");
 
   nixl_status_t status = agent_->getXferStatus(handle.impl_->xfer_handle);
@@ -385,7 +372,7 @@ NixlXferStatus NixlBackend::Impl::getTransferStatus(
 }
 
 void NixlBackend::Impl::waitTransfer(NixlTransferHandle& handle) {
-  NVF_ERROR(handle.isValid(), "Cannot wait on an invalid handle");
+  NVF_ERROR(handle.impl_, "Transfer handle is empty - was it moved from?");
   NVF_ERROR(handle.impl_->posted, "Transfer has not been posted yet");
 
   // TODO - check this spin loop

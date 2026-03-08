@@ -127,8 +127,6 @@ class NVF_API NixlTransferHandle {
   NixlTransferHandle(const NixlTransferHandle&) = delete;
   NixlTransferHandle& operator=(const NixlTransferHandle&) = delete;
 
-  [[nodiscard]] bool isValid() const;
-
  private:
   friend class NixlBackend;
   std::unique_ptr<NixlTransferHandleImpl> impl_;
