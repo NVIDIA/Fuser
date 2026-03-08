@@ -134,7 +134,7 @@ class NixlBackend::Impl {
  private:
   void exchangeMetadata();
   explicit Impl(Communicator& communicator);
-  inline std::string getAgentName(int64_t rank);
+  inline std::string getAgentName(int64_t device_id);
 
   std::unique_ptr<nixlAgent> agent_;
   nixlBackendH* backend_ = nullptr;

@@ -39,16 +39,16 @@ enum class NixlXferStatus {
 struct TensorDesc {
   uintptr_t addr;
   size_t size;
-  uint32_t dev;
+  uint32_t dev; // deviceId (rank) owning this tensor
 };
 static_assert(std::is_trivially_copyable_v<TensorDesc>,
   "TensorDesc must be trivially copyable for serialization");
 
-inline TensorDesc toTensorDesc(const at::Tensor& tensor) {
+inline TensorDesc toTensorDesc(const at::Tensor& tensor, int64_t device_id) {
   return {
     .addr = reinterpret_cast<uintptr_t>(tensor.data_ptr()),
     .size = static_cast<size_t>(tensor.numel()) * tensor.element_size(),
-    .dev = static_cast<uint32_t>(tensor.device().index())
+    .dev = static_cast<uint32_t>(device_id)
   };
 }
 
@@ -95,7 +95,7 @@ inline void storeTensorDescs(Communicator& communicator, const std::string& key,
   std::vector<TensorDesc> descs;
   descs.reserve(tensors.size());
   for (const auto& tensor : tensors) {
-    descs.push_back(toTensorDesc(tensor));
+    descs.push_back(toTensorDesc(tensor, communicator.deviceId()));
   }
   storeTensorDescs(communicator, key, descs);
 }
@@ -188,7 +188,6 @@ class NixlBackend {
   [[nodiscard]] NixlTransferHandle prepareTransfer(
       const std::vector<TensorDesc>& local_descs,
       const std::vector<TensorDesc>& remote_descs,
-      int64_t remote_rank,
       NixlXferOp op);
 
   // Post a previously prepared transfer for execution (non-blocking).
