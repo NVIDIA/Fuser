@@ -142,11 +142,10 @@ class NVF_API NixlTransferHandle {
 //
 // Lifecycle:
 //   1. getInstance()      - creates agent, loads UCX backend
-//   2. registerTensors()  - register GPU tensors for RDMA access
-//   3. exchangeMetadata() - all ranks share their registration info
-//   4. prepareTransfer()  - expensive one-time setup per transfer pattern
-//   5. postTransfer()     - cheap, non-blocking data movement
-//   6. waitTransfer()     - block until complete
+//   2. registerTensors()  - register GPU tensors and exchange metadata (collective)
+//   3. prepareTransfer()  - expensive one-time setup per transfer pattern
+//   4. postTransfer()     - cheap, non-blocking data movement
+//   5. waitTransfer()     - block until complete
 //
 // Thread safety: methods are NOT thread-safe. The caller must
 // synchronize if the same NixlBackend is used from multiple threads.
@@ -171,17 +170,11 @@ class NixlBackend {
   // Register CUDA tensors with the NIXL agent so they can participate
   // in RDMA transfers. Tensors must be contiguous and remain alive
   // until deregisterTensors() is called.
+  // Both methods are collective: they exchange agent metadata with all
+  // peers through the TCPStore, so all ranks must call them together.
   void registerTensors(const std::vector<at::Tensor>& tensors);
 
   void deregisterTensors(const std::vector<at::Tensor>& tensors);
-
-  // ------------------------------------------------------------------
-  // Metadata exchange
-  // ------------------------------------------------------------------
-  // Exchange local agent metadata with all peers through the TCPStore.
-  // Must be called after registerTensors() and before prepareTransfer()
-  // whenever the set of registered tensors changes.
-  void exchangeMetadata();
 
   // ------------------------------------------------------------------
   // Transfer lifecycle

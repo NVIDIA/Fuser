@@ -99,25 +99,6 @@ TEST_F(NixlTest, DeregisterEmptyTensorListThrows) {
 // Transfer preparation validation
 // -------------------------------------------------------------------
 
-TEST_F(NixlTest, PrepareTransferWithoutMetadataExchangeThrows) {
-  NixlBackend& backend = NixlBackend::getInstance();
-  if (!backend.isAvailable()) {
-    GTEST_SKIP() << "NIXL backend not available";
-  }
-
-  auto local = at::randn({64}, tensor_options_);
-  auto remote = at::randn({64}, tensor_options_);
-  backend.registerTensors({local});
-  backend.registerTensors({remote});
-
-  EXPECT_THROW(
-      (void)backend.prepareTransfer({toTensorDesc(local)}, {toTensorDesc(remote)}, 0, NixlXferOp::kRead),
-      nvfError);
-
-  backend.deregisterTensors({local});
-  backend.deregisterTensors({remote});
-}
-
 TEST_F(NixlTest, PrepareTransferMismatchedSizesThrows) {
   NixlBackend& backend = NixlBackend::getInstance();
   if (!backend.isAvailable()) {
@@ -128,7 +109,6 @@ TEST_F(NixlTest, PrepareTransferMismatchedSizesThrows) {
   auto t2 = at::randn({64}, tensor_options_);
   auto t3 = at::randn({64}, tensor_options_);
   backend.registerTensors({t1, t2, t3});
-  backend.exchangeMetadata();
 
   EXPECT_THROW(
       (void)backend.prepareTransfer({toTensorDesc(t1), toTensorDesc(t2)}, {toTensorDesc(t3)}, 0, NixlXferOp::kRead), nvfError);
@@ -194,8 +174,7 @@ TEST_F(NixlTest, ReadTransferEndToEnd) {
   cudaDeviceSynchronize();
 
   backend.registerTensors({src, dst});
-  backend.exchangeMetadata();
-  
+
   // Fetch the remote tensor descriptor from the peer
   std::string src_key_prefix = "nixl_test_read_transfer_src_rank_";
   storeTensorDescs(*communicator_, src_key_prefix + std::to_string(rank), {src});
@@ -240,7 +219,6 @@ TEST_F(NixlTest, WriteTransferEndToEnd) {
   cudaDeviceSynchronize();
 
   backend.registerTensors({src, dst});
-  backend.exchangeMetadata();
 
   // Fetch the remote tensor descriptor from the peer
   std::string dst_key_prefix = "nixl_test_write_transfer_dst_rank_";

@@ -120,7 +120,6 @@ class NixlBackend::Impl {
 
   void registerTensors(const std::vector<at::Tensor>& tensors);
   void deregisterTensors(const std::vector<at::Tensor>& tensors);
-  void exchangeMetadata();
 
   NixlTransferHandle prepareTransfer(
       const std::vector<TensorDesc>& local_descs,
@@ -133,6 +132,7 @@ class NixlBackend::Impl {
   void waitTransfer(NixlTransferHandle& handle);
 
  private:
+  void exchangeMetadata();
   explicit Impl(Communicator& communicator);
   inline std::string getAgentName(int64_t rank);
 
@@ -235,6 +235,7 @@ void NixlBackend::Impl::registerTensors(
       static_cast<int>(status));
 
   metadata_exchanged_ = false;
+  exchangeMetadata();
 }
 
 void NixlBackend::Impl::deregisterTensors(
@@ -249,6 +250,7 @@ void NixlBackend::Impl::deregisterTensors(
       static_cast<int>(status));
 
   metadata_exchanged_ = false;
+  exchangeMetadata();
 }
 
 // -------------------------------------------------------------------
@@ -437,11 +439,6 @@ void NixlBackend::registerTensors(const std::vector<at::Tensor>& tensors) {
 void NixlBackend::deregisterTensors(const std::vector<at::Tensor>& tensors) {
   NVF_CHECK(isAvailable(), "NIXL backend is not available");
   impl_->deregisterTensors(tensors);
-}
-
-void NixlBackend::exchangeMetadata() {
-  NVF_CHECK(isAvailable(), "NIXL backend is not available");
-  impl_->exchangeMetadata();
 }
 
 NixlTransferHandle NixlBackend::prepareTransfer(
