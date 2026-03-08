@@ -112,7 +112,6 @@ class NixlBackend::Impl {
   NixlTransferHandle prepareTransfer(
       const std::vector<TensorDesc>& local_descs,
       const std::vector<TensorDesc>& remote_descs,
-      int64_t remote_rank,
       NixlXferOp op);
 
   void postTransfer(NixlTransferHandle& handle);
@@ -266,7 +265,6 @@ void NixlBackend::Impl::exchangeMetadata() {
     if (rank == my_rank) {
       continue;
     }
-    // Fetch & load MD
     auto bytes = store->get(md_key_prefix + std::to_string(rank));
     nixl_blob_t remote_md(bytes.begin(), bytes.end());
     std::string remote_agent_name;
@@ -300,9 +298,11 @@ void NixlBackend::Impl::exchangeMetadata() {
 NixlTransferHandle NixlBackend::Impl::prepareTransfer(
     const std::vector<TensorDesc>& local_descs,
     const std::vector<TensorDesc>& remote_descs,
-    int64_t remote_rank,
     NixlXferOp op) {
   NVF_ERROR(metadata_exchanged_, "exchangeMetadata() must be called first");
+  NVF_ERROR(
+      !remote_descs.empty(),
+      "remote_descs must not be empty");
   NVF_ERROR(
       local_descs.size() == remote_descs.size(),
       "Local and remote tensor lists must have the same size. Got ",
@@ -310,7 +310,7 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
       " vs ",
       remote_descs.size());
 
-  std::string remote_agent_name = getAgentName(remote_rank);
+  std::string remote_agent_name = getAgentName(remote_descs.at(0).dev);
 
   nixl_xfer_dlist_t local_dlist = buildXferDlist(local_descs);
   nixl_xfer_dlist_t remote_dlist = buildXferDlist(remote_descs);
@@ -391,7 +391,31 @@ void NixlBackend::Impl::waitTransfer(NixlTransferHandle& handle) {
 
 #else // !USE_NIXL
 
-class NixlBackend::Impl {};
+class NixlBackend::Impl {
+ public:
+  static std::unique_ptr<Impl> create(Communicator&) { return nullptr; }
+  void registerTensors(const std::vector<at::Tensor>&) {
+    NVF_THROW("NIXL not available");
+  }
+  void deregisterTensors(const std::vector<at::Tensor>&) {
+    NVF_THROW("NIXL not available");
+  }
+  NixlTransferHandle prepareTransfer(
+      const std::vector<TensorDesc>&,
+      const std::vector<TensorDesc>&,
+      NixlXferOp) {
+    NVF_THROW("NIXL not available");
+  }
+  void postTransfer(NixlTransferHandle&) {
+    NVF_THROW("NIXL not available");
+  }
+  NixlXferStatus getTransferStatus(const NixlTransferHandle&) const {
+    NVF_THROW("NIXL not available");
+  }
+  void waitTransfer(NixlTransferHandle&) {
+    NVF_THROW("NIXL not available");
+  }
+};
 
 #endif // USE_NIXL
 
@@ -433,11 +457,9 @@ void NixlBackend::deregisterTensors(const std::vector<at::Tensor>& tensors) {
 NixlTransferHandle NixlBackend::prepareTransfer(
     const std::vector<TensorDesc>& local_descs,
     const std::vector<TensorDesc>& remote_descs,
-    int64_t remote_rank,
     NixlXferOp op) {
   NVF_CHECK(isAvailable(), "NIXL backend is not available");
-  return impl_->prepareTransfer(
-      local_descs, remote_descs, remote_rank, op);
+  return impl_->prepareTransfer(local_descs, remote_descs, op);
 }
 
 void NixlBackend::postTransfer(NixlTransferHandle& handle) {

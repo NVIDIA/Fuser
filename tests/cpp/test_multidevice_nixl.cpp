@@ -15,30 +15,6 @@ namespace nvfuser {
 using NixlTest = MultiDeviceTest;
 
 // -------------------------------------------------------------------
-// NixlTransferHandle tests
-// -------------------------------------------------------------------
-
-TEST_F(NixlTest, TransferHandleDefaultConstruction) {
-  NixlTransferHandle handle;
-  EXPECT_FALSE(handle.isValid());
-}
-
-TEST_F(NixlTest, TransferHandleMoveConstruction) {
-  NixlTransferHandle h1;
-  EXPECT_FALSE(h1.isValid());
-
-  NixlTransferHandle h2(std::move(h1));
-  EXPECT_FALSE(h2.isValid());
-}
-
-TEST_F(NixlTest, TransferHandleMoveAssignment) {
-  NixlTransferHandle h1;
-  NixlTransferHandle h2;
-  h2 = std::move(h1);
-  EXPECT_FALSE(h2.isValid());
-}
-
-// -------------------------------------------------------------------
 // NixlBackend singleton tests
 // -------------------------------------------------------------------
 
@@ -110,8 +86,9 @@ TEST_F(NixlTest, PrepareTransferMismatchedSizesThrows) {
   auto t3 = at::randn({64}, tensor_options_);
   backend.registerTensors({t1, t2, t3});
 
+  const int64_t rank = communicator_->deviceId();
   EXPECT_THROW(
-      (void)backend.prepareTransfer({toTensorDesc(t1), toTensorDesc(t2)}, {toTensorDesc(t3)}, 0, NixlXferOp::kRead), nvfError);
+      (void)backend.prepareTransfer({toTensorDesc(t1, rank), toTensorDesc(t2, rank)}, {toTensorDesc(t3, rank)}, NixlXferOp::kRead), nvfError);
 
   backend.deregisterTensors({t1, t2, t3});
 }
@@ -186,9 +163,7 @@ TEST_F(NixlTest, ReadTransferEndToEnd) {
   // Each rank reads from its peer. After the read, local should contain
   // the values that the peer stored in *its* remote tensor.
   auto handle = backend.prepareTransfer(
-      {toTensorDesc(dst)}, {remote_src_desc}, peer_rank, NixlXferOp::kRead);
-  ASSERT_TRUE(handle.isValid());
-
+      {toTensorDesc(dst, rank)}, {remote_src_desc}, NixlXferOp::kRead);
   backend.postTransfer(handle);
   backend.waitTransfer(handle);
 
@@ -230,9 +205,7 @@ TEST_F(NixlTest, WriteTransferEndToEnd) {
 
   // Each rank writes its local tensor into its peer's remote tensor.
   auto handle = backend.prepareTransfer(
-      {toTensorDesc(src)}, {remote_dst_desc}, peer_rank, NixlXferOp::kWrite);
-  ASSERT_TRUE(handle.isValid());
-
+      {toTensorDesc(src, rank)}, {remote_dst_desc}, NixlXferOp::kWrite);
   backend.postTransfer(handle);
   backend.waitTransfer(handle);
 

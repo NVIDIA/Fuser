@@ -126,7 +126,7 @@ class NVF_API Communicator {
 
   c10d::TCPStore* getTcpStore() {
     return store_.get();
-}
+  }
 
  private:
   Communicator(
