@@ -169,7 +169,7 @@ class NixlBackend {
   // in RDMA transfers. Tensors must be contiguous and remain alive
   // until deregisterTensors() is called.
   // Both methods are collective: they exchange agent metadata with all
-  // peers through the TCPStore, so all ranks must call them together.
+  // peers through the TCPStore, so all ranks must call them together and in the same order.
   void registerTensors(const std::vector<at::Tensor>& tensors);
 
   void deregisterTensors(const std::vector<at::Tensor>& tensors);

@@ -375,13 +375,15 @@ void NixlBackend::Impl::waitTransfer(NixlTransferHandle& handle) {
   NVF_ERROR(handle.impl_, "Transfer handle is empty - was it moved from?");
   NVF_ERROR(handle.impl_->posted, "Transfer has not been posted yet");
 
-  // TODO - check this spin loop
   NixlXferStatus xfer_status;
   do {
     xfer_status = getTransferStatus(handle);
     NVF_ERROR(
         xfer_status != NixlXferStatus::kError,
         "NIXL transfer completed with an error");
+    if (xfer_status == NixlXferStatus::kInProgress) {
+      std::this_thread::yield();
+    }
   } while (xfer_status == NixlXferStatus::kInProgress);
 
   handle.impl_->posted = false;
