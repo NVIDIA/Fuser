@@ -393,28 +393,21 @@ void NixlBackend::Impl::waitTransfer(NixlTransferHandle& handle) {
 
 class NixlBackend::Impl {
  public:
-  static std::unique_ptr<Impl> create(Communicator&) { return nullptr; }
-  void registerTensors(const std::vector<at::Tensor>&) {
-    NVF_THROW("NIXL not available");
-  }
-  void deregisterTensors(const std::vector<at::Tensor>&) {
-    NVF_THROW("NIXL not available");
-  }
+  void registerTensors(const std::vector<at::Tensor>&) {}
+  void deregisterTensors(const std::vector<at::Tensor>&) {}
+  void exchangeMetadata() {}
   NixlTransferHandle prepareTransfer(
       const std::vector<TensorDesc>&,
       const std::vector<TensorDesc>&,
+      int64_t,
       NixlXferOp) {
-    NVF_THROW("NIXL not available");
+    return {};
   }
-  void postTransfer(NixlTransferHandle&) {
-    NVF_THROW("NIXL not available");
-  }
+  void postTransfer(NixlTransferHandle&) {}
   NixlXferStatus getTransferStatus(const NixlTransferHandle&) const {
-    NVF_THROW("NIXL not available");
+    return NixlXferStatus::kError;
   }
-  void waitTransfer(NixlTransferHandle&) {
-    NVF_THROW("NIXL not available");
-  }
+  void waitTransfer(NixlTransferHandle&) {}
 };
 
 #endif // USE_NIXL
