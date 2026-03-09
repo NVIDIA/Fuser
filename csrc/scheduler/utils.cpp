@@ -3780,7 +3780,7 @@ bool inputsHaveContiguousInnerDim(Fusion* fusion) {
       if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()) {
         continue;
       }
-      if (!contig[i].has_value() || !*contig[i]) {
+      if (!contig[i].has_value() || !contig[i].value()) {
         return false;
       }
       found_inner = true;

@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
+
 #include "base.h"
 #include "disjoint_set.h"
 #include "exceptions.h"
@@ -26,7 +28,7 @@ class HeuristicDataCache;
 //! transform propagation passes will propagate the transforms.
 //! For example, in sharding propagation or
 //! BoundedDirectionalTransformPropagator.
-enum class PropagateDirection { kBackward = 0, kForward };
+enum class PropagateDirection : std::uint8_t { kBackward = 0, kForward };
 
 std::ostream& operator<<(std::ostream& os, PropagateDirection direction);
 
