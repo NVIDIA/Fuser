@@ -9,9 +9,9 @@
 
 #include <ATen/core/TensorBody.h>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <vector>
-#include <cstring>
 
 #include "exceptions.h"
 #include "multidevice/communicator.h"
@@ -35,21 +35,22 @@ enum class NixlXferStatus {
 
 // ------------------------------------------------------------------
 // Todo - those functions should be moved to a more global file
-// Helper functions for serializing and deserializing tensors descriptors for TCP store
+// Helper functions for serializing and deserializing tensors descriptors for
+// TCP store
 struct TensorDesc {
   uintptr_t addr;
   size_t size;
   uint32_t dev; // deviceId (rank) owning this tensor
 };
-static_assert(std::is_trivially_copyable_v<TensorDesc>,
-  "TensorDesc must be trivially copyable for serialization");
+static_assert(
+    std::is_trivially_copyable_v<TensorDesc>,
+    "TensorDesc must be trivially copyable for serialization");
 
 inline TensorDesc toTensorDesc(const at::Tensor& tensor, int64_t device_id) {
   return {
-    .addr = reinterpret_cast<uintptr_t>(tensor.data_ptr()),
-    .size = static_cast<size_t>(tensor.numel()) * tensor.element_size(),
-    .dev = static_cast<uint32_t>(device_id)
-  };
+      .addr = reinterpret_cast<uintptr_t>(tensor.data_ptr()),
+      .size = static_cast<size_t>(tensor.numel()) * tensor.element_size(),
+      .dev = static_cast<uint32_t>(device_id)};
 }
 
 inline std::vector<uint8_t> serializeTensorsDescs(
@@ -57,9 +58,10 @@ inline std::vector<uint8_t> serializeTensorsDescs(
   size_t count = descs.size();
   std::vector<uint8_t> buf(sizeof(count) + count * sizeof(TensorDesc));
   std::memcpy(buf.data(), &count, sizeof(count));
-  if (count == 0)
+  if (count == 0) {
     return buf;
-  
+  }
+
   std::memcpy(
       buf.data() + sizeof(count),
       descs.data(),
@@ -79,19 +81,23 @@ inline std::vector<TensorDesc> deserializeTensorsDescs(
   std::vector<TensorDesc> descs(count);
   if (count > 0) {
     std::memcpy(
-        descs.data(),
-        buf.data() + sizeof(count),
-        count * sizeof(TensorDesc));
+        descs.data(), buf.data() + sizeof(count), count * sizeof(TensorDesc));
   }
   return descs;
 }
 
-inline void storeTensorDescs(Communicator& communicator, const std::string& key, const std::vector<TensorDesc>& descs) {
+inline void storeTensorDescs(
+    Communicator& communicator,
+    const std::string& key,
+    const std::vector<TensorDesc>& descs) {
   NVF_CHECK(communicator.is_available(), "Communicator is not available");
   communicator.getTcpStore()->set(key, serializeTensorsDescs(descs));
 }
 
-inline void storeTensorDescs(Communicator& communicator, const std::string& key, const std::vector<at::Tensor>& tensors) {
+inline void storeTensorDescs(
+    Communicator& communicator,
+    const std::string& key,
+    const std::vector<at::Tensor>& tensors) {
   std::vector<TensorDesc> descs;
   descs.reserve(tensors.size());
   for (const auto& tensor : tensors) {
@@ -100,7 +106,9 @@ inline void storeTensorDescs(Communicator& communicator, const std::string& key,
   storeTensorDescs(communicator, key, descs);
 }
 
-inline std::vector<TensorDesc> fetchTensorDescs(Communicator& communicator, const std::string& key) {
+inline std::vector<TensorDesc> fetchTensorDescs(
+    Communicator& communicator,
+    const std::string& key) {
   NVF_CHECK(communicator.is_available(), "Communicator is not available");
   auto bytes = communicator.getTcpStore()->get(key);
   return deserializeTensorsDescs(bytes);
@@ -135,12 +143,13 @@ class NVF_API NixlTransferHandle {
 // -------------------------------------------------------------------
 // NixlBackend: singleton NIXL backend over UCX for GPU tensors
 // -------------------------------------------------------------------
-// Singleton - Wraps a nixlAgent with the UCX backend and provides a tensor-level
-// API for registering GPU memory and performing RDMA transfers.
+// Singleton - Wraps a nixlAgent with the UCX backend and provides a
+// tensor-level API for registering GPU memory and performing RDMA transfers.
 //
 // Lifecycle:
 //   1. getInstance()      - creates agent, loads UCX backend
-//   2. registerTensors()  - register GPU tensors and exchange metadata (collective)
+//   2. registerTensors()  - register GPU tensors and exchange metadata
+//   (collective)
 //   3. prepareTransfer()  - expensive one-time setup per transfer pattern
 //   4. postTransfer()     - cheap, non-blocking data movement
 //   5. waitTransfer()     - block until complete
@@ -169,7 +178,8 @@ class NixlBackend {
   // in RDMA transfers. Tensors must be contiguous and remain alive
   // until deregisterTensors() is called.
   // Both methods are collective: they exchange agent metadata with all
-  // peers through the TCPStore, so all ranks must call them together and in the same order.
+  // peers through the TCPStore, so all ranks must call them together and in the
+  // same order.
   void registerTensors(const std::vector<at::Tensor>& tensors);
 
   void deregisterTensors(const std::vector<at::Tensor>& tensors);
@@ -192,7 +202,8 @@ class NixlBackend {
   void postTransfer(NixlTransferHandle& handle);
 
   // Poll the status of a posted transfer without blocking.
-  [[nodiscard]] NixlXferStatus getTransferStatus(const NixlTransferHandle& handle) const;
+  [[nodiscard]] NixlXferStatus getTransferStatus(
+      const NixlTransferHandle& handle) const;
 
   // Block until the transfer completes (or errors out).
   void waitTransfer(NixlTransferHandle& handle);
@@ -204,8 +215,5 @@ class NixlBackend {
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
-
-
-
 
 } // namespace nvfuser

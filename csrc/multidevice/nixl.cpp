@@ -41,8 +41,7 @@ class NixlTransferHandleImpl {
 
 NixlTransferHandle::NixlTransferHandle() = default;
 NixlTransferHandle::~NixlTransferHandle() = default;
-NixlTransferHandle::NixlTransferHandle(NixlTransferHandle&&) noexcept =
-    default;
+NixlTransferHandle::NixlTransferHandle(NixlTransferHandle&&) noexcept = default;
 NixlTransferHandle& NixlTransferHandle::operator=(
     NixlTransferHandle&&) noexcept = default;
 
@@ -300,9 +299,7 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
     const std::vector<TensorDesc>& remote_descs,
     NixlXferOp op) {
   NVF_ERROR(metadata_exchanged_, "exchangeMetadata() must be called first");
-  NVF_ERROR(
-      !remote_descs.empty(),
-      "remote_descs must not be empty");
+  NVF_ERROR(!remote_descs.empty(), "remote_descs must not be empty");
   NVF_ERROR(
       local_descs.size() == remote_descs.size(),
       "Local and remote tensor lists must have the same size. Got ",
@@ -471,6 +468,5 @@ void NixlBackend::waitTransfer(NixlTransferHandle& handle) {
   NVF_CHECK(isAvailable(), "NIXL backend is not available");
   impl_->waitTransfer(handle);
 }
-
 
 } // namespace nvfuser

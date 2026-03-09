@@ -160,5 +160,4 @@ class NVF_API Communicator {
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
 };
 
-
 } // namespace nvfuser

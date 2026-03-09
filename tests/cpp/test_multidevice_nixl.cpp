@@ -88,7 +88,11 @@ TEST_F(NixlTest, PrepareTransferMismatchedSizesThrows) {
 
   const int64_t rank = communicator_->deviceId();
   EXPECT_THROW(
-      (void)backend.prepareTransfer({toTensorDesc(t1, rank), toTensorDesc(t2, rank)}, {toTensorDesc(t3, rank)}, NixlXferOp::kRead), nvfError);
+      (void)backend.prepareTransfer(
+          {toTensorDesc(t1, rank), toTensorDesc(t2, rank)},
+          {toTensorDesc(t3, rank)},
+          NixlXferOp::kRead),
+      nvfError);
 
   backend.deregisterTensors({t1, t2, t3});
 }
@@ -145,7 +149,8 @@ TEST_F(NixlTest, ReadTransferEndToEnd) {
   const int64_t peer_rank = (rank + 1) % world_size;
   constexpr int64_t kSize = 1024;
 
-  // Ring style transfer: each rank reads <src> from its peer's remote tensor to its local <dst>.
+  // Ring style transfer: each rank reads <src> from its peer's remote tensor to
+  // its local <dst>.
   auto src = at::full({kSize}, static_cast<float>(rank + 1), tensor_options_);
   auto dst = at::zeros({kSize}, tensor_options_);
   cudaDeviceSynchronize();
@@ -154,11 +159,15 @@ TEST_F(NixlTest, ReadTransferEndToEnd) {
 
   // Fetch the remote tensor descriptor from the peer
   std::string src_key_prefix = "nixl_test_read_transfer_src_rank_";
-  storeTensorDescs(*communicator_, src_key_prefix + std::to_string(rank), {src});
-  auto remote_src_descs = fetchTensorDescs(*communicator_, src_key_prefix + std::to_string(peer_rank));
+  storeTensorDescs(
+      *communicator_, src_key_prefix + std::to_string(rank), {src});
+  auto remote_src_descs = fetchTensorDescs(
+      *communicator_, src_key_prefix + std::to_string(peer_rank));
   communicator_->barrier();
-  communicator_->getTcpStore()->deleteKey(src_key_prefix + std::to_string(rank));
-  auto remote_src_desc = remote_src_descs[0]; // Only one remote tensor is expected
+  communicator_->getTcpStore()->deleteKey(
+      src_key_prefix + std::to_string(rank));
+  auto remote_src_desc =
+      remote_src_descs[0]; // Only one remote tensor is expected
 
   // Each rank reads from its peer. After the read, local should contain
   // the values that the peer stored in *its* remote tensor.
@@ -188,7 +197,8 @@ TEST_F(NixlTest, WriteTransferEndToEnd) {
   const int64_t peer_rank = (rank + 1) % world_size;
   constexpr int64_t kSize = 512;
 
-  // Each rank writes its local <src> to the remote <dst> of its peer in a ring style
+  // Each rank writes its local <src> to the remote <dst> of its peer in a ring
+  // style
   auto src = at::full({kSize}, static_cast<float>(rank + 1), tensor_options_);
   auto dst = at::zeros({kSize}, tensor_options_);
   cudaDeviceSynchronize();
@@ -197,11 +207,15 @@ TEST_F(NixlTest, WriteTransferEndToEnd) {
 
   // Fetch the remote tensor descriptor from the peer
   std::string dst_key_prefix = "nixl_test_write_transfer_dst_rank_";
-  storeTensorDescs(*communicator_, dst_key_prefix + std::to_string(rank), {dst});
-  auto remote_dst_descs = fetchTensorDescs(*communicator_, dst_key_prefix + std::to_string(peer_rank));
+  storeTensorDescs(
+      *communicator_, dst_key_prefix + std::to_string(rank), {dst});
+  auto remote_dst_descs = fetchTensorDescs(
+      *communicator_, dst_key_prefix + std::to_string(peer_rank));
   communicator_->barrier();
-  communicator_->getTcpStore()->deleteKey(dst_key_prefix + std::to_string(rank));
-  auto remote_dst_desc = remote_dst_descs[0]; // Only one remote tensor is expected
+  communicator_->getTcpStore()->deleteKey(
+      dst_key_prefix + std::to_string(rank));
+  auto remote_dst_desc =
+      remote_dst_descs[0]; // Only one remote tensor is expected
 
   // Each rank writes its local tensor into its peer's remote tensor.
   auto handle = backend.prepareTransfer(
