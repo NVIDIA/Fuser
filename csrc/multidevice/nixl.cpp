@@ -395,11 +395,9 @@ class NixlBackend::Impl {
  public:
   void registerTensors(const std::vector<at::Tensor>&) {}
   void deregisterTensors(const std::vector<at::Tensor>&) {}
-  void exchangeMetadata() {}
   NixlTransferHandle prepareTransfer(
       const std::vector<TensorDesc>&,
       const std::vector<TensorDesc>&,
-      int64_t,
       NixlXferOp) {
     return {};
   }
@@ -408,6 +406,9 @@ class NixlBackend::Impl {
     return NixlXferStatus::kError;
   }
   void waitTransfer(NixlTransferHandle&) {}
+
+ private:
+  void exchangeMetadata() {}
 };
 
 #endif // USE_NIXL
