@@ -22,12 +22,12 @@ namespace nvfuser {
 // Transfer direction. NIXL uses a one-sided model:
 //   Read  = pull remote data into local buffers
 //   Write = push local data into remote buffers
-enum class NixlXferOp {
+enum class NixlXferOp : std::uint8_t {
   kRead,
   kWrite,
 };
 
-enum class NixlXferStatus {
+enum class NixlXferStatus : std::uint8_t {
   kDone,
   kInProgress,
   kError,
@@ -72,7 +72,7 @@ inline std::vector<uint8_t> serializeTensorsDescs(
 inline std::vector<TensorDesc> deserializeTensorsDescs(
     const std::vector<uint8_t>& buf) {
   NVF_ERROR(buf.size() >= sizeof(size_t), "Invalid serialized descriptor data");
-  size_t count;
+  size_t count = 0;
   std::memcpy(&count, buf.data(), sizeof(count));
   NVF_ERROR(
       buf.size() == sizeof(count) + count * sizeof(TensorDesc),
