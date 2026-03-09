@@ -192,10 +192,16 @@ void lowerSegment(
               out,
               DomainType::kLoop,
               {ParallelType::Stream})) {
-        Val*& sharded_in = replacement_map[in];
-        if (sharded_in == nullptr) {
-          sharded_in = hir::shardByStream(in, innermost.loop->index(), e);
-          innermost_scope.pushBack(sharded_in->definition());
+        if (!replacement_map.contains(in)) {
+          TensorView* sharded_in =
+              hir::shardByStream(in, innermost.loop->index(), e);
+          if (sharded_in != nullptr) {
+            // `sharded_in` is nullptr if the input cannot be sharded by
+            // stream such as in broadcast or collective-permute based
+            // decomposition of allgather.
+            replacement_map[in] = sharded_in;
+            innermost_scope.pushBack(sharded_in->definition());
+          }
         }
       }
 
@@ -207,15 +213,23 @@ void lowerSegment(
               out, ParallelType::Stream, DomainType::kAllocation) == nullptr) {
         innermost.parent_scope->insert(
             innermost.parent_insertion_point, allocate);
-        auto [i, inserted] = replacement_map.emplace(
-            out, hir::shardByStream(out, innermost.loop->index(), e));
-        NVF_ERROR(inserted, "The input segmented fusion should be SSA.");
-        innermost_scope.pushBack(i->second->definition());
+        NVF_ERROR(
+            !replacement_map.contains(out),
+            "The input segmented fusion should be SSA.");
+        TensorView* sharded_out =
+            hir::shardByStream(out, innermost.loop->index(), e);
+        NVF_ERROR(
+            sharded_out != nullptr,
+            "Output could not be sharded by stream: ",
+            out);
+        replacement_map[out] = sharded_out;
+        innermost_scope.pushBack(sharded_out->definition());
       } else {
         innermost_scope.pushBack(allocate);
       }
 
-      for (Expr* c : convertSingleOpToCommunication(e, device_id)) {
+      Val* root = loop_nest.empty() ? nullptr : innermost.loop->index();
+      for (Expr* c : convertSingleOpToCommunication(e, device_id, root)) {
         NVF_ERROR(
             c->isA<Communication>(),
             "Exprs in a Communication group should be Communication: ",
@@ -298,6 +312,10 @@ void lowerSegment(
                   {ParallelType::Stream})) {
             TensorView* sharded_in =
                 hir::shardByStream(in, innermost.loop->index(), e);
+            NVF_ERROR(
+                sharded_in != nullptr,
+                "Input could not be sharded by stream: ",
+                in);
             replacement_map[in] = sharded_in;
             innermost_scope.pushBack(sharded_in->definition());
           }
@@ -318,6 +336,10 @@ void lowerSegment(
             // `out` should be allocated outside the loop.
             TensorView* sharded_out =
                 hir::shardByStream(out, innermost.loop->index(), e);
+            NVF_ERROR(
+                sharded_out != nullptr,
+                "Output could not be sharded by stream: ",
+                out);
             replacement_map[out] = sharded_out;
             innermost_scope.pushBack(sharded_out->definition());
           }
