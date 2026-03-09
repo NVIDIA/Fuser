@@ -86,7 +86,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
       dev_props->maxThreadsPerMultiProcessor / threads_per_cta;
   const int64_t bytes_per_cta = bytes_per_sm / cta_per_sm;
   const int64_t bytes_per_tile = bytes_per_cta / n_input;
-  int64_t estimated_tile_size1 = bytes_per_tile / kTmaSwizzleBytes;
+  int64_t estimated_tile_size1 = std::max(bytes_per_tile / kTmaSwizzleBytes, constrained_tile);
 
   // Ensure each thread processes at least min_chunks_per_thread chunks.
   // tile1 * tile2 = elements_per_chunk * chunks_per_thread *

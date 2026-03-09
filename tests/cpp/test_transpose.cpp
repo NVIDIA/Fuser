@@ -1941,9 +1941,6 @@ TEST_P(TmaTransposeDtypeP, OutputTransposeBankconflict) {
       auto bank_conflicts = getBankConflictInfo(ke->compiledKernel()->kernel());
       for (auto& [expr, ways] : bank_conflicts) {
         auto [read_ways, write_ways] = ways;
-        std::cout << "  Bank conflict: " << expr->toString()
-                  << "  read=" << read_ways << "-way"
-                  << ", write=" << write_ways << "-way" << std::endl;
       }
       EXPECT_TRUE(bank_conflicts.empty());
     }
