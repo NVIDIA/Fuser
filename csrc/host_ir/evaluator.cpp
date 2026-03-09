@@ -437,6 +437,7 @@ void HostIrEvaluator::handle(MoeCombine* combine) {
       src_idx,
       n_tokens_to_rank,
       n_tokens_from_rank,
+      combine->numTokens(),
       communicator_,
       combine->backend());
 

@@ -278,6 +278,7 @@ class MoeCombine : public Expr {
       TensorView* in_src_idx,
       TensorView* in_n_tokens_to_rank,
       TensorView* in_n_tokens_from_rank,
+      int64_t num_tokens,
       CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
   MoeCombine(const MoeCombine& other) = delete;
@@ -317,8 +318,15 @@ class MoeCombine : public Expr {
     return input(4)->as<TensorView>();
   }
 
+  //! Original local token count from before dispatch (= x.size(0)
+  //! in the dispatch call). Used by the CUDA backend to size the
+  //! combine output without any GPU-to-CPU sync.
+  int64_t numTokens() const {
+    return attribute<int64_t>(0);
+  }
+
   CommunicatorBackend backend() const {
-    return attribute<CommunicatorBackend>(0);
+    return attribute<CommunicatorBackend>(1);
   }
 
  private:

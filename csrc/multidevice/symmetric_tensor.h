@@ -52,6 +52,12 @@ class SymmetricTensor {
   void setupRemoteHandles(const std::string& tag = "");
   at::Tensor remoteTensor(int64_t rank) const;
 
+  //! Returns a CUDA [world_size] int64 tensor whose elements are the
+  //! remote data_ptr values (as uint64 cast to int64). Lazily allocated
+  //! on first call; subsequent calls return the cached tensor.
+  //! Requires setupRemoteHandles to have been called.
+  at::Tensor remotePointersTensor();
+
   // Setup multicast (CUDA 13.0+, init-once)
   void setupMulticast(int64_t exporter_rank, const std::string& tag = "");
   void* multicastPtr() const;
@@ -70,6 +76,7 @@ class SymmetricTensor {
   size_t aligned_size_;
   size_t requested_size_;
   mutable bool are_remote_tensors_setup_ = false;
+  at::Tensor remote_ptrs_tensor_;
   bool is_multicast_setup_ = false;
   CUmemGenericAllocationHandle mcast_handle_{};
   CUdevice cu_dev_{};

@@ -49,6 +49,10 @@ struct AlltoallvMetadata {
   at::Tensor recv_counts; // CUDA [R]
   at::Tensor send_offsets; // CUDA [R]
   at::Tensor recv_offsets; // CUDA [R]
+
+  // CPU scalars — upper bounds from the caller, NOT read from GPU.
+  // Using upper bounds (instead of exact GPU values) avoids CPU-GPU
+  // sync and keeps the data path CUDA-graph-capturable.
   int64_t total_recv = 0;
   int64_t max_recv = 0;
   int64_t max_send_total = 0;
@@ -64,7 +68,8 @@ void alltoallvWithCudaBackend(
     const at::Tensor& send,
     const at::Tensor& recv,
     const AlltoallvMetadata& metadata,
-    const std::vector<void*>& recv_ptrs,
+    const at::Tensor& recv_ptrs_gpu, // CUDA [R] int64, from
+                                     // SymmetricTensor::remotePointersTensor
     CUstream stream);
 
 void alltoallvBarrier(const std::string& tag);

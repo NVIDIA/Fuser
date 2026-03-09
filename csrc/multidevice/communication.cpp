@@ -296,6 +296,7 @@ MoeCombine::MoeCombine(
     TensorView* in_src_idx,
     TensorView* in_n_tokens_to_rank,
     TensorView* in_n_tokens_from_rank,
+    int64_t num_tokens,
     CommunicatorBackend backend)
     : Expr(passkey) {
   addInput(in_x);
@@ -304,6 +305,7 @@ MoeCombine::MoeCombine(
   addInput(in_n_tokens_to_rank);
   addInput(in_n_tokens_from_rank);
   addOutput(out_x);
+  addDataAttribute(num_tokens);
   addDataAttribute(backend);
   validate();
 }

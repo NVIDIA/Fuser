@@ -17,12 +17,14 @@
 #include <ATen/ops/empty.h>
 #include <ATen/ops/empty_like.h>
 #include <ATen/ops/floor_divide.h>
+#include <ATen/ops/zeros.h>
 #include <c10/cuda/CUDAGuard.h>
 
+#include "cuda_utils.h"
 #include "exceptions.h"
 #include "multidevice/communicator.h"
 #include "multidevice/cuda_p2p.h"
-#include "multidevice/symmetric_tensor.h"
+#include "multidevice/ipc_handle.h"
 #include "utils.h"
 
 namespace nvfuser {
@@ -48,6 +50,141 @@ void waitWork(const c10::intrusive_ptr<c10d::Work>& work) {
   }
 }
 
+// Single cache for alltoallv contexts. Each context holds the sync
+// state (semaphores for counts exchange + completion) and any number
+// of named recv buffers. One rendezvous per context; steady-state is
+// pure cache hits.
+SymMemForAlltoallv& getOrCreateAlltoallv(
+    const std::string& tag,
+    at::Device device) {
+  static auto* cache =
+      new std::unordered_map<
+          std::string,
+          std::unique_ptr<SymMemForAlltoallv>>();
+  auto& entry = (*cache)[tag];
+  if (!entry) {
+    entry =
+        std::make_unique<SymMemForAlltoallv>(device, tag);
+  }
+  return *entry;
+}
+
+// Graph-capturable counts exchange via GPU semaphores + P2P reads.
+AlltoallvMetadata prepareAlltoallvMetadataGpu(
+    SymMemForAlltoallv& ctx,
+    const at::Tensor& send_counts,
+    int64_t max_send_total,
+    int64_t max_recv,
+    CUstream stream) {
+  const int64_t W = ctx.worldSize();
+  const int64_t my_rank = ctx.myRank();
+  auto epoch = static_cast<cuuint32_t>(ctx.nextEpoch());
+  auto gpu_opts = at::TensorOptions()
+                      .dtype(at::kLong)
+                      .device(send_counts.device());
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+      ctx.syncBuffer().data_ptr<int64_t>(),
+      send_counts.data_ptr<int64_t>(),
+      W * sizeof(int64_t),
+      cudaMemcpyDeviceToDevice,
+      reinterpret_cast<cudaStream_t>(stream)));
+
+  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+      stream,
+      ctx.syncRemotePtr(my_rank) + W * sizeof(int64_t),
+      epoch,
+      CU_STREAM_WRITE_VALUE_DEFAULT));
+
+  if (W > 1) {
+    std::vector<CUstreamBatchMemOpParams> ops(W - 1);
+    int idx = 0;
+    for (int64_t r = 0; r < W; r++) {
+      if (r == my_rank) {
+        continue;
+      }
+      ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+      ops[idx].waitValue.address =
+          ctx.syncRemotePtr(r) + W * sizeof(int64_t);
+      ops[idx].waitValue.value = epoch;
+      ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_GEQ;
+      idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
+  }
+
+  auto counts_matrix = at::empty({W, W}, gpu_opts);
+  for (int64_t r = 0; r < W; r++) {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+        counts_matrix[r].data_ptr<int64_t>(),
+        reinterpret_cast<void*>(ctx.syncRemotePtr(r)),
+        W * sizeof(int64_t),
+        cudaMemcpyDeviceToDevice,
+        reinterpret_cast<cudaStream_t>(stream)));
+  }
+
+  auto recv_counts =
+      counts_matrix.select(1, my_rank).contiguous();
+
+  auto send_offsets = at::zeros({W}, gpu_opts);
+  if (W > 1) {
+    send_offsets.narrow(0, 1, W - 1)
+        .copy_(send_counts.cumsum(0).narrow(0, 0, W - 1));
+  }
+
+  at::Tensor recv_offsets = my_rank > 0
+      ? counts_matrix.narrow(0, 0, my_rank).sum(0)
+      : at::zeros({W}, gpu_opts);
+
+  return AlltoallvMetadata{
+      send_counts,
+      recv_counts,
+      send_offsets,
+      recv_offsets,
+      max_recv,
+      max_recv,
+      max_send_total,
+      max_send_total,
+      W};
+}
+
+// Graph-capturable alltoallv completion sync via GPU semaphores.
+void alltoallvGpuSync(
+    SymMemForAlltoallv& ctx,
+    CUstream stream) {
+  const int64_t W = ctx.worldSize();
+  const int64_t my_rank = ctx.myRank();
+  auto epoch =
+      static_cast<cuuint32_t>(ctx.currentEpoch());
+
+  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+      stream,
+      ctx.syncRemotePtr(my_rank) +
+          (W + 1) * sizeof(int64_t),
+      epoch,
+      CU_STREAM_WRITE_VALUE_DEFAULT));
+
+  if (W > 1) {
+    std::vector<CUstreamBatchMemOpParams> ops(W - 1);
+    int idx = 0;
+    for (int64_t r = 0; r < W; r++) {
+      if (r == my_rank) {
+        continue;
+      }
+      ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+      ops[idx].waitValue.address =
+          ctx.syncRemotePtr(r) +
+          (W + 1) * sizeof(int64_t);
+      ops[idx].waitValue.value = epoch;
+      ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_GEQ;
+      idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
+  }
+}
+
 } // namespace
 
 DispatchResult doMoeDispatch(
@@ -65,12 +202,9 @@ DispatchResult doMoeDispatch(
       topk_weights.is_floating_point(),
       "Dispatch topk_weights must be floating point.");
   NVF_CHECK(
-      x.device() == topk_idx.device(),
-      "Dispatch expects x and topk_idx on the same device.");
-  NVF_CHECK(
-      x.device() == topk_weights.device(),
-      "Dispatch expects x and topk_weights on the same device.");
-  NVF_CHECK_EQ(x.dim(), 2, "Dispatch expects x to be 2D [tokens, hidden].");
+      x.device() == topk_idx.device() && x.device() == topk_weights.device(),
+      "Dispatch expects all inputs on the same device.");
+  NVF_CHECK_EQ(x.dim(), 2, "Dispatch expects x to be 2D [T, H].");
 
   const int64_t num_tokens = x.size(0);
   const int64_t hidden = x.size(1);
@@ -81,33 +215,28 @@ DispatchResult doMoeDispatch(
   NVF_CHECK(
       topk_idx.dim() == 2 && topk_idx.size(0) == num_tokens &&
           topk_idx.size(1) == 1,
-      "Only topk=1 supported. topk_idx must be shape [T, 1], got: ",
+      "Only topk=1 supported. topk_idx shape: ",
       topk_idx.sizes());
-  auto topk_idx_flat = topk_idx.reshape({num_tokens});
   NVF_CHECK(
       topk_weights.dim() == 2 && topk_weights.size(0) == num_tokens &&
           topk_weights.size(1) == 1,
-      "Only topk=1 supported. topk_weights must be shape [T, 1], got: ",
+      "Only topk=1 supported. topk_weights shape: ",
       topk_weights.sizes());
 
-  // Assume contiguous expert placement: rank = expert_id / experts_per_rank.
-  auto topk_idx_long = topk_idx_flat.to(at::kLong);
+  auto topk_idx_long = topk_idx.reshape({num_tokens}).to(at::kLong);
   auto rank_for_token = at::floor_divide(topk_idx_long, experts_per_rank);
-  // Sorting by expert id groups tokens by rank and by expert within rank.
   auto sorted_indices = at::argsort(topk_idx_long);
 
-  // Reorder payloads so alltoall can send contiguous chunks per rank.
   auto send_x = x.index_select(0, sorted_indices);
   auto send_topk_idx = topk_idx.index_select(0, sorted_indices);
   auto send_topk_weights = topk_weights.index_select(0, sorted_indices);
-  // Track original token indices for the combine step.
   auto send_src_idx = sorted_indices.to(at::kLong);
 
-  // Split metadata is exchanged via CPU (TCPStore), so we sync/copy here.
-  auto rank_for_token_cpu = rank_for_token.to(at::kCPU);
-  auto n_tokens_to_rank_cpu =
-      at::bincount(rank_for_token_cpu, {}, world_size).to(at::kLong);
-  auto n_tokens_to_rank = n_tokens_to_rank_cpu.to(x.device());
+  // n_tokens_to_rank[r] = number of tokens this rank sends to rank r.
+  auto n_tokens_to_rank =
+      at::bincount(rank_for_token, {}, world_size).to(at::kLong);
+
+  // ---------- NCCL backend (not graph-capturable) ----------
   if (backend == CommunicatorBackend::kNccl) {
     NVF_CHECK(
         communicator->isBackendAvailable(backend),
@@ -125,8 +254,6 @@ DispatchResult doMoeDispatch(
     auto output_splits = toSplitSizes(n_tokens_from_rank);
     auto total_recv = sumSplitSizes(output_splits);
 
-    // Allocate receive buffers for payloads and metadata.
-    // TODO: support preallocated buffers.
     auto recv_x = at::empty({total_recv, hidden}, x.options());
     auto recv_topk_idx =
         at::empty({total_recv, topk_idx.size(1)}, topk_idx.options());
@@ -134,7 +261,6 @@ DispatchResult doMoeDispatch(
         at::empty({total_recv, topk_weights.size(1)}, topk_weights.options());
     auto recv_src_idx = at::empty({total_recv}, send_src_idx.options());
 
-    // Alltoall exchange payloads with per-rank splits.
     waitWork(pg->alltoall_base(recv_x, send_x, output_splits, input_splits));
     waitWork(pg->alltoall_base(
         recv_topk_idx, send_topk_idx, output_splits, input_splits));
@@ -143,107 +269,66 @@ DispatchResult doMoeDispatch(
     waitWork(pg->alltoall_base(
         recv_src_idx, send_src_idx, output_splits, input_splits));
 
-    return DispatchResult{
-        recv_x,
-        recv_topk_idx,
-        recv_topk_weights,
-        recv_src_idx,
-        n_tokens_to_rank,
-        n_tokens_from_rank};
+    return {recv_x,
+            recv_topk_idx,
+            recv_topk_weights,
+            recv_src_idx,
+            n_tokens_to_rank,
+            n_tokens_from_rank};
   }
+
+  // ---------- CUDA backend (graph-capturable, zero CPU-GPU sync) ----------
+  //
+  // Recv buffers are [C, ...] where C = T*R. Over-allocating to this
+  // worst-case capacity avoids reading the data-dependent receive count
+  // to the CPU, which would break CUDA graph capture. Only the first
+  // V = Σ n_tokens_from_rank rows contain valid data after the alltoallv.
 
   NVF_CHECK_EQ(
       backend,
       CommunicatorBackend::kCuda,
       "Only CUDA and NCCL backends are supported for MoeDispatch.");
 
-  auto metadata =
-      prepareAlltoallvMetadata(n_tokens_to_rank, "moe_dispatch_counts");
-  auto n_tokens_from_rank = metadata.recv_counts;
-  const int64_t total_recv = metadata.total_recv;
-  const int64_t max_recv = metadata.max_recv;
-
-  // Allocate symmetric buffers for send/recv payloads.
-  auto send_x_sym = SymmetricTensor::allocate(
-      {metadata.max_send_total, hidden}, x.scalar_type(), x.device());
-  send_x_sym.narrow(0, 0, num_tokens).copy_(send_x);
-  auto send_topk_idx_sym = SymmetricTensor::allocate(
-      {metadata.max_send_total, topk_idx.size(1)},
-      topk_idx.scalar_type(),
-      x.device());
-  send_topk_idx_sym.narrow(0, 0, num_tokens).copy_(send_topk_idx);
-  auto send_topk_weights_sym = SymmetricTensor::allocate(
-      {metadata.max_send_total, topk_weights.size(1)},
-      topk_weights.scalar_type(),
-      x.device());
-  send_topk_weights_sym.narrow(0, 0, num_tokens).copy_(send_topk_weights);
-  auto send_src_idx_sym = SymmetricTensor::allocate(
-      {metadata.max_send_total}, send_src_idx.scalar_type(), x.device());
-  send_src_idx_sym.narrow(0, 0, num_tokens).copy_(send_src_idx);
-
-  auto recv_x_sym = SymmetricTensor::allocate(
-      {max_recv, hidden}, x.scalar_type(), x.device());
-  auto recv_topk_idx_sym = SymmetricTensor::allocate(
-      {max_recv, topk_idx.size(1)}, topk_idx.scalar_type(), x.device());
-  auto recv_topk_weights_sym = SymmetricTensor::allocate(
-      {max_recv, topk_weights.size(1)}, topk_weights.scalar_type(), x.device());
-  auto recv_src_idx_sym = SymmetricTensor::allocate(
-      {max_recv}, send_src_idx.scalar_type(), x.device());
-
-  SymmetricTensor recv_x_handle(recv_x_sym);
-  SymmetricTensor recv_topk_idx_handle(recv_topk_idx_sym);
-  SymmetricTensor recv_topk_weights_handle(recv_topk_weights_sym);
-  SymmetricTensor recv_src_idx_handle(recv_src_idx_sym);
-  recv_x_handle.setupRemoteHandles("moe_dispatch_recv_x");
-  recv_topk_idx_handle.setupRemoteHandles("moe_dispatch_recv_topk_idx");
-  recv_topk_weights_handle.setupRemoteHandles("moe_dispatch_recv_topk_weights");
-  recv_src_idx_handle.setupRemoteHandles("moe_dispatch_recv_src_idx");
-
-  std::vector<void*> recv_x_ptrs(world_size);
-  std::vector<void*> recv_topk_idx_ptrs(world_size);
-  std::vector<void*> recv_topk_weights_ptrs(world_size);
-  std::vector<void*> recv_src_idx_ptrs(world_size);
-  for (int64_t rank = 0; rank < world_size; ++rank) {
-    recv_x_ptrs[rank] = recv_x_handle.remoteTensor(rank).data_ptr();
-    recv_topk_idx_ptrs[rank] =
-        recv_topk_idx_handle.remoteTensor(rank).data_ptr();
-    recv_topk_weights_ptrs[rank] =
-        recv_topk_weights_handle.remoteTensor(rank).data_ptr();
-    recv_src_idx_ptrs[rank] = recv_src_idx_handle.remoteTensor(rank).data_ptr();
-  }
-
   auto stream =
       static_cast<CUstream>(at::cuda::getDefaultCUDAStream().stream());
-  alltoallvWithCudaBackend(
-      send_x_sym, recv_x_sym, metadata, recv_x_ptrs, stream);
-  alltoallvWithCudaBackend(
-      send_topk_idx_sym,
-      recv_topk_idx_sym,
-      metadata,
-      recv_topk_idx_ptrs,
-      stream);
-  alltoallvWithCudaBackend(
-      send_topk_weights_sym,
-      recv_topk_weights_sym,
-      metadata,
-      recv_topk_weights_ptrs,
-      stream);
-  alltoallvWithCudaBackend(
-      send_src_idx_sym, recv_src_idx_sym, metadata, recv_src_idx_ptrs, stream);
-  alltoallvBarrier("moe_dispatch_counts");
+  const int64_t capacity = num_tokens * world_size;
 
-  auto recv_x = recv_x_sym.narrow(0, 0, total_recv);
-  auto recv_topk_idx = recv_topk_idx_sym.narrow(0, 0, total_recv);
-  auto recv_topk_weights = recv_topk_weights_sym.narrow(0, 0, total_recv);
-  auto recv_src_idx = recv_src_idx_sym.narrow(0, 0, total_recv);
+  auto& ctx =
+      getOrCreateAlltoallv("moe_dispatch", x.device());
+  auto metadata = prepareAlltoallvMetadataGpu(
+      ctx, n_tokens_to_rank,
+      /*max_send_total=*/num_tokens,
+      /*max_recv=*/capacity,
+      stream);
+  auto n_tokens_from_rank = metadata.recv_counts;
 
-  return DispatchResult{
-      recv_x,
-      recv_topk_idx,
-      recv_topk_weights,
-      recv_src_idx,
-      n_tokens_to_rank,
-      n_tokens_from_rank};
+  auto& rx = ctx.recv(
+      "x", capacity, {hidden}, x.scalar_type(), x.device());
+  auto& ri = ctx.recv(
+      "topk_idx", capacity, {topk_idx.size(1)},
+      topk_idx.scalar_type(), x.device());
+  auto& rw = ctx.recv(
+      "topk_weights", capacity, {topk_weights.size(1)},
+      topk_weights.scalar_type(), x.device());
+  auto& rs = ctx.recv(
+      "src_idx", capacity, {},
+      send_src_idx.scalar_type(), x.device());
+
+  alltoallvWithCudaBackend(
+      send_x, rx.buffer, metadata, rx.remote_ptrs, stream);
+  alltoallvWithCudaBackend(
+      send_topk_idx, ri.buffer, metadata,
+      ri.remote_ptrs, stream);
+  alltoallvWithCudaBackend(
+      send_topk_weights, rw.buffer, metadata,
+      rw.remote_ptrs, stream);
+  alltoallvWithCudaBackend(
+      send_src_idx, rs.buffer, metadata,
+      rs.remote_ptrs, stream);
+  alltoallvGpuSync(ctx, stream);
+
+  return {rx.buffer, ri.buffer, rw.buffer, rs.buffer,
+          n_tokens_to_rank, n_tokens_from_rank};
 }
 
 CombineResult doMoeCombine(
@@ -252,56 +337,20 @@ CombineResult doMoeCombine(
     const at::Tensor& src_idx,
     const at::Tensor& n_tokens_to_rank,
     const at::Tensor& n_tokens_from_rank,
+    int64_t num_tokens,
     Communicator* communicator,
     CommunicatorBackend backend) {
   NVF_CHECK(communicator != nullptr, "Combine requires a valid communicator.");
   NVF_CHECK(x.is_cuda(), "Combine input x must be on CUDA.");
-  const bool has_topk_weights = topk_weights.numel() > 0;
-  if (has_topk_weights) {
-    NVF_CHECK(topk_weights.is_cuda(), "Combine topk_weights must be on CUDA.");
-    NVF_CHECK(
-        topk_weights.is_floating_point(),
-        "Combine topk_weights must be floating point.");
-    NVF_CHECK(
-        topk_weights.dim() == 2 && topk_weights.size(0) == x.size(0) &&
-            topk_weights.size(1) == 1,
-        "topk_weights must be shape [T, 1], got: ",
-        topk_weights.sizes());
-  }
   NVF_CHECK(src_idx.is_cuda(), "Combine src_idx must be on CUDA.");
   NVF_CHECK(
-      n_tokens_to_rank.is_cuda(), "Combine n_tokens_to_rank must be CUDA.");
-  NVF_CHECK(
-      n_tokens_from_rank.is_cuda(), "Combine n_tokens_from_rank must be CUDA.");
-  NVF_CHECK_EQ(x.dim(), 2, "Combine expects x to be 2D [tokens, hidden].");
-  NVF_CHECK_EQ(src_idx.dim(), 1, "src_idx must be 1D.");
+      n_tokens_to_rank.is_cuda() && n_tokens_from_rank.is_cuda(),
+      "Combine count tensors must be on CUDA.");
+  NVF_CHECK_EQ(x.dim(), 2, "Combine expects x to be 2D.");
   NVF_CHECK_EQ(
       src_idx.size(0), x.size(0), "src_idx size must match x first dimension.");
-  NVF_CHECK_EQ(
-      n_tokens_to_rank.numel(),
-      communicator->size(),
-      "n_tokens_to_rank must match world size.");
-  NVF_CHECK_EQ(
-      n_tokens_from_rank.numel(),
-      communicator->size(),
-      "n_tokens_from_rank must match world size.");
 
-  // Reconstruct source ranks from per-rank counts. alltoall_base concatenates
-  // received chunks in rank order, so this matches the receive layout.
-  auto src_rank = at::arange(
-                      n_tokens_from_rank.numel(),
-                      at::TensorOptions().dtype(at::kLong).device(x.device()))
-                      .repeat_interleave(n_tokens_from_rank.to(at::kLong));
-  NVF_CHECK_EQ(
-      src_rank.size(0),
-      x.size(0),
-      "Reconstructed src_rank must match x first dimension.");
-  // Sort by source rank so alltoall can send contiguous chunks per rank.
-  auto sorted_indices = at::argsort(src_rank);
-  auto send_x = x.index_select(0, sorted_indices);
-  auto send_src_idx = src_idx.index_select(0, sorted_indices);
-
-  // Split sizes come from dispatch counts.
+  // ---------- NCCL backend (not graph-capturable) ----------
   if (backend == CommunicatorBackend::kNccl) {
     NVF_CHECK(
         communicator->isBackendAvailable(backend),
@@ -309,6 +358,15 @@ CombineResult doMoeCombine(
         backend);
     auto* pg = communicator->getWorld(backend);
     NVF_CHECK(pg != nullptr, "Combine backend is null.");
+
+    auto src_rank =
+        at::arange(
+            n_tokens_from_rank.numel(),
+            at::TensorOptions().dtype(at::kLong).device(x.device()))
+            .repeat_interleave(n_tokens_from_rank.to(at::kLong));
+    auto sorted_indices = at::argsort(src_rank);
+    auto send_x = x.index_select(0, sorted_indices);
+    auto send_src_idx = src_idx.index_select(0, sorted_indices);
 
     auto input_splits = toSplitSizes(n_tokens_from_rank);
     auto output_splits = toSplitSizes(n_tokens_to_rank);
@@ -325,65 +383,59 @@ CombineResult doMoeCombine(
     auto combined_x = at::empty({total_recv, hidden}, x.options());
     combined_x.index_copy_(0, recv_src_idx, recv_x);
 
-    // topk_weights is reserved for future weighted combine.
     (void)topk_weights;
-    return CombineResult{combined_x};
+    return {combined_x};
   }
+
+  // ---------- CUDA backend (graph-capturable, zero CPU-GPU sync) ----------
+  //
+  // Tokens in x [C, H] are already in sender-rank order from dispatch's
+  // alltoallv, so no sort is needed (repeat_interleave has a hidden .item()
+  // sync that would break graph capture). The alltoallv kernel reads only
+  // the valid rows via send_counts.
+  //
+  // Recv is [T, H] — exact, since each rank gets back its original T tokens.
+  // T = num_tokens is CPU-known, so no GPU read is needed for sizing.
 
   NVF_CHECK(
       backend == CommunicatorBackend::kCuda,
       "Only CUDA and NCCL backends are supported for MoECombine.");
-  const int64_t world_size = communicator->size();
 
-  auto metadata =
-      prepareAlltoallvMetadata(n_tokens_from_rank, "moe_combine_counts");
-  const int64_t total_recv = metadata.total_recv;
-  const int64_t max_recv = metadata.max_recv;
-  auto hidden = x.size(1);
-
-  // Allocate symmetric buffers for send/recv payloads.
-  auto send_x_sym = SymmetricTensor::allocate(
-      {metadata.max_send_total, hidden}, x.scalar_type(), x.device());
-  send_x_sym.narrow(0, 0, x.size(0)).copy_(send_x);
-  auto send_src_idx_sym = SymmetricTensor::allocate(
-      {metadata.max_send_total}, src_idx.scalar_type(), x.device());
-  send_src_idx_sym.narrow(0, 0, x.size(0)).copy_(send_src_idx);
-
-  auto recv_x_sym = SymmetricTensor::allocate(
-      {max_recv, hidden}, x.scalar_type(), x.device());
-  auto recv_src_idx_sym =
-      SymmetricTensor::allocate({max_recv}, src_idx.scalar_type(), x.device());
-
-  SymmetricTensor recv_x_handle(recv_x_sym);
-  SymmetricTensor recv_src_idx_handle(recv_src_idx_sym);
-  recv_x_handle.setupRemoteHandles("moe_combine_recv_x");
-  recv_src_idx_handle.setupRemoteHandles("moe_combine_recv_src_idx");
-
-  std::vector<void*> recv_x_ptrs(world_size);
-  std::vector<void*> recv_src_idx_ptrs(world_size);
-  for (int64_t rank = 0; rank < world_size; ++rank) {
-    recv_x_ptrs[rank] = recv_x_handle.remoteTensor(rank).data_ptr();
-    recv_src_idx_ptrs[rank] = recv_src_idx_handle.remoteTensor(rank).data_ptr();
-  }
+  const int64_t capacity = x.size(0);
+  const int64_t hidden = x.size(1);
 
   auto stream =
       static_cast<CUstream>(at::cuda::getDefaultCUDAStream().stream());
+
+  auto& ctx =
+      getOrCreateAlltoallv("moe_combine", x.device());
+  auto metadata = prepareAlltoallvMetadataGpu(
+      ctx, n_tokens_from_rank,
+      /*max_send_total=*/capacity,
+      /*max_recv=*/num_tokens,
+      stream);
+
+  auto& rx = ctx.recv(
+      "x", num_tokens, {hidden}, x.scalar_type(), x.device());
+  auto& rs = ctx.recv(
+      "src_idx", num_tokens, {},
+      src_idx.scalar_type(), x.device());
+
   alltoallvWithCudaBackend(
-      send_x_sym, recv_x_sym, metadata, recv_x_ptrs, stream);
+      x, rx.buffer, metadata, rx.remote_ptrs, stream);
   alltoallvWithCudaBackend(
-      send_src_idx_sym, recv_src_idx_sym, metadata, recv_src_idx_ptrs, stream);
-  alltoallvBarrier("moe_combine_counts");
+      src_idx, rs.buffer, metadata,
+      rs.remote_ptrs, stream);
+  alltoallvGpuSync(ctx, stream);
 
-  auto recv_x = recv_x_sym.narrow(0, 0, total_recv);
-  auto recv_src_idx = recv_src_idx_sym.narrow(0, 0, total_recv);
+  auto combined_x = at::zeros({num_tokens, hidden}, x.options());
+  combined_x.index_copy_(
+      0,
+      rs.buffer.narrow(0, 0, num_tokens),
+      rx.buffer.narrow(0, 0, num_tokens));
 
-  // Scatter by original token index to restore local order.
-  auto combined_x = at::empty({total_recv, hidden}, x.options());
-  combined_x.index_copy_(0, recv_src_idx, recv_x);
-
-  // topk_weights is reserved for future weighted combine.
   (void)topk_weights;
-  return CombineResult{combined_x};
+  return {combined_x};
 }
 
 } // namespace nvfuser

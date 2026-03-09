@@ -14,59 +14,37 @@
 
 namespace nvfuser {
 
+// Notation used throughout dispatch/combine:
+//   T = num_tokens    local token count on this rank before dispatch
+//   H = hidden        hidden dimension
+//   K = topk          only K=1 supported
+//   R = world_size    number of ranks
+//   C = T * R         capacity (upper-bound recv allocation, CUDA backend)
+//   V = Σ n_tokens_from_rank   actual tokens received  (V ≤ C)
+
 struct DispatchResult {
-  at::Tensor recv_x; // Dispatched tokens received on this rank.
-  at::Tensor recv_topk_idx; // Expert ids aligned with recv_x.
-  at::Tensor recv_topk_weights; // Gating weights aligned with recv_x.
-  at::Tensor recv_src_idx; // Source token indices for combine.
-  at::Tensor n_tokens_to_rank; // Tokens sent to each rank (this rank's view).
-  at::Tensor n_tokens_from_rank; // Tokens received from each rank.
+  // NCCL: recv_* are [V, ...] (tight).
+  // CUDA: recv_* are [C, ...] (over-allocated for graph capture).
+  //   Rows [0,V) are valid in sender-rank order; [V,C) are padding.
+  at::Tensor recv_x; // [C|V, H]
+  at::Tensor recv_topk_idx; // [C|V, K]
+  at::Tensor recv_topk_weights; // [C|V, K]
+  at::Tensor recv_src_idx; // [C|V]
+  at::Tensor n_tokens_to_rank; // [R]
+  at::Tensor n_tokens_from_rank; // [R]
 };
 
 struct CombineResult {
-  at::Tensor combined_x; // Combined tokens back in original order.
+  at::Tensor combined_x; // [T, H]
 };
 
-// Dispatch MoE tokens to the owning ranks. Only k=1 is supported for now.
-//
-// Args:
-//   x: Token embeddings on this rank, shape [T, H].
-//   topk_idx: Global expert ids per token, shape [T, K] (K=1 supported).
-//   topk_weights: Gating weights per token, shape [T, K] (K=1 supported).
-//   Experts are assumed to be placed contiguously by rank so
-//   rank = topk_idx / experts_per_rank.
-//   num_experts: Total experts across all ranks (must be divisible by R).
-//   communicator: Communicator for alltoall exchange.
-//   backend: Communication backend (CUDA or NCCL).
-//
-// Returns:
-//   DispatchResult with recv_* tensors on this rank.
-//
-// Example:
-//   world_size=2, num_experts=4, T=4, H=2, topk=1
-//   Experts are partitioned by rank:
-//     rank0 owns experts {0, 1}, rank1 owns experts {2, 3}
-//   Rank0 holds tokens 0,1 and rank1 holds tokens 2,3 in x:
-//     rank0 x = [x0, x1], rank1 x = [x2, x3]
-//   token->rank: [0, 1, 1, 1]  (via expert ids below)
-//   topk_idx = [[0], [2], [3], [2]]  (global expert ids, contiguous per rank)
-//   After dispatch on rank0:
-//     recv_x has token {0}
-//     recv_topk_idx aligned with recv_x (e.g., [0])
-//     recv_topk_weights aligned with recv_x (e.g., [1.0])
-//     recv_src_idx tells original token positions (e.g., [0])
-//   After dispatch on rank1:
-//     recv_x has tokens {1, 2, 3}
-//     recv_topk_idx aligned with recv_x (e.g., [2, 2, 3]). Tokens are grouped
-//     by expert id for local expert processing.
-//     recv_src_idx tells original token positions (e.g., [1, 2, 3])
-//   auto out = doMoeDispatch(
-//       x,
-//       topk_idx,
-//       topk_weights,
-//       4,
-//       comm,
-//       CommunicatorBackend::kNccl);
+//! Dispatch MoE tokens to expert-owning ranks via alltoall (topk=1 only).
+//!
+//! CUDA backend: fully graph-capturable. Recv buffers are over-allocated to
+//! C = T*R so all shapes are CPU-deterministic (see DispatchResult).
+//! Buffer allocation and IPC setup happen once (rendezvous).
+//!
+//! NCCL backend: exact sizes, not graph-capturable.
 NVF_API DispatchResult doMoeDispatch(
     const at::Tensor& x, // [T, H]
     const at::Tensor& topk_idx, // [T, K]
@@ -75,39 +53,24 @@ NVF_API DispatchResult doMoeDispatch(
     Communicator* communicator,
     CommunicatorBackend backend);
 
-// Combine dispatched MoE results back to original token order.
-//
-// Args:
-//   x: Token embeddings after expert compute, shape [T_recv, H].
-//   topk_weights: Optional gating weights aligned with x, shape [T_recv, K]
-//   (K=1). Pass empty to skip weighting in combine.
-//   src_idx: Original token indices for each row of x, shape [T_recv].
-//   n_tokens_to_rank: Tokens sent to each rank (from dispatch), shape [R].
-//   n_tokens_from_rank: Tokens received from each rank (from dispatch), shape
-//   [R].
-//   communicator: Communicator for alltoall exchange.
-//   backend: Communication backend (CUDA or NCCL).
-//
-// Returns:
-//   CombineResult with tokens restored to original order on this rank.
-//
-// Example:
-//   // Continuing the dispatch example (experts partitioned by rank):
-//   // rank0 owns experts {0, 1}, rank1 owns experts {2, 3}
-//   // After expert compute:
-//   //   rank0 recv_x has token {0} with src_idx = [0]
-//   //   rank1 recv_x has tokens {1, 2, 3} with src_idx = [1, 2, 3],
-//   // n_tokens_to_rank and n_tokens_from_rank are [R] counts per rank.
-//   // Combine scatters results back to original token order per rank.
-//   auto combined = doMoeCombine(
-//       x, topk_weights, src_idx, n_tokens_to_rank,
-//       n_tokens_from_rank, comm, CommunicatorBackend::kNccl);
+//! Combine dispatched MoE results back to original token order via alltoall.
+//!
+//! CUDA backend: fully graph-capturable. x may be [C, H] (padded from
+//! dispatch); tokens are already in rank-order so no sort is needed.
+//! Recv buffers are [T, H] (exact). Output combined_x is [T, H].
+//!
+//! \p num_tokens T — the original local count (= x.size(0) at dispatch
+//! time). CPU-known; used for recv sizing and output allocation so the
+//! data path needs no GPU-to-CPU sync.
+//!
+//! NCCL backend: exact sizes, not graph-capturable.
 NVF_API CombineResult doMoeCombine(
-    const at::Tensor& x,
-    const at::Tensor& topk_weights,
-    const at::Tensor& src_idx,
-    const at::Tensor& n_tokens_to_rank,
-    const at::Tensor& n_tokens_from_rank,
+    const at::Tensor& x, // [C|V, H]
+    const at::Tensor& topk_weights, // [C|V, K]
+    const at::Tensor& src_idx, // [C|V]
+    const at::Tensor& n_tokens_to_rank, // [R]
+    const at::Tensor& n_tokens_from_rank, // [R]
+    int64_t num_tokens, // T
     Communicator* communicator,
     CommunicatorBackend backend);
 

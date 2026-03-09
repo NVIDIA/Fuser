@@ -251,6 +251,77 @@ class SymMemForContiguousView : public SymmetricMemoryHandle {
   at::Tensor tensor_;
 };
 
+// Combined symmetric memory state for alltoallv: holds both the sync
+// state (counts exchange + completion semaphores) and any number of
+// named recv buffers with their cached remote P2P pointers.
+//
+// One instance per alltoallv context (e.g. "moe_dispatch", "moe_combine").
+// The first call triggers a rendezvous (SymmetricTensor allocation +
+// setupRemoteHandles); steady-state calls are pure cache hits.
+class SymMemForAlltoallv : public SymmetricMemoryHandle {
+ public:
+  SymMemForAlltoallv(at::Device device, const std::string& tag);
+
+  ~SymMemForAlltoallv() override = default;
+
+  // --- Sync state: [W+2] int64 buffer ---
+  //   [0..W-1]  send_counts
+  //   [W]       counts-ready semaphore (epoch, lower 32 bits)
+  //   [W+1]     done semaphore (epoch, lower 32 bits)
+  const at::Tensor& syncBuffer() const {
+    return sync_buf_;
+  }
+  CUdeviceptr syncRemotePtr(int64_t rank) const {
+    return sync_ptrs_[rank];
+  }
+  int32_t nextEpoch() {
+    return ++epoch_;
+  }
+  int32_t currentEpoch() const {
+    return epoch_;
+  }
+  int64_t worldSize() const {
+    return world_size_;
+  }
+  int64_t myRank() const {
+    return my_rank_;
+  }
+
+  // --- Named recv buffers ---
+  struct RecvHandle {
+    at::Tensor buffer;
+    at::Tensor remote_ptrs; // CUDA [W] int64
+  };
+
+  //! Get or create a named recv buffer. If the cached buffer's first
+  //! dimension is already >= first_dim, returns the existing one.
+  //! Otherwise allocates + setupRemoteHandles (rendezvous).
+  const RecvHandle& recv(
+      const std::string& name,
+      int64_t first_dim,
+      at::IntArrayRef extra_sizes,
+      at::ScalarType dtype,
+      at::Device device);
+
+ private:
+  // Sync
+  at::Tensor sync_buf_;
+  std::unique_ptr<SymmetricTensor> sync_sym_;
+  std::vector<CUdeviceptr> sync_ptrs_;
+  int32_t epoch_ = 0;
+  int64_t world_size_;
+  int64_t my_rank_;
+  std::string tag_;
+
+  // Recv buffers
+  struct RecvEntry {
+    std::unique_ptr<SymmetricTensor> sym;
+    RecvHandle handle;
+    int64_t cached_first_dim = 0;
+  };
+  std::unordered_map<std::string, RecvEntry> recv_entries_;
+};
+
 // Cache for symmetric memory handles keyed by (buffer tensor, expr)
 // Avoids recreating expensive VMM mappings and multicast handles
 class SymmetricMemoryHandleCache {

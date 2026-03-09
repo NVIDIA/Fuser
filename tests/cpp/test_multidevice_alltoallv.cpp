@@ -49,13 +49,13 @@ TEST_F(AlltoallvCudaTest, AlltoallvAsymmetric) {
   SymmetricTensor recv_handle(recv_sym);
   recv_handle.setupRemoteHandles("test_alltoallv_recv");
 
-  std::vector<void*> recv_ptrs(world_size);
-  for (int64_t rank = 0; rank < world_size; ++rank) {
-    recv_ptrs[rank] = recv_handle.remoteTensor(rank).data_ptr();
-  }
-
   auto stream = at::cuda::getDefaultCUDAStream().stream();
-  alltoallvWithCudaBackend(send_sym, recv_sym, metadata, recv_ptrs, stream);
+  alltoallvWithCudaBackend(
+      send_sym,
+      recv_sym,
+      metadata,
+      recv_handle.remotePointersTensor(),
+      stream);
   alltoallvBarrier("test_alltoallv_counts");
 
   auto recv_view = recv_sym.narrow(0, 0, metadata.total_recv);
