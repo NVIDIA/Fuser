@@ -3771,13 +3771,13 @@ bool inputsHaveContiguousInnerDim(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     const auto& contig = tv->domain()->contiguity();
     if (contig.empty()) {
-      return false;
+      continue;
     }
     const auto& alloc_dom = tv->getMaybeAllocationDomain();
     NVF_ERROR(contig.size() == alloc_dom.size());
     bool found_inner = false;
     for (int64_t i = static_cast<int64_t>(alloc_dom.size()) - 1; i >= 0; --i) {
-      if (alloc_dom[i]->isBroadcast()) {
+      if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()) {
         continue;
       }
       if (!contig[i].has_value() || !*contig[i]) {
