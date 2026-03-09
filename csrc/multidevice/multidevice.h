@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include <c10/core/Device.h>
@@ -19,5 +20,5 @@ using DeviceType = c10::Device;
 using Team = std::vector<DeviceIdxType>;
 
 // Supported backends.
-enum class CommunicatorBackend { kNccl, kUcc, kCuda, kNixl };
+enum class CommunicatorBackend : std::uint8_t { kNccl, kUcc, kCuda, kNixl };
 } // namespace nvfuser
