@@ -448,30 +448,30 @@ c10::intrusive_ptr<c10d::Work> postRecv(
 }
 
 c10::intrusive_ptr<c10d::Work> postCollectivePermute(
-  CollectivePermute* communication,
-  DeviceIdxType my_device_index,
-  DeviceIdxType send_peer_index,
-  DeviceIdxType recv_peer_index,
-  c10d::Backend* backend,
-  at::Tensor input_tensor,
-  at::Tensor output_tensor) {
-if (my_device_index == send_peer_index &&
-    my_device_index == recv_peer_index) {
-  doLocalCopy(output_tensor, input_tensor);
-  return nullptr;
-}
-backend->startCoalescing();
-std::vector<at::Tensor> send_tensors = {input_tensor};
-backend->send(
-    send_tensors,
-    send_peer_index,
-    /*tag=*/0);
-std::vector<at::Tensor> recv_tensors = {output_tensor};
-backend->recv(
-    recv_tensors,
-    recv_peer_index,
-    /*tag=*/0);
-return backend->endCoalescing();
+    CollectivePermute* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType send_peer_index,
+    DeviceIdxType recv_peer_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor) {
+  if (my_device_index == send_peer_index &&
+      my_device_index == recv_peer_index) {
+    doLocalCopy(output_tensor, input_tensor);
+    return nullptr;
+  }
+  backend->startCoalescing();
+  std::vector<at::Tensor> send_tensors = {input_tensor};
+  backend->send(
+      send_tensors,
+      send_peer_index,
+      /*tag=*/0);
+  std::vector<at::Tensor> recv_tensors = {output_tensor};
+  backend->recv(
+      recv_tensors,
+      recv_peer_index,
+      /*tag=*/0);
+  return backend->endCoalescing();
 }
 
 } // namespace
@@ -589,36 +589,35 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
 }
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
-  CollectivePermute* communication,
-  DeviceIdxType my_device_index,
-  c10d::Backend* backend,
-  at::Tensor input_tensor,
-  at::Tensor output_tensor,
-  DeviceIdxType send_peer_index,
-  DeviceIdxType recv_peer_index) {
-const Team& team = communication->team();
-if (std::find(team.begin(), team.end(), my_device_index) == team.end()) {
-  return nullptr;
-}
-NVF_CHECK(backend != nullptr);
+    CollectivePermute* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor,
+    DeviceIdxType send_peer_index,
+    DeviceIdxType recv_peer_index) {
+  const Team& team = communication->team();
+  if (std::find(team.begin(), team.end(), my_device_index) == team.end()) {
+    return nullptr;
+  }
+  NVF_CHECK(backend != nullptr);
 
-if (isDebugDumpEnabled(DebugDumpOption::Communication) &&
-    my_device_index == 0) {
-  debug() << "Posting " << communication->toInlineString()
-          << " with input_tensor " << input_tensor.sizes()
-          << " and output_tensor " << output_tensor.sizes()
-          << " send_peer=" << send_peer_index
-          << " recv_peer=" << recv_peer_index << std::endl;
-}
+  if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
+    debug() << "Posting " << communication->toInlineString()
+            << " with input_tensor " << input_tensor.sizes()
+            << " and output_tensor " << output_tensor.sizes()
+            << " send_peer=" << send_peer_index
+            << " recv_peer=" << recv_peer_index << std::endl;
+  }
 
-return postCollectivePermute(
-    communication,
-    my_device_index,
-    send_peer_index,
-    recv_peer_index,
-    backend,
-    input_tensor,
-    output_tensor);
+  return postCollectivePermute(
+      communication,
+      my_device_index,
+      send_peer_index,
+      recv_peer_index,
+      backend,
+      input_tensor,
+      output_tensor);
 }
 
 } // namespace nvfuser

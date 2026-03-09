@@ -86,12 +86,12 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     at::Tensor buffer);
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
-  CollectivePermute* communication,
-  DeviceIdxType my_device_index,
-  c10d::Backend* backend,
-  at::Tensor input_tensor,
-  at::Tensor output_tensor,
-  DeviceIdxType send_peer_index,
-  DeviceIdxType recv_peer_index);
+    CollectivePermute* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor,
+    DeviceIdxType send_peer_index,
+    DeviceIdxType recv_peer_index);
 
 } // namespace nvfuser

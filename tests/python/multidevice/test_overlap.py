@@ -518,7 +518,7 @@ def test_column_parallel_linear_forward(multidevice_test, parallelism: str):
 def test_column_parallel_linear_forward_benchmark(
     multidevice_test, benchmark, parallelism: str
 ):
-    # This is a port of CollectiveBasedOverlapTest.RowParallelLinear_Forward.
+    # This is a port of CollectiveBasedOverlapTest.ColumnParallelLinear_Forward.
     h, t = 8192, 8192
     d = multidevice_test.size
     if (4 * h) % d != 0:

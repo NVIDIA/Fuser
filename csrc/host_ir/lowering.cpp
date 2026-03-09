@@ -231,11 +231,14 @@ void lowerSegment(
         innermost_scope.pushBack(allocate);
       }
 
-      Val* root = loop_nest.empty() ? nullptr : innermost.loop->index();
-      for (Expr* c : convertSingleOpToCommunication(e, device_id, root)) {
+      Val* host_loop_index =
+          loop_nest.empty() ? nullptr : innermost.loop->index();
+      for (Expr* c :
+           convertSingleOpToCommunication(e, device_id, host_loop_index)) {
         NVF_ERROR(
             c->isA<Communication>() || c->isA<CollectivePermute>(),
-            "Exprs in a Communication group should be Communication or CollectivePermute: ",
+            "Exprs in a Communication group should be Communication or "
+            "CollectivePermute: ",
             c);
 
         if (auto* cp = dynamic_cast<CollectivePermute*>(c)) {

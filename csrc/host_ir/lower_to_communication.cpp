@@ -348,7 +348,7 @@ void lowerToCollectivePermute(
     TensorView* output_tv,
     const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
-    Val* root,
+    Val* host_loop_index,
     DeviceIdxType my_device_idx) {
   NVF_ERROR_EQ(
       input_tv->getDeviceMesh(),
@@ -363,8 +363,8 @@ void lowerToCollectivePermute(
   Swizzle1D* swizzle = stream_id->definition()->as<Swizzle1D>();
   ParallelType pt = swizzle->parallelType();
 
-  const auto& [recv_peer, send_peer] =
-      dispatchSwizzle1D(root, my_device_idx, pt, input_tv->getDeviceMesh());
+  const auto& [recv_peer, send_peer] = dispatchSwizzle1D(
+      host_loop_index, my_device_idx, pt, input_tv->getDeviceMesh());
   Team team = input_tv->getDeviceMesh().vector();
   comms.push_back(
       IrBuilder::create<CollectivePermute>(
@@ -399,14 +399,6 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
       pairwise_map.mapProducerToConsumer();
   const std::unordered_map<IterDomain*, IterDomain*> c2p =
       pairwise_map.mapConsumerToProducer();
-
-  auto producing_logical_id = [](TensorView* tv,
-                                 IterDomain* loop_id) -> IterDomain* {
-    if (loop_id == nullptr) {
-      return nullptr;
-    }
-    return getLogicalFromLoopId(tv, loop_id);
-  };
 
   IterDomain* p_loop_id = getShardedIterDomain(producer, pt, DomainType::kLoop);
   IterDomain* p_logical_id =
@@ -637,7 +629,7 @@ bool isCommunicationLayoutCompliant(Expr* e) {
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* e,
     DeviceIdxType my_device_idx,
-    Val* root,
+    Val* host_loop_index,
     const CommunicatorBackend backend) {
   FusionGuard fg(e->fusion());
 
@@ -692,7 +684,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
       lowerToAllgather(input_tv, output_tv, backend, comms, my_device_idx);
       break;
     case CommunicationType::Broadcast:
-      lowerToBroadcast(input_tv, output_tv, backend, root, comms);
+      lowerToBroadcast(input_tv, output_tv, backend, host_loop_index, comms);
       break;
     case CommunicationType::SendRecv:
       lowerToSendRecv(input_tv, output_tv, backend, comms);
@@ -713,7 +705,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
       break;
     case CommunicationType::CollectivePermute:
       lowerToCollectivePermute(
-          input_tv, output_tv, backend, comms, root, my_device_idx);
+          input_tv, output_tv, backend, comms, host_loop_index, my_device_idx);
       break;
   }
 
