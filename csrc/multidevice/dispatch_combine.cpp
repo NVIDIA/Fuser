@@ -56,14 +56,11 @@ void waitWork(const c10::intrusive_ptr<c10d::Work>& work) {
 SymMemForAlltoallv& getOrCreateAlltoallv(
     const std::string& tag,
     at::Device device) {
-  static auto* cache =
-      new std::unordered_map<
-          std::string,
-          std::unique_ptr<SymMemForAlltoallv>>();
+  static auto* cache = new std::
+      unordered_map<std::string, std::unique_ptr<SymMemForAlltoallv>>();
   auto& entry = (*cache)[tag];
   if (!entry) {
-    entry =
-        std::make_unique<SymMemForAlltoallv>(device, tag);
+    entry = std::make_unique<SymMemForAlltoallv>(device, tag);
   }
   return *entry;
 }
@@ -78,9 +75,8 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
   const int64_t W = ctx.worldSize();
   const int64_t my_rank = ctx.myRank();
   auto epoch = static_cast<cuuint32_t>(ctx.nextEpoch());
-  auto gpu_opts = at::TensorOptions()
-                      .dtype(at::kLong)
-                      .device(send_counts.device());
+  auto gpu_opts =
+      at::TensorOptions().dtype(at::kLong).device(send_counts.device());
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
       ctx.syncBuffer().data_ptr<int64_t>(),
@@ -103,14 +99,12 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
         continue;
       }
       ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
-      ops[idx].waitValue.address =
-          ctx.syncRemotePtr(r) + W * sizeof(int64_t);
+      ops[idx].waitValue.address = ctx.syncRemotePtr(r) + W * sizeof(int64_t);
       ops[idx].waitValue.value = epoch;
       ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_GEQ;
       idx++;
     }
-    NVFUSER_CUDA_SAFE_CALL(
-        cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
+    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
   }
 
   auto counts_matrix = at::empty({W, W}, gpu_opts);
@@ -123,8 +117,7 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
         reinterpret_cast<cudaStream_t>(stream)));
   }
 
-  auto recv_counts =
-      counts_matrix.select(1, my_rank).contiguous();
+  auto recv_counts = counts_matrix.select(1, my_rank).contiguous();
 
   auto send_offsets = at::zeros({W}, gpu_opts);
   if (W > 1) {
@@ -149,18 +142,14 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
 }
 
 // Graph-capturable alltoallv completion sync via GPU semaphores.
-void alltoallvGpuSync(
-    SymMemForAlltoallv& ctx,
-    CUstream stream) {
+void alltoallvGpuSync(SymMemForAlltoallv& ctx, CUstream stream) {
   const int64_t W = ctx.worldSize();
   const int64_t my_rank = ctx.myRank();
-  auto epoch =
-      static_cast<cuuint32_t>(ctx.currentEpoch());
+  auto epoch = static_cast<cuuint32_t>(ctx.currentEpoch());
 
   NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
       stream,
-      ctx.syncRemotePtr(my_rank) +
-          (W + 1) * sizeof(int64_t),
+      ctx.syncRemotePtr(my_rank) + (W + 1) * sizeof(int64_t),
       epoch,
       CU_STREAM_WRITE_VALUE_DEFAULT));
 
@@ -173,14 +162,12 @@ void alltoallvGpuSync(
       }
       ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
       ops[idx].waitValue.address =
-          ctx.syncRemotePtr(r) +
-          (W + 1) * sizeof(int64_t);
+          ctx.syncRemotePtr(r) + (W + 1) * sizeof(int64_t);
       ops[idx].waitValue.value = epoch;
       ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_GEQ;
       idx++;
     }
-    NVFUSER_CUDA_SAFE_CALL(
-        cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
+    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
   }
 }
 
@@ -235,8 +222,7 @@ DispatchResult doMoeDispatch(
   // Uses scatter_add instead of bincount — bincount has an internal
   // CPU-GPU copy that breaks CUDA graph capture.
   auto rank_for_token_long = rank_for_token.to(at::kLong);
-  auto gpu_long_opts =
-      at::TensorOptions().dtype(at::kLong).device(x.device());
+  auto gpu_long_opts = at::TensorOptions().dtype(at::kLong).device(x.device());
   auto n_tokens_to_rank =
       at::zeros({world_size}, gpu_long_opts)
           .scatter_add(
@@ -275,12 +261,13 @@ DispatchResult doMoeDispatch(
     waitWork(pg->alltoall_base(
         recv_src_idx, send_src_idx, output_splits, input_splits));
 
-    return {recv_x,
-            recv_topk_idx,
-            recv_topk_weights,
-            recv_src_idx,
-            n_tokens_to_rank,
-            n_tokens_from_rank};
+    return {
+        recv_x,
+        recv_topk_idx,
+        recv_topk_weights,
+        recv_src_idx,
+        n_tokens_to_rank,
+        n_tokens_from_rank};
   }
 
   // ---------- CUDA backend (graph-capturable, zero CPU-GPU sync) ----------
@@ -299,42 +286,47 @@ DispatchResult doMoeDispatch(
       static_cast<CUstream>(at::cuda::getCurrentCUDAStream().stream());
   const int64_t capacity = num_tokens * world_size;
 
-  auto& ctx =
-      getOrCreateAlltoallv("moe_dispatch", x.device());
+  auto& ctx = getOrCreateAlltoallv("moe_dispatch", x.device());
   auto metadata = prepareAlltoallvMetadataGpu(
-      ctx, n_tokens_to_rank,
+      ctx,
+      n_tokens_to_rank,
       /*max_send_total=*/num_tokens,
       /*max_recv=*/capacity,
       stream);
   auto n_tokens_from_rank = metadata.recv_counts;
 
-  auto& rx = ctx.recv(
-      "x", capacity, {hidden}, x.scalar_type(), x.device());
+  auto& rx = ctx.recv("x", capacity, {hidden}, x.scalar_type(), x.device());
   auto& ri = ctx.recv(
-      "topk_idx", capacity, {topk_idx.size(1)},
-      topk_idx.scalar_type(), x.device());
+      "topk_idx",
+      capacity,
+      {topk_idx.size(1)},
+      topk_idx.scalar_type(),
+      x.device());
   auto& rw = ctx.recv(
-      "topk_weights", capacity, {topk_weights.size(1)},
-      topk_weights.scalar_type(), x.device());
-  auto& rs = ctx.recv(
-      "src_idx", capacity, {},
-      send_src_idx.scalar_type(), x.device());
+      "topk_weights",
+      capacity,
+      {topk_weights.size(1)},
+      topk_weights.scalar_type(),
+      x.device());
+  auto& rs =
+      ctx.recv("src_idx", capacity, {}, send_src_idx.scalar_type(), x.device());
 
+  alltoallvWithCudaBackend(send_x, rx.buffer, metadata, rx.remote_ptrs, stream);
   alltoallvWithCudaBackend(
-      send_x, rx.buffer, metadata, rx.remote_ptrs, stream);
+      send_topk_idx, ri.buffer, metadata, ri.remote_ptrs, stream);
   alltoallvWithCudaBackend(
-      send_topk_idx, ri.buffer, metadata,
-      ri.remote_ptrs, stream);
+      send_topk_weights, rw.buffer, metadata, rw.remote_ptrs, stream);
   alltoallvWithCudaBackend(
-      send_topk_weights, rw.buffer, metadata,
-      rw.remote_ptrs, stream);
-  alltoallvWithCudaBackend(
-      send_src_idx, rs.buffer, metadata,
-      rs.remote_ptrs, stream);
+      send_src_idx, rs.buffer, metadata, rs.remote_ptrs, stream);
   alltoallvGpuSync(ctx, stream);
 
-  return {rx.buffer, ri.buffer, rw.buffer, rs.buffer,
-          n_tokens_to_rank, n_tokens_from_rank};
+  return {
+      rx.buffer,
+      ri.buffer,
+      rw.buffer,
+      rs.buffer,
+      n_tokens_to_rank,
+      n_tokens_from_rank};
 }
 
 CombineResult doMoeCombine(
@@ -365,11 +357,10 @@ CombineResult doMoeCombine(
     auto* pg = communicator->getWorld(backend);
     NVF_CHECK(pg != nullptr, "Combine backend is null.");
 
-    auto src_rank =
-        at::arange(
-            n_tokens_from_rank.numel(),
-            at::TensorOptions().dtype(at::kLong).device(x.device()))
-            .repeat_interleave(n_tokens_from_rank.to(at::kLong));
+    auto src_rank = at::arange(
+                        n_tokens_from_rank.numel(),
+                        at::TensorOptions().dtype(at::kLong).device(x.device()))
+                        .repeat_interleave(n_tokens_from_rank.to(at::kLong));
     auto sorted_indices = at::argsort(src_rank);
     auto send_x = x.index_select(0, sorted_indices);
     auto send_src_idx = src_idx.index_select(0, sorted_indices);
@@ -413,25 +404,21 @@ CombineResult doMoeCombine(
   auto stream =
       static_cast<CUstream>(at::cuda::getCurrentCUDAStream().stream());
 
-  auto& ctx =
-      getOrCreateAlltoallv("moe_combine", x.device());
+  auto& ctx = getOrCreateAlltoallv("moe_combine", x.device());
   auto metadata = prepareAlltoallvMetadataGpu(
-      ctx, n_tokens_from_rank,
+      ctx,
+      n_tokens_from_rank,
       /*max_send_total=*/capacity,
       /*max_recv=*/num_tokens,
       stream);
 
-  auto& rx = ctx.recv(
-      "x", num_tokens, {hidden}, x.scalar_type(), x.device());
-  auto& rs = ctx.recv(
-      "src_idx", num_tokens, {},
-      src_idx.scalar_type(), x.device());
+  auto& rx = ctx.recv("x", num_tokens, {hidden}, x.scalar_type(), x.device());
+  auto& rs =
+      ctx.recv("src_idx", num_tokens, {}, src_idx.scalar_type(), x.device());
 
+  alltoallvWithCudaBackend(x, rx.buffer, metadata, rx.remote_ptrs, stream);
   alltoallvWithCudaBackend(
-      x, rx.buffer, metadata, rx.remote_ptrs, stream);
-  alltoallvWithCudaBackend(
-      src_idx, rs.buffer, metadata,
-      rs.remote_ptrs, stream);
+      src_idx, rs.buffer, metadata, rs.remote_ptrs, stream);
   alltoallvGpuSync(ctx, stream);
 
   auto combined_x = at::zeros({num_tokens, hidden}, x.options());

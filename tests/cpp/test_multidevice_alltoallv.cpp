@@ -51,11 +51,7 @@ TEST_F(AlltoallvCudaTest, AlltoallvAsymmetric) {
 
   auto stream = at::cuda::getDefaultCUDAStream().stream();
   alltoallvWithCudaBackend(
-      send_sym,
-      recv_sym,
-      metadata,
-      recv_handle.remotePointersTensor(),
-      stream);
+      send_sym, recv_sym, metadata, recv_handle.remotePointersTensor(), stream);
   alltoallvBarrier("test_alltoallv_counts");
 
   auto recv_view = recv_sym.narrow(0, 0, metadata.total_recv);

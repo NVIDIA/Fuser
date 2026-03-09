@@ -343,8 +343,7 @@ SymMemForAlltoallv::SymMemForAlltoallv(
   world_size_ = comm.size();
   my_rank_ = comm.deviceId();
 
-  sync_buf_ = SymmetricTensor::allocate(
-      {world_size_ + 2}, at::kLong, device);
+  sync_buf_ = SymmetricTensor::allocate({world_size_ + 2}, at::kLong, device);
   sync_buf_.zero_();
 
   sync_sym_ = std::make_unique<SymmetricTensor>(sync_buf_);
@@ -352,8 +351,8 @@ SymMemForAlltoallv::SymMemForAlltoallv(
 
   sync_ptrs_.resize(world_size_);
   for (int64_t r = 0; r < world_size_; r++) {
-    sync_ptrs_[r] = reinterpret_cast<CUdeviceptr>(
-        sync_sym_->remoteTensor(r).data_ptr());
+    sync_ptrs_[r] =
+        reinterpret_cast<CUdeviceptr>(sync_sym_->remoteTensor(r).data_ptr());
   }
 }
 
@@ -373,13 +372,11 @@ const SymMemForAlltoallv::RecvHandle& SymMemForAlltoallv::recv(
     sizes.push_back(d);
   }
 
-  auto buf =
-      SymmetricTensor::allocate(sizes, dtype, device);
+  auto buf = SymmetricTensor::allocate(sizes, dtype, device);
   entry.sym = std::make_unique<SymmetricTensor>(buf);
   entry.sym->setupRemoteHandles(tag_ + "_" + name);
   entry.handle.buffer = buf;
-  entry.handle.remote_ptrs =
-      entry.sym->remotePointersTensor();
+  entry.handle.remote_ptrs = entry.sym->remotePointersTensor();
   entry.cached_first_dim = first_dim;
   return entry.handle;
 }

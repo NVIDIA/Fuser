@@ -324,27 +324,23 @@ TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
   }
 
   constexpr int64_t kNumExpertsPerRank = 2;
-  const int64_t num_experts =
-      communicator_->size() * kNumExpertsPerRank;
+  const int64_t num_experts = communicator_->size() * kNumExpertsPerRank;
   constexpr int64_t kNumTokens = 4;
   constexpr int64_t kHidden = 4;
   const auto backend = CommunicatorBackend::kCuda;
   const int64_t my_rank = communicator_->deviceId();
 
-  auto float_options = at::TensorOptions()
-                           .device(communicator_->device())
-                           .dtype(at::kFloat);
-  auto int_options = at::TensorOptions()
-                         .device(communicator_->device())
-                         .dtype(at::kLong);
+  auto float_options =
+      at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
+  auto int_options =
+      at::TensorOptions().device(communicator_->device()).dtype(at::kLong);
 
   auto x = at::arange(kNumTokens * kHidden, float_options)
                .reshape({kNumTokens, kHidden}) +
       static_cast<double>(my_rank) * 1000.0;
   auto topk_idx = at::zeros({kNumTokens, 1}, int_options);
   auto topk_weights =
-      at::arange(kNumTokens, float_options)
-          .reshape({kNumTokens, 1}) +
+      at::arange(kNumTokens, float_options).reshape({kNumTokens, 1}) +
       static_cast<double>(my_rank);
 
   topk_idx.index_put_({0, 0}, 0);
@@ -363,8 +359,7 @@ TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
   CombineResult cr;
   for (int i = 0; i < 2; i++) {
     auto dr = doMoeDispatch(
-        x, topk_idx, topk_weights, num_experts,
-        communicator_, backend);
+        x, topk_idx, topk_weights, num_experts, communicator_, backend);
     cr = doMoeCombine(
         dr.recv_x,
         dr.recv_topk_weights,
@@ -384,8 +379,7 @@ TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
   at::cuda::CUDAGraph graph;
   graph.capture_begin();
   auto dr = doMoeDispatch(
-      x, topk_idx, topk_weights, num_experts,
-      communicator_, backend);
+      x, topk_idx, topk_weights, num_experts, communicator_, backend);
   cr = doMoeCombine(
       dr.recv_x,
       dr.recv_topk_weights,
@@ -403,8 +397,7 @@ TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
   capture_stream.synchronize();
 
   EXPECT_TRUE(at::allclose(cr.combined_x, x))
-      << "Graph-replayed dispatch/combine mismatch on rank "
-      << my_rank;
+      << "Graph-replayed dispatch/combine mismatch on rank " << my_rank;
 }
 
 } // namespace hir

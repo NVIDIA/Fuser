@@ -991,8 +991,7 @@ void alltoallvWithCudaBackend(
 
   launchAlltoallvKernel(
       send.data_ptr(),
-      reinterpret_cast<const uint64_t*>(
-          recv_ptrs_gpu.data_ptr<int64_t>()),
+      reinterpret_cast<const uint64_t*>(recv_ptrs_gpu.data_ptr<int64_t>()),
       send_offsets.data_ptr<int64_t>(),
       send_counts.data_ptr<int64_t>(),
       recv_offsets.data_ptr<int64_t>(),
