@@ -163,11 +163,13 @@ class NVF_API Fusion : public PolymorphicBase {
     return ir_container_.get();
   }
 
+ public:
+  // Public for Phase 3: callers that create derived Fusions (HostIrContainer,
+  // segment copies, etc.) need the shared_ptr to share the IrContainer.
   std::shared_ptr<IrContainer> ir_container_ptr() const {
     return ir_container_;
   }
 
- public:
   // Registration (public API with passkey)
   virtual void registerStmt(IrBuilderPasskey, Statement* stmt) {
     if (stmt->isVal()) {

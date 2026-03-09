@@ -118,7 +118,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   RuntimeWorkSpace workspace = prepareRuntimeOrder(*staged_fusion);
   // Create the HostIrContainer representing the host program. Each segment of
   // the segmented fusion will be translated to a HostIR
-  auto hic = std::make_unique<hir::HostIrContainer>();
+  auto hic = std::make_unique<hir::HostIrContainer>(
+      staged_fusion->completeFusion()->ir_container_ptr());
   FusionGuard fg(hic.get());
   IrCloner ir_cloner(hic.get());
   auto clone =

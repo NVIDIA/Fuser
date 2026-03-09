@@ -2803,8 +2803,10 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
           [fusion](WelfordOp* welford) { return welford->fusion() == fusion; }),
       "Welfords in given vector not in the same fusion");
 
-  // Make initial `in-progress copy`
-  auto test_copy = std::make_unique<Fusion>();
+  // Make initial `in-progress copy` — share the source IrContainer so that
+  // traversal via getCurFusion() sees all Vals in the same container.
+  auto test_copy =
+      std::unique_ptr<Fusion>(new Fusion(fusion->ir_container_ptr()));
   auto original_to_test_map = Fusion::copy(fusion, test_copy.get());
 
   std::vector<WelfordOp*> copied_welfords;

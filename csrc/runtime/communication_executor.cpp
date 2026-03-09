@@ -54,7 +54,8 @@ void CommunicationExecutor::compile(Fusion* fusion) {
     FusionProfiler::segment(group_id_).startCompile();
   }
 
-  host_ir_container_ = std::make_unique<hir::HostIrContainer>();
+  host_ir_container_ =
+      std::make_unique<hir::HostIrContainer>(fusion->ir_container_ptr());
   IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
   if (fusion->isA<hir::HostIrContainer>()) {
     for (Expr* e : fusion->as<hir::HostIrContainer>()->topLevelExprs()) {
