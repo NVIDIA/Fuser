@@ -13,7 +13,6 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/ops/arange.h>
 #include <ATen/ops/argsort.h>
-#include <ATen/ops/bincount.h>
 #include <ATen/ops/empty.h>
 #include <ATen/ops/empty_like.h>
 #include <ATen/ops/floor_divide.h>
@@ -233,8 +232,15 @@ DispatchResult doMoeDispatch(
   auto send_src_idx = sorted_indices.to(at::kLong);
 
   // n_tokens_to_rank[r] = number of tokens this rank sends to rank r.
+  // Uses scatter_add instead of bincount — bincount has an internal
+  // CPU-GPU copy that breaks CUDA graph capture.
+  auto rank_for_token_long = rank_for_token.to(at::kLong);
+  auto gpu_long_opts =
+      at::TensorOptions().dtype(at::kLong).device(x.device());
   auto n_tokens_to_rank =
-      at::bincount(rank_for_token, {}, world_size).to(at::kLong);
+      at::zeros({world_size}, gpu_long_opts)
+          .scatter_add(
+              0, rank_for_token_long, at::ones({num_tokens}, gpu_long_opts));
 
   // ---------- NCCL backend (not graph-capturable) ----------
   if (backend == CommunicatorBackend::kNccl) {
@@ -290,7 +296,7 @@ DispatchResult doMoeDispatch(
       "Only CUDA and NCCL backends are supported for MoeDispatch.");
 
   auto stream =
-      static_cast<CUstream>(at::cuda::getDefaultCUDAStream().stream());
+      static_cast<CUstream>(at::cuda::getCurrentCUDAStream().stream());
   const int64_t capacity = num_tokens * world_size;
 
   auto& ctx =
@@ -405,7 +411,7 @@ CombineResult doMoeCombine(
   const int64_t hidden = x.size(1);
 
   auto stream =
-      static_cast<CUstream>(at::cuda::getDefaultCUDAStream().stream());
+      static_cast<CUstream>(at::cuda::getCurrentCUDAStream().stream());
 
   auto& ctx =
       getOrCreateAlltoallv("moe_combine", x.device());

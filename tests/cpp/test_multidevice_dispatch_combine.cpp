@@ -396,7 +396,6 @@ TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
       communicator_,
       backend);
   graph.capture_end();
-  graph.instantiate();
 
   // Replay with modified input data (same routing).
   x.add_(500.0);
