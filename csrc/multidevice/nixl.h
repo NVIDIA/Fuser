@@ -40,17 +40,19 @@ enum class NixlXferStatus : std::uint8_t {
 struct TensorDesc {
   uintptr_t addr;
   size_t size;
-  uint32_t dev; // deviceId (rank) owning this tensor
+  uint32_t dev; // CUDA device index (tensor.device().index())
+  int64_t rank; // communicator rank owning this tensor
 };
 static_assert(
     std::is_trivially_copyable_v<TensorDesc>,
     "TensorDesc must be trivially copyable for serialization");
 
-inline TensorDesc toTensorDesc(const at::Tensor& tensor, int64_t device_id) {
+inline TensorDesc toTensorDesc(const at::Tensor& tensor, int64_t rank) {
   return {
       .addr = reinterpret_cast<uintptr_t>(tensor.data_ptr()),
       .size = static_cast<size_t>(tensor.numel()) * tensor.element_size(),
-      .dev = static_cast<uint32_t>(device_id)};
+      .dev = static_cast<uint32_t>(tensor.device().index()),
+      .rank = rank};
 }
 
 inline std::vector<uint8_t> serializeTensorsDescs(

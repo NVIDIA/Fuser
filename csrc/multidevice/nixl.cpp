@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstring>
 #include <iostream>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -120,7 +121,7 @@ class NixlBackend::Impl {
  private:
   void exchangeMetadata();
   explicit Impl(Communicator& communicator);
-  inline std::string getAgentName(int64_t device_id);
+  inline std::string getAgentName(int64_t rank);
 
   std::unique_ptr<nixlAgent> agent_;
   nixlBackendH* backend_ = nullptr;
@@ -306,8 +307,12 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
       local_descs.size(),
       " vs ",
       remote_descs.size());
+  NVF_ERROR(
+      std::all_of(remote_descs.begin(), remote_descs.end(),
+          [&](const TensorDesc& d){ return d.rank == remote_descs[0].rank; }),
+      "All remote descriptors must belong to the same remote peer");
 
-  std::string remote_agent_name = getAgentName(remote_descs.at(0).dev);
+  std::string remote_agent_name = getAgentName(remote_descs.at(0).rank);
 
   nixl_xfer_dlist_t local_dlist = buildXferDlist(local_descs);
   nixl_xfer_dlist_t remote_dlist = buildXferDlist(remote_descs);
