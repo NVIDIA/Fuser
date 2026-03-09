@@ -30,14 +30,12 @@ Statement* IrCloner::clone(const Statement* statement) {
     return it->second;
   }
 
-  // Step 2: Scalar reuse — share instead of clone when src and dest Fusions
-  // use the same IrContainer. Only symbolic leaf scalars qualify (no
-  // definition, no concrete value). Constants and special vals are excluded
-  // by the !hasValue() check.
+  // Step 2: Scalar reuse — share leaf scalars across Fusions
   if (statement->isVal()) {
     const Val* val = statement->as<Val>();
     if (val->isScalar() && val->definition() == nullptr &&
-        !val->value().hasValue()) {
+        !val->value().hasValue() && !val->isFusionInput() &&
+        !val->uses().empty()) {
       Fusion* src_fusion = val->container();
       if (src_fusion != nullptr && src_fusion != ir_container_ &&
           src_fusion->ir_container() == ir_container_->ir_container()) {
