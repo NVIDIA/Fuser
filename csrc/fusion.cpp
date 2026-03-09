@@ -109,13 +109,22 @@ struct Fusion::ContainerMutator {
       removeExpr(self, e);
     }
 
+    c->per_fusion_vals_[self].erase(val);
+
+    // Multi-owner guard: only free if this is the last owning Fusion.
+    if (!val->removeOwningFusion(self)) {
+      // Other Fusions still own this Val — remove from our tracking but
+      // keep the Val alive in vals_up_ and vals_.
+      self->invalidateTvsAndUses();
+      return;
+    }
+
     auto val_in_deque = std::ranges::find_if(
         c->vals_up_,
         [val](std::unique_ptr<Val>& val_up) { return val_up.get() == val; });
     NVF_ERROR(
         val_in_deque != c->vals_up_.end(),
         "Wanted to remove a value but its unique ptr is missing.");
-    c->per_fusion_vals_[self].erase(val);
     c->vals_.erase(val);
     c->vals_up_.erase(val_in_deque);
 
@@ -164,7 +173,9 @@ struct Fusion::ContainerMutator {
       c->assertInContainerImpl(input, "Input to expr is invalid, ");
       if (input->isA<TensorView>()) {
         self->invalidateTvsAndUses();
-      } else {
+      } else if (!input->isShared()) {
+        // Don't track uses on shared scalars — their uses_ would accumulate
+        // Exprs from multiple Fusions, causing cross-Fusion DAG leakage.
         input->addUse(expr);
       }
     }
@@ -236,6 +247,11 @@ struct Fusion::ContainerMutator {
             "removeStatementsCreatedAfter: tail val belongs to another Fusion");
         nullOutShortcutIfNeeded(self, v);
         c->per_fusion_vals_[self].erase(v);
+        if (!v->removeOwningFusion(self)) {
+          // Shared val — other Fusions still own it. Can't pop from deque
+          // tail since the val must stay alive. Move it out of the way.
+          break;
+        }
         c->vals_.erase(v);
         c->vals_up_.pop_back();
       }
@@ -282,6 +298,10 @@ struct Fusion::ContainerMutator {
         // self's new val — remove (null shortcut cache pointer if applicable)
         nullOutShortcutIfNeeded(self, v);
         c->per_fusion_vals_[self].erase(v);
+        // Multi-owner guard: only free if last owner.
+        if (!v->removeOwningFusion(self)) {
+          return false; // shared val — other Fusions still own it
+        }
         c->vals_.erase(v);
         return true;
       });

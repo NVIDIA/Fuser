@@ -221,6 +221,32 @@ void IrContainer::transferStatementOwnership(
 
 void IrContainer::removeStatementsOwnedBy(const Fusion* fusion) {
   std::unique_lock lock(mutex_);
+
+  // Process Exprs FIRST — clean up uses_/definition_ pointers on Vals
+  // before freeing Exprs. This prevents dangling pointers in shared
+  // scalars' uses_ vectors (shared scalars survive Val cleanup via the
+  // multi-owner guard but their uses_ would reference freed Exprs).
+  auto exprs_it = per_fusion_exprs_.find(fusion);
+  if (exprs_it != per_fusion_exprs_.end()) {
+    const auto& owned = exprs_it->second;
+    std::erase_if(exprs_up_, [&](const std::unique_ptr<Expr>& e) {
+      if (owned.count(e.get()) > 0) {
+        for (Val* out : e->outputs()) {
+          out->setDefinition(nullptr);
+        }
+        for (Val* inp : e->inputs()) {
+          inp->removeUse(e.get());
+        }
+        exprs_.erase(e.get());
+        return true;
+      }
+      return false;
+    });
+    per_fusion_exprs_.erase(exprs_it);
+  }
+
+  // Then Vals — shared vals survive via multi-owner guard, now with
+  // clean uses_ (dangling Expr pointers already removed above).
   auto vals_it = per_fusion_vals_.find(fusion);
   if (vals_it != per_fusion_vals_.end()) {
     const auto& owned = vals_it->second;
@@ -237,19 +263,6 @@ void IrContainer::removeStatementsOwnedBy(const Fusion* fusion) {
       return false;
     });
     per_fusion_vals_.erase(vals_it);
-  }
-
-  auto exprs_it = per_fusion_exprs_.find(fusion);
-  if (exprs_it != per_fusion_exprs_.end()) {
-    const auto& owned = exprs_it->second;
-    std::erase_if(exprs_up_, [&](const std::unique_ptr<Expr>& e) {
-      if (owned.count(e.get()) > 0) {
-        exprs_.erase(e.get());
-        return true;
-      }
-      return false;
-    });
-    per_fusion_exprs_.erase(exprs_it);
   }
 }
 
