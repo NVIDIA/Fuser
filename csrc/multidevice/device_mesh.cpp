@@ -143,7 +143,7 @@ int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
 }
 
 bool DeviceMesh::hasParallelType(ParallelType parallel_type) const {
-  return size() > 0 && parallelTypeToAxis(parallel_type) != -1;
+  return parallelTypeToAxis(parallel_type) != -1;
 }
 
 int64_t DeviceMesh::size(const ParallelType parallel_type) const {
@@ -175,9 +175,9 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
   indices.reserve(rank());
   for (int64_t i : arange(rank())) {
     if (i == axis) {
-      indices.push_back(at::indexing::Slice());
+      indices.emplace_back(at::indexing::Slice());
     } else {
-      indices.push_back(index[i]);
+      indices.emplace_back(index[i]);
     }
   }
   at::Tensor slice = devices_.index(indices);
