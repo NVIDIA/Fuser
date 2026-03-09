@@ -455,8 +455,11 @@ TEST_F(MultiDeviceHostIrTest, SymmetricContiguousView) {
   FusionGuard::setCurFusion(hic.get());
 
   // Create input and output TensorViews
+  DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_size);
+
   TensorView* input_tv = makeContigConcreteTensor(sharded_sizes);
   input_tv->setMemoryType(MemoryType::Symmetric);
+  input_tv->setDeviceMesh(mesh);
   input_tv->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* output_tv = makeContigConcreteTensor(unsharded_sizes);

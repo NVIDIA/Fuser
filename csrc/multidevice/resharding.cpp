@@ -87,7 +87,9 @@ std::pair<Val*, bool> computeLoopIndex(
           div(in_info.first, inner->extent()), in_info.second};
       id_to_index[inner] = {
           mod(in_info.first, inner->extent()), in_info.second};
-    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
+      continue;
+    }
+    if (auto* merge = dynamic_cast<Merge*>(transform)) {
       auto* outer = merge->outer()->as<IterDomain>();
       auto* inner = merge->inner()->as<IterDomain>();
       auto* out = merge->out()->as<IterDomain>();
@@ -97,7 +99,9 @@ std::pair<Val*, bool> computeLoopIndex(
       id_to_index[out] = {
           add(mul(outer_info.first, inner->extent()), inner_info.first),
           outer_info.second || inner_info.second};
-    } else if (auto* swizzle = dynamic_cast<Swizzle1D*>(transform)) {
+      continue;
+    }
+    if (auto* swizzle = dynamic_cast<Swizzle1D*>(transform)) {
       auto* in = swizzle->in()->as<IterDomain>();
       auto* out = swizzle->out()->as<IterDomain>();
 
@@ -107,11 +111,10 @@ std::pair<Val*, bool> computeLoopIndex(
       // Inverse of the swizzle formula in_idx = (out_idx + pt_val) % extent:
       //   out_idx = (in_idx - pt_val + extent) % extent
       id_to_index[out] = {
-          mod(add(sub(in_info.first, pt_val), extent), extent),
-          in_info.second};
-    } else {
-      NVF_THROW("Unexpected transform: ", transform);
+          mod(add(sub(in_info.first, pt_val), extent), extent), in_info.second};
+      continue;
     }
+    NVF_THROW("Unexpected transform: ", transform);
   }
 
   return id_to_index.at(id);
@@ -254,8 +257,7 @@ bool haveDifferentShardings(
   std::vector<Val*> assumptions;
   assumptions.reserve(
       (producer->getLogicalDomain().size() +
-       consumer->getMaybeRootDomain().size() +
-       kParallelTypeDIDs.size()) *
+       consumer->getMaybeRootDomain().size() + kParallelTypeDIDs.size()) *
       2);
 
   // Create symbolic Vals for each device parallel type present in the mesh,
@@ -272,8 +274,7 @@ bool haveDifferentShardings(
     Val* team_size = IrBuilder::create<Val>(mesh.size(pt), DataType::Index);
     assumptions.push_back(
         SimplifyingIrBuilder::leExpr(fusion->zeroVal(), device_idx));
-    assumptions.push_back(
-        SimplifyingIrBuilder::ltExpr(device_idx, team_size));
+    assumptions.push_back(SimplifyingIrBuilder::ltExpr(device_idx, team_size));
   }
 
   auto create_index = [&](IterDomain* id, bool mapped) {

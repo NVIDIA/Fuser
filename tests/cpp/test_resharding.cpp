@@ -649,18 +649,10 @@ TEST_F(ReshardingTest, Swizzle1D_DIDToStream) {
   out->axis(0)->parallelize(ParallelType::Stream);
 
   EXPECT_TRUE(haveDifferentShardings(
-      in,
-      DomainType::kLoop,
-      out,
-      DomainType::kLoop,
-      {ParallelType::Stream}));
+      in, DomainType::kLoop, out, DomainType::kLoop, {ParallelType::Stream}));
 
   EXPECT_TRUE(haveDifferentShardings(
-      in,
-      DomainType::kLoop,
-      out,
-      DomainType::kLoop,
-      {ParallelType::DIDx}));
+      in, DomainType::kLoop, out, DomainType::kLoop, {ParallelType::DIDx}));
 }
 
 TEST_F(ReshardingTest, Swizzle1D_ConsistentSwizzle) {
