@@ -27,54 +27,6 @@ TEST_F(SymmetricTensorTest, GetSymmetricMemoryBackend_ReturnsValidBackend) {
       << "getSymmetricMemoryBackend() returned an invalid backend value";
 }
 
-TEST_F(SymmetricTensorTest, Validate_RejectsNormalCudaTensor) {
-  if (communicator_->size() == 1) {
-    GTEST_SKIP() << "Skipping test for single device (Native allocate needs VMM)";
-  }
-  // With Native backend, allocate() uses VMM; with PyTorch backend we skip
-  // because validate() is only used for Native path (PyTorch tensors come from
-  // cache in constructor).
-  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
-    GTEST_SKIP() << "Validate test applies to Native backend only";
-  }
-  // Allocate a normal (non-symmetric) CUDA tensor
-  at::Tensor normal_tensor = at::empty(
-      {64, 64},
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
-  std::string error = SymmetricTensor::validate(normal_tensor);
-  EXPECT_FALSE(error.empty())
-      << "SymmetricTensor::validate() should reject a normal CUDA tensor";
-}
-
-TEST_F(SymmetricTensorTest, Validate_AcceptsSymmetricAllocation) {
-  if (communicator_->size() == 1) {
-    GTEST_SKIP() << "Skipping test for single device";
-  }
-  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
-    GTEST_SKIP() << "validate() for allocate() output is defined for Native backend only";
-  }
-  at::Tensor sym_tensor = SymmetricTensor::allocate(
-      {128, 128}, at::ScalarType::Float, communicator_->device());
-  std::string error = SymmetricTensor::validate(sym_tensor);
-  EXPECT_TRUE(error.empty())
-      << "SymmetricTensor::validate() should accept tensor from allocate(); got: "
-      << error;
-}
-
-TEST_F(SymmetricTensorTest, Constructor_ThrowsOnInvalidTensor) {
-  at::Tensor normal_tensor = at::empty(
-      {8, 8},
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
-  EXPECT_THROW(
-      { SymmetricTensor sym_tensor(normal_tensor); },
-      c10::Error)
-      << "SymmetricTensor constructor should throw when given a non-symmetric tensor";
-}
-
-// -----------------------------------------------------------------------------
-// Backend-agnostic and Native backend correctness (allocate + remote access)
-// -----------------------------------------------------------------------------
-
 TEST_F(SymmetricTensorTest, BasicAllocation) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";

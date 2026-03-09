@@ -7,7 +7,6 @@
 // clang-format on
 #include "multidevice/symmetric_tensor.h"
 
-#include <mutex>
 #include <numeric>
 
 #include "cuda_utils.h"
@@ -18,6 +17,7 @@
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/symm_mem/SymmetricMemory.hpp>
+#include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
 #endif
 
 namespace nvfuser {
@@ -26,22 +26,6 @@ namespace {
 
 #ifdef NVFUSER_DISTRIBUTED
 const char* kPyTorchSymmMemGroupName = "nvfuser_symm";
-
-// Cache: tensor storage data ptr -> PyTorch SymmetricMemory handle from
-// rendezvous. Used so SymmetricTensor(tensor) can recover the handle.
-std::unordered_map<void*, c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory>>&
-getPySymmHandleCache() {
-  static std::unordered_map<
-      void*,
-      c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory>>
-      cache;
-  return cache;
-}
-
-std::mutex& getPySymmHandleCacheMutex() {
-  static std::mutex m;
-  return m;
-}
 
 void ensurePyTorchSymmMemBackend(SymmetricMemoryBackend backend) {
   static std::once_flag once;
@@ -68,6 +52,9 @@ void ensurePyTorchSymmMemBackend(SymmetricMemoryBackend backend) {
         static_cast<int>(comm.deviceId()),
         static_cast<int>(comm.size()),
         comm.getStore());
+    // c10d::register_process_group(
+    //   kPyTorchSymmMemGroupName,
+    //   comm.getWorldBackendIntrusivePtr(CommunicatorBackend::kNccl));
   });
 }
 #endif
@@ -157,22 +144,13 @@ at::Tensor SymmetricTensor::allocate(
         (backend == SymmetricMemoryBackend::PyTorchNccl)
         ? c10::nullopt
         : c10::optional<std::string>(kPyTorchSymmMemGroupName);
-    at::Tensor tensor = c10d::symmetric_memory::empty_strided_p2p(
+    return c10d::symmetric_memory::empty_strided_p2p(
         sizes,
         strides,
         dtype,
         device,
         alloc_group_name,
         c10::nullopt);
-    c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory> handle =
-        c10d::symmetric_memory::rendezvous(
-            tensor, c10::optional<std::string>(kPyTorchSymmMemGroupName));
-    void* key = tensor.storage().data_ptr().get();
-    {
-      std::lock_guard<std::mutex> lock(getPySymmHandleCacheMutex());
-      getPySymmHandleCache()[key] = handle;
-    }
-    return tensor;
   }
 #else
   if (backend != SymmetricMemoryBackend::Native) {
@@ -309,24 +287,14 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
       local_tensor.device());
 
 #ifdef NVFUSER_DISTRIBUTED
-  {
-    void* key = local_tensor.storage().data_ptr().get();
-    std::lock_guard<std::mutex> lock(getPySymmHandleCacheMutex());
-    auto& cache = getPySymmHandleCache();
-    auto it = cache.find(key);
-    if (it != cache.end()) {
-      py_symm_handle_ = std::move(it->second);
-      cache.erase(it);
-      world_size_ = py_symm_handle_->get_world_size();
-      my_device_id_ = py_symm_handle_->get_rank();
-      requested_size_ = local_tensor.numel() * local_tensor.element_size();
-      are_remote_tensors_setup_ = true; // PyTorch rendezvous already set up
-      if (py_symm_handle_->has_multicast_support()) {
-        is_multicast_setup_ = true;
-        mc_ptr_ = py_symm_handle_->get_multicast_ptr();
-      }
-      return;
-    }
+  SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
+  if (backend != SymmetricMemoryBackend::Native) {
+    ensurePyTorchSymmMemBackend(backend);
+    Communicator& comm = Communicator::getInstance();
+    world_size_ = comm.size();
+    my_device_id_ = comm.deviceId();
+    requested_size_ = local_tensor.numel() * local_tensor.element_size();
+    return; // Rendezvous runs in setupRemoteHandles()
   }
 #endif
 
@@ -426,8 +394,17 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
     return;
   }
 #ifdef NVFUSER_DISTRIBUTED
-  if (py_symm_handle_) {
-    return; // PyTorch backend: rendezvous already established remote access
+  // PyTorch backend: perform rendezvous here (lazy, on first setupRemoteHandles).
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
+    ensurePyTorchSymmMemBackend(getSymmetricMemoryBackend());
+    py_symm_handle_ = c10d::symmetric_memory::rendezvous(
+        local_tensor_, c10::optional<std::string>(kPyTorchSymmMemGroupName));
+    are_remote_tensors_setup_ = true;
+    if (py_symm_handle_->has_multicast_support()) {
+      is_multicast_setup_ = true;
+      mc_ptr_ = py_symm_handle_->get_multicast_ptr();
+    }
+    return;
   }
 #endif
   Communicator& comm = Communicator::getInstance();

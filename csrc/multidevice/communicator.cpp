@@ -441,3 +441,4 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getWorldBackendIntrusivePtr(
 #endif
 
 } // namespace nvfuser
+
