@@ -499,12 +499,12 @@ def test_column_parallel_linear_forward(multidevice_test, parallelism: str):
     with torch.profiler.profile(record_shapes=True) as prof:
         (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
     torch.testing.assert_close(out, out_ref)
-    
+
     if parallelism == "collective_permute":
-      collective_permute_events = [
-        event for event in prof.events() if "ncclDevKernel_SendRecv" in event.name
-      ]
-      assert len(collective_permute_events) == (d - 1)
+        collective_permute_events = [
+            event for event in prof.events() if "ncclDevKernel_SendRecv" in event.name
+        ]
+        assert len(collective_permute_events) == (d - 1)
     else:
         broadcast_events = [
             event for event in prof.events() if "ncclDevKernel_Broadcast" in event.name
@@ -515,7 +515,9 @@ def test_column_parallel_linear_forward(multidevice_test, parallelism: str):
 @pytest.mark.mpi
 @pytest.mark.benchmark
 @pytest.mark.parametrize("parallelism", ["collective_permute", "broadcast"])
-def test_column_parallel_linear_forward_benchmark(multidevice_test, benchmark, parallelism: str):
+def test_column_parallel_linear_forward_benchmark(
+    multidevice_test, benchmark, parallelism: str
+):
     # This is a port of CollectiveBasedOverlapTest.RowParallelLinear_Forward.
     h, t = 8192, 8192
     d = multidevice_test.size

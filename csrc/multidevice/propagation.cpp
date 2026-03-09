@@ -350,24 +350,19 @@ void canonicalizeLoopDomain(TensorView* tv) {
            {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()}) |
            std::views::reverse) {
+    if (std::ranges::any_of(
+            ir_utils::filterByType<IterDomain>(transform->outputs()),
+            [&loop](IterDomain* id) {
+              return id->isParallelized() || !loop.contains(id);
+            })) {
+      continue;
+    }
     if (auto* swizzle1d = dynamic_cast<Swizzle1D*>(transform)) {
-      if (swizzle1d->out()->isParallelized()) {
-        continue;
-      }
       auto it = loop.erase(swizzle1d->out()).second;
       loop.insert(it, swizzle1d->in(), std::monostate());
       continue;
     }
     if (auto* split = dynamic_cast<Split*>(transform)) {
-      if (split->outer()->isParallelized() ||
-          split->inner()->isParallelized()) {
-        continue;
-      }
-
-      if (!loop.contains(split->outer()) || !loop.contains(split->inner())) {
-        continue;
-      }
-
       loop.erase(split->outer());
       const auto inner_i = loop.erase(split->inner()).second;
       // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
