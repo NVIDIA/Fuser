@@ -3787,7 +3787,7 @@ bool inputsHaveContiguousInnerDim(Fusion* fusion) {
       break;
     }
     if (!found_inner) {
-      return false;
+      continue;
     }
   }
   return true;
