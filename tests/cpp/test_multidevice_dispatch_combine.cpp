@@ -398,8 +398,8 @@ TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
     capture_stream.synchronize();
 
     EXPECT_TRUE(at::allclose(cr.combined_x, x))
-        << "Graph replay " << i
-        << " dispatch/combine mismatch on rank " << my_rank;
+        << "Graph replay " << i << " dispatch/combine mismatch on rank "
+        << my_rank;
   }
 }
 

@@ -124,14 +124,12 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
         continue;
       }
       ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
-      ops[idx].waitValue.address =
-          ctx.syncRemotePtr(r) + W * sizeof(int64_t);
+      ops[idx].waitValue.address = ctx.syncRemotePtr(r) + W * sizeof(int64_t);
       ops[idx].waitValue.value = kReady;
       ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
       idx++;
     }
-    NVFUSER_CUDA_SAFE_CALL(
-        cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
+    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
   }
 
   // Step 4: P2P-read all peers' counts.
@@ -156,19 +154,15 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
         continue;
       }
       rst[idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
-      rst[idx].writeValue.address =
-          ctx.syncRemotePtr(r) + W * sizeof(int64_t);
+      rst[idx].writeValue.address = ctx.syncRemotePtr(r) + W * sizeof(int64_t);
       rst[idx].writeValue.value = kIdle;
-      rst[idx].writeValue.flags =
-          CU_STREAM_WRITE_VALUE_DEFAULT;
+      rst[idx].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
       idx++;
     }
-    NVFUSER_CUDA_SAFE_CALL(
-        cuStreamBatchMemOp(stream, W - 1, rst.data(), 0));
+    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, W - 1, rst.data(), 0));
   }
 
-  auto recv_counts =
-      counts_matrix.select(1, my_rank).contiguous();
+  auto recv_counts = counts_matrix.select(1, my_rank).contiguous();
 
   auto send_offsets = at::zeros({W}, gpu_opts);
   if (W > 1) {
@@ -192,17 +186,14 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
       W};
 }
 
-void alltoallvGpuSync(
-    SymMemForAlltoallv& ctx,
-    CUstream stream) {
+void alltoallvGpuSync(SymMemForAlltoallv& ctx, CUstream stream) {
   const int64_t W = ctx.worldSize();
   const int64_t my_rank = ctx.myRank();
 
   // Step 6: signal "my alltoallv is done".
   NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
       stream,
-      ctx.syncRemotePtr(my_rank) +
-          (W + 1) * sizeof(int64_t),
+      ctx.syncRemotePtr(my_rank) + (W + 1) * sizeof(int64_t),
       kReady,
       CU_STREAM_WRITE_VALUE_DEFAULT));
 
@@ -216,14 +207,12 @@ void alltoallvGpuSync(
       }
       ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
       ops[idx].waitValue.address =
-          ctx.syncRemotePtr(r) +
-          (W + 1) * sizeof(int64_t);
+          ctx.syncRemotePtr(r) + (W + 1) * sizeof(int64_t);
       ops[idx].waitValue.value = kReady;
       ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
       idx++;
     }
-    NVFUSER_CUDA_SAFE_CALL(
-        cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
+    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
   }
 
   // Step 8: reset all peers' done_sem to IDLE (cross-rank
@@ -238,15 +227,12 @@ void alltoallvGpuSync(
       }
       rst[idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
       rst[idx].writeValue.address =
-          ctx.syncRemotePtr(r) +
-          (W + 1) * sizeof(int64_t);
+          ctx.syncRemotePtr(r) + (W + 1) * sizeof(int64_t);
       rst[idx].writeValue.value = kIdle;
-      rst[idx].writeValue.flags =
-          CU_STREAM_WRITE_VALUE_DEFAULT;
+      rst[idx].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
       idx++;
     }
-    NVFUSER_CUDA_SAFE_CALL(
-        cuStreamBatchMemOp(stream, W - 1, rst.data(), 0));
+    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, W - 1, rst.data(), 0));
   }
 }
 
