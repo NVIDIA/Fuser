@@ -65,7 +65,30 @@ SymMemForAlltoallv& getOrCreateAlltoallv(
   return *entry;
 }
 
-// Graph-capturable counts exchange via GPU semaphores + P2P reads.
+// Binary semaphore protocol with cross-rank reset, matching the
+// broadcast pattern in cuda_p2p.cpp. Fully CUDA-graph-capturable
+// and correct for unlimited replays.
+//
+// Key idea: after reading a peer's data, THIS rank resets the
+// PEER's semaphore (P2P write to the peer's mapped address).
+// The peer cannot write READY again until the reader clears it,
+// eliminating the stale-READY race across iterations/replays.
+//
+//   prepareMetadata:
+//     1. copy send_counts to sync buffer
+//     2. write READY to own counts_sem
+//     3. wait for all peers' counts_sem == READY
+//     4. P2P-read all peers' counts
+//     5. write IDLE to all peers' counts_sem   (cross-rank reset)
+//
+//   alltoallvGpuSync:
+//     6. write READY to own done_sem
+//     7. wait for all peers' done_sem == READY
+//     8. write IDLE to all peers' done_sem     (cross-rank reset)
+
+constexpr cuuint32_t kReady = 1;
+constexpr cuuint32_t kIdle = 0;
+
 AlltoallvMetadata prepareAlltoallvMetadataGpu(
     SymMemForAlltoallv& ctx,
     const at::Tensor& send_counts,
@@ -74,10 +97,10 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
     CUstream stream) {
   const int64_t W = ctx.worldSize();
   const int64_t my_rank = ctx.myRank();
-  auto epoch = static_cast<cuuint32_t>(ctx.nextEpoch());
   auto gpu_opts =
       at::TensorOptions().dtype(at::kLong).device(send_counts.device());
 
+  // Step 1: copy send_counts into the sync buffer.
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
       ctx.syncBuffer().data_ptr<int64_t>(),
       send_counts.data_ptr<int64_t>(),
@@ -85,12 +108,14 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
       cudaMemcpyDeviceToDevice,
       reinterpret_cast<cudaStream_t>(stream)));
 
+  // Step 2: signal "my counts are ready".
   NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
       stream,
       ctx.syncRemotePtr(my_rank) + W * sizeof(int64_t),
-      epoch,
+      kReady,
       CU_STREAM_WRITE_VALUE_DEFAULT));
 
+  // Step 3: wait for all peers' counts to be ready.
   if (W > 1) {
     std::vector<CUstreamBatchMemOpParams> ops(W - 1);
     int idx = 0;
@@ -99,14 +124,17 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
         continue;
       }
       ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
-      ops[idx].waitValue.address = ctx.syncRemotePtr(r) + W * sizeof(int64_t);
-      ops[idx].waitValue.value = epoch;
-      ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_GEQ;
+      ops[idx].waitValue.address =
+          ctx.syncRemotePtr(r) + W * sizeof(int64_t);
+      ops[idx].waitValue.value = kReady;
+      ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
       idx++;
     }
-    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
   }
 
+  // Step 4: P2P-read all peers' counts.
   auto counts_matrix = at::empty({W, W}, gpu_opts);
   for (int64_t r = 0; r < W; r++) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
@@ -117,7 +145,30 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
         reinterpret_cast<cudaStream_t>(stream)));
   }
 
-  auto recv_counts = counts_matrix.select(1, my_rank).contiguous();
+  // Step 5: reset all peers' counts_sem to IDLE (cross-rank
+  // write). Tells each peer "I've read your counts, you may
+  // overwrite them on the next iteration/replay."
+  if (W > 1) {
+    std::vector<CUstreamBatchMemOpParams> rst(W - 1);
+    int idx = 0;
+    for (int64_t r = 0; r < W; r++) {
+      if (r == my_rank) {
+        continue;
+      }
+      rst[idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+      rst[idx].writeValue.address =
+          ctx.syncRemotePtr(r) + W * sizeof(int64_t);
+      rst[idx].writeValue.value = kIdle;
+      rst[idx].writeValue.flags =
+          CU_STREAM_WRITE_VALUE_DEFAULT;
+      idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, W - 1, rst.data(), 0));
+  }
+
+  auto recv_counts =
+      counts_matrix.select(1, my_rank).contiguous();
 
   auto send_offsets = at::zeros({W}, gpu_opts);
   if (W > 1) {
@@ -141,18 +192,21 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
       W};
 }
 
-// Graph-capturable alltoallv completion sync via GPU semaphores.
-void alltoallvGpuSync(SymMemForAlltoallv& ctx, CUstream stream) {
+void alltoallvGpuSync(
+    SymMemForAlltoallv& ctx,
+    CUstream stream) {
   const int64_t W = ctx.worldSize();
   const int64_t my_rank = ctx.myRank();
-  auto epoch = static_cast<cuuint32_t>(ctx.currentEpoch());
 
+  // Step 6: signal "my alltoallv is done".
   NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
       stream,
-      ctx.syncRemotePtr(my_rank) + (W + 1) * sizeof(int64_t),
-      epoch,
+      ctx.syncRemotePtr(my_rank) +
+          (W + 1) * sizeof(int64_t),
+      kReady,
       CU_STREAM_WRITE_VALUE_DEFAULT));
 
+  // Step 7: wait for all peers to be done.
   if (W > 1) {
     std::vector<CUstreamBatchMemOpParams> ops(W - 1);
     int idx = 0;
@@ -162,12 +216,37 @@ void alltoallvGpuSync(SymMemForAlltoallv& ctx, CUstream stream) {
       }
       ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
       ops[idx].waitValue.address =
-          ctx.syncRemotePtr(r) + (W + 1) * sizeof(int64_t);
-      ops[idx].waitValue.value = epoch;
-      ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_GEQ;
+          ctx.syncRemotePtr(r) +
+          (W + 1) * sizeof(int64_t);
+      ops[idx].waitValue.value = kReady;
+      ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
       idx++;
     }
-    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, W - 1, ops.data(), 0));
+  }
+
+  // Step 8: reset all peers' done_sem to IDLE (cross-rank
+  // write). Tells each peer "I've seen your completion, you
+  // may signal again on the next iteration/replay."
+  if (W > 1) {
+    std::vector<CUstreamBatchMemOpParams> rst(W - 1);
+    int idx = 0;
+    for (int64_t r = 0; r < W; r++) {
+      if (r == my_rank) {
+        continue;
+      }
+      rst[idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+      rst[idx].writeValue.address =
+          ctx.syncRemotePtr(r) +
+          (W + 1) * sizeof(int64_t);
+      rst[idx].writeValue.value = kIdle;
+      rst[idx].writeValue.flags =
+          CU_STREAM_WRITE_VALUE_DEFAULT;
+      idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, W - 1, rst.data(), 0));
   }
 }
 

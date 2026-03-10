@@ -391,13 +391,26 @@ TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
       backend);
   graph.capture_end();
 
-  // Replay with modified input data (same routing).
-  x.add_(500.0);
-  graph.replay();
-  capture_stream.synchronize();
+  // Replay multiple times with different data (same routing) to
+  // exercise the semaphore toggle protocol. The EQ + reset scheme
+  // ensures each replay actually synchronizes (a monotonic epoch
+  // with GEQ would pass immediately from replay 2 onward).
+  //
+  // The barrier between replays ensures all ranks finish replay M
+  // (including the semaphore resets) before any rank starts M+1.
+  // Without it, a fast rank could see stale READY values from the
+  // previous replay. In production MPI programs ranks proceed in
+  // lockstep naturally; the barrier makes the test deterministic.
+  for (int i = 0; i < 5; i++) {
+    x.add_(static_cast<double>(100 * (i + 1)));
+    graph.replay();
+    capture_stream.synchronize();
+    communicator_->barrier();
 
-  EXPECT_TRUE(at::allclose(cr.combined_x, x))
-      << "Graph-replayed dispatch/combine mismatch on rank " << my_rank;
+    EXPECT_TRUE(at::allclose(cr.combined_x, x))
+        << "Graph replay " << i
+        << " dispatch/combine mismatch on rank " << my_rank;
+  }
 }
 
 } // namespace hir

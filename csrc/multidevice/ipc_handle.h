@@ -274,12 +274,6 @@ class SymMemForAlltoallv : public SymmetricMemoryHandle {
   CUdeviceptr syncRemotePtr(int64_t rank) const {
     return sync_ptrs_[rank];
   }
-  int32_t nextEpoch() {
-    return ++epoch_;
-  }
-  int32_t currentEpoch() const {
-    return epoch_;
-  }
   int64_t worldSize() const {
     return world_size_;
   }
@@ -308,7 +302,6 @@ class SymMemForAlltoallv : public SymmetricMemoryHandle {
   at::Tensor sync_buf_;
   std::unique_ptr<SymmetricTensor> sync_sym_;
   std::vector<CUdeviceptr> sync_ptrs_;
-  int32_t epoch_ = 0;
   int64_t world_size_;
   int64_t my_rank_;
   std::string tag_;
