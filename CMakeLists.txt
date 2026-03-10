@@ -77,6 +77,7 @@ include(cmake/deps/handle_torch.cmake)
 include(cmake/deps/handle_pybind11.cmake)
 include(cmake/deps/handle_llvm.cmake)
 include(cmake/deps/handle_nvmmh.cmake)
+include(cmake/deps/handle_nixl.cmake)
 include(cmake/deps/handle_git_submodules.cmake)
 
 # Initialize success flag
@@ -96,6 +97,7 @@ handle_torch() # Must come AFTER python and cudatoolkit.
 handle_pybind11()
 handle_llvm()
 handle_nvmmh() # Must come AFTER python to query correct site-packages
+handle_nixl()  # Must come AFTER python and cudatoolkit for CUDA version check
 
 if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
   stop_capture(DEP_LOGS)
@@ -585,27 +587,7 @@ if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   target_compile_definitions(codegen_internal PRIVATE NVFUSER_BUILD_WITH_UCC)
 endif()
 
-if(NVFUSER_STANDALONE_BUILD_WITH_NIXL)
-  # User may need to set NIXL_PREFIX to the NIXL install directory.
-  find_path(NIXL_INCLUDE_DIR nixl.h
-    HINTS $ENV{NIXL_PREFIX}/include ENV CPATH
-  )
-  find_library(NIXL_LIBRARY nixl
-    HINTS $ENV{NIXL_PREFIX}/lib $ENV{NIXL_PREFIX}/lib64 $ENV{NIXL_PREFIX}/lib/x86_64-linux-gnu
-  )
-  find_library(NIXL_BUILD_LIBRARY nixl_build
-    HINTS $ENV{NIXL_PREFIX}/lib $ENV{NIXL_PREFIX}/lib64 $ENV{NIXL_PREFIX}/lib/x86_64-linux-gnu
-  )
-
-  if(NOT NIXL_INCLUDE_DIR OR NOT NIXL_LIBRARY)
-    message(FATAL_ERROR "NIXL not found. Set NIXL_PREFIX to the NIXL install directory.")
-  endif()
-
-  message(STATUS "Found NIXL: ${NIXL_LIBRARY} (include: ${NIXL_INCLUDE_DIR})")
-  if(NIXL_BUILD_LIBRARY)
-    message(STATUS "Found NIXL build lib: ${NIXL_BUILD_LIBRARY}")
-  endif()
-
+if(NIXL_FOUND)
   add_library(__nvfuser_nixl INTERFACE)
   target_include_directories(__nvfuser_nixl INTERFACE ${NIXL_INCLUDE_DIR})
   target_link_libraries(__nvfuser_nixl INTERFACE ${NIXL_LIBRARY})
@@ -1367,7 +1349,8 @@ if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
 endif()
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_NIXL : ${NVFUSER_STANDALONE_BUILD_WITH_NIXL}")
-if(NVFUSER_STANDALONE_BUILD_WITH_NIXL)
+message(STATUS "  NIXL_FOUND                         : ${NIXL_FOUND}")
+if(NIXL_FOUND)
   message(STATUS "    NIXL_INCLUDE_DIR: ${NIXL_INCLUDE_DIR}")
   message(STATUS "    NIXL_LIBRARY    : ${NIXL_LIBRARY}")
 endif()
