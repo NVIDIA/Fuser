@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <ranges>
 #include <vector>
 
 #include <c10/cuda/CUDAStream.h>
@@ -464,12 +465,12 @@ c10::intrusive_ptr<c10d::Work> postCollectivePermute(
   std::vector<at::Tensor> send_tensors = {input_tensor};
   backend->send(
       send_tensors,
-      send_peer_index,
+      static_cast<int>(send_peer_index),
       /*tag=*/0);
   std::vector<at::Tensor> recv_tensors = {output_tensor};
   backend->recv(
       recv_tensors,
-      recv_peer_index,
+      static_cast<int>(recv_peer_index),
       /*tag=*/0);
   return backend->endCoalescing();
 }
@@ -484,7 +485,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     at::Tensor output_tensor,
     int64_t root_index) {
   const Team& team = communication->team();
-  if (std::find(team.begin(), team.end(), my_device) == team.end()) {
+  if (std::ranges::find(team, my_device) == team.end()) {
     return nullptr;
   }
   int64_t my_device_index = getRelativeIndex(team, my_device);
@@ -493,7 +494,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
   if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
     debug() << "Posting " << communication->toInlineString()
             << " with input_tensor " << input_tensor.sizes()
-            << " and output_tensor " << output_tensor.sizes() << std::endl;
+            << " and output_tensor " << output_tensor.sizes() << '\n';
   }
 
   switch (communication->type()) {
@@ -603,7 +604,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
             << " with input_tensor " << input_tensor.sizes()
             << " and output_tensor " << output_tensor.sizes()
             << " send_peer=" << send_peer_index
-            << " recv_peer=" << recv_peer_index << std::endl;
+            << " recv_peer=" << recv_peer_index << '\n';
   }
 
   return postCollectivePermute(

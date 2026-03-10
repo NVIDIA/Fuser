@@ -13,6 +13,8 @@
 #include "multidevice/c10d_mock.h"
 #endif
 
+#include <cstdint>
+
 #include "ir/base_nodes.h"
 #include "ir/builder.h"
 #include "ir/interface_nodes.h"
@@ -22,7 +24,7 @@
 
 namespace nvfuser {
 
-enum class CommunicationType {
+enum class CommunicationType : std::uint8_t {
   Gather,
   Allgather,
   Scatter,
@@ -178,7 +180,7 @@ class CollectivePermute : public Expr {
   }
 };
 
-enum class P2PCommunicationType { SEND, RECV };
+enum class P2PCommunicationType : std::uint8_t { SEND, RECV };
 
 std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type);
 

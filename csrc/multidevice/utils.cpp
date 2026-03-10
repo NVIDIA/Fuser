@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <ostream>
+#include <ranges>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -261,7 +262,7 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(
     }
   }
 
-  std::stable_sort(rank_to_axis.begin(), rank_to_axis.end());
+  std::ranges::stable_sort(rank_to_axis);
 
   // old position to new position
   std::unordered_map<int64_t, int64_t> order;
@@ -343,7 +344,7 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
 }
 
 int64_t getRelativeIndex(const Team& team, DeviceIdxType rank) {
-  auto i = std::find(team.begin(), team.end(), rank);
+  auto i = std::ranges::find(team, rank);
   NVF_ERROR(i != team.end(), "Unable to find rank ", rank, " in team ", team);
   return std::distance(team.begin(), i);
 }

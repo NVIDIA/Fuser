@@ -27,8 +27,10 @@ namespace {
 // sizes and strides, validate that splits are divisible and merges are
 // contiguous, and update active_ids_ correspondingly.
 class ForwardTraverseFromLogicalToAlloc {
-  ExpressionEvaluator& ee_;
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
+  ExpressionEvaluator&
+      ee_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>&
+      active_ids_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 
   void handle(Split* split) {
     auto in = split->in();
@@ -139,8 +141,10 @@ class ForwardTraverseFromLogicalToAlloc {
 // Similar to ForwardTraverseFromLogicalToAlloc, but in the opposite direction.
 class BackwardTraverseFromLogicalToAlloc {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
+  ExpressionEvaluator&
+      ee_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>&
+      active_ids_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 
   void handle(Split* split) {
     auto in = split->in();
@@ -238,7 +242,7 @@ class BackwardTraverseFromLogicalToAlloc {
     FUSER_PERF_SCOPE("BackwardTraverseFromLogicalToAlloc::run");
     auto backward_exprs = StmtSort::getExprsBetween(
         {alloc.begin(), alloc.end()}, {logical.begin(), logical.end()});
-    std::reverse(backward_exprs.begin(), backward_exprs.end());
+    std::ranges::reverse(backward_exprs);
     for (auto expr : backward_exprs) {
       handle(expr);
     }
@@ -294,7 +298,7 @@ void validateAllocationSizesAndStrides(
 
     NVF_CHECK(contiguity[domain_index].has_value());
     if (size > 1) {
-      if (*contiguity[domain_index]) {
+      if (valueOrError(contiguity[domain_index])) {
         NVF_CHECK_EQ(
             stride,
             expected_stride_if_contiguous,

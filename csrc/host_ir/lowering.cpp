@@ -242,13 +242,13 @@ void lowerSegment(
             c);
 
         if (auto* cp = dynamic_cast<CollectivePermute*>(c)) {
-          auto add_definition_chain = [&innermost_scope](Val* val) -> void {
-            for (Expr* expr : StmtSort::getExprsTo({val})) {
-              innermost_scope.pushBack(expr);
-            }
-          };
-          add_definition_chain(cp->sendPeer());
-          add_definition_chain(cp->recvPeer());
+          // Add the exprs that define the send and recv peers to the innermost
+          // scope so they can be recomputed each iteration.
+          std::ranges::for_each(
+              StmtSort::getExprsTo({cp->sendPeer(), cp->recvPeer()}),
+              [&innermost_scope](Expr* expr) -> void {
+                innermost_scope.pushBack(expr);
+              });
         }
 
         Expr* new_c = cloneWithNewOperands(c, replacement_map);

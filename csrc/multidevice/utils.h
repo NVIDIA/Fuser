@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
 #include <iosfwd>
 
 #include "fusion.h"
@@ -15,7 +16,7 @@
 namespace nvfuser {
 
 // Identifies which TensorView domain to inspect.
-enum class DomainType : int {
+enum class DomainType : std::uint8_t {
   kRoot,
   kLogical,
   kLoop,
@@ -92,7 +93,7 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 int64_t getRelativeIndex(const Team& team, DeviceIdxType rank);
 
 std::pair<Val*, Val*> dispatchSwizzle1D(
-    Val* my_rank,
+    Val* host_loop_index,
     DeviceIdxType device_id,
     ParallelType pt,
     const DeviceMesh& mesh);

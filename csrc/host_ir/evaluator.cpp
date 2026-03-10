@@ -319,12 +319,10 @@ void HostIrEvaluator::handle(CollectivePermute* communication) {
   at::Tensor output_tensor =
       getKnownTensorOrUndefined(communication->output(0));
 
-#ifndef NDEBUG
   validateSizesAndStrides(
       {input_tensor, output_tensor},
       {communication->in(), communication->out()},
       expr_evaluator_);
-#endif
 
   CommunicatorBackend backend_type = communication->backend();
   // CollectivePermute is only supported with NCCL backend because

@@ -656,7 +656,7 @@ std::tuple<std::vector<int64_t>, PrimDataType> translatePackedDtype(
   // utility functions as well.
   NVF_CHECK(dtype == DataType::Float4_e2m1fn_x2);
 
-  int fastest_dim = shape.size() - 1;
+  int64_t fastest_dim = std::ssize(shape) - 1;
   for (const auto& [i, val] : enumerate(stride_order)) {
     if (val == 0) {
       fastest_dim = i;
