@@ -597,9 +597,6 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     DeviceIdxType send_peer_index,
     DeviceIdxType recv_peer_index) {
   const Team& team = communication->team();
-  if (std::find(team.begin(), team.end(), my_device_index) == team.end()) {
-    return nullptr;
-  }
   NVF_CHECK(backend != nullptr);
 
   if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
