@@ -86,7 +86,9 @@ class NIXLRequirement(BooleanRequirement):
         print()
         print("Install NIXL:")
         print()
-        print("  Option 1 (recommended for CI): Run the helper script that pip-installs")
+        print(
+            "  Option 1 (recommended for CI): Run the helper script that pip-installs"
+        )
         print("  nixl for the .so and clones the repo for headers:")
         print()
         print("    bash tools/install-nixl.sh")
