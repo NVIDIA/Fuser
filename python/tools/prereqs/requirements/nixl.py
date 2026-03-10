@@ -76,7 +76,9 @@ class NIXLRequirement(BooleanRequirement):
     def generate_help(self, platform_info):
         print("NIXL")
         print()
-        print("Why: NIXL provides high-performance data transfer for multi-device nvFuser.")
+        print(
+            "Why: NIXL provides high-performance data transfer for multi-device nvFuser."
+        )
         print()
         print("Install NIXL:")
         print()
