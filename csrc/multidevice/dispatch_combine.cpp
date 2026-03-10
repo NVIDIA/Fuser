@@ -89,10 +89,16 @@ SymMemForAlltoallv& getOrCreateAlltoallv(
 constexpr cuuint32_t kReady = 1;
 constexpr cuuint32_t kIdle = 0;
 
+// max_send_total and max_send_bytes are separate because they serve
+// different purposes: max_send_total sizes the send buffer (sum of
+// all per-peer counts), while max_send_bytes sizes the kernel grid X
+// dimension (max elements to any single peer). Setting max_send_bytes
+// to max_send_total would over-provision the grid by ~world_size×.
 AlltoallvMetadata prepareAlltoallvMetadataGpu(
     SymMemForAlltoallv& ctx,
     const at::Tensor& send_counts,
     int64_t max_send_total,
+    int64_t max_send_bytes,
     int64_t max_recv,
     CUstream stream) {
   const int64_t W = ctx.worldSize();
@@ -188,7 +194,7 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
       max_recv,
       max_recv,
       max_send_total,
-      max_send_total,
+      max_send_bytes,
       W};
 }
 
@@ -370,6 +376,7 @@ DispatchResult doMoeDispatch(
       ctx,
       n_tokens_to_rank,
       /*max_send_total=*/num_tokens,
+      /*max_send_bytes=*/num_tokens,
       /*max_recv=*/capacity,
       stream);
   auto n_tokens_from_rank = metadata.recv_counts;
@@ -488,6 +495,7 @@ CombineResult doMoeCombine(
       ctx,
       n_tokens_from_rank,
       /*max_send_total=*/capacity,
+      /*max_send_bytes=*/num_tokens,
       /*max_recv=*/num_tokens,
       stream);
 

@@ -367,6 +367,21 @@ const SymMemForAlltoallv::RecvHandle& SymMemForAlltoallv::recv(
     return entry.handle;
   }
 
+  // Re-allocating after the first setup would invalidate any CUDA
+  // graph that captured the old buffer pointer. This is expected to
+  // happen only on the very first call (rendezvous); subsequent
+  // calls must hit the cache.
+  NVF_CHECK(
+      !entry.sym,
+      "SymMemForAlltoallv::recv: buffer '",
+      name,
+      "' capacity ",
+      entry.cached_first_dim,
+      " < requested ",
+      first_dim,
+      ". Re-allocation after initial setup is not supported "
+      "(would invalidate captured CUDA graphs).");
+
   std::vector<int64_t> sizes = {first_dim};
   for (auto d : extra_sizes) {
     sizes.push_back(d);
