@@ -10,9 +10,9 @@ macro(handle_nixl)
   message("")
   message("Finding NIXL...")
 
-  if(NOT NVFUSER_STANDALONE_BUILD_WITH_NIXL)
+  if(NOT NVFUSER_BUILD_WITH_NIXL)
     set(NIXL_FOUND FALSE)
-    message(STATUS "NIXL disabled (NVFUSER_STANDALONE_BUILD_WITH_NIXL=OFF)")
+    message(STATUS "NIXL disabled (NVFUSER_BUILD_WITH_NIXL=OFF)")
   else()
     # User may need to set NIXL_PREFIX to the NIXL install directory.
     find_path(NIXL_INCLUDE_DIR nixl.h

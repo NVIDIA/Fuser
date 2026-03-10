@@ -280,7 +280,7 @@ def cmake(config, relative_path):
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         f"-DNVFUSER_BUILD_WITH_ASAN={on_or_off(config.build_with_asan)}",
         f"-DNVFUSER_STANDALONE_BUILD_WITH_UCC={on_or_off(config.build_with_ucc)}",
-        f"-DNVFUSER_STANDALONE_BUILD_WITH_NIXL={on_or_off(config.build_with_nixl)}",
+        f"-DNVFUSER_BUILD_WITH_NIXL={on_or_off(config.build_with_nixl)}",
         f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
         f"-DBUILD_TEST={on_or_off(not config.no_test)}",
         f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
