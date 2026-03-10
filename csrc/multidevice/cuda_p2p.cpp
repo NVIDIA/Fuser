@@ -974,6 +974,14 @@ void alltoallvWithCudaBackend(
     CUstream stream) {
   NVF_CHECK(send.is_cuda(), "alltoallv send must be CUDA.");
   NVF_CHECK(recv.is_cuda(), "alltoallv recv must be CUDA.");
+  NVF_CHECK(
+      metadata.max_send_total == 0 ||
+          send.numel() % metadata.max_send_total == 0,
+      "alltoallv send numel must be divisible by max_send_total.");
+  NVF_CHECK(
+      metadata.max_recv == 0 ||
+          recv.numel() % metadata.max_recv == 0,
+      "alltoallv recv numel must be divisible by max_recv.");
 
   const int64_t elem_stride =
       metadata.max_send_total > 0 ? send.numel() / metadata.max_send_total : 1;

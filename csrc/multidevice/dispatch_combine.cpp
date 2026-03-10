@@ -411,8 +411,17 @@ CombineResult doMoeCombine(
       n_tokens_to_rank.is_cuda() && n_tokens_from_rank.is_cuda(),
       "Combine count tensors must be on CUDA.");
   NVF_CHECK_EQ(x.dim(), 2, "Combine expects x to be 2D.");
+  NVF_CHECK_EQ(src_idx.dim(), 1, "src_idx must be 1D.");
   NVF_CHECK_EQ(
       src_idx.size(0), x.size(0), "src_idx size must match x first dimension.");
+  NVF_CHECK_EQ(
+      n_tokens_to_rank.numel(),
+      communicator->size(),
+      "n_tokens_to_rank must match world size.");
+  NVF_CHECK_EQ(
+      n_tokens_from_rank.numel(),
+      communicator->size(),
+      "n_tokens_from_rank must match world size.");
 
   // ---------- NCCL backend (not graph-capturable) ----------
   if (backend == CommunicatorBackend::kNccl) {

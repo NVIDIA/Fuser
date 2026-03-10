@@ -44,6 +44,12 @@ struct CombineResult {
 //! C = T*R so all shapes are CPU-deterministic (see DispatchResult).
 //! Buffer allocation and IPC setup happen once (rendezvous).
 //!
+//! IMPORTANT: with the CUDA backend the returned recv_* tensors have C rows
+//! but only V = sum(n_tokens_from_rank) are valid. Any kernel scheduled
+//! between dispatch and combine (e.g. expert computation) must either
+//! operate only on the first V rows or be tolerant of padding rows.
+//! doMoeCombine ignores the padding via index_copy_ with recv_src_idx.
+//!
 //! NCCL backend: exact sizes, not graph-capturable.
 NVF_API DispatchResult doMoeDispatch(
     const at::Tensor& x, // [T, H]
