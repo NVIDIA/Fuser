@@ -67,6 +67,12 @@ macro(handle_nixl)
     endif()
   endif()
 
+  message(STATUS "  NIXL_FOUND                         : ${NIXL_FOUND}")
+  if(NIXL_FOUND)
+    message(STATUS "    NIXL_INCLUDE_DIR: ${NIXL_INCLUDE_DIR}")
+    message(STATUS "    NIXL_LIBRARY    : ${NIXL_LIBRARY}")
+  endif()
+
   set_dependency_report_status(NIXL)
 endmacro()
 
