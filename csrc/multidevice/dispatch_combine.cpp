@@ -66,13 +66,7 @@ SymMemForAlltoallv& getOrCreateAlltoallv(
 }
 
 // Binary semaphore protocol with cross-rank reset, matching the
-// broadcast pattern in cuda_p2p.cpp. Fully CUDA-graph-capturable
-// and correct for unlimited replays.
-//
-// Key idea: after reading a peer's data, THIS rank resets the
-// PEER's semaphore (P2P write to the peer's mapped address).
-// The peer cannot write READY again until the reader clears it,
-// eliminating the stale-READY race across iterations/replays.
+// broadcast pattern in cuda_p2p.cpp. Fully CUDA-graph-capturable.
 //
 //   prepareMetadata:
 //     1. copy send_counts to sync buffer
