@@ -24,21 +24,46 @@ Statement* IrCloner::clone(const Statement* statement) {
     return nullptr;
   }
 
-  // Have we already cloned this node?
+  // Step 1: Cache check — already cloned or reused
   const auto it = clones_map_.find(statement);
   if (it != clones_map_.end()) {
     return it->second;
-  } else {
-    auto new_node = handle(statement);
-
-    // The base cloning constructor (Statement) should have
-    // registered the new node. Failure to do so indicates
-    // that something went horribly wrong.
-    NVF_ERROR(new_node != nullptr);
-    NVF_ERROR(clones_map_[statement] == new_node);
-
-    return new_node;
   }
+
+  // Step 2: Scalar reuse — share leaf scalars across Fusions
+  if (statement->isVal()) {
+    const Val* val = statement->as<Val>();
+    if (val->isScalar() && val->definition() == nullptr &&
+        !val->value().hasValue() && !val->isFusionInput() &&
+        !val->uses().empty()) {
+      Fusion* src_fusion = val->container();
+      if (src_fusion != nullptr && src_fusion != ir_container_ &&
+          src_fusion->ir_container() == ir_container_->ir_container()) {
+        Val* reused = const_cast<Val*>(val);
+
+        // (a) Cache so downstream Expr clones resolve this input
+        clones_map_[statement] = reused;
+
+        // (b) Register with dest Fusion's per-Fusion tracking
+        auto* c = ir_container_->ir_container();
+        {
+          std::unique_lock lock(c->mutex_);
+          c->per_fusion_vals_[ir_container_].insert(reused);
+        }
+
+        // (c) Track ownership for lifetime management
+        reused->addOwningFusion(ir_container_);
+
+        return reused;
+      }
+    }
+  }
+
+  // Step 3: Full clone (unchanged)
+  auto new_node = handle(statement);
+  NVF_ERROR(new_node != nullptr);
+  NVF_ERROR(clones_map_[statement] == new_node);
+  return new_node;
 }
 
 void IrCloner::registerClone(const Statement* src, Statement* clone) {

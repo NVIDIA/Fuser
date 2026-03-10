@@ -90,6 +90,33 @@ kir::Kernel* Statement::kernel() const {
 
 NVFUSER_DEFINE_CLONE(Val)
 
+bool Val::isOwnedBy(const Fusion* f) const {
+  return std::find(owning_fusions_.begin(), owning_fusions_.end(), f) !=
+      owning_fusions_.end();
+}
+
+void Val::addOwningFusion(Fusion* f) {
+  if (!isOwnedBy(f)) {
+    bool was_unshared = !isShared();
+    owning_fusions_.push_back(f);
+    if (was_unshared && isShared()) {
+      // Transitioning to shared: clear uses_ so it doesn't hold stale
+      // Expr pointers from the original creator Fusion.  registerExpr()
+      // already skips addUse() for shared scalars, so uses_ would never
+      // be updated again — keeping it non-empty would be misleading.
+      uses_.clear();
+    }
+  }
+}
+
+bool Val::removeOwningFusion(Fusion* f) {
+  auto it = std::find(owning_fusions_.begin(), owning_fusions_.end(), f);
+  if (it != owning_fusions_.end()) {
+    owning_fusions_.erase(it);
+  }
+  return owning_fusions_.empty();
+}
+
 void Val::addDependency(Val* dependency) {
   NVF_ERROR(dependency != nullptr);
 
@@ -100,6 +127,10 @@ void Val::addDependency(Val* dependency) {
 }
 
 const std::vector<Expr*>& Val::uses() const {
+  // Shared scalars return an empty uses_ (cleared in addOwningFusion).
+  // registerExpr() skips addUse() for shared scalars, so uses_ is never
+  // populated after sharing.  Callers get an empty vector, which is
+  // correct — per_fusion_exprs_ should be used for Fusion-specific traversal.
   if (vtype_ == ValType::TensorView) {
     if (!fusion()->isTVUseInfoValid() && !fusion()->isUpdatingTVUseInfo()) {
       fusion()->resetTvUses();

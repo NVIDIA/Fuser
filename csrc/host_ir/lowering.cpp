@@ -396,7 +396,8 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const SegmentedFusion& segmented_fusion,
     const std::vector<LaunchParams>& launch_params_per_segment,
     std::vector<std::unique_ptr<ExecutorAbstract>>& executors) {
-  auto hic = std::make_unique<hir::HostIrContainer>();
+  auto hic = std::make_unique<hir::HostIrContainer>(
+      segmented_fusion.completeFusion()->ir_container_ptr());
   IrCloner ir_cloner =
       Fusion::copy(segmented_fusion.completeFusion(), hic.get());
 

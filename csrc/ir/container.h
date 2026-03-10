@@ -81,6 +81,7 @@ class IrContainer {
  protected:
   // Let Fusion access IrContainer internals (mutex_, fields, Impl helpers)
   friend class Fusion;
+  friend class IrCloner;
 
   mutable std::shared_mutex mutex_;
 

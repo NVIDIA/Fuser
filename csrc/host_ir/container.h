@@ -23,6 +23,8 @@ namespace nvfuser::hir {
 class HostIrContainer final : public Fusion {
  public:
   HostIrContainer() = default;
+  explicit HostIrContainer(std::shared_ptr<IrContainer> container)
+      : Fusion(std::move(container)) {}
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
 
