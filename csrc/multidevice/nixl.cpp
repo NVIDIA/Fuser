@@ -308,8 +308,10 @@ NixlTransferHandle NixlBackend::Impl::prepareTransfer(
       " vs ",
       remote_descs.size());
   NVF_ERROR(
-      std::all_of(remote_descs.begin(), remote_descs.end(),
-          [&](const TensorDesc& d){ return d.rank == remote_descs[0].rank; }),
+      std::all_of(
+          remote_descs.begin(),
+          remote_descs.end(),
+          [&](const TensorDesc& d) { return d.rank == remote_descs[0].rank; }),
       "All remote descriptors must belong to the same remote peer");
 
   std::string remote_agent_name = getAgentName(remote_descs.at(0).rank);
