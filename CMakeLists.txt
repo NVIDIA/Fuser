@@ -587,16 +587,7 @@ if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   target_compile_definitions(codegen_internal PRIVATE NVFUSER_BUILD_WITH_UCC)
 endif()
 
-if(NIXL_FOUND)
-  add_library(__nvfuser_nixl INTERFACE)
-  target_include_directories(__nvfuser_nixl INTERFACE ${NIXL_INCLUDE_DIR})
-  target_link_libraries(__nvfuser_nixl INTERFACE ${NIXL_LIBRARY})
-  if(NIXL_BUILD_LIBRARY)
-    target_link_libraries(__nvfuser_nixl INTERFACE ${NIXL_BUILD_LIBRARY})
-  endif()
-  target_link_libraries(codegen_internal PRIVATE __nvfuser_nixl)
-  target_compile_definitions(codegen_internal PRIVATE USE_NIXL)
-endif()
+link_nixl(codegen_internal)
 
 add_dependencies(codegen_internal flatc build_flatbuffer_config)
 
