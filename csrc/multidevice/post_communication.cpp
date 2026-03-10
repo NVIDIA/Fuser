@@ -596,7 +596,6 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     at::Tensor output_tensor,
     DeviceIdxType send_peer_index,
     DeviceIdxType recv_peer_index) {
-  const Team& team = communication->team();
   NVF_CHECK(backend != nullptr);
 
   if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
