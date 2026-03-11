@@ -417,7 +417,7 @@ def test_column_parallel_linear_forward_reference_benchmark(
     benchmark.pedantic(benchmark_fn, rounds=5)
 
 
-def column_parallel_linear_forward(h: int, d: int):
+def column_parallel_linear_forward(h: int, d: int, parallelism: str):
     with FusionDefinition() as fd:
         inp_tv = fd.define_tensor((-1, h), contiguity=True, dtype=DataType.BFloat16)
         weight_tv = fd.define_tensor(
@@ -436,6 +436,8 @@ def column_parallel_linear_forward(h: int, d: int):
 
         ag_out.set_device_mesh(mesh)
         ag_out.outer_split(0, d)
+        if parallelism == "collective_permute":
+            ag_out.swizzle1d(0, nvfuser.ParallelType.mesh_x)
         ag_out.axis(0).parallelize(nvfuser.ParallelType.stream)
 
         # Fusion IR before segmentation will look like this:
@@ -444,11 +446,15 @@ def column_parallel_linear_forward(h: int, d: int):
         #  d
         # (deviceIdx.x)
         #    |
-        #    | set (lowered to Broadcast. This decomposition is done manually in the definition above. It will later be done by preseg)
+        #    | set (lowered to Broadcast/CollectivePermute. This decomposition is done
+        #    |    manually in the definition above. It will later be done
+        #    |    by preseg.)
         #    |
         #   [t, h]                                  [4h,  h]
         #   /\                                      /\.
-        #  s                                       d
+        #  d                                       d
+        #  | swizzle1d (if parallelism == "collective_permute")
+        #  s
         # (streamIdx)
         #                      |
         #                      | linear
@@ -461,7 +467,8 @@ def column_parallel_linear_forward(h: int, d: int):
 
 
 @pytest.mark.mpi
-def test_column_parallel_linear_forward(multidevice_test):
+@pytest.mark.parametrize("parallelism", ["collective_permute", "broadcast"])
+def test_column_parallel_linear_forward(multidevice_test, parallelism: str):
     # This is a port of CollectiveBasedOverlapTest.ColumnAndSequenceParallelLinear_Forward.
     # The difference is we are using broadcast based overlapping instead of send/recv.
     h, t = 2, 24
@@ -475,7 +482,7 @@ def test_column_parallel_linear_forward(multidevice_test):
             f"Column-parallel linear requires {t} to be divisible by world size {d}."
         )
 
-    fd = column_parallel_linear_forward(h, d)
+    fd = column_parallel_linear_forward(h, d, parallelism)
 
     inp_ref = torch.testing.make_tensor(t, h, dtype=torch.int32, device="cpu").to(
         torch.bfloat16
@@ -492,15 +499,26 @@ def test_column_parallel_linear_forward(multidevice_test):
     with torch.profiler.profile(record_shapes=True) as prof:
         (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
     torch.testing.assert_close(out, out_ref)
-    broadcast_events = [
-        event for event in prof.events() if "ncclDevKernel_Broadcast" in event.name
-    ]
-    assert len(broadcast_events) == (d if d > 1 else 0)
+
+    if parallelism == "collective_permute":
+        collective_permute_events = [
+            event for event in prof.events() if "ncclDevKernel_SendRecv" in event.name
+        ]
+        assert len(collective_permute_events) == (d - 1)
+    else:
+        broadcast_events = [
+            event for event in prof.events() if "ncclDevKernel_Broadcast" in event.name
+        ]
+        assert len(broadcast_events) == (d if d > 1 else 0)
 
 
 @pytest.mark.mpi
 @pytest.mark.benchmark
-def test_column_parallel_linear_forward_benchmark(multidevice_test, benchmark):
+@pytest.mark.parametrize("parallelism", ["collective_permute", "broadcast"])
+def test_column_parallel_linear_forward_benchmark(
+    multidevice_test, benchmark, parallelism: str
+):
+    # This is a port of CollectiveBasedOverlapTest.ColumnParallelLinear_Forward.
     h, t = 8192, 8192
     d = multidevice_test.size
     if (4 * h) % d != 0:
@@ -512,7 +530,7 @@ def test_column_parallel_linear_forward_benchmark(multidevice_test, benchmark):
             f"Column-parallel linear requires {t} to be divisible by world size {d}."
         )
 
-    fd = column_parallel_linear_forward(h, d)
+    fd = column_parallel_linear_forward(h, d, parallelism)
 
     inp_ref = torch.randn(t, h, dtype=torch.bfloat16, device="cpu")
     weight_ref = torch.randn(4 * h, h, dtype=torch.bfloat16, device="cpu")

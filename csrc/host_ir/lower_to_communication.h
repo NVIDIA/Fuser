@@ -58,12 +58,12 @@ Layout getCommunicationLayout(
 // Creates a communication expr corresponding to the given
 // resharding expr. In most cases, `root` is inferred based
 // on communication type. However, in some cases, for e.g.
-// decomposing allgather as broadcast in a host for-loop, `root`
-// may be passed in through lowering.
+// decomposing allgather as broadcast in a host for-loop, `root` is
+// a function of the host loop index.
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* c,
     DeviceIdxType my_device_idx,
-    Val* root = nullptr,
+    Val* host_loop_index = nullptr,
     const CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
 } // namespace nvfuser

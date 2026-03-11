@@ -12,8 +12,11 @@
 #include "host_ir/ir.h"
 #include "host_ir/lower_to_communication.h"
 #include "host_ir/ops.h"
+#include "ir/builder.h"
 #include "ir/iostream.h"
 #include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
 #include "multidevice/propagation.h"
 #include "multidevice/resharding.h"
 #include "multidevice/utils.h"
@@ -228,12 +231,25 @@ void lowerSegment(
         innermost_scope.pushBack(allocate);
       }
 
-      Val* root = loop_nest.empty() ? nullptr : innermost.loop->index();
-      for (Expr* c : convertSingleOpToCommunication(e, device_id, root)) {
+      Val* host_loop_index =
+          loop_nest.empty() ? nullptr : innermost.loop->index();
+      for (Expr* c :
+           convertSingleOpToCommunication(e, device_id, host_loop_index)) {
         NVF_ERROR(
-            c->isA<Communication>(),
-            "Exprs in a Communication group should be Communication: ",
+            c->isA<Communication>() || c->isA<CollectivePermute>(),
+            "Exprs in a Communication group should be Communication or "
+            "CollectivePermute: ",
             c);
+
+        if (auto* cp = dynamic_cast<CollectivePermute*>(c)) {
+          // Add the exprs that define the send and recv peers to the innermost
+          // scope so they can be recomputed each iteration.
+          std::ranges::for_each(
+              StmtSort::getExprsTo({cp->sendPeer(), cp->recvPeer()}),
+              [&innermost_scope](Expr* expr) -> void {
+                innermost_scope.pushBack(expr);
+              });
+        }
 
         Expr* new_c = cloneWithNewOperands(c, replacement_map);
         innermost_scope.pushBack(new_c);
