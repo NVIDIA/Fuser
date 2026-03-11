@@ -27,7 +27,7 @@ namespace {
 // sizes and strides, validate that splits are divisible and merges are
 // contiguous, and update active_ids_ correspondingly.
 class ForwardTraverseFromLogicalToAlloc {
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
 
   void handle(Split* split) {
@@ -106,7 +106,7 @@ class ForwardTraverseFromLogicalToAlloc {
 
  public:
   ForwardTraverseFromLogicalToAlloc(
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
       : ee_(ee), active_ids_(active_ids) {}
 
@@ -126,7 +126,7 @@ class ForwardTraverseFromLogicalToAlloc {
 // Similar to ForwardTraverseFromLogicalToAlloc, but in the opposite direction.
 class BackwardTraverseFromLogicalToAlloc {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
 
   void handle(Split* split) {
@@ -201,7 +201,7 @@ class BackwardTraverseFromLogicalToAlloc {
 
  public:
   BackwardTraverseFromLogicalToAlloc(
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
       : ee_(ee), active_ids_(active_ids) {}
 
@@ -300,7 +300,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>>
 inferAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
-    ExpressionEvaluator ee) {
+    const ExpressionEvaluator& ee) {
   const auto& logical = tv->getLogicalDomain();
   const auto& alloc = tv->getMaybeAllocationDomain();
 
