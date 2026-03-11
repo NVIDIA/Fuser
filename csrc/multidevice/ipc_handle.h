@@ -264,10 +264,15 @@ class SymMemForAlltoallv : public SymmetricMemoryHandle {
 
   ~SymMemForAlltoallv() override = default;
 
-  // --- Sync state: [W+2] int64 buffer ---
-  //   [0..W-1]  send_counts
-  //   [W]       counts-ready semaphore (epoch, lower 32 bits)
-  //   [W+1]     done semaphore (epoch, lower 32 bits)
+  // --- Sync state: [3*W] int64 buffer per rank ---
+  //   [0 .. W-1]    send_counts (int64)
+  //   [W .. 2W-1]   counts_sem[peer] — per-pair semaphore for counts exchange
+  //   [2W .. 3W-1]  done_sem[peer] — per-pair semaphore for completion
+  //
+  // Per-pair semaphore protocol matching the allgather pattern in
+  // cuda_p2p.cpp. Each slot is written by exactly one rank per phase
+  // (signal by the peer, reset by the owner). Graph-capturable and
+  // correct for any number of ranks and unlimited replays.
   const at::Tensor& syncBuffer() const {
     return sync_buf_;
   }
@@ -280,6 +285,14 @@ class SymMemForAlltoallv : public SymmetricMemoryHandle {
   int64_t myRank() const {
     return my_rank_;
   }
+
+  // Counts exchange (split: caller reads data between wait and reset).
+  void signalCountsReady(CUstream stream);
+  void waitCountsReady(CUstream stream);
+  void resetCountsSem(CUstream stream);
+
+  // Completion barrier (signal + wait + reset in one call).
+  void doneBarrier(CUstream stream);
 
   // --- Named recv buffers ---
   struct RecvHandle {
@@ -298,6 +311,20 @@ class SymMemForAlltoallv : public SymmetricMemoryHandle {
       at::Device device);
 
  private:
+  CUdeviceptr countsSemAddr(int64_t rank, int64_t slot) const {
+    return sync_ptrs_[rank] + (world_size_ + slot) * sizeof(int64_t);
+  }
+  CUdeviceptr doneSemAddr(int64_t rank, int64_t slot) const {
+    return sync_ptrs_[rank] + (2 * world_size_ + slot) * sizeof(int64_t);
+  }
+
+  void batchSignal(CUstream stream, cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+  void batchWait(CUstream stream, cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+  void batchReset(CUstream stream, cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+
   // Sync
   at::Tensor sync_buf_;
   std::unique_ptr<SymmetricTensor> sync_sym_;

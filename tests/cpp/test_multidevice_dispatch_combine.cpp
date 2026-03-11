@@ -393,15 +393,17 @@ TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
       backend);
   graph.capture_end();
 
-  // Replay multiple times with different data (same routing)
+  // Replay multiple times with different data (same routing).
+  // The N-slot per-pair semaphore protocol is fully graph-capturable
+  // and correct for unlimited replays — no barrier needed.
   for (int i = 0; i < 5; i++) {
     x.add_(static_cast<double>(100 * (i + 1)));
     graph.replay();
     capture_stream.synchronize();
 
     EXPECT_TRUE(at::allclose(cr.combined_x, x))
-        << "Graph replay " << i << " dispatch/combine mismatch on rank "
-        << my_rank;
+        << "Graph replay " << i
+        << " dispatch/combine mismatch on rank " << my_rank;
   }
 }
 
