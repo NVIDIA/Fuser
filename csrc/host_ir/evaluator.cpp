@@ -431,13 +431,16 @@ void HostIrEvaluator::handle(MoeCombine* combine) {
   auto n_tokens_from_rank =
       getKnownConcreteValue(combine->inTokensFromRank()).as<at::Tensor>();
 
+  auto num_tokens =
+      expr_evaluator_.evaluate(combine->numTokens()).as<int64_t>();
+
   auto result = doMoeCombine(
       x,
       topk_weights,
       src_idx,
       n_tokens_to_rank,
       n_tokens_from_rank,
-      combine->numTokens(),
+      num_tokens,
       communicator_,
       combine->backend());
 

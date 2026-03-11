@@ -79,7 +79,7 @@ TEST_P(DispatchCombineTest, DispatchCombineTop1) {
       recv_src_idx,
       n_tokens_to_rank,
       n_tokens_from_rank,
-      kNumTokens,
+      in_x->axis(0)->extent(),
       backend);
 
   hic->pushBackTopLevelExprs(dispatch);
@@ -273,6 +273,8 @@ TEST_P(DispatchCombineTest, CombineOnlyTop1) {
   auto* in_n_tokens_from_rank = makeSymbolicTensor(1, DataType::Int);
 
   auto* combined_x = makeSymbolicTensor(2);
+  auto* num_tokens_val =
+      IrBuilder::create<Val>(kNumTokens, DataType::Int);
   auto* combine = IrBuilder::create<MoeCombine>(
       combined_x,
       in_x,
@@ -280,7 +282,7 @@ TEST_P(DispatchCombineTest, CombineOnlyTop1) {
       in_src_idx,
       in_n_tokens_to_rank,
       in_n_tokens_from_rank,
-      kNumTokens,
+      num_tokens_val,
       backend);
 
   hic->pushBackTopLevelExprs(combine);
