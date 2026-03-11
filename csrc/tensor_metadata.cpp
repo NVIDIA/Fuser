@@ -101,6 +101,9 @@ class ForwardTraverseFromLogicalToAlloc {
     auto in = swizzle1d->in();
     auto out = swizzle1d->out();
     auto in_it = active_ids_.find(in);
+    if (in_it == active_ids_.end()) {
+      return;
+    }
     auto [in_size, in_stride] = in_it->second;
     NVF_ERROR(active_ids_.erase(in) == 1);
     NVF_ERROR(
@@ -211,6 +214,9 @@ class BackwardTraverseFromLogicalToAlloc {
     auto in = swizzle1d->in();
     auto out = swizzle1d->out();
     auto out_it = active_ids_.find(out);
+    if (out_it == active_ids_.end()) {
+      return;
+    }
     auto [out_size, out_stride] = out_it->second;
     NVF_ERROR(active_ids_.erase(out) == 1);
     NVF_ERROR(

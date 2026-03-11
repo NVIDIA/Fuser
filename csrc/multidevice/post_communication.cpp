@@ -591,13 +591,15 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     CollectivePermute* communication,
-    DeviceIdxType my_device_index,
+    DeviceIdxType my_device,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     DeviceIdxType send_peer_index,
     DeviceIdxType recv_peer_index) {
   NVF_CHECK(backend != nullptr);
+
+  int64_t my_device_index = getRelativeIndex(communication->team(), my_device);
 
   if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
     debug() << "Posting " << communication->toInlineString()

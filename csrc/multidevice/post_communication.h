@@ -87,7 +87,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     CollectivePermute* communication,
-    DeviceIdxType my_device_index,
+    DeviceIdxType my_device,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
