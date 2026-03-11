@@ -23,14 +23,13 @@ NIXL_CLONE_DIR="/tmp/nixl-repo"
 pip install --no-deps nixl nixl-cu12
 
 # Locate the mesonpy libs directory where libnixl.so lives.
+# We avoid "import nixl" because the native extension may fail to load on
+# headless CI runners without GPU/RDMA drivers.
 SITE_PACKAGES=$(python3 -c "import site; print(site.getsitepackages()[0])")
-# pip install nixl -> nixl-cu12 (default) or nixl-cu13 depending on extras.
-# The mesonpy.libs dir is named after the actual variant package.
-NIXL_PKG_NAME=$(python3 -c "import nixl; print(nixl._pkg.__name__)")
-MESONPY_LIBS="${SITE_PACKAGES}/.${NIXL_PKG_NAME}.mesonpy.libs"
+MESONPY_LIBS=$(find "$SITE_PACKAGES" -maxdepth 1 -name ".nixl_cu*.mesonpy.libs" -type d | head -1)
 
-if [ ! -d "$MESONPY_LIBS" ]; then
-    echo "Error: mesonpy libs directory not found at $MESONPY_LIBS"
+if [ -z "$MESONPY_LIBS" ] || [ ! -d "$MESONPY_LIBS" ]; then
+    echo "Error: nixl mesonpy libs directory not found in $SITE_PACKAGES"
     exit 1
 fi
 
