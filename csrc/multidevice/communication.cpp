@@ -46,6 +46,9 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
     case CommunicationType::AllToAll:
       os << "AllToAll";
       break;
+    case CommunicationType::CollectivePermute:
+      os << "CollectivePermute";
+      break;
   }
   return os;
 }
@@ -64,6 +67,7 @@ bool hasRoot(CommunicationType type) {
     case CommunicationType::Allreduce:
     case CommunicationType::ReduceScatter:
     case CommunicationType::AllToAll:
+    case CommunicationType::CollectivePermute:
       return false;
   }
   std::unreachable();
@@ -213,6 +217,47 @@ std::string P2PCommunication::toInlineString(const int indent_size) const {
 }
 
 std::string P2PCommunication::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
+}
+
+CollectivePermute::CollectivePermute(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in,
+    Team team,
+    Val* send_peer,
+    Val* recv_peer,
+    CommunicatorBackend backend)
+    : Expr(passkey) {
+  NVF_ERROR(
+      in->getDeviceMesh().size() > 0,
+      "The input mesh size must be greater than 0.");
+  NVF_ERROR(
+      out->getDeviceMesh().size() > 0,
+      "The output mesh size must be greater than 0.");
+  addInput(in);
+  addInput(send_peer);
+  addInput(recv_peer);
+  addOutput(out);
+  addDataAttribute(CommunicationType::CollectivePermute);
+  addDataAttribute(team);
+  addDataAttribute(backend);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CollectivePermute)
+
+std::string CollectivePermute::toInlineString(const int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "CollectivePermute " << name() << " ("
+                          << "team=(" << team() << ")"
+                          << ", send_peer=" << sendPeer()->toInlineString()
+                          << ", recv_peer=" << recvPeer()->toInlineString()
+                          << ", input=" << in() << ", output=" << out()
+                          << ", backend=" << backend() << ")";
+  return ss.str();
+}
+
+std::string CollectivePermute::toString(int indent_size) const {
   return toInlineString(indent_size) + "\n";
 }
 
