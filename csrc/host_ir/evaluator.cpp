@@ -364,16 +364,25 @@ void HostIrEvaluator::handle(Communication* communication) {
             .stream());
     NVF_ERROR(
         communication->type() == CommunicationType::Broadcast ||
-            communication->type() == CommunicationType::Allgather,
-        "Invalid communication type, expected Broadcast or Allgather, got: ",
+            communication->type() == CommunicationType::Allgather ||
+            communication->type() == CommunicationType::Allreduce ||
+            communication->type() == CommunicationType::Reduce,
+        "Invalid communication type for CUDA backend, got: ",
         communication->type());
     int64_t root_val =
         expr_evaluator_.evaluate(communication->root()).as<int64_t>();
+    // For Allreduce/Reduce use root = -1 in cache key (no root semantics)
+    int64_t cache_root = (communication->type() == CommunicationType::Broadcast)
+        ? root_val
+        : -1;
+    // For Reduce, non-roots may have no output; use input for cache key
+    at::Tensor cache_buffer = output_tensor.defined() ? output_tensor : input_tensor;
     SymmetricMemoryHandle* multicast_handle = multicast_handle_cache_.get(
-        {.buffer = output_tensor, .expr = communication, .root = root_val});
+        {.buffer = cache_buffer, .expr = communication, .root = cache_root});
     postWithCudaBackend(
         communication,
         input_tensor,
+        output_tensor,
         multicast_handle,
         current_stream,
         root_val);
@@ -492,15 +501,21 @@ void HostIrEvaluator::handle(Wait* wait) {
       communication && communication->backend() == CommunicatorBackend::kCuda) {
     NVF_ERROR(
         communication->type() == CommunicationType::Broadcast ||
-            communication->type() == CommunicationType::Allgather,
-        "Invalid communication type, only Broadcast and Allgather are "
-        "supported with cuda backend, got: ",
+            communication->type() == CommunicationType::Allgather ||
+            communication->type() == CommunicationType::Allreduce ||
+            communication->type() == CommunicationType::Reduce,
+        "Invalid communication type for CUDA backend, got: ",
         communication->type());
     at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
+    at::Tensor input_tensor = getKnownTensorOrUndefined(communication->input(0));
     int64_t root_val =
         expr_evaluator_.evaluate(communication->root()).as<int64_t>();
+    int64_t cache_root = (communication->type() == CommunicationType::Broadcast)
+        ? root_val
+        : -1;
+    at::Tensor cache_buffer = output_tensor.defined() ? output_tensor : input_tensor;
     SymmetricMemoryHandle* multicast_handle = multicast_handle_cache_.get(
-        {.buffer = output_tensor, .expr = communication, .root = root_val});
+        {.buffer = cache_buffer, .expr = communication, .root = cache_root});
     waitWithCudaBackend(
         communication, multicast_handle, current_stream, root_val);
   } else {

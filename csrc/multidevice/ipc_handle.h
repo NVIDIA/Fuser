@@ -207,6 +207,30 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
   std::unique_ptr<SymmetricTensor> semaphore_sym_tensor_;
 };
 
+// SymmetricMemoryHandle for allreduce/reduce using NVLink SHARP (multimem
+// ld_reduce). All ranks bind their input to the multicast object; ld_reduce
+// from the multicast VA returns the reduction across ranks.
+class SymMemForAllreduce : public SymmetricMemoryHandle {
+ public:
+  SymMemForAllreduce(Communication* communication, at::Tensor output_buffer);
+
+  ~SymMemForAllreduce() override = default;
+
+  // Local buffer for this rank's input (copy input here before reduce)
+  at::Tensor inputBuffer() const;
+
+  // Multicast VA for ld_reduce kernel (same on all ranks)
+  void* multicastPtr() const;
+
+  size_t sizeBytes() const {
+    return size_bytes_;
+  }
+
+ private:
+  size_t size_bytes_ = 0;
+  std::unique_ptr<SymmetricTensor> input_sym_tensor_;
+};
+
 // SymmetricMemoryHandle for allgather operations using NVLS multicast
 // Allgather is implemented as world_size broadcasts, each rank acting as root
 // once
@@ -261,7 +285,7 @@ class SymmetricMemoryHandleCache {
   struct KeyType {
     at::Tensor buffer;
     Expr* expr;
-    int64_t root;
+    int64_t root; // -1 for Allreduce (no root)
 
     bool operator==(const KeyType& other) const {
       return TensorEqual{}(buffer, other.buffer) && expr == other.expr &&

@@ -34,7 +34,8 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream);
 void postWithCudaBackend(
     Communication* communication,
     at::Tensor input,
-    SymmetricMemoryHandle* multicast_handle,
+    at::Tensor output,
+    SymmetricMemoryHandle* symmetric_memory_handle,
     CUstream stream,
     int64_t root);
 
