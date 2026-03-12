@@ -3767,4 +3767,30 @@ int64_t countLeadingParallelDimensions(const TensorView* tv) {
   return num_parallel_dims;
 }
 
+bool inputsHaveContiguousInnerDim(Fusion* fusion) {
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    const auto& contig = tv->domain()->contiguity();
+    if (contig.empty()) {
+      continue;
+    }
+    const auto& alloc_dom = tv->getMaybeAllocationDomain();
+    NVF_ERROR(contig.size() == alloc_dom.size());
+    bool found_inner = false;
+    for (int64_t i = static_cast<int64_t>(alloc_dom.size()) - 1; i >= 0; --i) {
+      if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()) {
+        continue;
+      }
+      if (!contig[i].value_or(false)) {
+        return false;
+      }
+      found_inner = true;
+      break;
+    }
+    if (!found_inner) {
+      continue;
+    }
+  }
+  return true;
+}
+
 } // namespace nvfuser::scheduler_utils

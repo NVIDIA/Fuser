@@ -400,9 +400,16 @@ bool mayHaveTmaCompatibleInputs(
 // serves as a fast path to avoid computing full heuristics if TMA is clearly
 // not applicable. Passing this check does not guarantee that TMA will be used;
 // the final decision is made during heuristics computation.
-bool mayUseTma(const pointwise_utils::FusionRuntimeProperties& prop) {
+bool mayUseTma(
+    Fusion* fusion,
+    const pointwise_utils::FusionRuntimeProperties& prop) {
   // Hardware requirement: Don't use TMA for pre-Hopper GPUs
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return false;
+  }
+
+  // TMA requires compile-time known contiguous innermost dimension on inputs
+  if (!scheduler_utils::inputsHaveContiguousInnerDim(fusion)) {
     return false;
   }
   // Check if there are TMA-compatible inputs
@@ -430,7 +437,8 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   }
   const auto& prop = prop_opt.value();
 
-  bool use_tma = mayUseTma(prop) && isOptionEnabled(EnableOption::TmaPointwise);
+  bool use_tma =
+      mayUseTma(fusion, prop) && isOptionEnabled(EnableOption::TmaPointwise);
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
     pparams = pointwise::tma::getPointwiseHeuristics(
