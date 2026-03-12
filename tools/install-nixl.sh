@@ -45,10 +45,13 @@ mkdir -p "$NIXL_PREFIX/include" "$NIXL_PREFIX/lib"
 
 cp "$NIXL_CLONE_DIR"/src/api/cpp/*.h "$NIXL_PREFIX/include/"
 
-ln -sf "$MESONPY_LIBS/libnixl.so" "$NIXL_PREFIX/lib/libnixl.so"
-if [ -f "$MESONPY_LIBS/libnixl_build.so" ]; then
-    ln -sf "$MESONPY_LIBS/libnixl_build.so" "$NIXL_PREFIX/lib/libnixl_build.so"
-fi
+# Symlink all shared libraries from the mesonpy libs directory so that
+# transitive dependencies of libnixl.so (libserdes.so, libstream.so,
+# libnixl_common.so, libetcd-cpp-api-core, etc.) are discoverable by the linker.
+for so in "$MESONPY_LIBS"/*.so*; do
+    [ -e "$so" ] || continue
+    ln -sf "$so" "$NIXL_PREFIX/lib/$(basename "$so")"
+done
 
 rm -rf "$NIXL_CLONE_DIR"
 
