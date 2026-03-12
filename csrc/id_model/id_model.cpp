@@ -15,6 +15,7 @@
 #include "device_lower/lower2device.h"
 #include "device_lower/utils.h"
 #include "disjoint_set.h"
+#include "expr_simplifier.h"
 #include "id_model/loop_promotion.h"
 #include "id_model/to_string.h"
 #include "id_model/transform_replay.h"
@@ -490,13 +491,17 @@ void mapSplitOfSplit(ValGraph& graph) {
   // outer', _ = split(root)
   //
   // If outermost_grand and outer' have the same extent, map them.
+  // The splits must be divisible for this mapping to be valid.
+  auto isDivisible = [](Split* s) {
+    return simplifyExpr(s->isDivisible())->isTrue();
+  };
   std::vector<std::pair<Val*, Val*>> ids_to_map;
   for (const ValGroup& root : graph.disjointValSets().disjointSets()) {
     const ExprGroups& uses_of_root = graph.getUses(root);
     std::vector<ValGroup> outermost_grands;
     for (const ExprGroup& use_of_root : uses_of_root) {
       auto* split0 = dynamic_cast<Split*>(use_of_root->front());
-      if (split0 == nullptr) {
+      if (split0 == nullptr || !isDivisible(split0)) {
         continue;
       }
       // Only follow the outer output of the first split; outer and inner
@@ -504,7 +509,7 @@ void mapSplitOfSplit(ValGraph& graph) {
       const ValGroup& outer = graph.toGroup(split0->outer());
       for (const ExprGroup& use_of_outer : graph.getUses(outer)) {
         auto* split1 = dynamic_cast<Split*>(use_of_outer->front());
-        if (split1 == nullptr) {
+        if (split1 == nullptr || !isDivisible(split1)) {
           continue;
         }
         const ValGroup& outermost_grand = graph.toGroup(split1->outer());
@@ -518,7 +523,7 @@ void mapSplitOfSplit(ValGraph& graph) {
 
       for (const ExprGroup& use_of_root : uses_of_root) {
         auto* split = dynamic_cast<Split*>(use_of_root->front());
-        if (split == nullptr) {
+        if (split == nullptr || !isDivisible(split)) {
           continue;
         }
 
