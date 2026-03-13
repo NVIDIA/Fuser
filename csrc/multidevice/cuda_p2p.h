@@ -70,4 +70,12 @@ void alltoallvWithCudaBackend(
 
 void alltoallvBarrier(const std::string& tag);
 
+// Launch ld_reduce kernel (multimem) for NVLS reduce. Used by multicast reduce
+// path and by tests. mc_src and dst must be 16-byte aligned; size multiple of 16.
+void launchMulticastReduceKernel(
+    const void* mc_src,
+    void* dst,
+    size_t size,
+    CUstream stream);
+
 } // namespace nvfuser

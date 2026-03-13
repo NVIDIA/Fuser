@@ -337,7 +337,7 @@ void launchMulticastKernel(
       kernel, blocks, 1, 1, threads, 1, 1, 0, stream, args_kernel, nullptr));
 }
 
-void launchMulticastReduceKernel(
+void launchMulticastReduceKernelImpl(
     const void* mc_src,
     void* dst,
     size_t size,
@@ -825,12 +825,21 @@ void postAllreduceWithCudaBackend(
       cudaMemcpyDeviceToDevice,
       stream));
 
+  // Ensure all ranks have completed copy before any runs ld_reduce (multicast
+  // view aggregates all ranks' buffers).
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  Communicator::getInstance().barrier();
+
   // All ranks run ld_reduce from multicast VA to output
-  launchMulticastReduceKernel(
+  launchMulticastReduceKernelImpl(
       reduce_handle->multicastPtr(),
       output.data_ptr(),
       size,
       stream);
+
+  // Ensure kernel completes before returning so output is visible
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  Communicator::getInstance().barrier();
 }
 
 void postReduceWithCudaBackend(
@@ -870,15 +879,34 @@ void postReduceWithCudaBackend(
       cudaMemcpyDeviceToDevice,
       stream));
 
+  // Ensure all ranks have completed copy before any runs ld_reduce (multicast
+  // view aggregates all ranks' buffers).
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  communicator.barrier();
+
   // All ranks run ld_reduce; root writes to output, non-roots write to input buffer
   void* dst = (my_device_index == root && output.defined())
       ? output.data_ptr()
       : reduce_handle->inputBuffer().data_ptr();
-  launchMulticastReduceKernel(
+  launchMulticastReduceKernelImpl(
       reduce_handle->multicastPtr(), dst, size, stream);
+
+  // Ensure kernel completes before returning so output is visible
+printf("rank %ld: cudaDeviceSynchronize\n", my_device_index);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  communicator.barrier();
+printf("rank %ld: barrier done\n", my_device_index);
 }
 
 } // anonymous namespace
+
+void launchMulticastReduceKernel(
+    const void* mc_src,
+    void* dst,
+    size_t size,
+    CUstream stream) {
+  launchMulticastReduceKernelImpl(mc_src, dst, size, stream);
+}
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
   P2pProtocol protocol = getP2pProtocol();
