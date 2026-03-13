@@ -704,7 +704,7 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
                  << ", D = " << D;
   }
   if (communicator_backend == CommunicatorBackend::kCuda) {
-    GTEST_SKIP() << "CUDA backend is not supported for this test";
+    EnableOptionsGuard::getCurOptions().set(EnableOption::MulticastProtocol, {"multimem"});
   }
 
   EnableOptionsGuard::getCurOptions().set(EnableOption::InsertReshardingAfter);
