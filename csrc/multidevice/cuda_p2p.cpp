@@ -460,8 +460,7 @@ void launchMulticastReduceKernel(
     blocks = std::max(1, (int)max_needed_blocks);
   }
 
-  void* args_kernel[] = {
-      const_cast<void*>(mc_src), const_cast<void*>(dst), &size};
+  void* args_kernel[] = {&mc_src, &dst, &size};
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
       kernel, blocks, 1, 1, threads, 1, 1, 0, stream, args_kernel, nullptr));
 }
