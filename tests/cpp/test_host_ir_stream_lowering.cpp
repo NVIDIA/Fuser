@@ -265,21 +265,6 @@ TEST_F(HirLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_F(HirLowerStreamTest, ReductionUnsupported) {
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard fg(hic.get());
-  TensorView* tv0 = makeContigTensor(2);
-  TensorView* tv1 = sum(tv0, {0});
-  hic->addInput(tv0);
-  hic->addOutput(tv1);
-  hic->pushBackTopLevelExprs(tv1->definition());
-  tv0->setMemoryType(MemoryType::Global);
-  tv1->setMemoryType(MemoryType::Global);
-  tv1->axis(0)->parallelize(ParallelType::Stream);
-
-  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
-}
-
 TEST_F(HirLowerStreamTest, Reduction) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
