@@ -221,12 +221,10 @@ void lowerSegment(
             "The input segmented fusion should be SSA.");
         TensorView* sharded_out =
             hir::shardByStream(out, innermost.loop->index(), e);
-        NVF_ERROR(
-            sharded_out != nullptr,
-            "Output could not be sharded by stream: ",
-            out);
-        replacement_map[out] = sharded_out;
-        innermost_scope.pushBack(sharded_out->definition());
+        if (sharded_out != nullptr) {
+          replacement_map[out] = sharded_out;
+          innermost_scope.pushBack(sharded_out->definition());
+        }
       } else {
         innermost_scope.pushBack(allocate);
       }

@@ -223,7 +223,9 @@ void lowerToReduce(
     TensorView* output_tv,
     BinaryOpType op_type,
     const CommunicatorBackend backend,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    Val* host_loop_index,
+    DeviceIdxType my_device_idx) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   NVF_ERROR_EQ(
@@ -236,6 +238,25 @@ void lowerToReduce(
       1,
       "Reduce only supported a 1D mesh. Given ",
       receiver_mesh);
+  if (host_loop_index != nullptr) {
+    // Stream-parallel reduce: single Reduce per iteration with dynamic root.
+    // The root cycles through devices based on the stream index.
+    Team team = sender_mesh.vector();
+    IterDomain* stream_id = getShardedIterDomain(
+        output_tv, ParallelType::Stream, DomainType::kLoop);
+    ParallelType pt = stream_id->definition()->as<Swizzle1D>()->parallelType();
+    const auto& [root, _] =
+        dispatchSwizzle1D(host_loop_index, my_device_idx, pt, sender_mesh);
+    comms.push_back(IrBuilder::create<Communication>(
+        CommunicationType::Reduce,
+        output_tv,
+        input_tv,
+        team,
+        root,
+        getC10dReduceOpType(op_type),
+        backend));
+    return;
+  }
   const auto reduce_op_type = getC10dReduceOpType(op_type);
   // we create as many Reduces as there are devices in the receiver mesh
   for (auto root : receiver_mesh.vector()) {
@@ -477,6 +498,33 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
       p_loop_id, "Expected a reduction-based communication. Given: ", def);
 
   if (!c_loop_id) {
+    // There is no consumer loop id, however we could have the following case:
+    // [i0, r(DIDx(i1))]
+    //  /\.
+    // d
+    // (deviceIdx.x) -> Allocation domain
+    //    |
+    //    | (swizzle1d)
+    //    |
+    // (streamIdx)
+    // This implies that we are only reducing a chunk of tv
+    // corresponding to streamIdx. Since the allocation domain is
+    // device-parallel, this is not allreduce, but reduce. If we do not have a
+    // swizzle1d, root is streamIdx, else a function of streamIdx and
+    // deviceIdx.x.
+    if (c_stream_id != nullptr) {
+      IterDomain* c_alloc_id =
+          getShardedIterDomain(consumer, pt, DomainType::kAllocation);
+      if (c_alloc_id != nullptr) {
+        IterDomain* c_alloc_logical =
+            getLogicalFromLoopId(consumer, c_alloc_id);
+        NVF_ERROR_EQ(c_alloc_logical, c_logical_stream_id);
+        return CommunicationInfo{
+            .type = CommunicationType::Reduce,
+            .p_sharded_id = p_logical_id,
+            .c_sharded_id = c_logical_stream_id};
+      }
+    }
     CommunicationType type =
         same_mesh ? CommunicationType::Allreduce : CommunicationType::Reduce;
     return CommunicationInfo{
@@ -695,7 +743,14 @@ std::vector<Expr*> convertSingleOpToCommunication(
           input_tv, output_tv, op_type(e), backend, comms, my_device_idx);
       break;
     case CommunicationType::Reduce:
-      lowerToReduce(input_tv, output_tv, op_type(e), backend, comms);
+      lowerToReduce(
+          input_tv,
+          output_tv,
+          op_type(e),
+          backend,
+          comms,
+          host_loop_index,
+          my_device_idx);
       break;
     case CommunicationType::AllToAll:
       lowerToAllToAll(input_tv, output_tv, backend, comms);

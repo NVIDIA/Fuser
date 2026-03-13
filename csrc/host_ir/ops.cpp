@@ -92,6 +92,11 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
   }
 
   shardAllocationAsLoop(destination, {ParallelType::Stream});
+  if (getShardedIterDomain(
+          destination, ParallelType::Stream, DomainType::kAllocation) ==
+      nullptr) {
+    return nullptr;
+  }
   NVF_ERROR(
       getShardedIterDomain(
           destination, ParallelType::Stream, DomainType::kAllocation) !=

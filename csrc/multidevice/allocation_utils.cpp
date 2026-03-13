@@ -86,10 +86,12 @@ void shardAllocationAsLoop(
         return parallel_types.count(id->getParallelType()) > 0;
       });
 
+  auto allocation_ids_to_transform = tv->getMaybeAllocationDomain() |
+      std::views::filter([&](IterDomain* id) { return !id->isParallelized(); });
+
   // Allocation domain should be a permutation of logical domain at this point.
   std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
-      {tv->getMaybeAllocationDomain().begin(),
-       tv->getMaybeAllocationDomain().end()},
+      {allocation_ids_to_transform.begin(), allocation_ids_to_transform.end()},
       {loop_ids_to_replicate.begin(), loop_ids_to_replicate.end()});
 
   for (auto* e : transforms) {

@@ -188,9 +188,10 @@ std::vector<int64_t> unshardedSizes(
     c10::IntArrayRef sizes) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
   for (ParallelType parallel_type : deviceAndStreamParallelTypes()) {
-    const DomainType domain_type = parallel_type == ParallelType::Stream
-        ? DomainType::kAllocation
-        : DomainType::kLoop;
+    // const DomainType domain_type = parallel_type == ParallelType::Stream
+    //     ? DomainType::kAllocation
+    //     : DomainType::kLoop;
+    const DomainType domain_type = DomainType::kAllocation;
     IterDomain* sharded_id =
         getShardedIterDomain(tv, parallel_type, domain_type);
     if (sharded_id == nullptr) {
@@ -202,6 +203,18 @@ std::vector<int64_t> unshardedSizes(
         sharded_axis != -1,
         "Producing logical axis not found for ",
         sharded_id);
+    NVF_ERROR(
+        sharded_axis < static_cast<int64_t>(unsharded_sizes.size()),
+        "Sharded axis is out of bounds: ",
+        sharded_axis,
+        " < ",
+        unsharded_sizes.size(),
+        " for tv: ",
+        tv->name(),
+        " domain: ",
+        tv->domain()->toString(0, false),
+        " parallel_type: ",
+        parallel_type);
 
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {

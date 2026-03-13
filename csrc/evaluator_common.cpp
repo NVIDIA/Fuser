@@ -229,6 +229,8 @@ void PrecomputedValues::bindValues(
     if (auto* tv = dynamic_cast<TensorView*>(input)) {
       const auto& tensor = args[i].as<at::Tensor>();
       if (!tensor.is_cpu()) {
+        debug() << "Binding T" << tv->name() << " to " << tensor.sizes()
+                << std::endl;
         bindTensorMetaData(tv, tensor);
       }
     } else {

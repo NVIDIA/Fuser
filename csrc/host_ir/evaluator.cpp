@@ -616,6 +616,12 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
   auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
   auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out);
+      rfactor_did_idx != -1) {
+    t_out = t_out.squeeze(rfactor_did_idx);
+  }
+
   at::matmul_out(t_out, t_a, t_b);
 }
 

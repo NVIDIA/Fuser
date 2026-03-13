@@ -361,6 +361,9 @@ void checkMemoryLeak(hir::HostIrContainer& hic) {
 void AllocateAndDeallocate::runPass(Fusion* fusion) {
   auto* hic = fusion->as<HostIrContainer>();
 
+  debug() << "AllocateAndDeallocate::runPass" << std::endl;
+  hic->print(debug());
+
   FusionGuard fg(hic);
   insertAllocations(*hic);
   insertDeallocations(*hic);

@@ -76,6 +76,13 @@ void shardAllocation(TensorView* tv) {
     return;
   }
 
+  // If allocation domain is sharded, consider it user specified and do not
+  // change it.
+  if (!std::ranges::is_permutation(
+          tv->getMaybeAllocationDomain(), tv->getLogicalDomain())) {
+    return;
+  }
+
   std::unordered_set<ParallelType> parallel_types(
       kParallelTypeDIDs.begin(), kParallelTypeDIDs.end());
   if (shouldParallelizeAllocationOnStream(tv)) {

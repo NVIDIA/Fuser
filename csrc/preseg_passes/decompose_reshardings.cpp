@@ -400,7 +400,6 @@ void rFactorLoopSplits(Fusion* fusion) {
           loop_id->parallelize(ParallelType::Serial);
         }
       }
-
       canonicalizeLoopDomain(local);
     }
   }
@@ -423,6 +422,13 @@ void DecomposeReshardingsPass::runPass(Fusion* fusion) {
     // Expect `e` to either be non-resharding or have lowerable to
     // communication.
     getCommunicationInfo(e);
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << std::endl
+            << "Fusion Transforms after " << name() << ":" << std::endl;
+    fusion->printTransforms();
+    debug() << std::endl;
   }
 }
 

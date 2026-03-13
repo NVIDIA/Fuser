@@ -187,10 +187,30 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
 }
 
 void ReplayTransformations::handle(Swizzle1D* swizzle1d) {
-  NVF_THROW(
-      "Swizzle1D replay not supported in ReplayTransformations, use ReplaySelf "
-      "instead: ",
-      swizzle1d->toString());
+  auto id_in = swizzle1d->in();
+
+  auto it = id_map_.find(id_in);
+  if (it == id_map_.end()) {
+    if (error_on_failure_) {
+      NVF_THROW("Transform traversal failed, dependencies not met.");
+    } else {
+      return;
+    }
+  }
+
+  auto mapped = it->second;
+  NVF_ERROR(
+      loop_ids_.find(mapped) != loop_ids_.end(),
+      "Transform traversal failed, modified a node but it was not a loop "
+      "node.");
+
+  auto out = IterDomain::swizzle1d(mapped, swizzle1d->parallelType());
+
+  loop_ids_.erase(mapped);
+
+  loop_ids_[out] = newCounter();
+
+  id_map_[swizzle1d->out()] = out;
 }
 
 void ReplayTransformations::handle(Resize* exp) {
