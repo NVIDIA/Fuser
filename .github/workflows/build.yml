@@ -42,13 +42,15 @@ jobs:
         working-directory: ${{ env.working_directory }}
         run: |
           tools/apt-install-things.sh &
-          tools/pip-install-things.sh &
+          (tools/pip-install-things.sh && tools/install-nixl.sh) &
           wait
           source tools/setup-env.sh
 
           export NVFUSER_BUILD_NO_CUTLASS=true
           export NVFUSER_BUILD_CPP_STANDARD=23
           export NVFUSER_BUILD_ENABLE_PCH=true
+          export NVFUSER_BUILD_WITH_NIXL=1
+          export NIXL_PREFIX=/tmp/nixl-prefix
           pip install -v -e ./python --no-build-isolation
       - name: Show ccache statistics
         if: always()
