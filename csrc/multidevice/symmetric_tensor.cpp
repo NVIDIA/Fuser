@@ -253,6 +253,11 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
 }
 
 SymmetricTensor::~SymmetricTensor() {
+  if (device_peer_ptrs_ != nullptr) {
+    cudaFree(device_peer_ptrs_);
+    device_peer_ptrs_ = nullptr;
+  }
+
 #if (CUDA_VERSION >= 13000)
   if (is_multicast_setup_) {
     if (mc_base_ptr_) {
@@ -387,6 +392,24 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
       at::TensorOptions()
           .dtype(local_tensor_.scalar_type())
           .device(at::kCUDA, rank));
+}
+
+void** SymmetricTensor::devicePeerPointers() const {
+  NVF_CHECK(are_remote_tensors_setup_ == true, "Remote tensors not setup");
+  if (device_peer_ptrs_ == nullptr) {
+    std::vector<void*> host_peer_ptrs(world_size_);
+    for (int64_t rank = 0; rank < world_size_; ++rank) {
+      host_peer_ptrs[rank] = reinterpret_cast<void*>(remote_ptrs_[rank]);
+    }
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaMalloc(&device_peer_ptrs_, world_size_ * sizeof(void*)));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        device_peer_ptrs_,
+        host_peer_ptrs.data(),
+        world_size_ * sizeof(void*),
+        cudaMemcpyHostToDevice));
+  }
+  return device_peer_ptrs_;
 }
 
 void* SymmetricTensor::multicastPtr() const {
