@@ -970,25 +970,10 @@ void alltoallvWithCudaBackend(
     const at::Tensor& send,
     const at::Tensor& recv,
     const AlltoallvMetadata& metadata,
-    const std::vector<void*>& recv_ptrs,
+    const at::Tensor& recv_ptrs_gpu,
     CUstream stream) {
   NVF_CHECK(send.is_cuda(), "alltoallv send must be CUDA.");
   NVF_CHECK(recv.is_cuda(), "alltoallv recv must be CUDA.");
-  NVF_CHECK(
-      (int64_t)recv_ptrs.size() == metadata.world_size,
-      "recv_ptrs size must match world size.");
-
-  auto cpu_options = at::TensorOptions().dtype(at::kLong).device(at::kCPU);
-  auto recv_ptrs_cpu = at::empty({metadata.world_size}, cpu_options);
-  auto* ptrs = recv_ptrs_cpu.data_ptr<int64_t>();
-  for (int64_t rank = 0; rank < metadata.world_size; ++rank) {
-    ptrs[rank] =
-        static_cast<int64_t>(reinterpret_cast<uintptr_t>(recv_ptrs[rank]));
-  }
-  auto recv_ptrs_cuda = recv_ptrs_cpu.to(send.device());
-
-  const int64_t elem_stride =
-      metadata.max_send_total > 0 ? send.numel() / metadata.max_send_total : 1;
   NVF_CHECK(
       metadata.max_send_total == 0 ||
           send.numel() % metadata.max_send_total == 0,
@@ -996,6 +981,9 @@ void alltoallvWithCudaBackend(
   NVF_CHECK(
       metadata.max_recv == 0 || recv.numel() % metadata.max_recv == 0,
       "alltoallv recv numel must be divisible by max_recv.");
+
+  const int64_t elem_stride =
+      metadata.max_send_total > 0 ? send.numel() / metadata.max_send_total : 1;
 
   auto send_offsets = metadata.send_offsets;
   auto send_counts = metadata.send_counts;
@@ -1010,7 +998,7 @@ void alltoallvWithCudaBackend(
 
   launchAlltoallvKernel(
       send.data_ptr(),
-      reinterpret_cast<const uint64_t*>(recv_ptrs_cuda.data_ptr<int64_t>()),
+      reinterpret_cast<const uint64_t*>(recv_ptrs_gpu.data_ptr<int64_t>()),
       send_offsets.data_ptr<int64_t>(),
       send_counts.data_ptr<int64_t>(),
       recv_offsets.data_ptr<int64_t>(),

@@ -251,6 +251,97 @@ class SymMemForContiguousView : public SymmetricMemoryHandle {
   at::Tensor tensor_;
 };
 
+// Combined symmetric memory state for alltoallv: holds both the sync
+// state (counts exchange + completion semaphores) and any number of
+// named recv buffers with their cached remote P2P pointers.
+//
+// One instance per alltoallv context (e.g. "moe_dispatch", "moe_combine").
+// The first call triggers a rendezvous (SymmetricTensor allocation +
+// setupRemoteHandles); steady-state calls are pure cache hits.
+class SymMemForAlltoallv : public SymmetricMemoryHandle {
+ public:
+  SymMemForAlltoallv(at::Device device, const std::string& tag);
+
+  ~SymMemForAlltoallv() override = default;
+
+  // --- Sync state: [3*W] int64 buffer per rank ---
+  //   [0 .. W-1]    send_counts (int64)
+  //   [W .. 2W-1]   counts_sem[peer] — per-pair semaphore for counts exchange
+  //   [2W .. 3W-1]  done_sem[peer] — per-pair semaphore for completion
+  //
+  // Per-pair semaphore protocol matching the allgather pattern in
+  // cuda_p2p.cpp. Each slot is written by exactly one rank per phase
+  // (signal by the peer, reset by the owner). Graph-capturable and
+  // correct for any number of ranks and unlimited replays.
+  const at::Tensor& syncBuffer() const {
+    return sync_buf_;
+  }
+  CUdeviceptr syncRemotePtr(int64_t rank) const {
+    return sync_ptrs_[rank];
+  }
+  int64_t worldSize() const {
+    return world_size_;
+  }
+  int64_t myRank() const {
+    return my_rank_;
+  }
+
+  // Counts exchange (split: caller reads data between wait and reset).
+  void signalCountsReady(CUstream stream);
+  void waitCountsReady(CUstream stream);
+  void resetCountsSem(CUstream stream);
+
+  // Completion barrier (signal + wait + reset in one call).
+  void doneBarrier(CUstream stream);
+
+  // --- Named recv buffers ---
+  struct RecvHandle {
+    at::Tensor buffer;
+    at::Tensor remote_ptrs; // CUDA [W] int64
+  };
+
+  //! Get or create a named recv buffer. If the cached buffer's first
+  //! dimension is already >= first_dim, returns the existing one.
+  //! Otherwise allocates + setupRemoteHandles (rendezvous).
+  const RecvHandle& recv(
+      const std::string& name,
+      int64_t first_dim,
+      at::IntArrayRef extra_sizes,
+      at::ScalarType dtype,
+      at::Device device);
+
+ private:
+  CUdeviceptr countsSemAddr(int64_t rank, int64_t slot) const {
+    return sync_ptrs_[rank] + (world_size_ + slot) * sizeof(int64_t);
+  }
+  CUdeviceptr doneSemAddr(int64_t rank, int64_t slot) const {
+    return sync_ptrs_[rank] + (2 * world_size_ + slot) * sizeof(int64_t);
+  }
+
+  void batchSignal(CUstream stream, cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+  void batchWait(CUstream stream, cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+  void batchReset(CUstream stream, cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+
+  // Sync
+  at::Tensor sync_buf_;
+  std::unique_ptr<SymmetricTensor> sync_sym_;
+  std::vector<CUdeviceptr> sync_ptrs_;
+  int64_t world_size_;
+  int64_t my_rank_;
+  std::string tag_;
+
+  // Recv buffers
+  struct RecvEntry {
+    std::unique_ptr<SymmetricTensor> sym;
+    RecvHandle handle;
+    int64_t cached_first_dim = 0;
+  };
+  std::unordered_map<std::string, RecvEntry> recv_entries_;
+};
+
 // Cache for symmetric memory handles keyed by (buffer tensor, expr)
 // Avoids recreating expensive VMM mappings and multicast handles
 class SymmetricMemoryHandleCache {
