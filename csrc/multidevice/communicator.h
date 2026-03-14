@@ -13,6 +13,7 @@
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Backend.hpp>
+#include <torch/csrc/distributed/c10d/Store.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
 #include <torch/csrc/distributed/c10d/Work.hpp>
 #else
@@ -123,6 +124,18 @@ class NVF_API Communicator {
   c10d::TCPStore* getTcpStore() {
     return store_.get();
   }
+
+#ifdef NVFUSER_DISTRIBUTED
+  // Returns the store as an intrusive_ptr for use with PyTorch symmetric
+  // memory (c10d::symmetric_memory::set_group_info).
+  c10::intrusive_ptr<c10d::Store> getStore() const;
+
+  // Returns the world backend as an intrusive_ptr so it can be registered with
+  // c10d::register_process_group (e.g. for PyTorch symmetric memory NCCL
+  // rendezvous, which resolves the group by name).
+  c10::intrusive_ptr<c10d::Backend> getWorldBackendIntrusivePtr(
+      std::optional<CommunicatorBackend> backend = std::nullopt);
+#endif
 
  private:
   Communicator(

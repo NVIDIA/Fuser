@@ -10,6 +10,10 @@
 #include <ATen/core/Tensor.h>
 #include <cuda.h>
 
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/symm_mem/SymmetricMemory.hpp>
+#endif
+
 namespace nvfuser {
 
 // SymmetricTensor wraps a local symmetric memory allocation and enables:
@@ -18,13 +22,14 @@ namespace nvfuser {
 // - Contiguous view creation across all ranks
 //
 // Design: Decouples local allocation from IPC handle exchange for better
-// interoperability and support for pre-allocated user buffers
+// interoperability and support for pre-allocated user buffers.
 //
-// TODO: Long term plan is to integrate pytorch's native symmetric memory as a
-// possible backend. One important reason to use pytorch's allocator is to use
-// pytorch's memory pool to let the framework own the memory stack and not
-// further fragment the memory. On the other hand, having our own implementation
-// allows us to experiment more advanced features like contigous view creation.
+// Backends (see SymmetricMemoryBackend in ipc_utils.h):
+// - Native (default): Fuser's own CUDA VMM + IPC implementation; maintained.
+// - PyTorch (Nccl, Nvshmem, Cuda): Use PyTorch's symmetric memory
+//   (torch.distributed._symmetric_memory) with the chosen transport backend.
+//   Select via NVFUSER_ENABLE=symmetric_memory_backend(pytorch_nccl|pytorch_nvshmem|pytorch_cuda).
+//   Native remains the default when the option is not set.
 class SymmetricTensor {
  public:
   // Wrap pre-allocated symmetric tensor (must use allocate())
@@ -79,6 +84,10 @@ class SymmetricTensor {
   int peer_fd_{-1};
   bool is_contiguous_view_setup_ = false;
   at::Tensor contiguous_view_;
+#ifdef NVFUSER_DISTRIBUTED
+  // When set, remote/multicast APIs delegate to PyTorch symmetric memory.
+  c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory> py_symm_handle_;
+#endif
 };
 
 } // namespace nvfuser
