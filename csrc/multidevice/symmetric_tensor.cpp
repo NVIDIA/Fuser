@@ -15,9 +15,50 @@
 #include "multidevice/ipc_utils.h"
 #include "multidevice/utils.h"
 
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/symm_mem/SymmetricMemory.hpp>
+#include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
+#endif
+
 namespace nvfuser {
 
 namespace {
+
+#ifdef NVFUSER_DISTRIBUTED
+const char* kPyTorchSymmMemGroupName = "nvfuser_symm";
+
+void ensurePyTorchSymmMemBackend(SymmetricMemoryBackend backend) {
+  static std::once_flag once;
+  std::call_once(once, [backend]() {
+    const char* name = nullptr;
+    switch (backend) {
+      case SymmetricMemoryBackend::PyTorchNccl:
+        name = "NCCL";
+        break;
+      case SymmetricMemoryBackend::PyTorchNvshmem:
+        name = "NVSHMEM";
+        break;
+      case SymmetricMemoryBackend::PyTorchCuda:
+        name = "CUDA";
+        break;
+      default:
+        NVF_ERROR(false, "Unexpected PyTorch symmetric memory backend");
+    }
+    c10d::symmetric_memory::set_backend(name);
+    Communicator& comm = Communicator::getInstance();
+    NVF_CHECK(comm.is_available(), "Communicator not available for symmetric memory");
+    c10d::symmetric_memory::set_group_info(
+        kPyTorchSymmMemGroupName,
+        static_cast<int>(comm.deviceId()),
+        static_cast<int>(comm.size()),
+        comm.getStore());
+    // c10d::register_process_group(
+    //   kPyTorchSymmMemGroupName,
+    //   comm.getWorldBackendIntrusivePtr(CommunicatorBackend::kNccl));
+  });
+}
+#endif
+
 
 // Returns the allocation granularity for symmetric memory.
 // - query_mcast_granularity: if true, considers multicast granularity
@@ -88,6 +129,39 @@ at::Tensor SymmetricTensor::allocate(
     at::IntArrayRef sizes,
     at::ScalarType dtype,
     at::Device device) {
+  SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
+
+#ifdef NVFUSER_DISTRIBUTED
+  if (backend != SymmetricMemoryBackend::Native) {
+    ensurePyTorchSymmMemBackend(backend);
+    std::vector<int64_t> strides(sizes.size());
+    strides.back() = 1;
+    for (int64_t i = (int64_t)strides.size() - 2; i >= 0; --i) {
+      strides[i] = strides[i + 1] * sizes[i + 1];
+    }
+    // NCCLSymmetricMemoryAllocator::alloc must not be called with a group_name.
+    c10::optional<std::string> alloc_group_name =
+        (backend == SymmetricMemoryBackend::PyTorchNccl)
+        ? c10::nullopt
+        : c10::optional<std::string>(kPyTorchSymmMemGroupName);
+    return c10d::symmetric_memory::empty_strided_p2p(
+        sizes,
+        strides,
+        dtype,
+        device,
+        alloc_group_name,
+        c10::nullopt);
+  }
+#else
+  if (backend != SymmetricMemoryBackend::Native) {
+    NVF_ERROR(
+        false,
+        "PyTorch symmetric memory backend requires a build with "
+        "NVFUSER_DISTRIBUTED. Use NVFUSER_ENABLE=symmetric_memory_backend(native) "
+        "or do not set symmetric_memory_backend.");
+  }
+#endif
+
   int is_vmm_supported;
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
       &is_vmm_supported,
@@ -212,6 +286,18 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
       "Expected CUDA tensor, got: ",
       local_tensor.device());
 
+#ifdef NVFUSER_DISTRIBUTED
+  SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
+  if (backend != SymmetricMemoryBackend::Native) {
+    ensurePyTorchSymmMemBackend(backend);
+    Communicator& comm = Communicator::getInstance();
+    world_size_ = comm.size();
+    my_device_id_ = comm.deviceId();
+    requested_size_ = local_tensor.numel() * local_tensor.element_size();
+    return; // Rendezvous runs in setupRemoteHandles()
+  }
+#endif
+
   std::string error = SymmetricTensor::validate(local_tensor);
   NVF_CHECK(error.empty(), "Invalid symmetric allocation: ", error);
 
@@ -253,6 +339,11 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
 }
 
 SymmetricTensor::~SymmetricTensor() {
+#ifdef NVFUSER_DISTRIBUTED
+  if (py_symm_handle_) {
+    return; // PyTorch backend: no native VMM cleanup
+  }
+#endif
 #if (CUDA_VERSION >= 13000)
   if (is_multicast_setup_) {
     if (mc_base_ptr_) {
@@ -302,6 +393,20 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   if (are_remote_tensors_setup_ == true) {
     return;
   }
+#ifdef NVFUSER_DISTRIBUTED
+  // PyTorch backend: perform rendezvous here (lazy, on first setupRemoteHandles).
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
+    ensurePyTorchSymmMemBackend(getSymmetricMemoryBackend());
+    py_symm_handle_ = c10d::symmetric_memory::rendezvous(
+        local_tensor_, c10::optional<std::string>(kPyTorchSymmMemGroupName));
+    are_remote_tensors_setup_ = true;
+    if (py_symm_handle_->has_multicast_support()) {
+      is_multicast_setup_ = true;
+      mc_ptr_ = py_symm_handle_->get_multicast_ptr();
+    }
+    return;
+  }
+#endif
   Communicator& comm = Communicator::getInstance();
   CUmemGenericAllocationHandle local_handle = alloc_handles_[my_device_id_];
   CUdeviceptr local_ptr = remote_ptrs_[my_device_id_];
@@ -379,6 +484,13 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
     return local_tensor_;
   }
 
+#ifdef NVFUSER_DISTRIBUTED
+  if (py_symm_handle_) {
+    return py_symm_handle_->get_remote_tensor(
+        rank, local_tensor_.sizes(), local_tensor_.scalar_type());
+  }
+#endif
+
   NVF_CHECK(are_remote_tensors_setup_ == true, "Remote tensors not setup");
   return at::from_blob(
       reinterpret_cast<void*>(remote_ptrs_[rank]),
@@ -390,6 +502,13 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
 }
 
 void* SymmetricTensor::multicastPtr() const {
+#ifdef NVFUSER_DISTRIBUTED
+  if (py_symm_handle_) {
+    return py_symm_handle_->has_multicast_support()
+        ? py_symm_handle_->get_multicast_ptr()
+        : nullptr;
+  }
+#endif
   NVF_CHECK(is_multicast_setup_, "Multicast not setup");
   return mc_ptr_;
 }
@@ -398,7 +517,14 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
   if (is_contiguous_view_setup_) {
     return;
   }
-
+#ifdef NVFUSER_DISTRIBUTED
+  if (py_symm_handle_) {
+    NVF_ERROR(
+        false,
+        "Contiguous view is not yet supported for PyTorch symmetric memory backend. "
+        "Use native backend for SymmetricContiguousView.");
+  }
+#endif
   NVF_CHECK(
       are_remote_tensors_setup_ == true,
       "Remote tensors must be setup before setupContiguousView");
@@ -462,6 +588,13 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
 }
 
 at::Tensor SymmetricTensor::getContiguousView() const {
+#ifdef NVFUSER_DISTRIBUTED
+  if (py_symm_handle_) {
+    NVF_ERROR(
+        false,
+        "Contiguous view is not yet supported for PyTorch symmetric memory backend.");
+  }
+#endif
   NVF_CHECK(is_contiguous_view_setup_, "Contiguous view not setup");
   return contiguous_view_;
 }
@@ -469,6 +602,11 @@ at::Tensor SymmetricTensor::getContiguousView() const {
 void SymmetricTensor::setupMulticast(
     int64_t exporter_rank,
     const std::string& tag) {
+#ifdef NVFUSER_DISTRIBUTED
+  if (py_symm_handle_) {
+    return; // PyTorch backend: multicast handled by backend if supported
+  }
+#endif
 #if (CUDA_VERSION >= 13000)
   if (is_multicast_setup_) {
     return;

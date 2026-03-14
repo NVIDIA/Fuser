@@ -126,6 +126,8 @@ enum class EnableOption {
   P2pProtocol, //! Prescribe P2P protocol: put|get
   MulticastProtocol, //! Prescribe multicast protocol:
                      //! memcpy|multimem|batch_memcpy
+  SymmetricMemoryBackend, //! Prescribe symmetric memory backend:
+                          //! native|pytorch_nccl|pytorch_nvshmem|pytorch_cuda
   ParallelSerde, //! Enable deserializing FusionExecutorCache in parallel
   EndOfOption //! Placeholder for counting the number of elements
 };
