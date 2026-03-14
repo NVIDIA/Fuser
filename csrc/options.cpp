@@ -40,7 +40,7 @@ auto parseEnvOptions(
             available_options.end(),
             std::back_inserter(option_values),
             [](const auto& kv) { return kv.first; });
-        std::sort(option_values.begin(), option_values.end());
+        std::ranges::sort(option_values);
         NVF_CHECK(
             false,
             "Parsing ",
@@ -174,6 +174,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"tma_pointwise", EnableOption::TmaPointwise},
           {"tma_inner_persistent", EnableOption::TmaInnerPersistent},
           {"tma_reduction", EnableOption::TmaReduction},
+          {"tma_transpose", EnableOption::TmaTranspose},
           {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
           {"host_ir_jit", EnableOption::HostIrJit},
