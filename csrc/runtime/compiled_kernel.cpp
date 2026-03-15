@@ -89,7 +89,6 @@
 #include "runtime/allocations.h"
 #include "runtime/executor_kernel_arg.h"
 #include "runtime/executor_utils.h"
-#include "serde/utils.h"
 #include "tensor_metadata.h"
 
 namespace nvfuser {
@@ -844,97 +843,6 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
   return compiled_kernel;
 }
 
-std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
-    const serde::CudaKernel* buffer,
-    const CompileParams& compile_params) {
-  FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
-
-  NVF_ERROR(buffer != nullptr, "serde::CudaKernel is nullptr.");
-
-  // Deserialize flatbuffer into CudaExecutable
-  auto compiled_kernel = std::make_unique<executor_utils::CudaExecutable>();
-  compiled_kernel->kernel_name = buffer->kernel_name()->str();
-  compiled_kernel->compile_args = buffer->compile_args()->str();
-  compiled_kernel->block_size = buffer->block_size();
-
-  if (buffer->cubin() != nullptr) {
-    compiled_kernel->cubin.reserve(buffer->cubin()->size());
-    std::copy(
-        buffer->cubin()->begin(),
-        buffer->cubin()->end(),
-        std::back_inserter(compiled_kernel->cubin));
-    compiled_kernel->cubin_filename = buffer->cubin_filename()->str();
-  }
-
-  if (buffer->ptx() != nullptr) {
-    compiled_kernel->ptx.reserve(buffer->ptx()->size());
-    std::copy(
-        buffer->ptx()->begin(),
-        buffer->ptx()->end(),
-        std::back_inserter(compiled_kernel->ptx));
-    compiled_kernel->ptx_filename = buffer->ptx_filename()->str();
-  }
-
-  executor_utils::initializeCudaContext();
-
-  const auto prop = at::cuda::getCurrentDeviceProperties();
-
-  // Generate compile args and compare against saved args in compiled_kernel
-  NvrtcCompileDriver nvrtc_compile_driver;
-  CuModuleLoadDataDriver module_load_driver;
-
-  int64_t major = 0, minor = 0;
-  bool compile_to_sass = false;
-  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
-
-  std::optional<int64_t> opt_block_size;
-  if (compiled_kernel->block_size >= -1) {
-    opt_block_size = compiled_kernel->block_size;
-  }
-
-  fillCompileOptions(
-      nvrtc_compile_driver,
-      module_load_driver,
-      compile_to_sass,
-      major,
-      minor,
-      compile_params,
-      opt_block_size);
-
-  const auto latest_compile_args =
-      toDelimitedString(nvrtc_compile_driver.options(), " ");
-  NVF_ERROR(
-      latest_compile_args == compiled_kernel->compile_args,
-      "The compile arguments for the serialized cuda kernel does not ",
-      "match the latest generated compile args.\t",
-      latest_compile_args,
-      "\t",
-      compiled_kernel->compile_args);
-
-  NVF_ERROR(
-      !compile_to_sass || !compiled_kernel->cubin.empty(),
-      "Expected compiled cubin after deserializing CudaExecutable.");
-
-  NVF_ERROR(
-      compile_to_sass || !compiled_kernel->ptx.empty(),
-      "Expected compiled ptx after deserializing CudaExecutable.");
-
-  std::stringstream log;
-  log << module_load_driver.invoke(
-             compiled_kernel->module,
-             (compile_to_sass ? compiled_kernel->cubin.data()
-                              : compiled_kernel->ptx.data()))
-      << std::endl;
-  compiled_kernel->compile_log = log.str();
-
-  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
-      &(compiled_kernel->function),
-      compiled_kernel->module,
-      compiled_kernel->kernel_name.c_str()));
-
-  return compiled_kernel;
-}
-
 static const char* defineIndexType(PrimDataType index_type) {
   if (index_type == DataType::Int32) {
     return "typedef int nvfuser_index_t;\n";
@@ -1554,28 +1462,6 @@ float RtcKernel::run(
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 
   return kernel_time_ms;
-}
-
-void CompiledKernel::deserialize(const serde::KernelExecutor* buffer) {
-  // Initialize CompileOptions
-  c10::DeviceGuard dg(device_);
-
-  // Initialize internal fields
-  maxrregcount_high_watermark_ = buffer->maxrregcount_high_watermark();
-  warp_size_ = buffer->warp_size();
-  kernel_code_ = buffer->kernel_code()->str();
-
-  // KernelDB query checks kernel_code string and compile_params before
-  // copying cubin.
-  compile_params_.index_type = serde::mapToNvfuserDtype(buffer->index_type());
-  compile_params_.maxrregcount = maxrregcount_high_watermark_;
-
-  // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
-  createKernelId();
-  setUsedTVs();
-
-  compiled_kernel_ =
-      getCudaExecutable(buffer->compiled_kernel(), compile_params_);
 }
 
 void CompiledKernel::setUsedTVs() {

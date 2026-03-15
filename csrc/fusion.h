@@ -68,8 +68,7 @@ class KernelArgumentHolder;
 
 class DynamicTransformConcretizationInfo;
 
-// Set the enum base to `int` so it can be safely serialized as a part of
-// serde::InputOutputAlias.
+// Set the enum base to `int` for stable representation.
 enum class AllocationType : int {
   New, // Allocate a new buffer
   // Reuse the buffer allocated to `aliased_io`. For example, the tensor storing

@@ -17,7 +17,6 @@
 
 #include "base.h"
 #include "exceptions.h"
-#include "serde/fusion_cache_generated.h"
 #include "type.h"
 #include "visibility.h"
 
@@ -203,13 +202,6 @@ class NVF_API KernelArgumentHolder {
   }
 
   std::string toString() const;
-
-  //! Serialize Kernel Argument Holder using flatbuffers
-  flatbuffers::Offset<serde::KernelArgumentHolder> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Kernel Argument Holder using flatbuffers
-  void deserialize(const serde::KernelArgumentHolder* buffer);
 
  private:
   void setCommonDevice();

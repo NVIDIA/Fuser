@@ -11,7 +11,6 @@
 #include <c10/core/DeviceType.h>
 
 #include "exceptions.h"
-#include "serde/fusion_cache_generated.h"
 #include "type.h"
 #include "visibility.h"
 
@@ -179,13 +178,6 @@ class LaunchParams {
   NVF_API void print() const;
 
   NVF_API std::string toString() const;
-
-  //! Serialize LaunchParams using flatbuffers
-  flatbuffers::Offset<serde::LaunchParams> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize LaunchParams using flatbuffers
-  void deserialize(const serde::LaunchParams* buffer);
 
  private:
   // Spell them out because I want signed ints to know if they were initialized

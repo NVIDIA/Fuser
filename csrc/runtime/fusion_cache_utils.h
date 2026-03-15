@@ -19,7 +19,6 @@
 #include "fusion_segmenter.h"
 #include "runtime/executor.h"
 #include "scheduler/heuristic.h"
-#include "serde/fusion_cache_generated.h"
 
 namespace nvfuser {
 
@@ -184,13 +183,6 @@ class InputsIdLookup : public NonCopyable {
   size_t size() const {
     return encoding_lookup_.size();
   }
-
-  //! Serialize InputsIdLookup using flatbuffers
-  flatbuffers::Offset<serde::InputsIdLookup> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize InputsIdLookup using flatbuffers
-  void deserialize(const serde::InputsIdLookup* buffer);
 
  private:
   // string to store encoded input meta information. Reuse the buffer instead of
