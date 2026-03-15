@@ -269,8 +269,8 @@ std::string ValGraph::toString() const {
   ss << "IdGraph { \n";
   ss << "Disjoint Ids:\n"
      << idGroupsString(*this, 1) << "\n\nDisjoint Expression groups:\n"
-     << exprGroupsString(*this, 1) << std::endl;
-  ss << " } IdGraph\n" << std::endl;
+     << exprGroupsString(*this, 1) << '\n';
+  ss << " } IdGraph\n";
   return ss.str();
 }
 
