@@ -3326,7 +3326,7 @@ TEST_F(IdModelTest, ReproIssue5803Minimal) {
   IdModel id_model(&fusion, true);
 }
 
-TEST_F(IdModelTest, SplitingReshape_Mapped) {
+TEST_F(IdModelTest, SplittingReshape_Mapped) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
