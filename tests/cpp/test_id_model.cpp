@@ -3326,7 +3326,7 @@ TEST_F(IdModelTest, ReproIssue5803Minimal) {
   IdModel id_model(&fusion, true);
 }
 
-TEST_F(IdModelTest, SplitingReshape) {
+TEST_F(IdModelTest, SplitingReshape_Mapped) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3348,7 +3348,7 @@ TEST_F(IdModelTest, SplitingReshape) {
       in->axis(1), out->axis(2)));
 }
 
-TEST_F(IdModelTest, SplitingReshape_DifferentExtents) {
+TEST_F(IdModelTest, SplitingReshape_DifferentExtents_NotMapped) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3359,6 +3359,25 @@ TEST_F(IdModelTest, SplitingReshape_DifferentExtents) {
 
   in->outer_split(0, 2);
   out->outer_split(0, 3);
+
+  IdModel id_model(&fusion);
+  const ValGraph& almost_exact_graph = id_model.buildAlmostExactGraph();
+  EXPECT_FALSE(almost_exact_graph.disjointValSets().strictAreMapped(
+      in->axis(0), out->axis(0)));
+}
+
+TEST_F(IdModelTest, NonDivisibleSplits_NotMapped) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({6});
+  fusion.addInput(in);
+  TensorView* out = set(in);
+  fusion.addOutput(out);
+
+  in->outer_split(0, 2);
+  out->inner_split(0, 4);
+  out->outer_split(0, 2);
 
   IdModel id_model(&fusion);
   const ValGraph& almost_exact_graph = id_model.buildAlmostExactGraph();
