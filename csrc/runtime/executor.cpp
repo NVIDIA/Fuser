@@ -196,9 +196,8 @@ void KernelExecutor::compile(
   //! Force index_type to int and disable magic zero if we detect that the
   //! kernel contains any TMA memory operations.
   std::vector<Expr*> exprs = fusion->exprs();
-  bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-    return ir_utils::isCpAsyncBulk(e);
-  });
+  bool has_cp_async_bulk = std::ranges::any_of(
+      exprs, [](Expr* e) { return ir_utils::isCpAsyncBulk(e); });
 
   // Disable magic zero if there are any TMA operations in Fusion
   if (has_cp_async_bulk) {
@@ -485,7 +484,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
     if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
       debug() << "reduction_broadcast_workspace shared memory bytes: "
-              << reduction_broadcast_workspace << std::endl;
+              << reduction_broadcast_workspace << '\n';
     }
   }
 
@@ -621,17 +620,17 @@ void dumpFusionArgs(
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
     const KernelArgumentHolder& outputs) {
-  debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
-          << "Inputs:" << std::endl;
+  debug() << "Arguments for fusion" << fusion_id << ":" << '\n'
+          << "Inputs:" << '\n';
   for (auto i : arange(args.size())) {
-    debug() << "  " << args[i] << std::endl;
+    debug() << "  " << args[i] << '\n';
   }
-  debug() << "Outputs:" << std::endl;
+  debug() << "Outputs:" << '\n';
   for (const auto& output : outputs) {
-    debug() << PolymorphicValue_functions::toString(output) << std::endl;
+    debug() << PolymorphicValue_functions::toString(output) << '\n';
   }
   debug() << launch_constraints.toString();
-  debug() << "maxrregcount= " << compile_params.maxrregcount << std::endl;
+  debug() << "maxrregcount= " << compile_params.maxrregcount << '\n';
 }
 
 // Dump arguments that are passed to a CUDA kernel call, which include
@@ -649,24 +648,23 @@ void dumpKernelArgs(
     const std::vector<GlobalBufferInfo>& intermediates_info) {
   using namespace PolymorphicValue_functions;
   debug() << "Arguments for fusion " << fusion_id << " group " << group_id
-          << ":" << std::endl
-          << "Inputs:" << std::endl;
+          << ":" << '\n'
+          << "Inputs:" << '\n';
   for (auto i : arange(num_inputs)) {
-    debug() << "  " << toString(args[i]) << std::endl;
+    debug() << "  " << toString(args[i]) << '\n';
   }
-  debug() << "Outputs:" << std::endl;
+  debug() << "Outputs:" << '\n';
   // note: add aliased outputs here.
   for (const auto& output : allocated_outputs) {
-    debug() << "  " << PolymorphicValue_functions::toString(output)
-            << std::endl;
+    debug() << "  " << PolymorphicValue_functions::toString(output) << '\n';
   }
-  debug() << "Intermediate global buffers:" << std::endl;
+  debug() << "Intermediate global buffers:" << '\n';
   for (const auto i : arange(intermediates.size())) {
     const auto& zero_init = intermediates_info.at(i).zero_init;
     const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
     debug() << "  " << PolymorphicValue_functions::toString(intermediates[i])
             << " is_zero_initialized: " << zero_init
-            << " resets_to_zero: " << resets_to_zero << std::endl;
+            << " resets_to_zero: " << resets_to_zero << '\n';
   }
 }
 
@@ -749,12 +747,12 @@ void KernelExecutor::initializeExecutorEntry(
     shape_info.allocation_sizes = alloc_sizes;
     shape_info.allocation_strides = alloc_strides;
     GlobalBufferInfo info{
-        input_tv,
-        shape_info,
-        data_type_to_aten(input_tv->dtype()),
-        false,
-        false,
-        false};
+        .tv = input_tv,
+        .shape_info = shape_info,
+        .type = data_type_to_aten(input_tv->dtype()),
+        .zero_init = false,
+        .resets_to_zero = false,
+        .is_profile_buffer = false};
     input_info.emplace_back(info);
   }
 
@@ -1056,10 +1054,13 @@ KernelArgumentHolder KernelExecutor::run(
   // Placeholder for the case where parameter cache is not used
   KernelExecutorEntry temporary_executor_entry;
 
-  KernelExecutorEntry* executor_entry = args.getCacheId().has_value() &&
-          !compiled_kernel_->launchParamCacheDisabled()
-      ? &executor_entry_lookup_[*args.getCacheId()]
-      : &temporary_executor_entry;
+  KernelExecutorEntry* executor_entry = nullptr;
+  if (args.getCacheId().has_value() &&
+      !compiled_kernel_->launchParamCacheDisabled()) {
+    executor_entry = &executor_entry_lookup_[args.getCacheId().value()];
+  } else {
+    executor_entry = &temporary_executor_entry;
+  }
 
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
@@ -1120,9 +1121,8 @@ KernelArgumentHolder KernelExecutor::run(
       }
     }
     NVF_ERROR(
-        std::all_of(
-            output_args.begin(),
-            output_args.end(),
+        std::ranges::all_of(
+            output_args,
             [](const PolymorphicValue& arg) {
               return arg.hasValue() && arg.is<at::Tensor>();
             }),
@@ -1231,7 +1231,7 @@ KernelArgumentHolder KernelExecutor::run(
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
     debug() << "Index type: " << compiled_kernel_->kernel()->indexType()
-            << std::endl;
+            << '\n';
   }
 
   if (execute_kernel_ && !compiled_kernel_->kernel()->topLevelExprs().empty()) {
@@ -1264,7 +1264,7 @@ KernelArgumentHolder KernelExecutor::run(
       debug() << "num_sms=" << prop->multiProcessorCount
               << ", blocks_per_sm=" << blocks_per_sm
               << ", warps_per_sm=" << warps_per_sm
-              << ", occupancy=" << oss.str() << std::endl;
+              << ", occupancy=" << oss.str() << '\n';
     }
 
     const auto& kernel_summary = compiled_kernel_->kernel()->summary();
@@ -1318,7 +1318,7 @@ KernelArgumentHolder KernelExecutor::run(
         launch_attributes.push_back(attribute);
       }
 
-      if (launch_attributes.size() > 0) {
+      if (!launch_attributes.empty()) {
         config.attrs = launch_attributes.data();
         config.numAttrs = (unsigned int)launch_attributes.size();
       } else {

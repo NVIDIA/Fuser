@@ -11,6 +11,7 @@
 #include <visibility.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -22,7 +23,7 @@ namespace nvfuser {
 //!
 //! These can be set through the `NVFUSER_DUMP` environment variable
 //!
-enum class DebugDumpOption {
+enum class DebugDumpOption : std::uint8_t {
   CutlassCompile, //!< Dump compile commands and compile times for
                   //!< CutlassExecutor
   FunctionTrace, //!< Dump the function trace of selected internal function. The
@@ -97,7 +98,7 @@ enum class DebugDumpOption {
 //!
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
-enum class EnableOption {
+enum class EnableOption : std::uint8_t {
   CutlassScheduler, //! Enable the CUTLASS scheduler and executor
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
@@ -133,7 +134,7 @@ enum class EnableOption {
 //!
 //! These can be set through the `NVFUSER_DISABLE` environment variable
 //!
-enum class DisableOption {
+enum class DisableOption : std::uint8_t {
   CompileToSass, //! Disable direct compilation to sass so the ptx can be
                  //! examined
   ContigIndexing, //! Disable contiguous indexing
@@ -175,7 +176,7 @@ enum class DisableOption {
 //!
 //! These can be set through the `NVFUSER_PROF` environment variable
 //!
-enum class ProfilerOption {
+enum class ProfilerOption : std::uint8_t {
   Enable, //! Enables the profiler.
   EnableNocupti, //! Enables the profiler, but disables CUPTI specific
                  //! profiling inorder to measure true host time without
@@ -196,8 +197,9 @@ class Options {
  public:
   Options() : options_(getOptionsFromEnv()) {}
 
-  Options(const Options& other) {
+  Options(const Options& other) : options_() {
     std::lock_guard<std::mutex> lock_other(other.mutex_);
+    // NOLINTNEXTLINE(cppcoreguidelines-prefer-member-initializer)
     options_ = other.options_;
   }
 

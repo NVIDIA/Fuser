@@ -105,9 +105,9 @@ class ArgumentManager {
     ss << "ArgumentManager {";
     for (const auto& [key, value] : tensor_map_) {
       ss << "  " << key->toString() << " : "
-         << PolymorphicValue_functions::toString(value) << std::endl;
+         << PolymorphicValue_functions::toString(value) << '\n';
     }
-    ss << "}" << std::endl;
+    ss << "}" << '\n';
     return ss.str();
   }
 
