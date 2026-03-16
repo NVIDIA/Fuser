@@ -11,9 +11,19 @@
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
 
+#if defined(NVFUSER_DISTRIBUTED) && \
+    __has_include(<torch/csrc/distributed/c10d/GroupRegistry.hpp>) && \
+    __has_include(<torch/csrc/distributed/c10d/ProcessGroup.hpp>)
+#define NVFUSER_CAN_REGISTER_C10D_PROCESS_GROUP 1
+#else
+#define NVFUSER_CAN_REGISTER_C10D_PROCESS_GROUP 0
+#endif
+
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Backend.hpp>
-#include <torch/csrc/distributed/c10d/Store.hpp>
+#if NVFUSER_CAN_REGISTER_C10D_PROCESS_GROUP
+#include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
+#endif
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
 #include <torch/csrc/distributed/c10d/Work.hpp>
 #else
@@ -111,6 +121,10 @@ class NVF_API Communicator {
   c10d::Backend* getWorld(
       std::optional<CommunicatorBackend> backend = std::nullopt);
 
+  // Returns the world process-group name for the given backend.
+  std::string getSymmMemGroupKey(
+    std::optional<CommunicatorBackend> backend = std::nullopt);
+
   // returns if a backend is available for creation
   bool isBackendAvailable(CommunicatorBackend backend) const {
     if (backend == CommunicatorBackend::kUcc) {
@@ -125,17 +139,9 @@ class NVF_API Communicator {
     return store_.get();
   }
 
-#ifdef NVFUSER_DISTRIBUTED
-  // Returns the store as an intrusive_ptr for use with PyTorch symmetric
-  // memory (c10d::symmetric_memory::set_group_info).
-  c10::intrusive_ptr<c10d::Store> getStore() const;
-
-  // Returns the world backend as an intrusive_ptr so it can be registered with
-  // c10d::register_process_group (e.g. for PyTorch symmetric memory NCCL
-  // rendezvous, which resolves the group by name).
-  c10::intrusive_ptr<c10d::Backend> getWorldBackendIntrusivePtr(
-      std::optional<CommunicatorBackend> backend = std::nullopt);
-#endif
+  c10::intrusive_ptr<c10d::Store> getStore() const {
+    return c10::intrusive_ptr<c10d::Store>(store_);
+  }
 
  private:
   Communicator(
@@ -166,6 +172,11 @@ class NVF_API Communicator {
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
+#if NVFUSER_CAN_REGISTER_C10D_PROCESS_GROUP
+  // c10d process-group wrappers registered for symmetric-memory rendezvous.
+  std::unordered_map<std::string, c10::intrusive_ptr<c10d::ProcessGroup>>
+      process_groups_;
+#endif
 };
 
 } // namespace nvfuser

@@ -14,7 +14,13 @@
 #include <numeric>
 
 #ifdef NVFUSER_DISTRIBUTED
+#if NVFUSER_CAN_REGISTER_C10D_PROCESS_GROUP
+#include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
+#endif
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
+#if NVFUSER_CAN_REGISTER_C10D_PROCESS_GROUP
+#include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
+#endif
 #include <torch/csrc/distributed/c10d/exception.h>
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
@@ -363,6 +369,12 @@ void Communicator::cleanup() {
     }
   }
 #endif
+#if NVFUSER_CAN_REGISTER_C10D_PROCESS_GROUP
+  for (const auto& entry : process_groups_) {
+    c10d::unregister_process_group(entry.first);
+  }
+  process_groups_.clear();
+#endif
   backends_.clear();
 }
 
@@ -403,6 +415,28 @@ c10d::Backend* Communicator::getBackendForTeam(
 #else
     backends_[team_key] = nullptr;
 #endif
+#if NVFUSER_CAN_REGISTER_C10D_PROCESS_GROUP
+    std::optional<c10d::ProcessGroup::BackendType> pg_backend =
+    (b == CommunicatorBackend::kNccl)
+        ? std::optional<c10d::ProcessGroup::BackendType>(
+              c10d::ProcessGroup::BackendType::NCCL)
+        : std::nullopt;
+    if (backends_[team_key] != nullptr && pg_backend.has_value()) {
+      auto rank_it = std::find(team.begin(), team.end(), deviceId());
+      RankType team_rank = std::distance(team.begin(), rank_it);
+
+      auto pg = c10::make_intrusive<c10d::ProcessGroup>(
+          c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
+          team_rank,
+          static_cast<int>(team.size()));
+      pg->setBackend(c10::DeviceType::CUDA, *pg_backend, backends_[team_key]);
+      pg->setDefaultBackend(*pg_backend);
+      pg->setGroupName(team_key);
+
+      c10d::register_process_group(team_key, pg);
+      process_groups_[team_key] = std::move(pg);
+    }
+#endif
   }
   return backends_.at(team_key).get();
 }
@@ -424,21 +458,14 @@ void Communicator::barrier(std::optional<CommunicatorBackend> backend) {
   getWorld(backend)->barrier(options)->wait();
 }
 
-#ifdef NVFUSER_DISTRIBUTED
-c10::intrusive_ptr<c10d::Store> Communicator::getStore() const {
-  return c10::intrusive_ptr<c10d::Store>(store_);
+std::string Communicator::getSymmMemGroupKey(
+  std::optional<CommunicatorBackend> backend) {
+std::vector<RankType> all_ranks(size_);
+std::iota(all_ranks.begin(), all_ranks.end(), 0);
+CommunicatorBackend b = backend.value_or(default_backend_);
+(void)getBackendForTeam(all_ranks, b, "symm_mem_");
+return getTeamKey(all_ranks, b);
 }
-
-c10::intrusive_ptr<c10d::Backend> Communicator::getWorldBackendIntrusivePtr(
-    std::optional<CommunicatorBackend> backend) {
-  std::vector<RankType> all_ranks(size_);
-  std::iota(all_ranks.begin(), all_ranks.end(), 0);
-  CommunicatorBackend b = backend.value_or(default_backend_);
-  std::string team_key = getTeamKey(all_ranks, b);
-  (void)getBackendForTeam(all_ranks, backend, "");
-  return backends_.at(team_key);
-}
-#endif
 
 } // namespace nvfuser
 

@@ -28,7 +28,7 @@ namespace nvfuser {
 // - Native (default): Fuser's own CUDA VMM + IPC implementation; maintained.
 // - PyTorch (Nccl, Nvshmem, Cuda): Use PyTorch's symmetric memory
 //   (torch.distributed._symmetric_memory) with the chosen transport backend.
-//   Select via NVFUSER_ENABLE=symmetric_memory_backend(pytorch_nccl|pytorch_nvshmem|pytorch_cuda).
+//   Select via NVFUSER_ENABLE=symmetric_memory_backend(native|pytorch_nccl|pytorch_nvshmem|pytorch_cuda).
 //   Native remains the default when the option is not set.
 class SymmetricTensor {
  public:
@@ -85,8 +85,7 @@ class SymmetricTensor {
   bool is_contiguous_view_setup_ = false;
   at::Tensor contiguous_view_;
 #ifdef NVFUSER_DISTRIBUTED
-  // When set, remote/multicast APIs delegate to PyTorch symmetric memory.
-  c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory> py_symm_handle_;
+  c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory> torch_symm_handle_;
 #endif
 };
 
