@@ -1057,7 +1057,7 @@ KernelArgumentHolder KernelExecutor::run(
   KernelExecutorEntry* executor_entry = nullptr;
   if (args.getCacheId().has_value() &&
       !compiled_kernel_->launchParamCacheDisabled()) {
-    executor_entry = &executor_entry_lookup_[args.getCacheId().value()];
+    executor_entry = &executor_entry_lookup_[valueOrError(args.getCacheId())];
   } else {
     executor_entry = &temporary_executor_entry;
   }
