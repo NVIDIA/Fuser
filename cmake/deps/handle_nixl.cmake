@@ -19,10 +19,14 @@ macro(handle_nixl)
       HINTS $ENV{NIXL_PREFIX}/include ENV CPATH
     )
     find_library(NIXL_LIBRARY nixl
-      HINTS $ENV{NIXL_PREFIX}/lib $ENV{NIXL_PREFIX}/lib64 $ENV{NIXL_PREFIX}/lib/x86_64-linux-gnu
+      HINTS $ENV{NIXL_PREFIX}/lib $ENV{NIXL_PREFIX}/lib64
+            $ENV{NIXL_PREFIX}/lib/x86_64-linux-gnu
+            $ENV{NIXL_PREFIX}/lib/aarch64-linux-gnu
     )
     find_library(NIXL_BUILD_LIBRARY nixl_build
-      HINTS $ENV{NIXL_PREFIX}/lib $ENV{NIXL_PREFIX}/lib64 $ENV{NIXL_PREFIX}/lib/x86_64-linux-gnu
+      HINTS $ENV{NIXL_PREFIX}/lib $ENV{NIXL_PREFIX}/lib64
+            $ENV{NIXL_PREFIX}/lib/x86_64-linux-gnu
+            $ENV{NIXL_PREFIX}/lib/aarch64-linux-gnu
     )
 
     if(NIXL_INCLUDE_DIR AND NIXL_LIBRARY)
@@ -34,6 +38,11 @@ macro(handle_nixl)
 
       add_library(__nvfuser_nixl INTERFACE)
       target_include_directories(__nvfuser_nixl INTERFACE ${NIXL_INCLUDE_DIR})
+
+      get_filename_component(NIXL_LIB_DIR "${NIXL_LIBRARY}" DIRECTORY)
+      target_link_directories(__nvfuser_nixl INTERFACE ${NIXL_LIB_DIR})
+      target_link_options(__nvfuser_nixl INTERFACE "LINKER:-rpath-link,${NIXL_LIB_DIR}")
+
       target_link_libraries(__nvfuser_nixl INTERFACE ${NIXL_LIBRARY})
       if(NIXL_BUILD_LIBRARY)
         target_link_libraries(__nvfuser_nixl INTERFACE ${NIXL_BUILD_LIBRARY})
