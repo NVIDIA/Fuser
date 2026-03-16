@@ -68,8 +68,8 @@ KernelArgumentHolder HostIrEvaluator::runWithInputs(
   FUSER_PERF_SCOPE("HostIrEvaluator::runWithInputs");
   expr_evaluator_ = ExpressionEvaluator();
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
-  NVF_ERROR(args.getCacheId().has_value());
-  expr_evaluator_.bind("cacheId", static_cast<int64_t>(*args.getCacheId()));
+  auto cache_id = valueOrError(args.getCacheId());
+  expr_evaluator_.bind("cacheId", static_cast<int64_t>(cache_id));
 
   NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
   for (auto&& [in_val, arg] : zip(container_->inputs(), args)) {
@@ -310,6 +310,36 @@ void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
   ipc_handle_cache_.exchangeHandles(share_mem_handles->communications());
 }
 
+void HostIrEvaluator::handle(CollectivePermute* communication) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  at::Tensor input_tensor = getKnownTensorOrUndefined(communication->input(0));
+  at::Tensor output_tensor =
+      getKnownTensorOrUndefined(communication->output(0));
+
+  validateSizesAndStrides(
+      {input_tensor, output_tensor},
+      {communication->in(), communication->out()},
+      expr_evaluator_);
+
+  CommunicatorBackend backend_type = communication->backend();
+  // CollectivePermute is only supported with NCCL backend because
+  // UCC does not support coalescing.
+  NVF_CHECK_EQ(backend_type, CommunicatorBackend::kNccl);
+  c10d::Backend* backend =
+      communicator_->getBackendForTeam(communication->team(), backend_type);
+  works_[communication] = postSingleCommunication(
+      communication,
+      communicator_->deviceId(),
+      backend,
+      input_tensor,
+      output_tensor,
+      expr_evaluator_.evaluate(communication->sendPeer()).as<int64_t>(),
+      expr_evaluator_.evaluate(communication->recvPeer()).as<int64_t>());
+}
+
 void HostIrEvaluator::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
@@ -329,7 +359,9 @@ void HostIrEvaluator::handle(Communication* communication) {
   CommunicatorBackend backend_type = communication->backend();
   if (backend_type == CommunicatorBackend::kCuda) {
     const auto current_stream = static_cast<CUstream>(
-        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+        c10::cuda::getCurrentCUDAStream(
+            static_cast<c10::DeviceIndex>(my_local_device_index_))
+            .stream());
     NVF_ERROR(
         communication->type() == CommunicationType::Broadcast ||
             communication->type() == CommunicationType::Allgather,
@@ -337,8 +369,8 @@ void HostIrEvaluator::handle(Communication* communication) {
         communication->type());
     int64_t root_val =
         expr_evaluator_.evaluate(communication->root()).as<int64_t>();
-    SymmetricMemoryHandle* multicast_handle =
-        multicast_handle_cache_.get({output_tensor, communication, root_val});
+    SymmetricMemoryHandle* multicast_handle = multicast_handle_cache_.get(
+        {.buffer = output_tensor, .expr = communication, .root = root_val});
     postWithCudaBackend(
         communication,
         input_tensor,
@@ -369,7 +401,9 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
   if (backend_type == CommunicatorBackend::kCuda) {
     const P2pIpcHandle& p2p_ipc_handle = ipc_handle_cache_.get(communication);
     const auto current_stream = static_cast<CUstream>(
-        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+        c10::cuda::getCurrentCUDAStream(
+            static_cast<c10::DeviceIndex>(my_local_device_index_))
+            .stream());
     auto count = buffer.numel() * buffer.element_size();
     if (communication->type() == P2PCommunicationType::RECV) {
       recvPost(p2p_ipc_handle, count, current_stream);
@@ -444,7 +478,9 @@ void HostIrEvaluator::handle(Wait* wait) {
   auto* p2p_comm = dynamic_cast<P2PCommunication*>(expr);
   auto* communication = dynamic_cast<Communication*>(expr);
   const auto current_stream = static_cast<CUstream>(
-      c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+      c10::cuda::getCurrentCUDAStream(
+          static_cast<c10::DeviceIndex>(my_local_device_index_))
+          .stream());
   if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
     const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
     if (p2p_comm->type() == P2PCommunicationType::SEND) {
@@ -463,8 +499,8 @@ void HostIrEvaluator::handle(Wait* wait) {
     at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
     int64_t root_val =
         expr_evaluator_.evaluate(communication->root()).as<int64_t>();
-    SymmetricMemoryHandle* multicast_handle =
-        multicast_handle_cache_.get({output_tensor, communication, root_val});
+    SymmetricMemoryHandle* multicast_handle = multicast_handle_cache_.get(
+        {.buffer = output_tensor, .expr = communication, .root = root_val});
     waitWithCudaBackend(
         communication, multicast_handle, current_stream, root_val);
   } else {
@@ -714,14 +750,41 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   expr_evaluator_.bind(tv, tensor);
 }
 
+void HostIrEvaluator::handle(hir::Allocate* allocate) {
+  FUSER_PERF_SCOPE("HostIrEvaluator::handle(Allocate)");
+  TensorView* tv = allocate->in();
+
+  GlobalBufferInfo info =
+      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  c10::Device device =
+      communicator_ ? communicator_->device() : at::Device("cuda:0");
+  at::Tensor tensor = at::native::empty_strided_cuda(
+      info.shape_info.logical_sizes,
+      info.shape_info.logical_strides,
+      info.type,
+      c10::nullopt,
+      device,
+      c10::nullopt);
+
+  if (allocate->zeroInit()) {
+    tensor.zero_();
+  }
+  expr_evaluator_.bind(tv, tensor);
+}
+
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   auto indexed_id =
       hir_alias_select->in()->getLogicalDomain().at(hir_alias_select->axis());
-  auto index = indexed_id->isBroadcast()
-      ? 0
-      : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
   auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
                    .as<at::Tensor>();
+
+  // If the axis being selected is a reduction axis, the tensor doesn't have
+  // that dimension (it was skipped during allocation). The select is a no-op -
+  // just bind the input tensor directly to the output.
+  if (indexed_id->isReduction()) {
+    expr_evaluator_.bind(hir_alias_select->out(), input);
+    return;
+  }
 
   // Count reduction axes up to the target axis
   int64_t reduction_count = std::count_if(
@@ -731,6 +794,14 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
       [](const IterDomain* id) { return id->isReduction(); });
   // Adjust the ATen axis by subtracting the number of reduction axes
   int64_t axis = hir_alias_select->axis() - reduction_count;
+
+  // Use index 0 if the IterDomain is marked as broadcast, or if the actual
+  // tensor dimension has size 1 (behaves like broadcast at runtime even if
+  // not marked as such in the IR)
+  auto index = (indexed_id->isBroadcast() || input.size(axis) == 1)
+      ? 0
+      : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
+
   expr_evaluator_.bind(hir_alias_select->out(), input.select(axis, index));
 }
 
@@ -848,10 +919,8 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
 
   const std::vector<IterDomain*>& allocation_domain =
       out_tv->getMaybeAllocationDomain();
-  auto i = std::find_if(
-      allocation_domain.begin(),
-      allocation_domain.end(),
-      std::mem_fn(&IterDomain::isStream));
+  auto i = std::ranges::find_if(
+      allocation_domain, std::mem_fn(&IterDomain::isStream));
   NVF_ERROR(
       i != allocation_domain.end(),
       "Stream axis not found in allocation domain: ",
@@ -915,8 +984,9 @@ void HostIrEvaluator::handle(
   at::Tensor in_tensor = getKnownConcreteValue(in_tv).as<at::Tensor>();
 
   // Get or create SymMemForContiguousView from the cache
-  SymMemForContiguousView* handle = static_cast<SymMemForContiguousView*>(
-      multicast_handle_cache_.get({in_tensor, symmetric_contiguous_view}));
+  SymMemForContiguousView* handle =
+      static_cast<SymMemForContiguousView*>(multicast_handle_cache_.get(
+          {.buffer = in_tensor, .expr = symmetric_contiguous_view}));
 
   // Bind the symmetric_contiguous_viewed tensor to the output
   expr_evaluator_.bind(out_tv, handle->tensor());

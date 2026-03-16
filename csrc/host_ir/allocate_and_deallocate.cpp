@@ -17,6 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "host_ir/ir.h"
 #include "ir/builder.h"
 #include "ir/utils.h"
 
@@ -215,7 +216,7 @@ void insertAllocations(hir::HostIrContainer& hic) {
 
           if (needsOutputPreallocation(e)) {
             auto* allocate =
-                IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+                IrBuilder::create<hir::Allocate>(out, out->getMemoryType());
             node->scope()->insert(node->iterator(), allocate);
           }
 
@@ -255,13 +256,6 @@ class LowestCommonAncestor {
           NVF_ERROR(depth_.insert({node, current_depth}).second);
           Expr* e = node->getExpr();
 
-          // Temporary special-case for kir::Allocate. We will switch
-          // inserting a new `hir::Allocate` in host IR lowering where
-          // the allocated `tv` will be the expr input.
-          if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
-            auto* tv = alloc->buffer()->as<TensorView>();
-            lca_[tv] = findLca(lca_[tv], node);
-          }
           for (auto* tv : ir_utils::filterByType<TensorView>(e->inputs())) {
             lca_[tv] = findLca(lca_[tv], node);
           }
@@ -337,9 +331,6 @@ void checkMemoryLeak(hir::HostIrContainer& hic) {
       /*pre_fn=*/
       [&](const Node* node) {
         Expr* e = node->getExpr();
-        if (auto* alloc = dynamic_cast<kir::Allocate*>(e)) {
-          allocated.insert(alloc->buffer()->as<TensorView>());
-        }
         for (auto* tv : ir_utils::filterByType<TensorView>(e->inputs())) {
           allocated.insert(tv);
         }
