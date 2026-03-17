@@ -71,6 +71,7 @@ from .requirements import (
     CompilerRequirement,
     GitSubmodulesRequirement,
     NinjaRequirement,
+    NIXLRequirement,
 )
 
 __all__ = [
@@ -102,4 +103,5 @@ __all__ = [
     "CompilerRequirement",
     "GitSubmodulesRequirement",
     "NinjaRequirement",
+    "NIXLRequirement",
 ]
