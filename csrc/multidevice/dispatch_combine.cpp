@@ -68,41 +68,40 @@ SymMemForAlltoallv& getOrCreateAlltoallv(
 // max_send_total and max_send_bytes are separate: max_send_total
 // sizes the send buffer, max_send_bytes sizes the kernel grid X.
 AlltoallvMetadata prepareAlltoallvMetadataGpu(
-    SymMemForAlltoallv& ctx,
+    SymMemForAlltoallv& a2av,
     const at::Tensor& send_counts,
     int64_t max_send_total,
     int64_t max_send_bytes,
     int64_t max_recv,
     CUstream stream) {
-  const int64_t W = ctx.worldSize();
-  const int64_t my_rank = ctx.myRank();
+  const int64_t W = a2av.worldSize();
+  const int64_t my_rank = a2av.myRank();
   auto gpu_opts =
       at::TensorOptions().dtype(at::kLong).device(send_counts.device());
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-      ctx.syncBuffer().data_ptr<int64_t>(),
+      a2av.syncBuffer().data_ptr<int64_t>(),
       send_counts.data_ptr<int64_t>(),
       W * sizeof(int64_t),
       cudaMemcpyDeviceToDevice,
       reinterpret_cast<cudaStream_t>(stream)));
 
-  ctx.signalCountsReady(stream);
-  ctx.waitCountsReady(stream);
+  a2av.signalCountsReady(stream);
+  a2av.waitCountsReady(stream);
 
   auto counts_matrix = at::empty({W, W}, gpu_opts);
   for (int64_t r = 0; r < W; r++) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
         counts_matrix[r].data_ptr<int64_t>(),
-        reinterpret_cast<void*>(ctx.syncRemotePtr(r)),
+        reinterpret_cast<void*>(a2av.syncRemotePtr(r)),
         W * sizeof(int64_t),
         cudaMemcpyDeviceToDevice,
         reinterpret_cast<cudaStream_t>(stream)));
   }
 
-  ctx.resetCountsSem(stream);
+  a2av.resetCountsSem(stream);
 
-  auto recv_counts =
-      counts_matrix.select(1, my_rank).contiguous();
+  auto recv_counts = counts_matrix.select(1, my_rank).contiguous();
 
   auto send_offsets = at::zeros({W}, gpu_opts);
   if (W > 1) {
@@ -124,12 +123,6 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
       max_send_total,
       max_send_bytes,
       W};
-}
-
-void alltoallvGpuSync(
-    SymMemForAlltoallv& ctx,
-    CUstream stream) {
-  ctx.doneBarrier(stream);
 }
 
 } // namespace
@@ -247,10 +240,10 @@ DispatchResult doMoeDispatch(
       static_cast<CUstream>(at::cuda::getCurrentCUDAStream().stream());
   const int64_t capacity = num_tokens * world_size;
 
-  auto& ctx = getOrCreateAlltoallv("moe_dispatch", x.device());
+  auto& a2av = getOrCreateAlltoallv("moe_dispatch", x.device());
 
   auto metadata = prepareAlltoallvMetadataGpu(
-      ctx,
+      a2av,
       n_tokens_to_rank,
       /*max_send_total=*/num_tokens,
       /*max_send_bytes=*/num_tokens,
@@ -258,21 +251,21 @@ DispatchResult doMoeDispatch(
       stream);
   auto n_tokens_from_rank = metadata.recv_counts;
 
-  auto& rx = ctx.recv("x", capacity, {hidden}, x.scalar_type(), x.device());
-  auto& ri = ctx.recv(
+  auto& rx = a2av.recv("x", capacity, {hidden}, x.scalar_type(), x.device());
+  auto& ri = a2av.recv(
       "topk_idx",
       capacity,
       {topk_idx.size(1)},
       topk_idx.scalar_type(),
       x.device());
-  auto& rw = ctx.recv(
+  auto& rw = a2av.recv(
       "topk_weights",
       capacity,
       {topk_weights.size(1)},
       topk_weights.scalar_type(),
       x.device());
-  auto& rs =
-      ctx.recv("src_idx", capacity, {}, send_src_idx.scalar_type(), x.device());
+  auto& rs = a2av.recv(
+      "src_idx", capacity, {}, send_src_idx.scalar_type(), x.device());
 
   alltoallvWithCudaBackend(send_x, rx.buffer, metadata, rx.remote_ptrs, stream);
   alltoallvWithCudaBackend(
@@ -281,7 +274,7 @@ DispatchResult doMoeDispatch(
       send_topk_weights, rw.buffer, metadata, rw.remote_ptrs, stream);
   alltoallvWithCudaBackend(
       send_src_idx, rs.buffer, metadata, rs.remote_ptrs, stream);
-  alltoallvGpuSync(ctx, stream);
+  a2av.doneBarrier(stream);
 
   return {
       rx.buffer,
@@ -376,23 +369,23 @@ CombineResult doMoeCombine(
   auto stream =
       static_cast<CUstream>(at::cuda::getCurrentCUDAStream().stream());
 
-  auto& ctx = getOrCreateAlltoallv("moe_combine", x.device());
+  auto& a2av = getOrCreateAlltoallv("moe_combine", x.device());
   auto metadata = prepareAlltoallvMetadataGpu(
-      ctx,
+      a2av,
       n_tokens_from_rank,
       /*max_send_total=*/capacity,
       /*max_send_bytes=*/num_tokens,
       /*max_recv=*/num_tokens,
       stream);
 
-  auto& rx = ctx.recv("x", num_tokens, {hidden}, x.scalar_type(), x.device());
+  auto& rx = a2av.recv("x", num_tokens, {hidden}, x.scalar_type(), x.device());
   auto& rs =
-      ctx.recv("src_idx", num_tokens, {}, src_idx.scalar_type(), x.device());
+      a2av.recv("src_idx", num_tokens, {}, src_idx.scalar_type(), x.device());
 
   alltoallvWithCudaBackend(x, rx.buffer, metadata, rx.remote_ptrs, stream);
   alltoallvWithCudaBackend(
       src_idx, rs.buffer, metadata, rs.remote_ptrs, stream);
-  alltoallvGpuSync(ctx, stream);
+  a2av.doneBarrier(stream);
 
   auto combined_x = at::zeros({num_tokens, hidden}, x.options());
   combined_x.index_copy_(

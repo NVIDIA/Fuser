@@ -343,16 +343,27 @@ SymMemForAlltoallv::SymMemForAlltoallv(
   world_size_ = comm.size();
   my_rank_ = comm.deviceId();
 
-  sync_buf_ = SymmetricTensor::allocate({3 * world_size_}, at::kLong, device);
+  // Counts buffer: [W] int64 — one send_count per peer.
+  sync_buf_ = SymmetricTensor::allocate({world_size_}, at::kLong, device);
   sync_buf_.zero_();
-
   sync_sym_ = std::make_unique<SymmetricTensor>(sync_buf_);
   sync_sym_->setupRemoteHandles(tag + "_sync");
-
   sync_ptrs_.resize(world_size_);
   for (int64_t r = 0; r < world_size_; r++) {
     sync_ptrs_[r] =
         reinterpret_cast<CUdeviceptr>(sync_sym_->remoteTensor(r).data_ptr());
+  }
+
+  // Semaphore buffer: [2*W] int32 — counts_sem + done_sem, one
+  // slot per (owner, peer) pair, matching the 32-bit stream ops.
+  sem_buf_ = SymmetricTensor::allocate({2 * world_size_}, at::kInt, device);
+  sem_buf_.zero_();
+  sem_sym_ = std::make_unique<SymmetricTensor>(sem_buf_);
+  sem_sym_->setupRemoteHandles(tag + "_sem");
+  sem_ptrs_.resize(world_size_);
+  for (int64_t r = 0; r < world_size_; r++) {
+    sem_ptrs_[r] =
+        reinterpret_cast<CUdeviceptr>(sem_sym_->remoteTensor(r).data_ptr());
   }
 }
 

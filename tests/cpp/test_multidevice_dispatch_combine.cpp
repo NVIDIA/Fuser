@@ -273,8 +273,7 @@ TEST_P(DispatchCombineTest, CombineOnlyTop1) {
   auto* in_n_tokens_from_rank = makeSymbolicTensor(1, DataType::Int);
 
   auto* combined_x = makeSymbolicTensor(2);
-  auto* num_tokens_val =
-      IrBuilder::create<Val>(kNumTokens, DataType::Int);
+  auto* num_tokens_val = IrBuilder::create<Val>(kNumTokens, DataType::Int);
   auto* combine = IrBuilder::create<MoeCombine>(
       combined_x,
       in_x,
@@ -402,8 +401,8 @@ TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
     capture_stream.synchronize();
 
     EXPECT_TRUE(at::allclose(cr.combined_x, x))
-        << "Graph replay " << i
-        << " dispatch/combine mismatch on rank " << my_rank;
+        << "Graph replay " << i << " dispatch/combine mismatch on rank "
+        << my_rank;
   }
 }
 

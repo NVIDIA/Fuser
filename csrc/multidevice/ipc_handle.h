@@ -264,21 +264,26 @@ class SymMemForAlltoallv : public SymmetricMemoryHandle {
 
   ~SymMemForAlltoallv() override = default;
 
-  // --- Sync state: [3*W] int64 buffer per rank ---
-  //   [0 .. W-1]    send_counts (int64)
-  //   [W .. 2W-1]   counts_sem[peer] — per-pair semaphore for counts exchange
-  //   [2W .. 3W-1]  done_sem[peer] — per-pair semaphore for completion
-  //
-  // Per-pair semaphore protocol matching the allgather pattern in
-  // cuda_p2p.cpp. Each slot is written by exactly one rank per phase
-  // (signal by the peer, reset by the owner). Graph-capturable and
-  // correct for any number of ranks and unlimited replays.
+  // Counts buffer: [W] int64 per rank — holds send_counts for the
+  // alltoallv metadata exchange (one int64 per peer).
   const at::Tensor& syncBuffer() const {
     return sync_buf_;
   }
   CUdeviceptr syncRemotePtr(int64_t rank) const {
     return sync_ptrs_[rank];
   }
+
+  // Semaphore buffer: [2*W] int32 per rank — holds per-pair semaphores
+  // for the counts exchange and completion barrier.
+  //   [0 .. W-1]   counts_sem[peer]
+  //   [W .. 2W-1]  done_sem[peer]
+  //
+  // Per-pair protocol matching the allgather pattern in cuda_p2p.cpp.
+  // Each slot is written by exactly one rank per phase (signal by the
+  // peer, reset by the owner). Uses 32-bit stream memory operations
+  // (CU_STREAM_MEM_OP_{WRITE,WAIT}_VALUE_32). Graph-capturable and
+  // correct for any number of ranks and unlimited replays.
+
   int64_t worldSize() const {
     return world_size_;
   }
@@ -312,23 +317,35 @@ class SymMemForAlltoallv : public SymmetricMemoryHandle {
 
  private:
   CUdeviceptr countsSemAddr(int64_t rank, int64_t slot) const {
-    return sync_ptrs_[rank] + (world_size_ + slot) * sizeof(int64_t);
+    return sem_ptrs_[rank] + slot * sizeof(int32_t);
   }
   CUdeviceptr doneSemAddr(int64_t rank, int64_t slot) const {
-    return sync_ptrs_[rank] + (2 * world_size_ + slot) * sizeof(int64_t);
+    return sem_ptrs_[rank] + (world_size_ + slot) * sizeof(int32_t);
   }
 
-  void batchSignal(CUstream stream, cuuint32_t value,
+  void batchSignal(
+      CUstream stream,
+      cuuint32_t value,
       CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
-  void batchWait(CUstream stream, cuuint32_t value,
+  void batchWait(
+      CUstream stream,
+      cuuint32_t value,
       CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
-  void batchReset(CUstream stream, cuuint32_t value,
+  void batchReset(
+      CUstream stream,
+      cuuint32_t value,
       CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
 
-  // Sync
+  // Counts (int64 [W])
   at::Tensor sync_buf_;
   std::unique_ptr<SymmetricTensor> sync_sym_;
   std::vector<CUdeviceptr> sync_ptrs_;
+
+  // Semaphores (int32 [2*W])
+  at::Tensor sem_buf_;
+  std::unique_ptr<SymmetricTensor> sem_sym_;
+  std::vector<CUdeviceptr> sem_ptrs_;
+
   int64_t world_size_;
   int64_t my_rank_;
   std::string tag_;
