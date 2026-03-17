@@ -463,7 +463,7 @@ std::string Communicator::getSymmMemGroupKey(
 std::vector<RankType> all_ranks(size_);
 std::iota(all_ranks.begin(), all_ranks.end(), 0);
 CommunicatorBackend b = backend.value_or(default_backend_);
-(void)getBackendForTeam(all_ranks, b, "symm_mem_");
+(void)getBackendForTeam(all_ranks, b);
 return getTeamKey(all_ranks, b);
 }
 

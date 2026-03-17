@@ -47,18 +47,7 @@ namespace {
   
     Communicator& comm = Communicator::getInstance();
     NVF_CHECK(comm.is_available(), "Communicator not available for symmetric memory");
-    // TODO: Remove after nccl version update
-    auto maybe_set_group_info = [&](const std::string& group_name) {
-      try {
-        c10d::symmetric_memory::set_group_info(
-            group_name,
-            static_cast<int>(comm.deviceId()),
-            static_cast<int>(comm.size()),
-            comm.getStore());
-      } catch (const c10::Error&) {
-        // already registered
-      }
-    };
+
     // Always return a valid group name
     if (backend == SymmetricMemoryBackend::PyTorchNccl) {
       NVF_CHECK(
@@ -66,14 +55,6 @@ namespace {
           "NCCL backend is required for symmetric_memory_backend(nccl)");
       
       const std::string group_name = comm.getSymmMemGroupKey(CommunicatorBackend::kNccl);
-
-      // This build expects default group name "0" to be registered.
-      // TODO: Remove after nccl version update
-      static std::once_flag group_once;
-      std::call_once(group_once, [&]() {
-        maybe_set_group_info("0");
-        maybe_set_group_info(group_name);
-      });
 
       comm.barrier(CommunicatorBackend::kNccl);
       return group_name;
@@ -421,17 +402,19 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   }
 #ifdef NVFUSER_DISTRIBUTED
   // PyTorch backend: perform rendezvous here (lazy, on first setupRemoteHandles).
-  SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
-  if (backend != SymmetricMemoryBackend::Native) {
-    const std::string group_name = ensurePyTorchSymmMemBackend(backend);
-    torch_symm_handle_ = c10d::symmetric_memory::rendezvous(
-        local_tensor_, group_name);
-    are_remote_tensors_setup_ = true;
-    if (torch_symm_handle_->has_multicast_support()) {
-      is_multicast_setup_ = true;
-      mc_ptr_ = torch_symm_handle_->get_multicast_ptr();
+  if(is_multicast_setup_==false) {
+    SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
+    if (backend != SymmetricMemoryBackend::Native) {
+      const std::string group_name = ensurePyTorchSymmMemBackend(backend);
+      torch_symm_handle_ = c10d::symmetric_memory::rendezvous(
+          local_tensor_, group_name);
+      are_remote_tensors_setup_ = true;
+      if (torch_symm_handle_->has_multicast_support()) {
+        is_multicast_setup_ = true;
+        mc_ptr_ = torch_symm_handle_->get_multicast_ptr();
+      }
+      return;
     }
-    return;
   }
 #endif
   Communicator& comm = Communicator::getInstance();
@@ -515,21 +498,6 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
   if (torch_symm_handle_) {
     return torch_symm_handle_->get_remote_tensor(
       rank, local_tensor_.sizes(), local_tensor_.scalar_type());
-    // Tried below code for older NCCL build, but it was not working.
-    // const int64_t storage_offset = local_tensor_.storage_offset();
-    // auto* handle = torch_symm_handle_.get();
-    // auto peer_ptr = handle->get_buffer_ptrs();
-    // NVF_CHECK(
-    //   peer_ptr != nullptr,
-    //   "Cannot get buffer across nodes, my rank: ",
-    //   handle->get_rank(),
-    //   ", peer: ",
-    //   rank);
-    // std::cout << "symm_mem type: " << typeid(*handle).name() << std::endl;
-    // const int ws = handle->get_world_size();
-    // NVF_CHECK(ws > 0, "SymmetricMemory world_size is 0");
-    // return handle->get_buffer(
-    //     rank, local_tensor_.sizes(), local_tensor_.scalar_type(), storage_offset);
   }
 #endif
 

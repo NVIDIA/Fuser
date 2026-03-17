@@ -139,10 +139,6 @@ class NVF_API Communicator {
     return store_.get();
   }
 
-  c10::intrusive_ptr<c10d::Store> getStore() const {
-    return c10::intrusive_ptr<c10d::Store>(store_);
-  }
-
  private:
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
