@@ -27,9 +27,9 @@ namespace nvfuser {
 namespace {
 
 struct CommunicationLoweringParams {
-  CommunicatorBackend backend;
-  DeviceIdxType my_device_idx;
-  Val* host_loop_index = nullptr;
+  CommunicatorBackend backend{};
+  DeviceIdxType my_device_idx{};
+  Val* host_loop_index{};
   std::optional<BinaryOpType> reduction_op;
 };
 
