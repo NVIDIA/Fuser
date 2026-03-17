@@ -892,10 +892,8 @@ void postReduceWithCudaBackend(
       reduce_handle->multicastPtr(), dst, size, stream);
 
   // Ensure kernel completes before returning so output is visible
-printf("rank %ld: cudaDeviceSynchronize\n", my_device_index);
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
   communicator.barrier();
-printf("rank %ld: barrier done\n", my_device_index);
 }
 
 } // anonymous namespace
