@@ -32,6 +32,10 @@ bool preferWarpSpecialized(
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
     return false;
   }
+  // TMA requires compile-time known contiguous innermost dimension on inputs
+  if (!scheduler_utils::inputsHaveContiguousInnerDim(fusion)) {
+    return false;
+  }
   // False, if any of the inputs is dynamically shaped
   // TODO: extend to support dynamic inputs, warp specialization requires
   // static CTA size
