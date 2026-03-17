@@ -11,6 +11,7 @@
 
 #include "debug.h"
 #include "instrumentation.h"
+#include "ir/utils.h"
 #include "scheduler/debug_utils.h"
 #include "scheduler/reduction_non_tma.h"
 #include "scheduler/reduction_outer_tma.h"
@@ -252,6 +253,11 @@ bool mayUseTma(
     return false;
   }
 
+  // Welford reductions not yet supported by TMA schedulers.
+  if (ir_utils::hasOpsOfType<WelfordOp>(fusion)) {
+    return false;
+  }
+
   return true;
 }
 
@@ -282,8 +288,15 @@ bool mayUseTmaOuter(
     return false;
   }
 
-  // TMA tile may exceed Smem size for multiple tensors.
-  if (props.n_tensor_inputs != 1) {
+  // Check that TMA tiles for all inputs fit in shared memory.
+  // The heuristic will shrink tiles to fit, but the minimum tile size is
+  // bdimy × bdimx (16 × 32). Reject if even minimum tiles don't fit.
+  const int64_t min_tile_r = 16; // bdimy
+  const int64_t min_tile_i = 32; // bdimx
+  int64_t min_smem_per_input = min_tile_r * min_tile_i *
+      (props.max_dtype_size_bit_for_vectorization / 8);
+  int64_t min_total_smem = min_smem_per_input * props.n_tensor_inputs;
+  if (min_total_smem > (int64_t)dev_prop->sharedMemPerBlockOptin) {
     return false;
   }
 
@@ -297,6 +310,11 @@ bool mayUseTmaOuter(
 
   // TMA requires 16-byte alignment (128 bits) for memory transactions
   if (vect_bits % 128 != 0) {
+    return false;
+  }
+
+  // Welford reductions not yet supported by the TMA outer scheduler.
+  if (ir_utils::hasOpsOfType<WelfordOp>(fusion)) {
     return false;
   }
 
