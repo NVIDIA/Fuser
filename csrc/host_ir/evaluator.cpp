@@ -371,8 +371,8 @@ void HostIrEvaluator::handle(Communication* communication) {
         communication->type());
     int64_t root_val =
         expr_evaluator_.evaluate(communication->root()).as<int64_t>();
-    // For Allreduce/Reduce use root = -1 in cache key (no root semantics)
-    int64_t cache_root = (communication->type() == CommunicationType::Broadcast)
+    int64_t cache_root = (communication->type() == CommunicationType::Broadcast
+                       || communication->type() == CommunicationType::Reduce)
         ? root_val
         : -1;
     // For Reduce, non-roots may have no output; use input for cache key
@@ -510,7 +510,9 @@ void HostIrEvaluator::handle(Wait* wait) {
     at::Tensor input_tensor = getKnownTensorOrUndefined(communication->input(0));
     int64_t root_val =
         expr_evaluator_.evaluate(communication->root()).as<int64_t>();
-    int64_t cache_root = (communication->type() == CommunicationType::Broadcast)
+    int64_t cache_root =
+        (communication->type() == CommunicationType::Broadcast ||
+         communication->type() == CommunicationType::Reduce)
         ? root_val
         : -1;
     at::Tensor cache_buffer = output_tensor.defined() ? output_tensor : input_tensor;

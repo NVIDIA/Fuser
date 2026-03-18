@@ -219,7 +219,7 @@ SymMemForAllreduce::SymMemForAllreduce(
     at::Tensor output_buffer) {
   std::string name_suffix =
       "for_Communication" + std::to_string(communication->name());
-  std::string store_key_prefix = "nvls_reduce_" + name_suffix;
+  std::string store_key_prefix = "nvls_allreduce_" + name_suffix;
 
   at::Tensor input_sym = SymmetricTensor::allocate(
       output_buffer.sizes(),
@@ -242,6 +242,38 @@ at::Tensor SymMemForAllreduce::inputBuffer() const {
 }
 
 void* SymMemForAllreduce::multicastPtr() const {
+  return input_sym_tensor_->multicastPtr();
+}
+
+SymMemForReduce::SymMemForReduce(
+    Communication* communication,
+    int64_t root,
+    at::Tensor output_buffer) {
+  std::string name_suffix =
+      "for_Communication" + std::to_string(communication->name());
+  std::string store_key_prefix = "nvls_reduce_" + name_suffix;
+
+  at::Tensor input_sym = SymmetricTensor::allocate(
+      output_buffer.sizes(),
+      output_buffer.scalar_type(),
+      output_buffer.device());
+  size_bytes_ = output_buffer.numel() * output_buffer.element_size();
+  input_sym_tensor_ = std::make_unique<SymmetricTensor>(input_sym);
+  input_sym_tensor_->setupRemoteHandles(store_key_prefix + "_input_unicast");
+
+  MulticastProtocol protocol = getMulticastProtocol();
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    input_sym_tensor_->setupMulticast(
+        root, store_key_prefix + "_input_mcast");
+  }
+}
+
+at::Tensor SymMemForReduce::inputBuffer() const {
+  return input_sym_tensor_->localTensor();
+}
+
+void* SymMemForReduce::multicastPtr() const {
   return input_sym_tensor_->multicastPtr();
 }
 
@@ -340,10 +372,10 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
       handle = std::make_unique<SymMemForBroadcast>(comm, key.root, key.buffer);
     } else if (comm->type() == CommunicationType::Allgather) {
       handle = std::make_unique<SymMemForAllgather>(comm, key.buffer);
-    } else if (
-        comm->type() == CommunicationType::Allreduce ||
-        comm->type() == CommunicationType::Reduce) {
+    } else if (comm->type() == CommunicationType::Allreduce) {
       handle = std::make_unique<SymMemForAllreduce>(comm, key.buffer);
+    } else if (comm->type() == CommunicationType::Reduce) {
+      handle = std::make_unique<SymMemForReduce>(comm, key.root, key.buffer);
     } else {
       NVF_ERROR(
           false,

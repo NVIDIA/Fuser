@@ -826,8 +826,9 @@ void postAllreduceWithCudaBackend(
       stream));
 
   // Ensure all ranks have completed copy before any runs ld_reduce (multicast
-  // view aggregates all ranks' buffers).
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  // view aggregates all ranks' buffers)
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
+      reinterpret_cast<cudaStream_t>(stream)));
   Communicator::getInstance().barrier();
 
   // All ranks run ld_reduce from multicast VA to output
@@ -837,8 +838,9 @@ void postAllreduceWithCudaBackend(
       size,
       stream);
 
-  // Ensure kernel completes before returning so output is visible
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  // Ensure kernel completes and any async errors are reported here (not in NCCL)
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
+      reinterpret_cast<cudaStream_t>(stream)));
   Communicator::getInstance().barrier();
 }
 
@@ -846,7 +848,7 @@ void postReduceWithCudaBackend(
     Communication* communication,
     at::Tensor input,
     at::Tensor output,
-    SymMemForAllreduce* reduce_handle,
+    SymMemForReduce* reduce_handle,
     CUstream stream,
     int64_t root) {
   Communicator& communicator = Communicator::getInstance();
@@ -880,8 +882,9 @@ void postReduceWithCudaBackend(
       stream));
 
   // Ensure all ranks have completed copy before any runs ld_reduce (multicast
-  // view aggregates all ranks' buffers).
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  // view aggregates all ranks' buffers)
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
+      reinterpret_cast<cudaStream_t>(stream)));
   communicator.barrier();
 
   // All ranks run ld_reduce; root writes to output, non-roots write to input buffer
@@ -891,8 +894,11 @@ void postReduceWithCudaBackend(
   launchMulticastReduceKernelImpl(
       reduce_handle->multicastPtr(), dst, size, stream);
 
-  // Ensure kernel completes before returning so output is visible
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  // Ensure kernel completes and any async errors are reported here (not in NCCL).
+  // Barrier so no rank proceeds to later ops (e.g. NCCL timing allreduce) while
+  // another is still in the kernel (avoids "Invalid access of peer GPU memory").
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
+      reinterpret_cast<cudaStream_t>(stream)));
   communicator.barrier();
 }
 
@@ -1049,7 +1055,7 @@ void postWithCudaBackend(
     }
     case CommunicationType::Reduce: {
       auto* reduce_handle =
-          dynamic_cast<SymMemForAllreduce*>(symmetric_memory_handle);
+          dynamic_cast<SymMemForReduce*>(symmetric_memory_handle);
       NVF_ERROR(reduce_handle != nullptr, "Invalid reduce handle");
       postReduceWithCudaBackend(
           communication, input, output, reduce_handle, stream, root);

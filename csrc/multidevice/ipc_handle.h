@@ -227,9 +227,9 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
   std::unique_ptr<SymmetricTensor> semaphore_sym_tensor_;
 };
 
-// SymmetricMemoryHandle for allreduce/reduce using NVLink SHARP (multimem
-// ld_reduce). All ranks bind their input to the multicast object; ld_reduce
-// from the multicast VA returns the reduction across ranks.
+// SymmetricMemoryHandle for allreduce using NVLink SHARP (multimem ld_reduce).
+// All ranks bind their input to the multicast object; ld_reduce from the
+// multicast VA returns the reduction across ranks.
 class SymMemForAllreduce : public SymmetricMemoryHandle {
  public:
   SymMemForAllreduce(Communication* communication, at::Tensor output_buffer);
@@ -240,6 +240,30 @@ class SymMemForAllreduce : public SymmetricMemoryHandle {
   at::Tensor inputBuffer() const;
 
   // Multicast VA for ld_reduce kernel (same on all ranks)
+  void* multicastPtr() const;
+
+  size_t sizeBytes() const {
+    return size_bytes_;
+  }
+
+ private:
+  size_t size_bytes_ = 0;
+  std::unique_ptr<SymmetricTensor> input_sym_tensor_;
+};
+
+// SymmetricMemoryHandle for reduce (root receives result) using NVLink SHARP
+// (multimem ld_reduce). Same setup as Allreduce but used for Reduce collective.
+// root is the rank that exports the multicast handle (same as reduce root).
+class SymMemForReduce : public SymmetricMemoryHandle {
+ public:
+  SymMemForReduce(
+      Communication* communication,
+      int64_t root,
+      at::Tensor output_buffer);
+
+  ~SymMemForReduce() override = default;
+
+  at::Tensor inputBuffer() const;
   void* multicastPtr() const;
 
   size_t sizeBytes() const {
@@ -305,17 +329,11 @@ class SymmetricMemoryHandleCache {
   struct KeyType {
     at::Tensor buffer;
     Expr* expr;
-    int64_t root; // -1 for Allreduce (no root)
+    int64_t root;
 
     bool operator==(const KeyType& other) const {
       if (expr != other.expr || root != other.root) {
         return false;
-      }
-      auto* comm = dynamic_cast<Communication*>(expr);
-      if (comm &&
-          (comm->type() == CommunicationType::Reduce ||
-           comm->type() == CommunicationType::Allreduce)) {
-        return TensorShapeEqual{}(buffer, other.buffer);
       }
       return TensorEqual{}(buffer, other.buffer);
     }
