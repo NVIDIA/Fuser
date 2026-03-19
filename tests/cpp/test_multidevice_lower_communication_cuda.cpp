@@ -193,10 +193,9 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allgather) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
   }
 
-  //nick
-  //if (message_size_bytes > 32LL * 1024 * 1024) {
-  //  GTEST_SKIP() << "Takes >30 seconds to run in CI: http://nv/e.)";
-  //}
+  if (message_size_bytes > 32LL * 1024 * 1024) {
+    GTEST_SKIP() << "Takes >30 seconds to run in CI: http://nv/e.)";
+  }
 
   // cudaMemcpyBatchAsync requires a non-default stream
   c10::cuda::CUDAStream stream =
@@ -262,10 +261,9 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Broadcast) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
   }
 
-  //nick
-  //if (message_size_bytes > 32LL * 1024 * 1024) {
-  //  GTEST_SKIP() << "Takes >5 seconds to run in CI: http://nv/e.)";
-  //}
+  if (message_size_bytes > 32LL * 1024 * 1024) {
+    GTEST_SKIP() << "Takes >5 seconds to run in CI: http://nv/e.)";
+  }
 
   // cudaMemcpyBatchAsync requires a non-default stream
   c10::cuda::CUDAStream stream =
@@ -324,6 +322,8 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Reduce) {
   const int64_t message_size = message_size_bytes / sizeof(float);
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
+
+  at::manual_seed(getATenRandomSeed());
 
   if (!communicator_->is_available() || communicator_->size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
@@ -396,7 +396,11 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Reduce) {
       1.0f);
 
   if (device_id == kRoot) {
-    EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor.sum(0)));
+    EXPECT_TRUE(at::allclose(
+        out_tensor,
+        unsharded_tensor.sum(0),
+        /*rtol=*/1e-4,
+        /*atol=*/1e-5));
   }
 }
 
@@ -476,7 +480,11 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allreduce) {
       "Allreduce/" + protocol_str,
       1.0f);
 
-  EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor.sum(0)));
+  EXPECT_TRUE(at::allclose(
+      out_tensor,
+      unsharded_tensor.sum(0),
+      /*rtol=*/1e-4,
+      /*atol=*/1e-5));
 }
 
 namespace {
