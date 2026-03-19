@@ -399,8 +399,8 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Reduce) {
     EXPECT_TRUE(at::allclose(
         out_tensor,
         unsharded_tensor.sum(0),
-        /*rtol=*/1e-2,
-        /*atol=*/1e-2));
+        /*rtol=*/1e-5,
+        /*atol=*/1e-6));
   }
 }
 

@@ -887,12 +887,14 @@ void postReduceWithCudaBackend(
       reinterpret_cast<cudaStream_t>(stream)));
   communicator.barrier();
 
-  // All ranks run ld_reduce; root writes to output, non-roots write to input buffer
-  void* dst = (my_device_index == root && output.defined())
-      ? output.data_ptr()
-      : reduce_handle->inputBuffer().data_ptr();
-  launchMulticastReduceKernelImpl(
-      reduce_handle->multicastPtr(), dst, size, stream);
+  // Root launches the ld_reduce kernel
+  if (my_device_index == root) {
+    void* dst = output.defined()
+        ? output.data_ptr()
+        : reduce_handle->inputBuffer().data_ptr();
+    launchMulticastReduceKernelImpl(
+        reduce_handle->multicastPtr(), dst, size, stream);
+  }
 
   // Ensure kernel completes and any async errors are reported here (not in NCCL).
   // Barrier so no rank proceeds to later ops (e.g. NCCL timing allreduce) while
