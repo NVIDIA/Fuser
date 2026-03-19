@@ -267,6 +267,26 @@ SymMemForReduce::SymMemForReduce(
     input_sym_tensor_->setupMulticast(
         root, store_key_prefix + "_input_mcast");
   }
+
+  // Create semaphore tensor
+  at::Tensor semaphore = SymmetricTensor::allocate(
+      /*sizes=*/at::IntArrayRef({1}),
+      /*dtype=*/at::ScalarType::Int,
+      /*device=*/output_buffer.device());
+
+  // Initialize the semaphore to kIdle
+  IpcSemaphore init_value = IpcSemaphore::kIdle;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      semaphore.data_ptr(),
+      &init_value,
+      sizeof(IpcSemaphore),
+      cudaMemcpyHostToDevice));
+
+  // Create symmetric tensor for the semaphore
+  semaphore_sym_tensor_ = std::make_unique<SymmetricTensor>(semaphore);
+
+  // Setup (unicast) IPC handles for the semaphore
+  semaphore_sym_tensor_->setupRemoteHandles(store_key_prefix + "_semaphore");
 }
 
 at::Tensor SymMemForReduce::inputBuffer() const {
@@ -275,6 +295,10 @@ at::Tensor SymMemForReduce::inputBuffer() const {
 
 void* SymMemForReduce::multicastPtr() const {
   return input_sym_tensor_->multicastPtr();
+}
+
+void* SymMemForReduce::semaphoreUnicastPtr(int64_t rank) const {
+  return semaphore_sym_tensor_->remoteTensor(rank).data_ptr();
 }
 
 SymMemForAllgather::SymMemForAllgather(

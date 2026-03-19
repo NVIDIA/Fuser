@@ -266,6 +266,8 @@ class SymMemForReduce : public SymmetricMemoryHandle {
   at::Tensor inputBuffer() const;
   void* multicastPtr() const;
 
+  void* semaphoreUnicastPtr(int64_t rank) const;
+
   size_t sizeBytes() const {
     return size_bytes_;
   }
@@ -273,6 +275,7 @@ class SymMemForReduce : public SymmetricMemoryHandle {
  private:
   size_t size_bytes_ = 0;
   std::unique_ptr<SymmetricTensor> input_sym_tensor_;
+  std::unique_ptr<SymmetricTensor> semaphore_sym_tensor_;
 };
 
 // SymmetricMemoryHandle for allgather operations using NVLS multicast

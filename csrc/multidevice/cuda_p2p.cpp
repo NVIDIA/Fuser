@@ -881,27 +881,68 @@ void postReduceWithCudaBackend(
       cudaMemcpyDeviceToDevice,
       stream));
 
-  // Ensure all ranks have completed copy before any runs ld_reduce (multicast
-  // view aggregates all ranks' buffers)
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
-      reinterpret_cast<cudaStream_t>(stream)));
-  communicator.barrier();
+  const int64_t world_size = communicator.size();
+  // All ranks signal ready by writing kInProgress to their own semaphore
+  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+      stream,
+      reinterpret_cast<CUdeviceptr>(
+          reduce_handle->semaphoreUnicastPtr(my_device_index)),
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      CU_STREAM_WRITE_VALUE_DEFAULT));
 
-  // Root launches the ld_reduce kernel
   if (my_device_index == root) {
+    // Root waits for all non-root ranks to signal ready before launching kernel
+    std::vector<CUstreamBatchMemOpParams> ops(world_size - 1);
+    int op_idx = 0;
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      if (rank == root)
+        continue;
+      ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+      ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
+          reduce_handle->semaphoreUnicastPtr(rank));
+      ops[op_idx].waitValue.value =
+          static_cast<cuuint32_t>(IpcSemaphore::kInProgress);
+      ops[op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+      op_idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, world_size - 1, ops.data(), 0));
+
+    // Root launches the ld_reduce kernel
     void* dst = output.defined()
         ? output.data_ptr()
         : reduce_handle->inputBuffer().data_ptr();
     launchMulticastReduceKernelImpl(
         reduce_handle->multicastPtr(), dst, size, stream);
-  }
 
-  // Ensure kernel completes and any async errors are reported here (not in NCCL).
-  // Barrier so no rank proceeds to later ops (e.g. NCCL timing allreduce) while
-  // another is still in the kernel (avoids "Invalid access of peer GPU memory").
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
-      reinterpret_cast<cudaStream_t>(stream)));
-  communicator.barrier();
+    // Root signals completion by writing kIdle to all non-root semaphores
+    std::vector<CUstreamBatchMemOpParams> write_complete_ops(world_size - 1);
+    int write_op_idx = 0;
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      if (rank == root)
+        continue;
+      write_complete_ops[write_op_idx].operation =
+          CU_STREAM_MEM_OP_WRITE_VALUE_32;
+      write_complete_ops[write_op_idx].writeValue.address =
+          reinterpret_cast<CUdeviceptr>(
+              reduce_handle->semaphoreUnicastPtr(rank));
+      write_complete_ops[write_op_idx].writeValue.value =
+          static_cast<cuuint32_t>(IpcSemaphore::kIdle);
+      write_complete_ops[write_op_idx].writeValue.flags =
+          CU_STREAM_WRITE_VALUE_DEFAULT;
+      write_op_idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(
+        stream, world_size - 1, write_complete_ops.data(), 0));
+  } else {
+    // Non-root waits for its semaphore to become kIdle (root has completed)
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+        stream,
+        reinterpret_cast<CUdeviceptr>(
+            reduce_handle->semaphoreUnicastPtr(my_device_index)),
+        static_cast<cuuint32_t>(IpcSemaphore::kIdle),
+        CU_STREAM_WAIT_VALUE_EQ));
+  }
 }
 
 } // anonymous namespace
