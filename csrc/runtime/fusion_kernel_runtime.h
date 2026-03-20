@@ -26,9 +26,6 @@ class HeuristicParamsList;
 enum class PrimDataType;
 class Fusion;
 class Val;
-namespace serde {
-struct FusionKernelRuntime;
-}
 
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
@@ -39,17 +36,11 @@ struct FusionKernelRuntime;
 //!  and one for segmented/multi-kernel fusion.
 //! Conceptually this is a generalization of KernelExecutor that supports both
 //!  single-kernel and multi-kernel caching/compiling/launching
-//!
-//! When serde_buffer argument is a nullptr, we run the
-//! SegmentCandidateFinder::segment pass in the constructor and compile the
-//! fusions. When serde_buffer exists, we deserialize the segmented_fusion_ and
-//! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
   FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      const serde::FusionKernelRuntime* serde_buffer = nullptr,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
@@ -64,15 +55,6 @@ class FusionKernelRuntime {
 
   //! query if we have already attempted compilation
   bool isCompiled() const;
-
-  //! Serialize Fusion Kernel Runtime using flatbuffers
-  flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Fusion Kernel Runtime using flatbuffers
-  void deserialize(
-      const serde::FusionKernelRuntime* buffer,
-      int8_t device_index);
 
   //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const;

@@ -278,9 +278,6 @@ class CompiledKernel : public CompiledKernelBase {
     return launch_param_cache_disabled_;
   }
 
-  //! Deserialize Fusion Executor using flatbuffers
-  void deserialize(const serde::KernelExecutor* buffer);
-
   //  private:
   void setUsedTVs();
 

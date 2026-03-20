@@ -8,6 +8,7 @@
 #pragma once
 
 #include <any>
+#include <cstdint>
 #include <iosfwd>
 #include <string>
 #include <unordered_map>
@@ -68,9 +69,8 @@ class KernelArgumentHolder;
 
 class DynamicTransformConcretizationInfo;
 
-// Set the enum base to `int` so it can be safely serialized as a part of
-// serde::InputOutputAlias.
-enum class AllocationType : int {
+// Set the enum base to std::uint8_t for compact representation.
+enum class AllocationType : std::uint8_t {
   New, // Allocate a new buffer
   // Reuse the buffer allocated to `aliased_io`. For example, the tensor storing
   // BatchNorm's running mean. The output EMA is updated in place.
@@ -87,7 +87,7 @@ enum class AllocationType : int {
 
 std::ostream& operator<<(std::ostream& os, AllocationType);
 
-enum class OutputVisibility : int {
+enum class OutputVisibility : std::uint8_t {
   kHidden,
   kVisible,
 };
