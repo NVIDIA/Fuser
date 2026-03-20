@@ -1004,8 +1004,18 @@ void postReduceWithCudaBackend(
     }
     NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(
         stream, world_size - 1, write_complete_ops.data(), 0));
-  } else {
-    // Non-root waits for its semaphore to become kIdle (root has completed)
+  }
+}
+
+void waitReduceWithCudaBackend(
+    Communication* communication,
+    SymMemForReduce* reduce_handle,
+    CUstream stream,
+    int64_t root) {
+  (void)communication;
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  if (my_device_index != root) {
     NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
         stream,
         reinterpret_cast<CUdeviceptr>(
@@ -1217,11 +1227,13 @@ void waitWithCudaBackend(
       waitAllgatherWithCudaBackend(communication, allgather_handle, stream);
       break;
     }
-    case CommunicationType::Reduce:
-      // Reduce posts peer semaphores; drain stream before CPU-side collectives.
-      NVFUSER_CUDA_RT_SAFE_CALL(
-          cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream)));
+    case CommunicationType::Reduce: {
+      auto* reduce_handle =
+          dynamic_cast<SymMemForReduce*>(symmetric_memory_handle);
+      NVF_ERROR(reduce_handle != nullptr, "Invalid reduce handle");
+      waitReduceWithCudaBackend(communication, reduce_handle, stream, root);
       break;
+    }
     case CommunicationType::Allreduce: {
       auto* allreduce_handle =
           dynamic_cast<SymMemForAllreduce*>(symmetric_memory_handle);
