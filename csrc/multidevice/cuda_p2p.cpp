@@ -680,7 +680,8 @@ void postAllreduceWithCudaBackend(
   MulticastProtocol protocol = getMulticastProtocol();
   NVF_CHECK(
       protocol == MulticastProtocol::Multimem,
-      "Allreduce with CUDA backend requires MulticastProtocol multimem (NVLink SHARP).");
+      "Allreduce with CUDA backend requires MulticastProtocol multimem (NVLink "
+      "SHARP).");
   NVF_CHECK(
       communication->reduceOp() == c10d::ReduceOp::RedOpType::SUM,
       "Only SUM reduction is supported for multimem reduce; got ",
@@ -692,7 +693,8 @@ void postAllreduceWithCudaBackend(
   const size_t size = reduce_handle->sizeBytes();
   NVF_CHECK(
       size % 16 == 0,
-      "Reduce size must be a multiple of 16 bytes for multimem ld_reduce. size=",
+      "Reduce size must be a multiple of 16 bytes for multimem ld_reduce. "
+      "size=",
       size);
 
   Communicator& communicator = Communicator::getInstance();
@@ -746,10 +748,7 @@ void postAllreduceWithCudaBackend(
 
   // Step 3: All ranks run ld_reduce (multimem) instead of Allgather copy
   launchMulticastReduceKernel(
-      reduce_handle->multicastPtr(),
-      output.data_ptr(),
-      size,
-      stream);
+      reduce_handle->multicastPtr(), output.data_ptr(), size, stream);
 
   // Step 4: Signal completion to all peers (same as Allgather)
   std::vector<CUstreamBatchMemOpParams> write_complete_ops(world_size);
@@ -805,7 +804,8 @@ void postReduceWithCudaBackend(
   MulticastProtocol protocol = getMulticastProtocol();
   NVF_CHECK(
       protocol == MulticastProtocol::Multimem,
-      "Reduce with CUDA backend requires MulticastProtocol multimem (NVLink SHARP).");
+      "Reduce with CUDA backend requires MulticastProtocol multimem (NVLink "
+      "SHARP).");
   NVF_CHECK(
       communication->reduceOp() == c10d::ReduceOp::RedOpType::SUM,
       "Only SUM reduction is supported for multimem reduce; got ",
@@ -818,7 +818,8 @@ void postReduceWithCudaBackend(
   const size_t size = reduce_handle->sizeBytes();
   NVF_CHECK(
       size % 16 == 0,
-      "Reduce size must be a multiple of 16 bytes for multimem ld_reduce. size=",
+      "Reduce size must be a multiple of 16 bytes for multimem ld_reduce. "
+      "size=",
       size);
 
   // Copy input to symmetric buffer
@@ -857,9 +858,8 @@ void postReduceWithCudaBackend(
         cuStreamBatchMemOp(stream, world_size - 1, ops.data(), 0));
 
     // Root launches the ld_reduce kernel
-    void* dst = output.defined()
-        ? output.data_ptr()
-        : reduce_handle->inputBuffer().data_ptr();
+    void* dst = output.defined() ? output.data_ptr()
+                                 : reduce_handle->inputBuffer().data_ptr();
     launchMulticastReduceKernel(
         reduce_handle->multicastPtr(), dst, size, stream);
 
@@ -960,9 +960,7 @@ void launchMulticastReduceKernel(
       std::vector<char> log(logSize);
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
       NVF_ERROR(
-          false,
-          "Multicast reduce kernel compilation failed:\n",
-          log.data());
+          false, "Multicast reduce kernel compilation failed:\n", log.data());
     }
 
     size_t ptxSize;
@@ -1011,7 +1009,8 @@ void launchMulticastReduceKernel(
       (uintptr_t)dst % 16 == 0,
       "Reduce dst must be 16-byte aligned. ptr=",
       dst);
-  NVF_CHECK(size % 16 == 0, "Reduce size must be a multiple of 16. size=", size);
+  NVF_CHECK(
+      size % 16 == 0, "Reduce size must be a multiple of 16. size=", size);
 
   int threads = 128;
   int blocks = 1;

@@ -27,11 +27,10 @@ extern "C" __global__ void multimem_ld_reduce_sum_f32_kernel(
   for (size_t i = idx; i < n_vec; i += stride) {
     float r0, r1, r2, r3;
     const void* addr = mc_src_c + i * 16;
-    asm volatile(
-        "multimem.ld_reduce.global.add.v4.f32 {%0,%1,%2,%3}, [%4];"
-        : "=f"(r0), "=f"(r1), "=f"(r2), "=f"(r3)
-        : "l"(addr)
-        : "memory");
+    asm volatile("multimem.ld_reduce.global.add.v4.f32 {%0,%1,%2,%3}, [%4];"
+                 : "=f"(r0), "=f"(r1), "=f"(r2), "=f"(r3)
+                 : "l"(addr)
+                 : "memory");
     float4 out;
     out.x = r0;
     out.y = r1;

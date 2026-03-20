@@ -295,8 +295,7 @@ SymMemForReduce::SymMemForReduce(
   MulticastProtocol protocol = getMulticastProtocol();
   if (protocol == MulticastProtocol::Memcpy ||
       protocol == MulticastProtocol::Multimem) {
-    input_sym_tensor_->setupMulticast(
-        root, store_key_prefix + "_input_mcast");
+    input_sym_tensor_->setupMulticast(root, store_key_prefix + "_input_mcast");
   }
 
   // Create semaphore tensor

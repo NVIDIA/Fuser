@@ -196,7 +196,8 @@ TEST_F(SymmetricTensorTest, LdReduce) {
 
   sym_tensor.setupMulticast(root, "test_ld_reduce");
 
-  // Each rank writes its contribution to local buffer (value rank+1 per element)
+  // Each rank writes its contribution to local buffer (value rank+1 per
+  // element)
   std::vector<float> host_data(kNumElems);
   float rank_val = static_cast<float>(rank + 1);
   for (int64_t i = 0; i < kNumElems; ++i) {
@@ -218,14 +219,13 @@ TEST_F(SymmetricTensorTest, LdReduce) {
 
   CUstream stream = 0;
   launchMulticastReduceKernel(mc_ptr, out_dev, kSizeBytes, stream);
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
-      reinterpret_cast<cudaStream_t>(stream)));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream)));
 
-  float expected_sum =
-      static_cast<float>(world_size * (world_size + 1) / 2);
+  float expected_sum = static_cast<float>(world_size * (world_size + 1) / 2);
   std::vector<float> readback(kNumElems);
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-      readback.data(), out_dev, kSizeBytes, cudaMemcpyDeviceToHost));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaMemcpy(readback.data(), out_dev, kSizeBytes, cudaMemcpyDeviceToHost));
 
   for (int64_t i = 0; i < kNumElems; ++i) {
     EXPECT_FLOAT_EQ(readback[i], expected_sum)

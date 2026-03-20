@@ -866,7 +866,8 @@ TEST_F(IpcTest, IpcNvlsMulticastReduce) {
   constexpr int64_t exporter_rank = 0;
 
   // Use float for ld_reduce sum kernel; size must be multiple of 16.
-  // Use same size as IpcNvlsMulticastBroadcast so multicast granularity checks pass.
+  // Use same size as IpcNvlsMulticastBroadcast so multicast granularity checks
+  // pass.
   constexpr size_t kNumElems = 524288;
   constexpr size_t kSizeBytes = kNumElems * sizeof(float);
 
@@ -1040,22 +1041,15 @@ TEST_F(IpcTest, IpcNvlsMulticastReduce) {
 
   CUstream stream = 0;
   nvfuser::launchMulticastReduceKernel(
-      reinterpret_cast<const void*>(mc_ptr),
-      out_dev,
-      kSizeBytes,
-      stream);
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
-      reinterpret_cast<cudaStream_t>(stream)));
+      reinterpret_cast<const void*>(mc_ptr), out_dev, kSizeBytes, stream);
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream)));
 
   // Expected sum: 1 + 2 + ... + world_size = world_size * (world_size + 1) / 2
-  float expected_val =
-      static_cast<float>(world_size * (world_size + 1) / 2);
+  float expected_val = static_cast<float>(world_size * (world_size + 1) / 2);
   std::vector<float> host_out(kNumElems);
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-      host_out.data(),
-      out_dev,
-      kSizeBytes,
-      cudaMemcpyDeviceToHost));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaMemcpy(host_out.data(), out_dev, kSizeBytes, cudaMemcpyDeviceToHost));
 
   for (size_t i = 0; i < kNumElems; ++i) {
     EXPECT_FLOAT_EQ(host_out[i], expected_val)

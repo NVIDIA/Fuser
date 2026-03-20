@@ -371,12 +371,14 @@ void HostIrEvaluator::handle(Communication* communication) {
         communication->type());
     int64_t root_val =
         expr_evaluator_.evaluate(communication->root()).as<int64_t>();
-    int64_t cache_root = (communication->type() == CommunicationType::Broadcast
-                       || communication->type() == CommunicationType::Reduce)
+    int64_t cache_root =
+        (communication->type() == CommunicationType::Broadcast ||
+         communication->type() == CommunicationType::Reduce)
         ? root_val
         : -1;
     // For Reduce, non-roots may have no output; use input for cache key
-    at::Tensor cache_buffer = output_tensor.defined() ? output_tensor : input_tensor;
+    at::Tensor cache_buffer =
+        output_tensor.defined() ? output_tensor : input_tensor;
     SymmetricMemoryHandle* multicast_handle = multicast_handle_cache_.get(
         {.buffer = cache_buffer, .expr = communication, .root = cache_root});
     postWithCudaBackend(
@@ -507,7 +509,8 @@ void HostIrEvaluator::handle(Wait* wait) {
         "Invalid communication type for CUDA backend, got: ",
         communication->type());
     at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
-    at::Tensor input_tensor = getKnownTensorOrUndefined(communication->input(0));
+    at::Tensor input_tensor =
+        getKnownTensorOrUndefined(communication->input(0));
     int64_t root_val =
         expr_evaluator_.evaluate(communication->root()).as<int64_t>();
     int64_t cache_root =
@@ -515,7 +518,8 @@ void HostIrEvaluator::handle(Wait* wait) {
          communication->type() == CommunicationType::Reduce)
         ? root_val
         : -1;
-    at::Tensor cache_buffer = output_tensor.defined() ? output_tensor : input_tensor;
+    at::Tensor cache_buffer =
+        output_tensor.defined() ? output_tensor : input_tensor;
     SymmetricMemoryHandle* multicast_handle = multicast_handle_cache_.get(
         {.buffer = cache_buffer, .expr = communication, .root = cache_root});
     waitWithCudaBackend(

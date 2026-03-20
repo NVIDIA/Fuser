@@ -5,6 +5,7 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include "driver_api.h"
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
@@ -16,7 +17,6 @@
 #include "preseg_passes/reorder_sharded_axis.h"
 #include "tests/cpp/multidevice.h"
 #include "tests/cpp/validator.h"
-#include "driver_api.h"
 
 namespace nvfuser {
 
@@ -719,7 +719,8 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
     if (!isMulticastSupported()) {
       GTEST_SKIP() << "Device does not support Multicast; skipping.";
     }
-    EnableOptionsGuard::getCurOptions().set(EnableOption::MulticastProtocol, {"multimem"});
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"multimem"});
   }
 
   EnableOptionsGuard::getCurOptions().set(EnableOption::InsertReshardingAfter);

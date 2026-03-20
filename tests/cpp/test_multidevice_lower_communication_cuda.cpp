@@ -331,8 +331,8 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Reduce) {
 
   if (protocol_enum == CommunicationProtocol::kMemcpy ||
       protocol_enum == CommunicationProtocol::kBatchedMemcpy) {
-    GTEST_SKIP() << "Reduce is not implemented for protocol "
-                 << protocol_str << "; skipping.";
+    GTEST_SKIP() << "Reduce is not implemented for protocol " << protocol_str
+                 << "; skipping.";
   }
 
   if (!isMulticastSupported() &&
@@ -419,8 +419,8 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allreduce) {
 
   if (protocol_enum == CommunicationProtocol::kMemcpy ||
       protocol_enum == CommunicationProtocol::kBatchedMemcpy) {
-    GTEST_SKIP() << "Allreduce is not implemented for protocol "
-                 << protocol_str << "; skipping.";
+    GTEST_SKIP() << "Allreduce is not implemented for protocol " << protocol_str
+                 << "; skipping.";
   }
 
   if (!isMulticastSupported() &&
