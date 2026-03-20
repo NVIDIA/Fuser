@@ -162,7 +162,6 @@ include_patterns = [
     '**/*.inl',
 ]
 exclude_patterns = [
-    'csrc/serde/fusion_cache_generated.h',
     'pytorch/**/*.cpp',
     'third_party/**',
     'tools/examples/**',
