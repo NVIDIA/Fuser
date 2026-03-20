@@ -10,6 +10,7 @@
 #include <ATen/core/TensorBody.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <cstdint>
 
 #include "expr_evaluator.h"
 #include "host_ir/ir.h"
@@ -22,7 +23,9 @@ namespace hir {
 class SymmetricContiguousView;
 } // namespace hir
 
-// Semaphore values for P2P communication synchronization
+// Semaphore values for P2P communication synchronization. Values are stored in
+// int tensors and cast to cuuint32_t for stream ops; keep 4-byte backing.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class IpcSemaphore : cuuint32_t { kIdle, kInProgress };
 
 // Basic IPC handle for legacy P2P communication using cudaIpc* APIs
@@ -102,7 +105,7 @@ struct TensorEqual {
 // pointer
 class IpcHandleCache {
  public:
-  IpcHandleCache(const ExpressionEvaluator& expr_evaluator)
+  explicit IpcHandleCache(const ExpressionEvaluator* expr_evaluator)
       : expr_evaluator_(expr_evaluator) {}
   ~IpcHandleCache() = default;
 
@@ -153,15 +156,15 @@ class IpcHandleCache {
   }
 
   KeyType getKey(P2PCommunication* comm) const {
-    auto peer = expr_evaluator_.evaluate(comm->peer()).as<int64_t>();
-    auto buffer = expr_evaluator_.evaluate(comm->buffer()).as<at::Tensor>();
-    return KeyType{peer, buffer, comm};
+    auto peer = expr_evaluator_->evaluate(comm->peer()).as<int64_t>();
+    auto buffer = expr_evaluator_->evaluate(comm->buffer()).as<at::Tensor>();
+    return KeyType{.peer = peer, .buffer = buffer, .comm = comm};
   }
 
   std::string getTcpStoreKey(P2PCommunication* communication, int64_t rank)
       const;
 
-  const ExpressionEvaluator& expr_evaluator_;
+  const ExpressionEvaluator* expr_evaluator_;
   std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyType::Hash>
       handles_;
 };
@@ -190,7 +193,7 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
       int64_t root,
       const std::string& name_suffix);
 
-  ~SymMemForBroadcast() = default;
+  ~SymMemForBroadcast() override = default;
 
   void* bufferMulticastPtr() const;
 

@@ -9,19 +9,18 @@
 
 #include <ATen/core/Tensor.h>
 #include <cuda.h>
+#include <cstdint>
 
 #include "multidevice/ipc_handle.h"
 
 namespace nvfuser {
 
-enum class P2pProtocol { Get, Put };
+enum class P2pProtocol : std::uint8_t { Get, Put };
 
+// Prescribed P2P protocol from NVFUSER_ENABLE (p2p_protocol put|get).
 P2pProtocol getP2pProtocol();
 
 std::ostream& operator<<(std::ostream& os, P2pProtocol protocol);
-
-// Returns the prescribed P2P protocol based on NVFUSER_ENABLE option
-P2pProtocol getP2pProtocol();
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream);
 

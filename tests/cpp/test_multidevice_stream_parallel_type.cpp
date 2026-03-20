@@ -410,7 +410,7 @@ class StreamParallelBackendTest : public MultiDeviceStreamParallelTypeTest,
                                       std::tuple<bool, CommunicatorBackend>> {};
 
 TEST_P(StreamParallelBackendTest, AllgatherP2p) {
-  constexpr int64_t kTensorSize = 2 * 1024 * 1024;
+  constexpr int64_t kTensorSize = 2LL * 1024 * 1024;
 
   // set the protocol to batch_memcpy to avoid relying on multicast support
   EnableOptionsGuard guard;

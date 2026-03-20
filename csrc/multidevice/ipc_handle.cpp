@@ -70,7 +70,7 @@ std::string IpcHandleCache::getTcpStoreKey(
     int64_t rank) const {
   const int64_t my_rank = Communicator::getInstance().deviceId();
   const int64_t peer =
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
+      expr_evaluator_->evaluate(communication->peer()).as<int64_t>();
   const int64_t src =
       communication->type() == P2PCommunicationType::SEND ? my_rank : peer;
   const int64_t dst =
@@ -88,7 +88,7 @@ void IpcHandleCache::exchangeHandles(
   std::vector<P2PCommunication*> non_cached_communications;
   for (auto communication : communications) {
     NVF_ERROR(
-        expr_evaluator_.evaluate(communication->peer()).as<int64_t>() !=
+        expr_evaluator_->evaluate(communication->peer()).as<int64_t>() !=
             my_rank,
         "send to self not supported");
     if (find(communication) != nullptr) {
@@ -103,7 +103,7 @@ void IpcHandleCache::exchangeHandles(
   auto store = communicator->getTcpStore();
   for (P2PCommunication* communication : non_cached_communications) {
     at::Tensor tensor =
-        expr_evaluator_.evaluate(communication->buffer()).as<at::Tensor>();
+        expr_evaluator_->evaluate(communication->buffer()).as<at::Tensor>();
     NVF_ERROR(
         tensor.is_contiguous(), "IpcHandle only supports contiguous tensors");
     auto buffer_handle = std::make_unique<IpcHandle>(tensor);
@@ -116,7 +116,7 @@ void IpcHandleCache::exchangeHandles(
   // Get memhandles from TCP store
   for (P2PCommunication* communication : non_cached_communications) {
     const int64_t peer =
-        expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
+        expr_evaluator_->evaluate(communication->peer()).as<int64_t>();
     std::string key = getTcpStoreKey(communication, peer);
     // TCP store get is blocking until a timeout
     // TODO: use multiGet
@@ -216,7 +216,8 @@ void* SymMemForBroadcast::semaphoreUnicastPtr(int64_t rank) const {
 
 SymMemForAllreduce::SymMemForAllreduce(
     Communication* communication,
-    at::Tensor output_buffer) {
+    at::Tensor output_buffer)
+    : size_bytes_(output_buffer.numel() * output_buffer.element_size()) {
   Communicator& communicator = Communicator::getInstance();
   const int64_t world_size = communicator.size();
 
@@ -228,7 +229,6 @@ SymMemForAllreduce::SymMemForAllreduce(
       output_buffer.sizes(),
       output_buffer.scalar_type(),
       output_buffer.device());
-  size_bytes_ = output_buffer.numel() * output_buffer.element_size();
   input_sym_tensor_ = std::make_unique<SymmetricTensor>(input_sym);
   input_sym_tensor_->setupRemoteHandles(store_key_prefix + "_input_unicast");
 
@@ -279,7 +279,8 @@ void* SymMemForAllreduce::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
 SymMemForReduce::SymMemForReduce(
     Communication* communication,
     int64_t root,
-    at::Tensor output_buffer) {
+    at::Tensor output_buffer)
+    : size_bytes_(output_buffer.numel() * output_buffer.element_size()) {
   std::string name_suffix =
       "for_Communication" + std::to_string(communication->name());
   std::string store_key_prefix = "nvls_reduce_" + name_suffix;
@@ -288,7 +289,6 @@ SymMemForReduce::SymMemForReduce(
       output_buffer.sizes(),
       output_buffer.scalar_type(),
       output_buffer.device());
-  size_bytes_ = output_buffer.numel() * output_buffer.element_size();
   input_sym_tensor_ = std::make_unique<SymmetricTensor>(input_sym);
   input_sym_tensor_->setupRemoteHandles(store_key_prefix + "_input_unicast");
 
