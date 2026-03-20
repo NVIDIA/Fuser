@@ -704,6 +704,9 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
                  << ", D = " << D;
   }
   if (communicator_backend == CommunicatorBackend::kCuda) {
+    if (!isMulticastSupported()) {
+        GTEST_SKIP() << "Device does not support Multicast; skipping.";
+    }
     EnableOptionsGuard::getCurOptions().set(EnableOption::MulticastProtocol, {"multimem"});
   }
 
