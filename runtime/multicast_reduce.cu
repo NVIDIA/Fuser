@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-// Kernel for allreduce using multimem ld_reduce (NVLink SHARP).
+// Kernel for reduce & allreduce using multimem ld_reduce (NVLink SHARP).
 // Loads from the multicast address (aggregating all ranks) with reduction.
 // Requires SM90+ (Hopper) and PTX ISA 8.0+.
 // Compiled by NVRTC at runtime.

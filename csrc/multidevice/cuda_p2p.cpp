@@ -36,6 +36,12 @@ P2pProtocol getP2pProtocol() {
       : P2pProtocol::Get;
 }
 
+void launchMulticastReduceKernel(
+    const void* mc_src,
+    void* dst,
+    size_t size,
+    CUstream stream);
+
 namespace {
 void launchAlltoallvKernel(
     const void* send,
@@ -333,134 +339,6 @@ void launchMulticastKernel(
   }
 
   void* args_kernel[] = {&dst, &src, &size};
-  NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-      kernel, blocks, 1, 1, threads, 1, 1, 0, stream, args_kernel, nullptr));
-}
-
-void launchMulticastReduceKernelImpl(
-    const void* mc_src,
-    void* dst,
-    size_t size,
-    CUstream stream) {
-  static CUmodule module = nullptr;
-  static CUfunction kernel = nullptr;
-
-  if (module == nullptr) {
-    nvrtcProgram prog;
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
-        &prog,
-        nvfuser_resources::multicast_reduce_cu,
-        "multicast_reduce.cu",
-        0,
-        nullptr,
-        nullptr));
-
-    int major = 0;
-    int minor = 0;
-    int device = 0;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
-    cudaDeviceProp prop;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
-    major = prop.major;
-    minor = prop.minor;
-
-    NVF_CHECK(
-        major >= 9,
-        "Reduce kernel using multimem ld_reduce requires Compute "
-        "Capability >= 9.0 (Hopper+). Current device ",
-        device,
-        " is Compute Capability ",
-        major,
-        ".",
-        minor);
-
-    std::string arch_arg = "--gpu-architecture=compute_" +
-        std::to_string(major) + std::to_string(minor);
-    std::vector<const char*> opts = {arch_arg.c_str(), "--std=c++17"};
-    if (major >= 9) {
-      opts.push_back("--ptx-isa-version=8.0");
-    }
-
-    nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
-    if (res != NVRTC_SUCCESS && major >= 9) {
-      opts.pop_back();
-      res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
-    }
-    if (res != NVRTC_SUCCESS) {
-      size_t logSize;
-      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
-      std::vector<char> log(logSize);
-      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
-      NVF_ERROR(false, "Multicast reduce kernel compilation failed:\n", log.data());
-    }
-
-    size_t ptxSize;
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
-    std::vector<char> ptx(ptxSize);
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
-
-    CUresult load_result = cuModuleLoadData(&module, ptx.data());
-    if (load_result != CUDA_SUCCESS) {
-      constexpr size_t kLogSize = 8192;
-      char error_log[kLogSize];
-      char info_log[kLogSize];
-      CUjit_option options[] = {
-          CU_JIT_ERROR_LOG_BUFFER,
-          CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
-          CU_JIT_INFO_LOG_BUFFER,
-          CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
-          CU_JIT_LOG_VERBOSE};
-      void* option_values[] = {
-          (void*)error_log,
-          (void*)kLogSize,
-          (void*)info_log,
-          (void*)kLogSize,
-          (void*)1};
-      cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
-      NVF_ERROR(
-          false,
-          "Multicast reduce kernel module load failed with error: ",
-          load_result,
-          "\nInfo Log:\n",
-          info_log,
-          "\nError Log:\n",
-          error_log);
-    }
-
-    NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
-        &kernel, module, "multimem_ld_reduce_sum_f32_kernel"));
-  }
-
-  NVF_CHECK(
-      (uintptr_t)mc_src % 16 == 0,
-      "Reduce mc_src must be 16-byte aligned. ptr=",
-      mc_src);
-  NVF_CHECK(
-      (uintptr_t)dst % 16 == 0,
-      "Reduce dst must be 16-byte aligned. ptr=",
-      dst);
-  NVF_CHECK(size % 16 == 0, "Reduce size must be a multiple of 16. size=", size);
-
-  int threads = 128;
-  int blocks = 1;
-  int device;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
-  int num_sms;
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, device));
-  int max_blocks_per_sm;
-  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
-      &max_blocks_per_sm, kernel, threads, 0));
-  blocks = num_sms * max_blocks_per_sm;
-  size_t vec_size = 16;
-  size_t total_work_units = (size + vec_size - 1) / vec_size;
-  size_t max_needed_blocks = (total_work_units + threads - 1) / threads;
-  if ((size_t)blocks > max_needed_blocks) {
-    blocks = std::max(1, (int)max_needed_blocks);
-  }
-
-  void* args_kernel[] = {&mc_src, &dst, &size};
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
       kernel, blocks, 1, 1, threads, 1, 1, 0, stream, args_kernel, nullptr));
 }
@@ -867,7 +745,7 @@ void postAllreduceWithCudaBackend(
       cuStreamBatchMemOp(stream, world_size - 1, wait_ready_ops.data(), 0));
 
   // Step 3: All ranks run ld_reduce (multimem) instead of Allgather copy
-  launchMulticastReduceKernelImpl(
+  launchMulticastReduceKernel(
       reduce_handle->multicastPtr(),
       output.data_ptr(),
       size,
@@ -982,7 +860,7 @@ void postReduceWithCudaBackend(
     void* dst = output.defined()
         ? output.data_ptr()
         : reduce_handle->inputBuffer().data_ptr();
-    launchMulticastReduceKernelImpl(
+    launchMulticastReduceKernel(
         reduce_handle->multicastPtr(), dst, size, stream);
 
     // Root signals completion by writing kIdle to all non-root semaphores
@@ -1032,7 +910,130 @@ void launchMulticastReduceKernel(
     void* dst,
     size_t size,
     CUstream stream) {
-  launchMulticastReduceKernelImpl(mc_src, dst, size, stream);
+  static CUmodule module = nullptr;
+  static CUfunction kernel = nullptr;
+
+  if (module == nullptr) {
+    nvrtcProgram prog;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
+        &prog,
+        nvfuser_resources::multicast_reduce_cu,
+        "multicast_reduce.cu",
+        0,
+        nullptr,
+        nullptr));
+
+    int major = 0;
+    int minor = 0;
+    int device = 0;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
+    cudaDeviceProp prop;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
+    major = prop.major;
+    minor = prop.minor;
+
+    NVF_CHECK(
+        major >= 9,
+        "Reduce kernel using multimem ld_reduce requires Compute "
+        "Capability >= 9.0 (Hopper+). Current device ",
+        device,
+        " is Compute Capability ",
+        major,
+        ".",
+        minor);
+
+    std::string arch_arg = "--gpu-architecture=compute_" +
+        std::to_string(major) + std::to_string(minor);
+    std::vector<const char*> opts = {arch_arg.c_str(), "--std=c++17"};
+    if (major >= 9) {
+      opts.push_back("--ptx-isa-version=8.0");
+    }
+
+    nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    if (res != NVRTC_SUCCESS && major >= 9) {
+      opts.pop_back();
+      res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    }
+    if (res != NVRTC_SUCCESS) {
+      size_t logSize;
+      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
+      std::vector<char> log(logSize);
+      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
+      NVF_ERROR(
+          false,
+          "Multicast reduce kernel compilation failed:\n",
+          log.data());
+    }
+
+    size_t ptxSize;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
+    std::vector<char> ptx(ptxSize);
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
+
+    CUresult load_result = cuModuleLoadData(&module, ptx.data());
+    if (load_result != CUDA_SUCCESS) {
+      constexpr size_t kLogSize = 8192;
+      char error_log[kLogSize];
+      char info_log[kLogSize];
+      CUjit_option options[] = {
+          CU_JIT_ERROR_LOG_BUFFER,
+          CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
+          CU_JIT_INFO_LOG_BUFFER,
+          CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
+          CU_JIT_LOG_VERBOSE};
+      void* option_values[] = {
+          (void*)error_log,
+          (void*)kLogSize,
+          (void*)info_log,
+          (void*)kLogSize,
+          (void*)1};
+      cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
+      NVF_ERROR(
+          false,
+          "Multicast reduce kernel module load failed with error: ",
+          load_result,
+          "\nInfo Log:\n",
+          info_log,
+          "\nError Log:\n",
+          error_log);
+    }
+
+    NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
+        &kernel, module, "multimem_ld_reduce_sum_f32_kernel"));
+  }
+
+  NVF_CHECK(
+      (uintptr_t)mc_src % 16 == 0,
+      "Reduce mc_src must be 16-byte aligned. ptr=",
+      mc_src);
+  NVF_CHECK(
+      (uintptr_t)dst % 16 == 0,
+      "Reduce dst must be 16-byte aligned. ptr=",
+      dst);
+  NVF_CHECK(size % 16 == 0, "Reduce size must be a multiple of 16. size=", size);
+
+  int threads = 128;
+  int blocks = 1;
+  int device;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
+  int num_sms;
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, device));
+  int max_blocks_per_sm;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      &max_blocks_per_sm, kernel, threads, 0));
+  blocks = num_sms * max_blocks_per_sm;
+  size_t vec_size = 16;
+  size_t total_work_units = (size + vec_size - 1) / vec_size;
+  size_t max_needed_blocks = (total_work_units + threads - 1) / threads;
+  if ((size_t)blocks > max_needed_blocks) {
+    blocks = std::max(1, (int)max_needed_blocks);
+  }
+
+  void* args_kernel[] = {&mc_src, &dst, &size};
+  NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
+      kernel, blocks, 1, 1, threads, 1, 1, 0, stream, args_kernel, nullptr));
 }
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {

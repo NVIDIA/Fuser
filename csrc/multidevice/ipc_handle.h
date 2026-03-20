@@ -97,17 +97,6 @@ struct TensorEqual {
   }
 };
 
-struct TensorShapeHash {
-  std::size_t operator()(const at::Tensor& tensor) const {
-    std::size_t h =
-        std::hash<int>()(static_cast<int>(tensor.scalar_type()));
-    for (auto s : tensor.sizes()) {
-      h ^= std::hash<int64_t>()(s);
-    }
-    return h;
-  }
-};
-
 // Manages and caches IpcHandles for P2P communications
 // Caching is based on (peer, tensor) runtime values and P2PCommunication*
 // pointer
@@ -331,21 +320,12 @@ class SymmetricMemoryHandleCache {
     int64_t root;
 
     bool operator==(const KeyType& other) const {
-      if (expr != other.expr || root != other.root) {
-        return false;
-      }
-      return TensorEqual{}(buffer, other.buffer);
+      return TensorEqual{}(buffer, other.buffer) && expr == other.expr &&
+          root == other.root;
     }
 
     struct Hash {
       std::size_t operator()(const KeyType& key) const {
-        auto* comm = dynamic_cast<Communication*>(key.expr);
-        if (comm &&
-            (comm->type() == CommunicationType::Reduce ||
-             comm->type() == CommunicationType::Allreduce)) {
-          return (TensorShapeHash{}(key.buffer)) ^
-              (std::hash<Expr*>()(key.expr)) ^ (std::hash<int64_t>()(key.root));
-        }
         return (TensorHash{}(key.buffer)) ^ (std::hash<Expr*>()(key.expr)) ^
             (std::hash<int64_t>()(key.root));
       }

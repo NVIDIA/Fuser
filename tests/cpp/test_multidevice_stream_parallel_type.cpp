@@ -16,12 +16,24 @@
 #include "preseg_passes/reorder_sharded_axis.h"
 #include "tests/cpp/multidevice.h"
 #include "tests/cpp/validator.h"
+#include "driver_api.h"
 
 namespace nvfuser {
 
 using testing::ElementsAre;
 
-using MultiDeviceStreamParallelTypeTest = MultiDeviceTest;
+class MultiDeviceStreamParallelTypeTest : public MultiDeviceTest {
+ protected:
+  bool isMulticastSupported() {
+    const int64_t local_rank = communicator_->local_rank();
+    int is_multicast_supported = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &is_multicast_supported,
+        CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+        static_cast<int>(local_rank)));
+    return is_multicast_supported != 0;
+  }
+};
 
 TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
@@ -705,7 +717,7 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
   }
   if (communicator_backend == CommunicatorBackend::kCuda) {
     if (!isMulticastSupported()) {
-        GTEST_SKIP() << "Device does not support Multicast; skipping.";
+      GTEST_SKIP() << "Device does not support Multicast; skipping.";
     }
     EnableOptionsGuard::getCurOptions().set(EnableOption::MulticastProtocol, {"multimem"});
   }

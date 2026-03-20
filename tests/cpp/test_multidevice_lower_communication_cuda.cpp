@@ -345,10 +345,9 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Reduce) {
     GTEST_SKIP() << "Multimem reduce requires size multiple of 16 bytes.";
   }
 
-  //nick
-  //if (message_size_bytes > 32LL * 1024 * 1024) {
-  //  GTEST_SKIP() << "Takes >30 seconds to run in CI: http://nv/e.)";
-  //}
+  if (message_size_bytes > 32LL * 1024 * 1024) {
+    GTEST_SKIP() << "Takes >30 seconds to run in CI: http://nv/e.)";
+  }
 
   c10::cuda::CUDAStream stream =
       c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
@@ -432,10 +431,9 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allreduce) {
     GTEST_SKIP() << "Multimem allreduce requires size multiple of 16 bytes.";
   }
 
-  // nick
-  //if (message_size_bytes > 32LL * 1024 * 1024) {
-  //  GTEST_SKIP() << "Takes >30 seconds to run in CI: http://nv/e.)";
-  //}
+  if (message_size_bytes > 32LL * 1024 * 1024) {
+    GTEST_SKIP() << "Takes >5 seconds to run in CI: http://nv/e.)";
+  }
 
   c10::cuda::CUDAStream stream =
       c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
