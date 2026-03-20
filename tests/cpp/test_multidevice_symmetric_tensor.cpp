@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "multidevice/cuda_p2p.h"
 #include "multidevice/symmetric_tensor.h"
 #include "tests/cpp/multidevice.h"
 
@@ -161,6 +162,77 @@ TEST_F(SymmetricTensorTest, Multicast) {
     EXPECT_EQ(readback[i], expected)
         << "Rank " << rank << " failed to read multicast data at index " << i;
   }
+#endif
+}
+
+TEST_F(SymmetricTensorTest, LdReduce) {
+#if (CUDA_VERSION < 13000)
+  GTEST_SKIP() << "LD_REDUCE (multicast reduce) requires CUDA 13.0+";
+#else
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t world_size = communicator_->size();
+  const int64_t root = 0;
+
+  int is_multicast_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_multicast_supported, CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED, rank));
+  if (!is_multicast_supported) {
+    GTEST_SKIP() << "Device does not support multicast";
+  }
+
+  // Float and size multiple of 16 for ld_reduce kernel
+  constexpr int64_t kNumElems = 524288; // 2MB, same granularity as Multicast
+  constexpr size_t kSizeBytes = kNumElems * sizeof(float);
+
+  at::Tensor local_tensor = SymmetricTensor::allocate(
+      /*sizes=*/at::IntArrayRef({kNumElems}),
+      /*dtype=*/at::ScalarType::Float,
+      /*device=*/c10::Device(c10::DeviceType::CUDA, rank));
+  SymmetricTensor sym_tensor(local_tensor);
+
+  sym_tensor.setupMulticast(root, "test_ld_reduce");
+
+  // Each rank writes its contribution to local buffer (value rank+1 per
+  // element)
+  std::vector<float> host_data(kNumElems);
+  float rank_val = static_cast<float>(rank + 1);
+  for (int64_t i = 0; i < kNumElems; ++i) {
+    host_data[i] = rank_val;
+  }
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      sym_tensor.localTensor().data_ptr(),
+      host_data.data(),
+      kSizeBytes,
+      cudaMemcpyHostToDevice));
+
+  communicator_->barrier();
+
+  void* mc_ptr = sym_tensor.multicastPtr();
+  EXPECT_NE(mc_ptr, nullptr);
+
+  void* out_dev = nullptr;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&out_dev, kSizeBytes));
+
+  CUstream stream = 0;
+  launchMulticastReduceKernel(mc_ptr, out_dev, kSizeBytes, stream);
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream)));
+
+  float expected_sum = static_cast<float>(world_size * (world_size + 1) / 2);
+  std::vector<float> readback(kNumElems);
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaMemcpy(readback.data(), out_dev, kSizeBytes, cudaMemcpyDeviceToHost));
+
+  for (int64_t i = 0; i < kNumElems; ++i) {
+    EXPECT_FLOAT_EQ(readback[i], expected_sum)
+        << "Rank " << rank << " mismatch at index " << i;
+  }
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaFree(out_dev));
 #endif
 }
 

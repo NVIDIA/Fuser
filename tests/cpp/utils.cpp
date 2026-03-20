@@ -803,6 +803,7 @@ size_t getATenRandomSeed() {
       // tests pass.
       seed = 0L;
     }
+    found_seed = true;
   }
 
   return seed;
