@@ -1041,7 +1041,10 @@ TEST_F(IpcTest, IpcNvlsMulticastReduce) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&out_dev, kSizeBytes));
 
   nvfuser::launchMulticastReduceKernel(
-      reinterpret_cast<const void*>(mc_ptr), out_dev, kSizeBytes, /*stream*/(CUstream)0);
+      reinterpret_cast<const void*>(mc_ptr),
+      out_dev,
+      kSizeBytes,
+      /*stream*/ (CUstream)0);
   cudaDeviceSynchronize();
 
   // Expected sum: 1 + 2 + ... + world_size = world_size * (world_size + 1) / 2
