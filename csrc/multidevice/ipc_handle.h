@@ -97,15 +97,6 @@ struct TensorEqual {
   }
 };
 
-// For Reduce/Allreduce cache key: compare by shape/dtype only (not device) so
-// all ranks share the same logical key and thus the same multicast object.
-struct TensorShapeEqual {
-  bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
-    return lhs.sizes() == rhs.sizes() &&
-        lhs.scalar_type() == rhs.scalar_type();
-  }
-};
-
 struct TensorShapeHash {
   std::size_t operator()(const at::Tensor& tensor) const {
     std::size_t h =
