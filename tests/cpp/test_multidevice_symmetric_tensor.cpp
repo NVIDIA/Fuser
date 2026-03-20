@@ -7,6 +7,7 @@
 // clang-format on
 #include "multidevice/symmetric_tensor.h"
 #include "tests/cpp/multidevice.h"
+#include "multidevice/ipc_utils.h"
 
 namespace nvfuser {
 
@@ -168,6 +169,9 @@ TEST_F(SymmetricTensorTest, ContiguousView) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
+    GTEST_SKIP() << "Skipping test for Pytorch symmetric memory backend";
+  }
 
   const int64_t rank = communicator_->deviceId();
   const int64_t world_size = communicator_->size();
@@ -232,6 +236,7 @@ TEST_F(SymmetricTensorTest, SmallAllocation) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }
+  std::cout << "Vishal chishta" << std::endl;
 
   const int64_t rank = communicator_->deviceId();
   const int64_t world_size = communicator_->size();
