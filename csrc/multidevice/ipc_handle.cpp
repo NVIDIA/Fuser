@@ -217,6 +217,9 @@ void* SymMemForBroadcast::semaphoreUnicastPtr(int64_t rank) const {
 SymMemForAllreduce::SymMemForAllreduce(
     Communication* communication,
     at::Tensor output_buffer) {
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t world_size = communicator.size();
+
   std::string name_suffix =
       "for_Communication" + std::to_string(communication->name());
   std::string store_key_prefix = "nvls_allreduce_" + name_suffix;
@@ -235,6 +238,27 @@ SymMemForAllreduce::SymMemForAllreduce(
     input_sym_tensor_->setupMulticast(
         /*exporter_rank=*/0, store_key_prefix + "_input_mcast");
   }
+
+  // Semaphore vector per device
+  at::Tensor semaphores = SymmetricTensor::allocate(
+      at::IntArrayRef({world_size}),
+      at::ScalarType::Int,
+      output_buffer.device());
+  std::vector<IpcSemaphore> init_values(world_size, IpcSemaphore::kIdle);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      semaphores.data_ptr(),
+      init_values.data(),
+      world_size * sizeof(IpcSemaphore),
+      cudaMemcpyHostToDevice));
+
+  semaphores_sym_tensor_ = std::make_unique<SymmetricTensor>(semaphores);
+  semaphores_sym_tensor_->setupRemoteHandles(
+      store_key_prefix + "_semaphores_unicast");
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    semaphores_sym_tensor_->setupMulticast(
+        /*exporter_rank=*/0, store_key_prefix + "_semaphores_mcast");
+  }
 }
 
 at::Tensor SymMemForAllreduce::inputBuffer() const {
@@ -243,6 +267,18 @@ at::Tensor SymMemForAllreduce::inputBuffer() const {
 
 void* SymMemForAllreduce::multicastPtr() const {
   return input_sym_tensor_->multicastPtr();
+}
+
+void* SymMemForAllreduce::semaphoreMulticastPtr(int64_t root_rank) const {
+  uint8_t* base_ptr = (uint8_t*)semaphores_sym_tensor_->multicastPtr();
+  return base_ptr + (root_rank * sizeof(IpcSemaphore));
+}
+
+void* SymMemForAllreduce::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
+    const {
+  uint8_t* base_ptr =
+      (uint8_t*)semaphores_sym_tensor_->remoteTensor(rank).data_ptr();
+  return base_ptr + (root_rank * sizeof(IpcSemaphore));
 }
 
 SymMemForReduce::SymMemForReduce(

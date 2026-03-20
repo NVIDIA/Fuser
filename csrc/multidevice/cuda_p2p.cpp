@@ -817,6 +817,10 @@ void postAllreduceWithCudaBackend(
       "Reduce size must be a multiple of 16 bytes for multimem ld_reduce. size=",
       size);
 
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  const int64_t world_size = communicator.size();
+
   // Copy input to symmetric buffer (each rank's slot)
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
       reduce_handle->inputBuffer().data_ptr(),
@@ -825,23 +829,89 @@ void postAllreduceWithCudaBackend(
       cudaMemcpyDeviceToDevice,
       stream));
 
-  // Ensure all ranks have completed copy before any runs ld_reduce (multicast
-  // view aggregates all ranks' buffers)
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
-      reinterpret_cast<cudaStream_t>(stream)));
-  Communicator::getInstance().barrier();
+  // Step 1: Each rank signals ready (same as Allgather)
+  std::vector<CUstreamBatchMemOpParams> write_ready_ops(world_size - 1);
+  int write_op_idx = 0;
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank == my_device_index)
+      continue;
+    write_ready_ops[write_op_idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    write_ready_ops[write_op_idx].writeValue.address =
+        reinterpret_cast<CUdeviceptr>(
+            reduce_handle->semaphoreUnicastPtr(rank, my_device_index));
+    write_ready_ops[write_op_idx].writeValue.value =
+        static_cast<cuuint32_t>(IpcSemaphore::kInProgress);
+    write_ready_ops[write_op_idx].writeValue.flags =
+        CU_STREAM_WRITE_VALUE_DEFAULT;
+    write_op_idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size - 1, write_ready_ops.data(), 0));
 
-  // All ranks run ld_reduce from multicast VA to output
+  // Step 2: Wait for all peers ready (same as Allgather)
+  std::vector<CUstreamBatchMemOpParams> wait_ready_ops(world_size - 1);
+  int wait_op_idx = 0;
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank == my_device_index)
+      continue;
+    wait_ready_ops[wait_op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+    wait_ready_ops[wait_op_idx].waitValue.address =
+        reinterpret_cast<CUdeviceptr>(
+            reduce_handle->semaphoreUnicastPtr(my_device_index, rank));
+    wait_ready_ops[wait_op_idx].waitValue.value =
+        static_cast<cuuint32_t>(IpcSemaphore::kInProgress);
+    wait_ready_ops[wait_op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+    wait_op_idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size - 1, wait_ready_ops.data(), 0));
+
+  // Step 3: All ranks run ld_reduce (multimem) instead of Allgather copy
   launchMulticastReduceKernelImpl(
       reduce_handle->multicastPtr(),
       output.data_ptr(),
       size,
       stream);
 
-  // Ensure kernel completes and any async errors are reported here (not in NCCL)
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(
-      reinterpret_cast<cudaStream_t>(stream)));
-  Communicator::getInstance().barrier();
+  // Step 4: Signal completion to all peers (same as Allgather)
+  std::vector<CUstreamBatchMemOpParams> write_complete_ops(world_size);
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    write_complete_ops[rank].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    write_complete_ops[rank].writeValue.address = reinterpret_cast<CUdeviceptr>(
+        reduce_handle->semaphoreUnicastPtr(my_device_index, rank));
+    write_complete_ops[rank].writeValue.value =
+        static_cast<cuuint32_t>(IpcSemaphore::kIdle);
+    write_complete_ops[rank].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size, write_complete_ops.data(), 0));
+}
+
+void waitAllreduceWithCudaBackend(
+    Communication* communication,
+    SymMemForAllreduce* reduce_handle,
+    CUstream stream) {
+  (void)communication;
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  const int64_t world_size = communicator.size();
+
+  // Same pattern as waitAllgatherWithCudaBackend
+  std::vector<CUstreamBatchMemOpParams> wait_complete_ops(world_size - 1);
+  int op_idx = 0;
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank == my_device_index)
+      continue;
+    wait_complete_ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+    wait_complete_ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
+        reduce_handle->semaphoreUnicastPtr(rank, my_device_index));
+    wait_complete_ops[op_idx].waitValue.value =
+        static_cast<cuuint32_t>(IpcSemaphore::kIdle);
+    wait_complete_ops[op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+    op_idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size - 1, wait_complete_ops.data(), 0));
 }
 
 void postReduceWithCudaBackend(
@@ -1147,10 +1217,18 @@ void waitWithCudaBackend(
       waitAllgatherWithCudaBackend(communication, allgather_handle, stream);
       break;
     }
-    case CommunicationType::Allreduce:
     case CommunicationType::Reduce:
-      // No semaphore wait; kernel completion is ordered on the stream
+      // Reduce posts peer semaphores; drain stream before CPU-side collectives.
+      NVFUSER_CUDA_RT_SAFE_CALL(
+          cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream)));
       break;
+    case CommunicationType::Allreduce: {
+      auto* allreduce_handle =
+          dynamic_cast<SymMemForAllreduce*>(symmetric_memory_handle);
+      NVF_ERROR(allreduce_handle != nullptr, "Invalid allreduce handle");
+      waitAllreduceWithCudaBackend(communication, allreduce_handle, stream);
+      break;
+    }
     default:
       NVF_ERROR(
           false,

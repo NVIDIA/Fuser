@@ -242,6 +242,10 @@ class SymMemForAllreduce : public SymmetricMemoryHandle {
   // Multicast VA for ld_reduce kernel (same on all ranks)
   void* multicastPtr() const;
 
+  // Per-rank semaphore slots (same layout as SymMemForAllgather)
+  void* semaphoreMulticastPtr(int64_t root_rank) const;
+  void* semaphoreUnicastPtr(int64_t root_rank, int64_t rank) const;
+
   size_t sizeBytes() const {
     return size_bytes_;
   }
@@ -249,6 +253,7 @@ class SymMemForAllreduce : public SymmetricMemoryHandle {
  private:
   size_t size_bytes_ = 0;
   std::unique_ptr<SymmetricTensor> input_sym_tensor_;
+  std::unique_ptr<SymmetricTensor> semaphores_sym_tensor_;
 };
 
 // SymmetricMemoryHandle for reduce (root receives result) using NVLink SHARP
