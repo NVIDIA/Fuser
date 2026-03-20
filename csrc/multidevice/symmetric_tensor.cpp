@@ -372,6 +372,22 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   are_remote_tensors_setup_ = true;
 }
 
+at::Tensor SymmetricTensor::remotePointersTensor() {
+  NVF_CHECK(are_remote_tensors_setup_, "Remote tensors not setup");
+  if (remote_ptrs_tensor_.defined()) {
+    return remote_ptrs_tensor_;
+  }
+
+  auto cpu_tensor =
+      at::empty({world_size_}, at::TensorOptions().dtype(at::kLong));
+  auto* ptr = cpu_tensor.data_ptr<int64_t>();
+  for (int64_t r = 0; r < world_size_; r++) {
+    ptr[r] = static_cast<int64_t>(remote_ptrs_[r]);
+  }
+  remote_ptrs_tensor_ = cpu_tensor.to(local_tensor_.device());
+  return remote_ptrs_tensor_;
+}
+
 at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
   NVF_CHECK(rank >= 0 && rank < world_size_, "Rank out of range");
 
