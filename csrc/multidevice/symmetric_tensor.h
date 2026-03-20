@@ -25,7 +25,7 @@ namespace nvfuser {
 // interoperability and support for pre-allocated user buffers.
 //
 // Backends (see SymmetricMemoryBackend in ipc_utils.h):
-// - Native (default): Fuser's own CUDA VMM + IPC implementation; maintained.
+// - Native (default): Fuser's own CUDA VMM + IPC implementation
 // - PyTorch (Nccl, Nvshmem, Cuda): Use PyTorch's symmetric memory
 //   (torch.distributed._symmetric_memory) with the chosen transport backend.
 //   Select via NVFUSER_ENABLE=symmetric_memory_backend(native|pytorch_nccl|pytorch_nvshmem|pytorch_cuda).

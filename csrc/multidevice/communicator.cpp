@@ -468,4 +468,3 @@ return getTeamKey(all_ranks, b);
 }
 
 } // namespace nvfuser
-

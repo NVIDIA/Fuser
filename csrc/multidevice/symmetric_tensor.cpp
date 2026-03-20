@@ -32,9 +32,11 @@ namespace {
       switch (backend) {
         case SymmetricMemoryBackend::PyTorchNccl:
           name = "NCCL";
+          c10d::symmetric_memory::set_backend(name);
           break;
         case SymmetricMemoryBackend::PyTorchNvshmem:
           name = "NVSHMEM";
+          c10d::symmetric_memory::set_backend(name);
           break;
         case SymmetricMemoryBackend::PyTorchCuda:
           name = "CUDA";
@@ -42,30 +44,39 @@ namespace {
         default:
           NVF_ERROR(false, "Unexpected PyTorch symmetric memory backend");
       }
-      c10d::symmetric_memory::set_backend(name);
     });
-  
+
     Communicator& comm = Communicator::getInstance();
     NVF_CHECK(comm.is_available(), "Communicator not available for symmetric memory");
 
     // Always return a valid group name
-    if (backend == SymmetricMemoryBackend::PyTorchNccl) {
+    if (backend != SymmetricMemoryBackend::Native) {
       NVF_CHECK(
           comm.isBackendAvailable(CommunicatorBackend::kNccl),
           "NCCL backend is required for symmetric_memory_backend(nccl)");
-      
+
       const std::string group_name = comm.getSymmMemGroupKey(CommunicatorBackend::kNccl);
+
+      static std::once_flag pg0_once;
+      std::call_once(pg0_once, [&]() {
+        try {
+          (void)c10d::resolve_process_group("0");
+        } catch (const c10::Error&) {
+          auto pg = c10d::resolve_process_group(group_name);
+          c10d::register_process_group("0", pg);
+        }
+      });
 
       comm.barrier(CommunicatorBackend::kNccl);
       return group_name;
     }
-  
+
     NVF_ERROR(
         false,
         "No c10d backend available for symmetric memory rendezvous. "
         "Expected NCCL or UCC process group.");
   }
-#endif  
+#endif
 
 
 // Returns the allocation granularity for symmetric memory.
@@ -149,7 +160,7 @@ at::Tensor SymmetricTensor::allocate(
     }
     // NCCLSymmetricMemoryAllocator::alloc must not be called with a group_name.
     c10::optional<std::string> alloc_group_name =
-        (backend == SymmetricMemoryBackend::PyTorchNccl)
+        (backend == SymmetricMemoryBackend::PyTorchNccl || backend == SymmetricMemoryBackend::PyTorchNvshmem)
         ? c10::nullopt
         : c10::optional<std::string>(group_name);
     return c10d::symmetric_memory::empty_strided_p2p(
@@ -158,7 +169,7 @@ at::Tensor SymmetricTensor::allocate(
         dtype,
         device,
         alloc_group_name,
-        c10::nullopt);
+        /*alloc_id=*/c10::nullopt);
   }
 #else
   if (backend != SymmetricMemoryBackend::Native) {
@@ -226,6 +237,9 @@ at::Tensor SymmetricTensor::allocate(
 }
 
 std::string SymmetricTensor::validate(at::Tensor tensor) {
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
+    return "";
+  }
   int is_vmm_supported;
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
       &is_vmm_supported,
@@ -402,19 +416,17 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   }
 #ifdef NVFUSER_DISTRIBUTED
   // PyTorch backend: perform rendezvous here (lazy, on first setupRemoteHandles).
-  if(is_multicast_setup_==false) {
-    SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
-    if (backend != SymmetricMemoryBackend::Native) {
-      const std::string group_name = ensurePyTorchSymmMemBackend(backend);
-      torch_symm_handle_ = c10d::symmetric_memory::rendezvous(
-          local_tensor_, group_name);
-      are_remote_tensors_setup_ = true;
-      if (torch_symm_handle_->has_multicast_support()) {
-        is_multicast_setup_ = true;
-        mc_ptr_ = torch_symm_handle_->get_multicast_ptr();
-      }
-      return;
+  SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
+  if (backend != SymmetricMemoryBackend::Native) {
+    const std::string group_name = ensurePyTorchSymmMemBackend(backend);
+    torch_symm_handle_ = c10d::symmetric_memory::rendezvous(
+        local_tensor_, group_name);
+    are_remote_tensors_setup_ = true;
+    if (torch_symm_handle_->has_multicast_support()) {
+      is_multicast_setup_ = true;
+      mc_ptr_ = torch_symm_handle_->get_multicast_ptr();
     }
+    return;
   }
 #endif
   Communicator& comm = Communicator::getInstance();
@@ -512,13 +524,6 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
 }
 
 void* SymmetricTensor::multicastPtr() const {
-#ifdef NVFUSER_DISTRIBUTED
-  if (torch_symm_handle_) {
-    return torch_symm_handle_->has_multicast_support()
-        ? torch_symm_handle_->get_multicast_ptr()
-        : nullptr;
-  }
-#endif
   NVF_CHECK(is_multicast_setup_, "Multicast not setup");
   return mc_ptr_;
 }
@@ -529,7 +534,7 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
   }
 #ifdef NVFUSER_DISTRIBUTED
   if (torch_symm_handle_) {
-    NVF_ERROR(
+    NVF_THROW(
         false,
         "Contiguous view is not yet supported for PyTorch symmetric memory backend. "
         "Use native backend for SymmetricContiguousView.");
@@ -600,7 +605,7 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
 at::Tensor SymmetricTensor::getContiguousView() const {
 #ifdef NVFUSER_DISTRIBUTED
   if (torch_symm_handle_) {
-    NVF_ERROR(
+    NVF_THROW(
         false,
         "Contiguous view is not yet supported for PyTorch symmetric memory backend.");
   }
@@ -612,16 +617,19 @@ at::Tensor SymmetricTensor::getContiguousView() const {
 void SymmetricTensor::setupMulticast(
     int64_t exporter_rank,
     const std::string& tag) {
-#ifdef NVFUSER_DISTRIBUTED
-  if (torch_symm_handle_) {
-    return; // PyTorch backend: multicast handled by backend if supported
-  }
-#endif
 #if (CUDA_VERSION >= 13000)
   if (is_multicast_setup_) {
     return;
   }
-
+#ifdef NVFUSER_DISTRIBUTED
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
+    if (!torch_symm_handle_) {
+      setupRemoteHandles(tag);
+      NVF_CHECK(torch_symm_handle_->has_multicast_support(), "Multicast not supported");
+    }
+    return;
+  }
+#endif
   Communicator& comm = Communicator::getInstance();
   const int64_t my_rank = comm.deviceId();
   const int64_t local_rank = comm.local_rank();

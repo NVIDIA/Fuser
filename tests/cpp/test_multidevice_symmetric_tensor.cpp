@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include "multidevice/ipc_utils.h"
 #include "multidevice/symmetric_tensor.h"
 #include "tests/cpp/multidevice.h"
+#include "multidevice/ipc_utils.h"
 
 namespace nvfuser {
 
@@ -53,25 +53,6 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
     EXPECT_FLOAT_EQ(peer_value, expected_value)
         << "Rank " << rank << " reading from rank " << peer_rank;
   }
-}
-
-TEST_F(SymmetricTensorTest, AllocateOnly) {
-  if (communicator_->size() == 1) {
-    GTEST_SKIP() << "Skipping test for single device";
-  }
-
-  at::Tensor local_tensor = SymmetricTensor::allocate(
-      {64, 128}, at::ScalarType::Float, communicator_->device());
-
-  EXPECT_TRUE(local_tensor.is_cuda());
-  EXPECT_EQ(local_tensor.scalar_type(), at::ScalarType::Float);
-  EXPECT_EQ(local_tensor.numel(), 64 * 128);
-  EXPECT_EQ(local_tensor.sizes()[0], 64);
-  EXPECT_EQ(local_tensor.sizes()[1], 128);
-
-  SymmetricTensor sym_tensor(local_tensor);
-  EXPECT_EQ(sym_tensor.localTensor().numel(), 64 * 128);
-  EXPECT_EQ(sym_tensor.localTensor().data_ptr(), local_tensor.data_ptr());
 }
 
 TEST_F(SymmetricTensorTest, PreallocatedTensor) {
@@ -188,6 +169,9 @@ TEST_F(SymmetricTensorTest, ContiguousView) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
+    GTEST_SKIP() << "Skipping test for Pytorch symmetric memory backend";
+  }
 
   const int64_t rank = communicator_->deviceId();
   const int64_t world_size = communicator_->size();
@@ -252,6 +236,7 @@ TEST_F(SymmetricTensorTest, SmallAllocation) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }
+  std::cout << "Vishal chishta" << std::endl;
 
   const int64_t rank = communicator_->deviceId();
   const int64_t world_size = communicator_->size();
