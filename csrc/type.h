@@ -598,7 +598,8 @@ enum class UnaryOpType {
   ElectSync,
   ToUnsignedSmemAddr,
   AdjustPartialLdMatrixAddrInTuring8,
-  AdjustPartialLdMatrixAddrInTuring16
+  AdjustPartialLdMatrixAddrInTuring16,
+  UniformWarpId
 };
 
 // TODO: Order of this list is important as it affects type promotion. it's not
