@@ -1033,17 +1033,16 @@ TEST_F(IpcTest, IpcNvlsMulticastReduce) {
       kSizeBytes,
       cudaMemcpyHostToDevice));
 
+  cudaDeviceSynchronize();
   communicator_->barrier();
 
   // Output buffer for ld_reduce (cudaMalloc is 256-byte aligned, fine for 16)
   void* out_dev = nullptr;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&out_dev, kSizeBytes));
 
-  CUstream stream = 0;
   nvfuser::launchMulticastReduceKernel(
-      reinterpret_cast<const void*>(mc_ptr), out_dev, kSizeBytes, stream);
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream)));
+      reinterpret_cast<const void*>(mc_ptr), out_dev, kSizeBytes, /*stream*/(CUstream)0);
+  cudaDeviceSynchronize();
 
   // Expected sum: 1 + 2 + ... + world_size = world_size * (world_size + 1) / 2
   float expected_val = static_cast<float>(world_size * (world_size + 1) / 2);
