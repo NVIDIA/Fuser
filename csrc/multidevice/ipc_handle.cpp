@@ -269,11 +269,6 @@ void* SymMemForAllreduce::multicastPtr() const {
   return input_sym_tensor_->multicastPtr();
 }
 
-void* SymMemForAllreduce::semaphoreMulticastPtr(int64_t root_rank) const {
-  uint8_t* base_ptr = (uint8_t*)semaphores_sym_tensor_->multicastPtr();
-  return base_ptr + (root_rank * sizeof(IpcSemaphore));
-}
-
 void* SymMemForAllreduce::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
     const {
   uint8_t* base_ptr =

@@ -223,7 +223,6 @@ class SymMemForAllreduce : public SymmetricMemoryHandle {
   void* multicastPtr() const;
 
   // Per-rank semaphore slots (same layout as SymMemForAllgather)
-  void* semaphoreMulticastPtr(int64_t root_rank) const;
   void* semaphoreUnicastPtr(int64_t root_rank, int64_t rank) const;
 
   size_t sizeBytes() const {
