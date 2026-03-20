@@ -625,6 +625,11 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
   constexpr int64_t K = 8;
   constexpr int64_t N = 2;
   constexpr int64_t S = 4;
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
   const int64_t D = communicator_->size();
   if (M % (S * D) != 0) {
     GTEST_SKIP() << "M must be a multiple of S * D, but got M = " << M
@@ -706,7 +711,13 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
   constexpr int64_t K = 64;
   constexpr int64_t N = 64;
   constexpr int64_t S = 4;
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
   const int64_t D = communicator_->size();
+
   if (M % (S * D) != 0) {
     GTEST_SKIP() << "M must be a multiple of S * D, but got M = " << M
                  << ", S = " << S << ", D = " << D;
