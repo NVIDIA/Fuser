@@ -1003,20 +1003,28 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
       "partition: extents must have Index type, got ",
       extents->dtype());
 
-  const auto& extents_domain = extents->getLogicalDomain();
-  NVF_ERROR_EQ(
-      extents_domain.size(),
-      1,
-      "partition: extents tensor must be 1D, got ",
-      extents_domain.size(),
-      "D tensor. Multi-dimensional extents not yet supported.");
+  // Filter out reduction dimensions from extents tensor
+  auto extents_no_reduction =
+      extents->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto extents_ndim = std::ranges::distance(extents_no_reduction);
+  NVF_ERROR_GT(
+      extents_ndim,
+      0,
+      "partition: extents tensor must have at least one non-reduction "
+      "dimension");
 
   auto container = in->container();
 
   // Create component IterDomain
-  // Component extent = number of components = length of extents tensor
+  // Component extent = number of components = size of last dimension of extents
+  // For 1D extents [K]: component_extent = K
+  // For 2D extents [D, K]: component_extent = K (last dim)
+  // For N-D extents [..., K]: component_extent = K (last dim)
+  // The outer dimensions of extents correspond to outer dimensions of the
+  // tensor being partitioned, allowing non-uniform partitions across instances.
   auto zero = container->zeroVal(DataType::Index);
-  auto component_extent = extents_domain.at(0)->extent();
+  auto component_extent =
+      (*std::ranges::prev(extents_no_reduction.end()))->extent();
   auto component_id = IterDomainBuilder(zero, component_extent)
                           .parallel_type(ParallelType::Serial)
                           .iter_type(IterType::Iteration)
@@ -1099,12 +1107,18 @@ IterDomain* RaggedIterDomain::combine(
   TensorView* extents_tv = ragged->extents();
   NVF_ERROR(extents_tv != nullptr, "combine: ragged extents tensor is null");
 
-  // It is still assumed the extents tensor is just 1D
+  // Filter out reduction dimensions before checking
+  auto extents_no_reduction =
+      extents_tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  // Multi-dimensional extents are not yet supported in combine
+  auto extents_ndim = std::ranges::distance(extents_no_reduction);
   NVF_ERROR_EQ(
-      std::ranges::distance(
-          extents_tv->getLogicalDomain() | TensorDomain::kNoReductions),
+      extents_ndim,
       1,
-      "Unexpected rank of extent tensor: ",
+      "combine: Multi-dimensional extents are not yet supported. ",
+      "Expected 1D extents tensor, got ",
+      extents_ndim,
+      "D extents: ",
       extents_tv->toString());
 
   auto container = component->container();
