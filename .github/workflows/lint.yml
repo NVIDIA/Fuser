@@ -23,7 +23,7 @@ jobs:
       - name: Look for missing license headers
         working-directory: ${{ env.working_directory }}
         run: |
-          find . -regextype posix-extended -regex '.*\.(cpp|h|py|md|svg)' | egrep -v '^./(\.|third_party|bin|build|nvfuser/include|nvfuser/version.py|tools/linter/adapters|csrc/serde/fusion_cache_generated.h)' | xargs grep -L SPDX-FileCopyrightText | tee missing-header-files.txt
+          find . -regextype posix-extended -regex '.*\.(cpp|h|py|md|svg)' | egrep -v '^./(\.|third_party|bin|build|nvfuser/include|nvfuser/version.py|tools/linter/adapters)' | xargs grep -L SPDX-FileCopyrightText | tee missing-header-files.txt
           # test that file is empty
           test ! -s missing-header-files.txt
 
@@ -56,19 +56,13 @@ jobs:
           # Run cmake build
           NVFUSER_BUILD_CMAKE_ONLY=1 python setup.py
 
-          # Generate csrc/serde/fusion_cache_generated.h
-          # NOTE: this might cause a compile of flatbuffers if it is missing
-          ninja -C build build_flatbuffer_config
-
           # Return to root to run clang-tidy
           cd ..
 
           # Run lintrunner on all csrc files exclude benchmark and test folders
-          this_commit=$(git rev-parse HEAD)
-          git fetch origin main
-          git checkout origin/main
-          head_commit=$(git rev-parse HEAD)
-          git checkout $this_commit
+          base_ref="${{ github.base_ref || 'main' }}"
+          git fetch origin $base_ref
+          head_commit=$(git rev-parse FETCH_HEAD)
           # diff-filter for lower case letter:
           # https://github.com/git/git/commit/7f2ea5f0f2fb056314092cce23202096ca70f076
           git --no-pager diff --diff-filter=d --name-only $head_commit | grep -e "csrc/.*\.cpp" -e "csrc/.*\.h" | xargs lintrunner --take CLANGTIDY --force-color
@@ -85,6 +79,11 @@ jobs:
       - name: Run lintrunner
         working-directory: ${{ env.working_directory }}
         run: |
+          tools/apt-install-things.sh &
+          tools/pip-install-things.sh &
+          wait
+          source tools/setup-env.sh
+
           # Install lintrunner
           pip install lintrunner
 

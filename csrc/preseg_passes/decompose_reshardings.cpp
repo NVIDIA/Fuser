@@ -420,9 +420,9 @@ void DecomposeReshardingsPass::runPass(Fusion* fusion) {
 
   // Validate
   for (Expr* e : fusion->exprs()) {
-    if (isResharding(e)) {
-      getCommunicationInfo(e);
-    }
+    // Expect `e` to either be non-resharding or have lowerable to
+    // communication.
+    getCommunicationInfo(e);
   }
 }
 

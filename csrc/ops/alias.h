@@ -7,14 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <visibility.h>
-
-#include <ir/interface_nodes.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <type.h>
-
 #include <functional>
+
+#include "exceptions.h"
+#include "ir/interface_nodes.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "type.h"
+#include "visibility.h"
 
 //
 // The operations defined in this header is intended as user facing functions.

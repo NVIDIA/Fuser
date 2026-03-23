@@ -4,6 +4,14 @@
 cmake_minimum_required(VERSION 3.18)
 project(nvfuser)
 
+# When CXX is clang, ensure nvcc also uses clang as its host compiler.
+# This must be set before enable_language(CUDA) so that CMake configures
+# nvcc with the correct -ccbin. The CUDAHOSTCXX env var should do this,
+# but PyTorch's TorchConfig.cmake can override it, so we also set it here.
+if(NOT CMAKE_CUDA_HOST_COMPILER AND DEFINED ENV{CUDAHOSTCXX})
+  set(CMAKE_CUDA_HOST_COMPILER $ENV{CUDAHOSTCXX})
+endif()
+
 enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
@@ -325,6 +333,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction_outer_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
@@ -346,8 +355,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/expr_eval_sched.cpp
-  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
-  ${NVFUSER_SRCS_DIR}/serde/utils.cpp
   ${NVFUSER_SRCS_DIR}/statement_guard.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
   ${NVFUSER_SRCS_DIR}/sys_utils.cpp
@@ -422,7 +429,6 @@ if (NVMMH_FOUND)
   target_include_directories(codegen_internal PUBLIC ${NVMMH_INCLUDE_DIR})
 endif()
 target_include_directories(codegen_internal SYSTEM PUBLIC
-  ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   PRIVATE
   ${CUDA_INCLUDE_DIRS}
 )
@@ -471,7 +477,6 @@ if(NVFUSER_USE_PCH)
     "${NVFUSER_SRCS_DIR}/scheduler/tools/abstract_tensor.h"                # 162.1s (2.7m)
     "${NVFUSER_SRCS_DIR}/type.h"                                           # 81.6s (1.4m)
     "${NVFUSER_SRCS_DIR}/ir/container.h"                                   # 51.6s (0.9m)
-    "${NVFUSER_SRCS_DIR}/serde/fusion_cache_generated.h"                   # 44.1s (0.7m)
     "${NVFUSER_SRCS_DIR}/iter_visitor.h"                                   # 38.2s (0.6m)
     "${NVFUSER_SRCS_DIR}/ir/internal_nodes.h"                              # 33.3s (0.6m)
     "${NVFUSER_SRCS_DIR}/ir/interface_nodes.h"                             # 29.6s (0.5m)
@@ -504,13 +509,9 @@ target_include_directories(nvfuser_codegen PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_ROOT}/lib/dynamic_type/src>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
-target_include_directories(nvfuser_codegen SYSTEM PUBLIC
-  "$<BUILD_INTERFACE:${NVFUSER_ROOT}/third_party/flatbuffers/include>"
-  "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
-)
 target_link_libraries(nvfuser_codegen
   PUBLIC ${TORCH_LIBRARIES}
-  PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl LLVM_JIT
+  PRIVATE dynamic_type ${CUDA_NVRTC_LIB} CUDA::cupti dl LLVM_JIT
 )
 set_target_properties(nvfuser_codegen PROPERTIES
   C_STANDARD ${NVFUSER_C_STANDARD}
@@ -539,20 +540,6 @@ endif()
 
 install(TARGETS nvfuser_codegen EXPORT NvfuserTargets DESTINATION lib)
 
-# We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
-add_custom_command(
-  OUTPUT
-  ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h
-  DEPENDS
-  ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
-  DEPENDS flatc
-  COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc --scoped-enums -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
-  COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs"
-  VERBATIM
-)
-add_custom_target(build_flatbuffer_config ALL
-  DEPENDS ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h)
-
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   # User may need to set env vars UCC_DIR, UCX_DIR, UCC_HOME, UCX_HOME for CMake's Find_UCC to work.
   find_package(UCC REQUIRED)
@@ -574,8 +561,6 @@ if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   target_compile_definitions(codegen_internal PRIVATE NVFUSER_BUILD_WITH_UCC)
 endif()
 
-add_dependencies(codegen_internal flatc build_flatbuffer_config)
-
 # installing nvfuser headers
 install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
@@ -584,11 +569,6 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   PATTERN "csrc/C++20/compare"
   PATTERN "csrc/C++23/utility"
   PATTERN "csrc/struct.inl")
-
-# TODO guard including flatbuffers headers
-# installing flatbuffers headers
-install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/"
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
 # installing dynamic_type headers
 install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
@@ -913,7 +893,6 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
     dynamic_type
     GTest::gtest
     GTest::gmock
-    flatbuffers
     ${TORCH_LIBRARIES}
   )
 
@@ -1183,7 +1162,6 @@ if(BUILD_NVFUSER_BENCHMARK)
 
   target_include_directories(nvfuser_bench SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
-    ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
     ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
   )
   target_include_directories(nvfuser_bench PUBLIC ${NVFUSER_ROOT})
@@ -1192,7 +1170,6 @@ if(BUILD_NVFUSER_BENCHMARK)
     benchmark::benchmark
     codegen_internal
   )
-  add_dependencies(nvfuser_bench flatc build_flatbuffer_config)
 
   if(NOT MSVC)
     target_compile_options(nvfuser_bench PRIVATE
@@ -1221,7 +1198,6 @@ if(BUILD_NVFUSER_BENCHMARK)
     target_link_libraries(nvfuser_p2p_communication_bench PRIVATE
       codegen_internal
     )
-    add_dependencies(nvfuser_p2p_communication_bench flatc build_flatbuffer_config)
 
     if(NOT MSVC)
       target_compile_options(nvfuser_p2p_communication_bench PRIVATE
