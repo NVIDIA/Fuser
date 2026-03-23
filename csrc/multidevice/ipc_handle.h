@@ -23,6 +23,7 @@ class SymmetricContiguousView;
 } // namespace hir
 
 // Semaphore values for P2P communication synchronization
+// NOLINTNEXTLINE(performance-enum-size)
 enum class IpcSemaphore : cuuint32_t { kIdle, kInProgress };
 
 // Basic IPC handle for legacy P2P communication using cudaIpc* APIs
@@ -155,13 +156,14 @@ class IpcHandleCache {
   KeyType getKey(P2PCommunication* comm) const {
     auto peer = expr_evaluator_.evaluate(comm->peer()).as<int64_t>();
     auto buffer = expr_evaluator_.evaluate(comm->buffer()).as<at::Tensor>();
-    return KeyType{peer, buffer, comm};
+    return KeyType{.peer = peer, .buffer = buffer, .comm = comm};
   }
 
   std::string getTcpStoreKey(P2PCommunication* communication, int64_t rank)
       const;
 
-  const ExpressionEvaluator& expr_evaluator_;
+  const ExpressionEvaluator&
+      expr_evaluator_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyType::Hash>
       handles_;
 };
@@ -190,7 +192,7 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
       int64_t root,
       const std::string& name_suffix);
 
-  ~SymMemForBroadcast() = default;
+  ~SymMemForBroadcast() override = default;
 
   void* bufferMulticastPtr() const;
 
@@ -249,6 +251,114 @@ class SymMemForContiguousView : public SymmetricMemoryHandle {
  private:
   std::unique_ptr<SymmetricTensor> sym_tensor_;
   at::Tensor tensor_;
+};
+
+// Combined symmetric memory state for alltoallv: holds both the sync
+// state (counts exchange + completion semaphores) and any number of
+// named recv buffers with their cached remote P2P pointers.
+//
+// One instance per alltoallv context (e.g. "moe_dispatch", "moe_combine").
+// The first call triggers a rendezvous (SymmetricTensor allocation +
+// setupRemoteHandles); steady-state calls are pure cache hits.
+class SymMemForAlltoallv : public SymmetricMemoryHandle {
+ public:
+  SymMemForAlltoallv(at::Device device, const std::string& tag);
+
+  ~SymMemForAlltoallv() override = default;
+
+  // Counts buffer: [W] int64 per rank — holds send_counts for the
+  // alltoallv metadata exchange (one int64 per peer).
+  const at::Tensor& syncBuffer() const {
+    return sync_buf_;
+  }
+  CUdeviceptr syncRemotePtr(int64_t rank) const {
+    return sync_ptrs_[rank];
+  }
+
+  // Semaphore buffer: [2*W] int32 per rank — holds per-pair semaphores
+  // for the counts exchange and completion barrier.
+  //   [0 .. W-1]   counts_sem[peer]
+  //   [W .. 2W-1]  done_sem[peer]
+  //
+  // Per-pair protocol matching the allgather pattern in cuda_p2p.cpp.
+  // Each slot is written by exactly one rank per phase (signal by the
+  // peer, reset by the owner). Uses 32-bit stream memory operations
+  // (CU_STREAM_MEM_OP_{WRITE,WAIT}_VALUE_32). Graph-capturable and
+  // correct for any number of ranks and unlimited replays.
+
+  int64_t worldSize() const {
+    return world_size_;
+  }
+  int64_t myRank() const {
+    return my_rank_;
+  }
+
+  // Counts exchange (split: caller reads data between wait and reset).
+  void signalCountsReady(CUstream stream);
+  void waitCountsReady(CUstream stream);
+  void resetCountsSem(CUstream stream);
+
+  // Completion barrier (signal + wait + reset in one call).
+  void doneBarrier(CUstream stream);
+
+  // --- Named recv buffers ---
+  struct RecvHandle {
+    at::Tensor buffer;
+    at::Tensor remote_ptrs; // CUDA [W] int64
+  };
+
+  //! Get or create a named recv buffer. If the cached buffer's first
+  //! dimension is already >= first_dim, returns the existing one.
+  //! Otherwise allocates + setupRemoteHandles (rendezvous).
+  const RecvHandle& recv(
+      const std::string& name,
+      int64_t first_dim,
+      at::IntArrayRef extra_sizes,
+      at::ScalarType dtype,
+      at::Device device);
+
+ private:
+  CUdeviceptr countsSemAddr(int64_t rank, int64_t slot) const {
+    return sem_ptrs_[rank] + slot * sizeof(int32_t);
+  }
+  CUdeviceptr doneSemAddr(int64_t rank, int64_t slot) const {
+    return sem_ptrs_[rank] + (world_size_ + slot) * sizeof(int32_t);
+  }
+
+  void batchSignal(
+      CUstream stream,
+      cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+  void batchWait(
+      CUstream stream,
+      cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+  void batchReset(
+      CUstream stream,
+      cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+
+  // Counts (int64 [W])
+  at::Tensor sync_buf_;
+  std::unique_ptr<SymmetricTensor> sync_sym_;
+  std::vector<CUdeviceptr> sync_ptrs_;
+
+  // Semaphores (int32 [2*W])
+  at::Tensor sem_buf_;
+  std::unique_ptr<SymmetricTensor> sem_sym_;
+  std::vector<CUdeviceptr> sem_ptrs_;
+
+  int64_t world_size_;
+  int64_t my_rank_;
+  std::string tag_;
+
+  // Recv buffers
+  struct RecvEntry {
+    std::unique_ptr<SymmetricTensor> sym;
+    RecvHandle handle;
+    int64_t cached_first_dim = 0;
+  };
+  std::unordered_map<std::string, RecvEntry> recv_entries_;
 };
 
 // Cache for symmetric memory handles keyed by (buffer tensor, expr)
