@@ -16,7 +16,7 @@
 // Currently used by tests (test_multidevice_tma.cpp). In a future PR
 // this kernel will be integrated as a P2P and multicast transport
 // alongside the existing SM-based and copy-engine transports in
-// csrc/multidevice/cuda_p2p.cpp.
+// csrc/multidevice/cuda_p2p.{h,cpp}.
 //
 // TMA (cp.async.bulk) is a GMEM<->SMEM transfer engine — there is no
 // GMEM-to-GMEM variant. Shared memory staging is inherent to the

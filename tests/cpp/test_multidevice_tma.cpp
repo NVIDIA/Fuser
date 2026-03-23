@@ -12,7 +12,7 @@
 //   2. VMM-mapped peer device memory (inter-device P2P)
 //   3. NVLS multicast unicast pointers
 //
-// The kernel source lives in csrc/multidevice/tma_copy.cu and is
+// The kernel source lives in runtime/tma_copy.cu and is
 // stringified at build time. It is compiled at runtime via NVRTC,
 // same pattern as csrc/multidevice/cuda_p2p.cpp.
 
