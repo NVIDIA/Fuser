@@ -14,7 +14,7 @@
 
 namespace nvfuser {
 
-enum class P2pProtocol { Get, Put };
+enum class P2pProtocol : std::uint8_t { Get, Put };
 
 P2pProtocol getP2pProtocol();
 

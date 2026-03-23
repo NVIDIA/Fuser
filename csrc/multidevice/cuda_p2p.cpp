@@ -49,7 +49,7 @@ void launchAlltoallvKernel(
   static CUfunction kernel = nullptr;
 
   if (module == nullptr) {
-    nvrtcProgram prog;
+    nvrtcProgram prog = nullptr;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
         &prog,
         nvfuser_resources::alltoallv_cu,
@@ -62,7 +62,7 @@ void launchAlltoallvKernel(
     int minor = 0;
     int device = 0;
     NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
-    cudaDeviceProp prop;
+    cudaDeviceProp prop{};
     NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
     major = prop.major;
     minor = prop.minor;
@@ -76,14 +76,14 @@ void launchAlltoallvKernel(
 
     nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
     if (res != NVRTC_SUCCESS) {
-      size_t logSize;
+      size_t logSize = 0;
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
       std::vector<char> log(logSize);
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
       NVF_ERROR(false, "Alltoallv kernel compilation failed:\n", log.data());
     }
 
-    size_t ptxSize;
+    size_t ptxSize = 0;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
     std::vector<char> ptx(ptxSize);
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
@@ -92,20 +92,20 @@ void launchAlltoallvKernel(
     CUresult load_result = cuModuleLoadData(&module, ptx.data());
     if (load_result != CUDA_SUCCESS) {
       constexpr size_t kLogSize = 8192;
-      char error_log[kLogSize];
-      char info_log[kLogSize];
-      CUjit_option options[] = {
+      char error_log[kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      char info_log[kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      CUjit_option options[] = { // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
           CU_JIT_ERROR_LOG_BUFFER,
           CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_INFO_LOG_BUFFER,
           CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_LOG_VERBOSE};
-      void* option_values[] = {
-          (void*)error_log,
-          (void*)kLogSize,
-          (void*)info_log,
-          (void*)kLogSize,
-          (void*)1};
+      void* option_values[] = { // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+          static_cast<void*>(error_log),
+          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          static_cast<void*>(info_log),
+          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(1)}; // NOLINT(performance-no-int-to-ptr)
       cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
       NVF_ERROR(
           false,
@@ -127,6 +127,7 @@ void launchAlltoallvKernel(
 
   constexpr int kThreads = 256;
   const int64_t blocks_x = (max_send_bytes + kThreads - 1) / kThreads;
+  // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-type-const-cast)
   void* args_kernel[] = {
       const_cast<void*>(static_cast<const void*>(&send)),
       const_cast<void*>(static_cast<const void*>(&recv_ptrs)),
@@ -136,6 +137,7 @@ void launchAlltoallvKernel(
       &world_size,
       &elem_size,
       &max_send_bytes};
+  // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,cppcoreguidelines-pro-type-const-cast)
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
       kernel,
       blocks_x,
@@ -182,7 +184,7 @@ void launchMulticastKernel(
   static CUfunction kernel = nullptr;
 
   if (module == nullptr) {
-    nvrtcProgram prog;
+    nvrtcProgram prog = nullptr;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
         &prog,
         nvfuser_resources::multicast_cu,
@@ -195,7 +197,7 @@ void launchMulticastKernel(
     int minor = 0;
     int device = 0;
     NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
-    cudaDeviceProp prop;
+    cudaDeviceProp prop{};
     NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
     major = prop.major;
     minor = prop.minor;
@@ -228,14 +230,14 @@ void launchMulticastKernel(
     }
 
     if (res != NVRTC_SUCCESS) {
-      size_t logSize;
+      size_t logSize = 0;
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
       std::vector<char> log(logSize);
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
       NVF_ERROR(false, "Multicast kernel compilation failed:\n", log.data());
     }
 
-    size_t ptxSize;
+    size_t ptxSize = 0;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
     std::vector<char> ptx(ptxSize);
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
@@ -246,20 +248,20 @@ void launchMulticastKernel(
     if (load_result != CUDA_SUCCESS) {
       // Fallback to extensive logging only on failure
       constexpr size_t kLogSize = 8192;
-      char error_log[kLogSize];
-      char info_log[kLogSize];
-      CUjit_option options[] = {
+      char error_log[kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      char info_log[kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      CUjit_option options[] = { // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
           CU_JIT_ERROR_LOG_BUFFER,
           CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_INFO_LOG_BUFFER,
           CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_LOG_VERBOSE};
-      void* option_values[] = {
-          (void*)error_log,
-          (void*)kLogSize,
-          (void*)info_log,
-          (void*)kLogSize,
-          (void*)1};
+      void* option_values[] = { // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+          static_cast<void*>(error_log),
+          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          static_cast<void*>(info_log),
+          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(1)}; // NOLINT(performance-no-int-to-ptr)
 
       // Reload to capture logs
       cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
@@ -294,14 +296,14 @@ void launchMulticastKernel(
   int threads = 128;
   int blocks = 1;
 
-  int device;
+  int device = 0;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
-  int num_sms;
+  int num_sms = 0;
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, device));
 
   // Maximize occupancy
-  int max_blocks_per_sm;
+  int max_blocks_per_sm = 0;
   NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
       &max_blocks_per_sm, kernel, threads, 0));
 
@@ -320,16 +322,17 @@ void launchMulticastKernel(
   if (args.size() >= 2) {
     try {
       threads = std::stoi(args[1]);
-    } catch (...) {
+    } catch (...) { // NOLINT(bugprone-empty-catch)
     }
   }
   if (args.size() >= 3) {
     try {
       blocks = std::stoi(args[2]);
-    } catch (...) {
+    } catch (...) { // NOLINT(bugprone-empty-catch)
     }
   }
 
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-multi-level-implicit-pointer-conversion)
   void* args_kernel[] = {&dst, &src, &size};
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
       kernel, blocks, 1, 1, threads, 1, 1, 0, stream, args_kernel, nullptr));
@@ -343,7 +346,7 @@ void WriteValue32ToLocalAndPeer(
     CUstream stream,
     const P2pIpcHandle& ipc_handles,
     IpcSemaphore value) {
-  CUstreamBatchMemOpParams ops[2] = {};
+  CUstreamBatchMemOpParams ops[2] = {}; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 
   ops[0].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
   ops[0].writeValue.address =
@@ -383,8 +386,9 @@ void postBroadcastWithCudaBackend(
     std::vector<CUstreamBatchMemOpParams> ops(world_size - 1);
     int op_idx = 0;
     for (int64_t rank = 0; rank < world_size; ++rank) {
-      if (rank == root)
+      if (rank == root) {
         continue;
+      }
       ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
       ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
           multicast_handle->semaphoreUnicastPtr(rank));
@@ -431,7 +435,7 @@ void postBroadcastWithCudaBackend(
         attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
       }
       NVF_CHECK(
-          stream != 0, "cudaMemcpyBatchAsync does not support default stream");
+          stream != nullptr, "cudaMemcpyBatchAsync does not support default stream");
 #if CUDA_VERSION >= 13000
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
           dsts.data(),
@@ -469,8 +473,9 @@ void postBroadcastWithCudaBackend(
     std::vector<CUstreamBatchMemOpParams> write_idle_ops(world_size - 1);
     op_idx = 0;
     for (int64_t rank = 0; rank < world_size; ++rank) {
-      if (rank == root)
+      if (rank == root) {
         continue;
+      }
       write_idle_ops[op_idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
       write_idle_ops[op_idx].writeValue.address = reinterpret_cast<CUdeviceptr>(
           multicast_handle->semaphoreUnicastPtr(rank));
@@ -517,8 +522,9 @@ void postAllgatherWithCudaBackend(
   std::vector<CUstreamBatchMemOpParams> write_ready_ops(world_size - 1);
   int write_op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    if (rank == my_device_index)
+    if (rank == my_device_index) {
       continue;
+    }
     write_ready_ops[write_op_idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
     write_ready_ops[write_op_idx].writeValue.address =
         reinterpret_cast<CUdeviceptr>(
@@ -537,8 +543,9 @@ void postAllgatherWithCudaBackend(
   std::vector<CUstreamBatchMemOpParams> wait_ready_ops(world_size - 1);
   int wait_op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    if (rank == my_device_index)
+    if (rank == my_device_index) {
       continue;
+    }
     wait_ready_ops[wait_op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
     wait_ready_ops[wait_op_idx].waitValue.address =
         reinterpret_cast<CUdeviceptr>(
@@ -588,7 +595,7 @@ void postAllgatherWithCudaBackend(
       attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
     }
     NVF_CHECK(
-        stream != 0, "cudaMemcpyBatchAsync does not support default stream");
+        stream != nullptr, "cudaMemcpyBatchAsync does not support default stream");
 #if CUDA_VERSION >= 13000
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
         dsts.data(),
@@ -649,8 +656,9 @@ void waitAllgatherWithCudaBackend(
   std::vector<CUstreamBatchMemOpParams> wait_complete_ops(world_size - 1);
   int op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    if (rank == my_device_index)
+    if (rank == my_device_index) {
       continue;
+    }
     wait_complete_ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
     wait_complete_ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
         allgather_handle->semaphoreUnicastPtr(rank, my_device_index));

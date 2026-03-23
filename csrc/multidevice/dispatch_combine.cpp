@@ -93,7 +93,7 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
   for (int64_t r = 0; r < W; r++) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
         counts_matrix[r].data_ptr<int64_t>(),
-        reinterpret_cast<void*>(a2av.syncRemotePtr(r)),
+        reinterpret_cast<void*>(a2av.syncRemotePtr(r)), // NOLINT(performance-no-int-to-ptr)
         W * sizeof(int64_t),
         cudaMemcpyDeviceToDevice,
         reinterpret_cast<cudaStream_t>(stream)));
@@ -114,15 +114,15 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
       : at::zeros({W}, gpu_opts);
 
   return AlltoallvMetadata{
-      send_counts,
-      recv_counts,
-      send_offsets,
-      recv_offsets,
-      max_recv,
-      max_recv,
-      max_send_total,
-      max_send_bytes,
-      W};
+      .send_counts = send_counts,
+      .recv_counts = recv_counts,
+      .send_offsets = send_offsets,
+      .recv_offsets = recv_offsets,
+      .total_recv = max_recv,
+      .max_recv = max_recv,
+      .max_send_total = max_send_total,
+      .max_send_bytes = max_send_bytes,
+      .world_size = W};
 }
 
 } // namespace
@@ -215,13 +215,13 @@ DispatchResult doMoeDispatch(
     waitWork(pg->alltoall_base(
         recv_src_idx, send_src_idx, output_splits, input_splits));
 
-    return {
-        recv_x,
-        recv_topk_idx,
-        recv_topk_weights,
-        recv_src_idx,
-        n_tokens_to_rank,
-        n_tokens_from_rank};
+    return DispatchResult{
+        .recv_x = recv_x,
+        .recv_topk_idx = recv_topk_idx,
+        .recv_topk_weights = recv_topk_weights,
+        .recv_src_idx = recv_src_idx,
+        .n_tokens_to_rank = n_tokens_to_rank,
+        .n_tokens_from_rank = n_tokens_from_rank};
   }
 
   // ---------- CUDA backend (graph-capturable, zero CPU-GPU sync) ----------
@@ -276,13 +276,13 @@ DispatchResult doMoeDispatch(
       send_src_idx, rs.buffer, metadata, rs.remote_ptrs, stream);
   a2av.doneBarrier(stream);
 
-  return {
-      rx.buffer,
-      ri.buffer,
-      rw.buffer,
-      rs.buffer,
-      n_tokens_to_rank,
-      n_tokens_from_rank};
+  return DispatchResult{
+      .recv_x = rx.buffer,
+      .recv_topk_idx = ri.buffer,
+      .recv_topk_weights = rw.buffer,
+      .recv_src_idx = rs.buffer,
+      .n_tokens_to_rank = n_tokens_to_rank,
+      .n_tokens_from_rank = n_tokens_from_rank};
 }
 
 CombineResult doMoeCombine(
