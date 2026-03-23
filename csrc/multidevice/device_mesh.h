@@ -96,8 +96,9 @@ class DeviceMesh final {
   }
 
   // Returns the rank (number of dimensions) of the mesh.
+  // Returns -1 if the mesh is empty.
   int64_t rank() const {
-    return devices_.dim();
+    return size() > 0 ? devices_.dim() : -1;
   }
 
   bool operator==(const DeviceMesh& other) const {

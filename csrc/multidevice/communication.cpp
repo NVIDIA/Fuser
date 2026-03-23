@@ -46,6 +46,9 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
     case CommunicationType::AllToAll:
       os << "AllToAll";
       break;
+    case CommunicationType::CollectivePermute:
+      os << "CollectivePermute";
+      break;
   }
   return os;
 }
@@ -64,6 +67,7 @@ bool hasRoot(CommunicationType type) {
     case CommunicationType::Allreduce:
     case CommunicationType::ReduceScatter:
     case CommunicationType::AllToAll:
+    case CommunicationType::CollectivePermute:
       return false;
   }
   std::unreachable();
@@ -216,6 +220,47 @@ std::string P2PCommunication::toString(int indent_size) const {
   return toInlineString(indent_size) + "\n";
 }
 
+CollectivePermute::CollectivePermute(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in,
+    Team team,
+    Val* send_peer,
+    Val* recv_peer,
+    CommunicatorBackend backend)
+    : Expr(passkey) {
+  NVF_ERROR(
+      in->getDeviceMesh().size() > 0,
+      "The input mesh size must be greater than 0.");
+  NVF_ERROR(
+      out->getDeviceMesh().size() > 0,
+      "The output mesh size must be greater than 0.");
+  addInput(in);
+  addInput(send_peer);
+  addInput(recv_peer);
+  addOutput(out);
+  addDataAttribute(CommunicationType::CollectivePermute);
+  addDataAttribute(team);
+  addDataAttribute(backend);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CollectivePermute)
+
+std::string CollectivePermute::toInlineString(const int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "CollectivePermute " << name() << " ("
+                          << "team=(" << team() << ")"
+                          << ", send_peer=" << sendPeer()->toInlineString()
+                          << ", recv_peer=" << recvPeer()->toInlineString()
+                          << ", input=" << in() << ", output=" << out()
+                          << ", backend=" << backend() << ")";
+  return ss.str();
+}
+
+std::string CollectivePermute::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
+}
+
 MoeDispatch::MoeDispatch(
     IrBuilderPasskey passkey,
     TensorView* out_x,
@@ -267,32 +312,24 @@ void MoeDispatch::validate() {
   NVF_CHECK(inX()->isA<TensorView>(), "in_x must be a TensorView.");
   NVF_CHECK(inTopkIdx()->isA<TensorView>(), "topk_idx must be a TensorView.");
   NVF_CHECK(
-      inTopkIdx()->getDataType().has_value() &&
-          isIntegralType(*inTopkIdx()->getDataType()),
-      "topk_idx must be integral.");
+      isIntegralType(inTopkIdx()->getDataType()), "topk_idx must be integral.");
   NVF_CHECK(
-      inTopkWeights()->getDataType().has_value() &&
-          isFloatingPointType(*inTopkWeights()->getDataType()),
+      isFloatingPointType(inTopkWeights()->getDataType()),
       "topk_weights must be floating point.");
   NVF_CHECK(
-      outTopkIdx()->getDataType().has_value() &&
-          isIntegralType(*outTopkIdx()->getDataType()),
+      isIntegralType(outTopkIdx()->getDataType()),
       "out_topk_idx must be integral.");
   NVF_CHECK(
-      outTopkWeights()->getDataType().has_value() &&
-          isFloatingPointType(*outTopkWeights()->getDataType()),
+      isFloatingPointType(outTopkWeights()->getDataType()),
       "out_topk_weights must be floating point.");
   NVF_CHECK(
-      outSrcIdx()->getDataType().has_value() &&
-          isIntegralType(*outSrcIdx()->getDataType()),
+      isIntegralType(outSrcIdx()->getDataType()),
       "out_src_idx must be integral.");
   NVF_CHECK(
-      outTokensToRank()->getDataType().has_value() &&
-          isIntegralType(*outTokensToRank()->getDataType()),
+      isIntegralType(outTokensToRank()->getDataType()),
       "out_n_tokens_to_rank must be integral.");
   NVF_CHECK(
-      outTokensFromRank()->getDataType().has_value() &&
-          isIntegralType(*outTokensFromRank()->getDataType()),
+      isIntegralType(outTokensFromRank()->getDataType()),
       "out_n_tokens_from_rank must be integral.");
 }
 
@@ -336,20 +373,16 @@ std::string MoeCombine::toString(int indent_size) const {
 void MoeCombine::validate() {
   NVF_CHECK(inX()->isA<TensorView>(), "in_x must be a TensorView.");
   NVF_CHECK(
-      inTopkWeights()->getDataType().has_value() &&
-          isFloatingPointType(*inTopkWeights()->getDataType()),
+      isFloatingPointType(inTopkWeights()->getDataType()),
       "in_topk_weights must be floating point.");
   NVF_CHECK(
-      inSrcIdx()->getDataType().has_value() &&
-          isIntegralType(*inSrcIdx()->getDataType()),
+      isIntegralType(inSrcIdx()->getDataType()),
       "in_src_idx must be integral.");
   NVF_CHECK(
-      inTokensToRank()->getDataType().has_value() &&
-          isIntegralType(*inTokensToRank()->getDataType()),
+      isIntegralType(inTokensToRank()->getDataType()),
       "in_n_tokens_to_rank must be integral.");
   NVF_CHECK(
-      inTokensFromRank()->getDataType().has_value() &&
-          isIntegralType(*inTokensFromRank()->getDataType()),
+      isIntegralType(inTokensFromRank()->getDataType()),
       "in_n_tokens_from_rank must be integral.");
 }
 

@@ -43,6 +43,7 @@ jobs:
             github.actor == 'ptrblck' ||
             github.actor == 'rdspring1' ||
             github.actor == 'samnordmann' ||
+            github.actor == 'x41lakazam' ||
             github.actor == 'syed-ahmed' ||
             github.actor == 'tbqh' ||
             github.actor == 'tfogal' ||

@@ -269,8 +269,8 @@ std::string ValGraph::toString() const {
   ss << "IdGraph { \n";
   ss << "Disjoint Ids:\n"
      << idGroupsString(*this, 1) << "\n\nDisjoint Expression groups:\n"
-     << exprGroupsString(*this, 1) << std::endl;
-  ss << " } IdGraph\n" << std::endl;
+     << exprGroupsString(*this, 1) << '\n';
+  ss << " } IdGraph\n";
   return ss.str();
 }
 
@@ -397,11 +397,12 @@ const ExprGroups& ValGraph::getDefinitions(const ValGroup& val_group) const {
 
 const ExprGroups& ValGraph::getUses(const ValGroup& val_group) const {
   NVF_ERROR(val_group, "Nullptr not allowed");
+
+  static const ExprGroups empty_expr_groups;
   const auto it = unique_uses_.find(val_group);
-  NVF_ERROR(
-      it != unique_uses_.end(),
-      "Use group not found for ",
-      nvfuser::toString(val_group));
+  if (it == unique_uses_.end()) {
+    return empty_expr_groups;
+  }
   return it->second;
 }
 

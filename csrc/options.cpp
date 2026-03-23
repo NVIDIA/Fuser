@@ -40,7 +40,7 @@ auto parseEnvOptions(
             available_options.end(),
             std::back_inserter(option_values),
             [](const auto& kv) { return kv.first; });
-        std::sort(option_values.begin(), option_values.end());
+        std::ranges::sort(option_values);
         NVF_CHECK(
             false,
             "Parsing ",
@@ -181,7 +181,6 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"fast_math", EnableOption::FastMath},
           {"p2p_protocol", EnableOption::P2pProtocol},
           {"multicast_protocol", EnableOption::MulticastProtocol},
-          {"parallel_serde", EnableOption::ParallelSerde},
       };
   return available_options;
 }

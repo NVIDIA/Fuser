@@ -21,7 +21,6 @@
 #include "runtime/executor_dispatch.h"
 #include "runtime/fusion_cache_utils.h"
 #include "scheduler/heuristic.h"
-#include "serde/fusion_cache_generated.h"
 #include "type.h"
 
 namespace nvfuser {
@@ -56,7 +55,6 @@ KernelArgumentHolder copyMetadataArg(const KernelArgumentHolder& src) {
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
-    const serde::FusionKernelRuntime* serde_buffer,
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
     int64_t concrete_id,
@@ -91,32 +89,8 @@ FusionKernelRuntime::FusionKernelRuntime(
   SchedulerRuntimeInfo runtime_info(
       fusion.get(), args, nullptr, all_tvs, forced_index_type);
 
-  if (serde_buffer == nullptr || !serde_buffer->segmented_fusion()->valid()) {
-    // Default compilation path applies segmentation before scheduling and
-    // compiling the fusion.
-    segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
-  } else {
-    // Serialization path that generates segmented fusion from flatbuffers.
-    // Convert Welford to two-pass if option is enabled and the original
-    // heuristic is persistent
-    const flatbuffers::Vector<flatbuffers::Offset<serde::SegmentedGroup>>*
-        segmented_groups = serde_buffer->segmented_fusion()->groups();
-    bool has_persistent_heuristic = std::ranges::any_of(
-        *segmented_groups, [](const serde::SegmentedGroup* sg) {
-          auto heuristic = static_cast<SchedulerType>(sg->heuristic());
-          return heuristic == SchedulerType::InnerPersistent ||
-              heuristic == SchedulerType::OuterPersistent ||
-              heuristic == SchedulerType::InnerOuterPersistent;
-        });
-
-    bool has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
-    if (has_welford_ops && has_persistent_heuristic) {
-      SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
-    }
-    segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
-    segmented_fusion_->deserialize(serde_buffer->segmented_fusion());
-  }
+  segmented_fusion_ =
+      SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
@@ -134,9 +108,8 @@ FusionKernelRuntime::FusionKernelRuntime(
   is_segmented_ = segmented_fusion_->groups().size() > 1;
 
   // Create Initial Heuristics for Segmented Fusion
-  auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
-  NVF_ERROR(maybe_heuristics.has_value());
-  heuristics_ = std::move(maybe_heuristics.value());
+  heuristics_ = getMaybeHeuristicsFor(args, forced_index_type);
+  NVF_ERROR(heuristics_ != nullptr);
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
@@ -155,113 +128,6 @@ bool FusionKernelRuntime::isCompiled() const {
     return std::ranges::all_of(executors_, [](const auto& executor) {
       return ExecutorDispatch::isCompiled(executor.get());
     });
-  }
-}
-
-flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
-    flatbuffers::FlatBufferBuilder& builder) const {
-  // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
-
-  NVF_CHECK(
-      isCompiled(),
-      "Tried to serialize entries of executors before they were initialized.");
-
-  // 1. Serialize KernelExecutor objects
-  std::vector<flatbuffers::Offset<serde::KernelExecutor>> executors_fb;
-  executors_fb.reserve(executors_.size());
-  for (auto& ea : executors_) {
-    if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
-      executors_fb.emplace_back(ke->serialize(builder));
-    }
-  }
-
-  flatbuffers::Offset<serde::SegmentedFusion> segmented_fusion_fb = 0;
-  if (segmented_fusion_) {
-    segmented_fusion_fb = segmented_fusion_->serialize(builder);
-  }
-
-  return serde::CreateFusionKernelRuntimeDirect(
-      builder,
-      fusion_id_,
-      concrete_id_,
-      runtime_id_,
-      args_metadata_.serialize(builder),
-      &executors_fb,
-      segmented_fusion_fb);
-}
-
-void FusionKernelRuntime::deserialize(
-    const serde::FusionKernelRuntime* buffer,
-    int8_t device_index) {
-  // See table definition in FusionKernelRuntime in serde/fusion_cache.fbs
-
-  NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
-  NVF_ERROR(runtime_workspace_.group_run_order.size() == executors_.size());
-  NVF_ERROR(
-      fusion_id_ == buffer->fusion_id(),
-      "Expected FusionKernelRuntime fusion_id to match serde fusion_id.");
-  NVF_ERROR(
-      concrete_id_ == buffer->concrete_id(),
-      "Expected FusionKernelRuntime concrete_id to match serde concrete_id.");
-  NVF_ERROR(
-      runtime_id_ == buffer->runtime_id(),
-      "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
-
-  // find the flatbuffer with the same group_id for SegmentedGroup
-  auto get_buffer = [&](int64_t group_id) {
-    for (auto buffer : *buffer->executors()) {
-      if (buffer->group_id() == group_id) {
-        return buffer;
-      }
-    }
-    NVF_THROW(
-        "Could not find the serialized group associated with id: ", group_id);
-  };
-
-  // 1. Deserialize KernelExecutor objects
-  for (auto idx : arange(executors_.size())) {
-    auto sg = runtime_workspace_.group_run_order.at(idx);
-
-    // Create and schedule Fusion for this SegmentedGroup
-    auto group_id = sg->groupId();
-    auto heuristic_params = schedulers().at(group_id).get();
-    NVF_ERROR(
-        !sg || heuristic_params->scheduler_type == sg->schedulerType(),
-        "Heuristics do not match.");
-    auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
-    FusionGuard fg(fusion_to_run.get());
-    SchedulerEntry::makeSchedulerInstance(heuristic_params->scheduler_type)
-        ->schedule(fusion_to_run.get(), heuristic_params);
-
-    // Initialize associated executors
-    executors_[group_id] = ExecutorDispatch::makeExecutor(
-        fusion_to_run.get(),
-        fusion_id_,
-        concrete_id_,
-        runtime_id_,
-        group_id,
-        sg->schedulerType());
-
-    // Deserialize KernelExecutor; Otherwise use ExecutorDispatch
-    if (auto ke =
-            dynamic_cast<KernelExecutor*>(executors_.at(group_id).get())) {
-      ke->deserialize(
-          get_buffer(group_id),
-          fusion_to_run.get(),
-          device_index,
-          heuristic_params->cparams,
-          heuristic_params->scheduler_type,
-          fusion_id_,
-          concrete_id_,
-          runtime_id_,
-          group_id);
-    } else {
-      ExecutorDispatch::compile(
-          executors_.at(group_id).get(),
-          fusion_to_run.get(),
-          args_metadata_,
-          heuristic_params);
-    }
   }
 }
 
@@ -530,10 +396,9 @@ const ExecutorLog& FusionKernelRuntime::getMostRecentExecutorLog() const {
   return most_recent_executor_log_;
 }
 
-std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
-    getMaybeHeuristicsFor(
-        const KernelArgumentHolder& args,
-        std::optional<PrimDataType> forced_index_type) {
+std::unique_ptr<HeuristicParamsList> FusionKernelRuntime::getMaybeHeuristicsFor(
+    const KernelArgumentHolder& args,
+    std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
 
   // The runtime group run order is different from the segmented_fusion group
@@ -601,18 +466,17 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
       // canScheduleRuntime, but it is safe to skip canScheduleCompileTime. We
       // skip it here to avoid performing expensive fusion traversals on the
       // dynamic shape path.
-      auto maybe_heuristic_params =
+      auto heuristic_params =
           group_to_run->getMaybeHeuristicParams(fusion_to_run_info);
-      // If unavailable, then return std::nullopt
-      if (!maybe_heuristic_params.has_value()) {
-        return std::nullopt;
+      // If unavailable, then return nullptr
+      if (!heuristic_params) {
+        return nullptr;
       }
       // Check if this scheduler entry matches the previous entry for this
-      // segmented group. If no match, then return std::nullptr
-      auto heuristic_params = std::move(maybe_heuristic_params.value());
+      // segmented group. If no match, then return nullptr
       if (!heuristic_params->sameAs(
               heuristics_->at(group_to_run->groupId()).get())) {
-        return std::nullopt;
+        return nullptr;
       }
       // Add new scheduler entry for this segmented group
       heuristics->at(group_to_run->groupId()) = std::move(heuristic_params);
