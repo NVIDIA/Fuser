@@ -12,8 +12,9 @@
 //   2. VMM-mapped peer device memory (inter-device P2P)
 //   3. NVLS multicast pointers
 //
-// Uses the production launchTmaCopy() from cuda_p2p.cpp, which
-// compiles csrc/multidevice/tma_copy.cu at runtime via NVRTC.
+// The kernel source lives in runtime/tma_copy.cu and is
+// stringified at build time. It is compiled at runtime via NVRTC,
+// same pattern as csrc/multidevice/cuda_p2p.cpp.
 
 #include <cuda.h>
 
