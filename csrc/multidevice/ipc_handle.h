@@ -162,7 +162,8 @@ class IpcHandleCache {
   std::string getTcpStoreKey(P2PCommunication* communication, int64_t rank)
       const;
 
-  const ExpressionEvaluator& expr_evaluator_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  const ExpressionEvaluator&
+      expr_evaluator_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyType::Hash>
       handles_;
 };

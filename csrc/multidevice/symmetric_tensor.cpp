@@ -103,7 +103,8 @@ at::Tensor SymmetricTensor::allocate(
   CUmemAllocationProp prop{};
   prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
   prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-  prop.location.id = static_cast<int>(device.index()); // NOLINT(bugprone-signed-char-misuse)
+  prop.location.id =
+      static_cast<int>(device.index()); // NOLINT(bugprone-signed-char-misuse)
   prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
 
   size_t granularity = getGranularityForSymmetricMemory(prop, alloc_size);
@@ -111,8 +112,7 @@ at::Tensor SymmetricTensor::allocate(
       ((alloc_size + granularity - 1) / granularity) * granularity;
 
   CUmemGenericAllocationHandle handle = 0;
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMemCreate(&handle, rounded_size, &prop, 0));
+  NVFUSER_CUDA_SAFE_CALL(cuMemCreate(&handle, rounded_size, &prop, 0));
 
   CUdeviceptr ptr = 0;
   NVFUSER_CUDA_SAFE_CALL(
@@ -121,7 +121,8 @@ at::Tensor SymmetricTensor::allocate(
 
   CUmemAccessDesc access{};
   access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-  access.location.id = static_cast<int>(device.index()); // NOLINT(bugprone-signed-char-misuse)
+  access.location.id =
+      static_cast<int>(device.index()); // NOLINT(bugprone-signed-char-misuse)
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(ptr, rounded_size, &access, 1));
 
@@ -166,7 +167,8 @@ std::string SymmetricTensor::validate(at::Tensor tensor) {
 
   CUmemGenericAllocationHandle alloc_handle = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(
-      &alloc_handle, reinterpret_cast<void*>(ptr))); // NOLINT(performance-no-int-to-ptr)
+      &alloc_handle,
+      reinterpret_cast<void*>(ptr))); // NOLINT(performance-no-int-to-ptr)
 
   CUmemAllocationProp prop{};
   NVFUSER_CUDA_SAFE_CALL(
@@ -246,7 +248,8 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
 
   CUmemGenericAllocationHandle local_handle = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(
-      &local_handle, reinterpret_cast<void*>(local_ptr))); // NOLINT(performance-no-int-to-ptr)
+      &local_handle,
+      reinterpret_cast<void*>(local_ptr))); // NOLINT(performance-no-int-to-ptr)
 
   alloc_handles_[my_device_id_] = local_handle;
   remote_ptrs_[my_device_id_] = local_ptr;
@@ -344,7 +347,8 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
     CUmemGenericAllocationHandle peer_handle = 0;
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &peer_handle,
-        reinterpret_cast<void*>(static_cast<uint64_t>(local_fd)), // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<void*>(static_cast<uint64_t>(
+            local_fd)), // NOLINT(performance-no-int-to-ptr)
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
 
     alloc_handles_[sender_rank] = peer_handle;
@@ -398,7 +402,8 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
 
   NVF_CHECK(are_remote_tensors_setup_ == true, "Remote tensors not setup");
   return at::from_blob(
-      reinterpret_cast<void*>(remote_ptrs_[rank]), // NOLINT(performance-no-int-to-ptr)
+      reinterpret_cast<void*>(
+          remote_ptrs_[rank]), // NOLINT(performance-no-int-to-ptr)
       local_tensor_.sizes(),
       local_tensor_.strides(),
       at::TensorOptions()
@@ -534,7 +539,8 @@ void SymmetricTensor::setupMulticast(
 
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &mcast_handle_,
-        reinterpret_cast<void*>(static_cast<uint64_t>(peer_fd_)), // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<void*>(static_cast<uint64_t>(
+            peer_fd_)), // NOLINT(performance-no-int-to-ptr)
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
   } else {
     for (int i = 0; i < world_size_; ++i) {
@@ -584,7 +590,8 @@ void SymmetricTensor::setupMulticast(
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(mc_ptr, aligned_size_, &access, 1));
 
-  mc_ptr_ = reinterpret_cast<void*>(mc_ptr + offset_diff); // NOLINT(performance-no-int-to-ptr)
+  mc_ptr_ = reinterpret_cast<void*>(
+      mc_ptr + offset_diff); // NOLINT(performance-no-int-to-ptr)
   mc_base_ptr_ = mc_ptr;
   is_multicast_setup_ = true;
 

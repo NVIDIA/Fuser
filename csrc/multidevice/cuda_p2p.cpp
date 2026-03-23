@@ -92,19 +92,25 @@ void launchAlltoallvKernel(
     CUresult load_result = cuModuleLoadData(&module, ptx.data());
     if (load_result != CUDA_SUCCESS) {
       constexpr size_t kLogSize = 8192;
-      char error_log[kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-      char info_log[kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-      CUjit_option options[] = { // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      char error_log
+          [kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      char info_log
+          [kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      CUjit_option options[] = {
+          // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
           CU_JIT_ERROR_LOG_BUFFER,
           CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_INFO_LOG_BUFFER,
           CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_LOG_VERBOSE};
-      void* option_values[] = { // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      void* option_values[] = {
+          // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
           static_cast<void*>(error_log),
-          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(
+              kLogSize), // NOLINT(performance-no-int-to-ptr)
           static_cast<void*>(info_log),
-          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(
+              kLogSize), // NOLINT(performance-no-int-to-ptr)
           reinterpret_cast<void*>(1)}; // NOLINT(performance-no-int-to-ptr)
       cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
       NVF_ERROR(
@@ -248,19 +254,25 @@ void launchMulticastKernel(
     if (load_result != CUDA_SUCCESS) {
       // Fallback to extensive logging only on failure
       constexpr size_t kLogSize = 8192;
-      char error_log[kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-      char info_log[kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-      CUjit_option options[] = { // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      char error_log
+          [kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      char info_log
+          [kLogSize]; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      CUjit_option options[] = {
+          // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
           CU_JIT_ERROR_LOG_BUFFER,
           CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_INFO_LOG_BUFFER,
           CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_LOG_VERBOSE};
-      void* option_values[] = { // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      void* option_values[] = {
+          // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
           static_cast<void*>(error_log),
-          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(
+              kLogSize), // NOLINT(performance-no-int-to-ptr)
           static_cast<void*>(info_log),
-          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(
+              kLogSize), // NOLINT(performance-no-int-to-ptr)
           reinterpret_cast<void*>(1)}; // NOLINT(performance-no-int-to-ptr)
 
       // Reload to capture logs
@@ -346,7 +358,8 @@ void WriteValue32ToLocalAndPeer(
     CUstream stream,
     const P2pIpcHandle& ipc_handles,
     IpcSemaphore value) {
-  CUstreamBatchMemOpParams ops[2] = {}; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+  CUstreamBatchMemOpParams ops[2] =
+      {}; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 
   ops[0].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
   ops[0].writeValue.address =
@@ -435,7 +448,8 @@ void postBroadcastWithCudaBackend(
         attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
       }
       NVF_CHECK(
-          stream != nullptr, "cudaMemcpyBatchAsync does not support default stream");
+          stream != nullptr,
+          "cudaMemcpyBatchAsync does not support default stream");
 #if CUDA_VERSION >= 13000
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
           dsts.data(),
@@ -595,7 +609,8 @@ void postAllgatherWithCudaBackend(
       attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
     }
     NVF_CHECK(
-        stream != nullptr, "cudaMemcpyBatchAsync does not support default stream");
+        stream != nullptr,
+        "cudaMemcpyBatchAsync does not support default stream");
 #if CUDA_VERSION >= 13000
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
         dsts.data(),
