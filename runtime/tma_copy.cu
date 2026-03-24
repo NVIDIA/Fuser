@@ -24,7 +24,9 @@
 //
 //   GMEM(src) --[TMA load]--> SMEM --[TMA store]--> GMEM(dst)
 //
-// A single elected thread (thread 0) drives both phases:
+// The host launches ceil(total_bytes / max_chunk) blocks. Each block
+// copies one chunk of the data, so all chunks can execute concurrently
+// across SMs. Thread 0 in each block drives both TMA phases:
 //   1. mbarrier.init (arrival count = 1)
 //   2. mbarrier.arrive.expect_tx (announce expected bytes)
 //   3. cp.async.bulk.shared::cluster.global  (TMA load, async)
@@ -35,11 +37,23 @@
 // Dynamic shared memory layout (128-byte aligned):
 //   [0, num_bytes)           : staging buffer
 //   [num_bytes, num_bytes+8) : mbarrier (uint64_t)
+//
+// TODO: Proposition C — multi-stage TMA pipelining with
+// double-buffered shared memory could further improve throughput
+// by overlapping TMA loads and stores within each block. Explore
+// if profiling shows TMA engine utilization is a bottleneck.
 
 extern "C" __global__ void __launch_bounds__(32, 1) tma_copy_1d(
     void* __restrict__ dst,
     const void* __restrict__ src,
-    int num_bytes) {
+    int total_bytes,
+    int max_chunk) {
+  int64_t offset = static_cast<int>(blockIdx.x) * max_chunk;
+  int64_t num_bytes = min(max_chunk, total_bytes - offset);
+
+  const char* block_src = static_cast<const char*>(src) + offset;
+  char* block_dst = static_cast<char*>(dst) + offset;
+
   extern __shared__ __align__(128) unsigned char smem[];
 
   unsigned long long* mbar =
@@ -57,23 +71,20 @@ extern "C" __global__ void __launch_bounds__(32, 1) tma_copy_1d(
   __syncwarp();
 
   if (threadIdx.x == 0) {
-    // Announce expected transaction bytes on the mbarrier
     asm volatile(
         "mbarrier.arrive.expect_tx.shared::cta.b64 _, [%0], %1;" ::"r"(
             mbar_addr),
         "r"(num_bytes));
 
-    // TMA Load: GMEM -> SMEM (async, completed via mbarrier)
     asm volatile(
         "cp.async.bulk.shared::cluster.global"
         ".mbarrier::complete_tx::bytes"
         " [%0], [%1], %2, [%3];\n" ::"r"(smem_addr),
-        "l"(src),
+        "l"(block_src),
         "r"(num_bytes),
         "r"(mbar_addr)
         : "memory");
 
-    // Block until the mbarrier phase flips (TMA load completed)
     asm volatile(
         "{\n"
         ".reg .pred P1;\n"
@@ -86,10 +97,9 @@ extern "C" __global__ void __launch_bounds__(32, 1) tma_copy_1d(
         "}" ::"r"(mbar_addr),
         "r"(0));
 
-    // TMA Store: SMEM -> GMEM
     asm volatile(
         "cp.async.bulk.global.shared::cta.bulk_group"
-        " [%0], [%1], %2;\n" ::"l"(dst),
+        " [%0], [%1], %2;\n" ::"l"(block_dst),
         "r"(smem_addr),
         "r"(num_bytes)
         : "memory");
