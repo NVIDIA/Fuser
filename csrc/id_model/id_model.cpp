@@ -482,6 +482,11 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   return mapped_ids;
 }
 
+// True when expr simplification proves split->isDivisible().
+bool isDivisible(Split* split) {
+  return simplifyExpr(split->isDivisible())->isTrue();
+}
+
 // The following is a subpattern of
 // https://github.com/NVIDIA/Fuser/blob/main/doc/reading/iterdomain.md#2-properties-of-iterdomain-transformations
 //
@@ -492,17 +497,13 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
 // If outermost_grand and outer' have the same extent, map them.
 // The splits must be divisible for this mapping to be valid.
 void mapDivisibleSplits(ValGraph& graph) {
-  auto is_divisible = [](Split* s) {
-    return simplifyExpr(s->isDivisible())->isTrue();
-  };
-
   std::vector<std::pair<Val*, Val*>> ids_to_map;
   for (const ValGroup& root : graph.disjointValSets().disjointSets()) {
     const ExprGroups& uses_of_root = graph.getUses(root);
     std::vector<ValGroup> outermost_grands;
     for (const ExprGroup& use_of_root : uses_of_root) {
       auto* split0 = dynamic_cast<Split*>(use_of_root->front());
-      if (split0 == nullptr || !is_divisible(split0)) {
+      if (split0 == nullptr || !isDivisible(split0)) {
         continue;
       }
       // Only follow the outer output of the first split; outer and inner
@@ -510,7 +511,7 @@ void mapDivisibleSplits(ValGraph& graph) {
       const ValGroup& outer = graph.toGroup(split0->outer());
       for (const ExprGroup& use_of_outer : graph.getUses(outer)) {
         auto* split1 = dynamic_cast<Split*>(use_of_outer->front());
-        if (split1 == nullptr || !is_divisible(split1)) {
+        if (split1 == nullptr || !isDivisible(split1)) {
           continue;
         }
         const ValGroup& outermost_grand = graph.toGroup(split1->outer());
@@ -524,7 +525,7 @@ void mapDivisibleSplits(ValGraph& graph) {
 
       for (const ExprGroup& use_of_root : uses_of_root) {
         auto* split = dynamic_cast<Split*>(use_of_root->front());
-        if (split == nullptr || !is_divisible(split)) {
+        if (split == nullptr || !isDivisible(split)) {
           continue;
         }
 
@@ -533,6 +534,69 @@ void mapDivisibleSplits(ValGraph& graph) {
                 extent_of_grand)) {
           ids_to_map.emplace_back(outermost_grand->front(), outer->front());
         }
+      }
+    }
+  }
+
+  for (const auto& [id1, id2] : ids_to_map) {
+    graph.mapVals(id1, id2);
+  }
+}
+
+// Outer-split only: for a Merge (e.g. merging reshape), match the outer output
+// of the consumer split of merge->out() (use_m_out) with the outer output of
+// the producer split of merge->outer() (use_merge_outer), when factors match
+// and splits are divisible — e.g. DIDx shard axes across reshape sides.
+void mapDivisibleMergeSplits(ValGraph& graph) {
+  std::vector<std::pair<Val*, Val*>> ids_to_map;
+  // Given
+  //
+  //              merge_outer    merge_inner
+  //                   \        /
+  //                     [merge]
+  //                       |
+  //                    merge_out
+  //                       |
+  //                [split_merge]
+  //                 /        \.
+  // split_merge->outer()    split_merge->inner()
+  //
+  // and
+  //
+  //                merge_outer
+  //                     |
+  //               [split_outer]
+  //                   /   \.
+  // split_outer->outer() split_outer->inner()
+  //
+  // map split_merge->outer() and split_outer->outer() under certain
+  // divisibility conditions.
+  for (const ExprGroup& merge_group : graph.disjointExprSets().disjointSets()) {
+    auto* merge = dynamic_cast<Merge*>(merge_group->front());
+    if (merge == nullptr) {
+      continue;
+    }
+
+    const ValGroup& merge_out_group = graph.toGroup(merge->out());
+    for (const ExprGroup& split_merge_group : graph.getUses(merge_out_group)) {
+      auto* split_merge = dynamic_cast<Split*>(split_merge_group->front());
+      if (split_merge == nullptr || !isDivisible(split_merge) ||
+          split_merge->innerSplit()) {
+        continue;
+      }
+
+      const ValGroup& merge_outer_group = graph.toGroup(merge->outer());
+      for (const ExprGroup& split_outer_group :
+           graph.getUses(merge_outer_group)) {
+        auto* split_outer = dynamic_cast<Split*>(split_outer_group->front());
+        if (split_outer == nullptr || !isDivisible(split_outer) ||
+            split_outer->innerSplit()) {
+          continue;
+        }
+        if (!split_merge->factor()->sameAs(split_outer->factor())) {
+          continue;
+        }
+        ids_to_map.emplace_back(split_merge->outer(), split_outer->outer());
       }
     }
   }
@@ -602,6 +666,7 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   }
 
   mapDivisibleSplits(almost_exact_graph);
+  mapDivisibleMergeSplits(almost_exact_graph);
 
   almost_exact_graph.validateConsistency();
 
