@@ -1045,7 +1045,9 @@ TEST_F(IpcTest, IpcNvlsMulticastReduce) {
       out_dev,
       kSizeBytes,
       /*stream*/ (CUstream)0);
+
   cudaDeviceSynchronize();
+  communicator_->barrier();
 
   // Expected sum: 1 + 2 + ... + world_size = world_size * (world_size + 1) / 2
   float expected_val = static_cast<float>(world_size * (world_size + 1) / 2);
