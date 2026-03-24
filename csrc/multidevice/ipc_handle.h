@@ -7,10 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
+
 #include <ATen/core/TensorBody.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <cstdint>
 
 #include "expr_evaluator.h"
 #include "host_ir/ir.h"
