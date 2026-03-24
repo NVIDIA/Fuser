@@ -16,12 +16,13 @@
 // stringified at build time. It is compiled at runtime via NVRTC,
 // same pattern as csrc/multidevice/cuda_p2p.cpp.
 
-#include <c10/cuda/CUDAStream.h>
 #include <cuda.h>
 #include <nvrtc.h>
 
 #include <string>
 #include <vector>
+
+#include <c10/cuda/CUDAStream.h>
 
 #include "cuda_utils.h"
 #include "driver_api.h"

@@ -49,7 +49,7 @@ std::ostream& operator<<(std::ostream& os, P2pTransport transport) {
 }
 
 P2pTransport getP2pTransport() {
-  return hasEnableOptionArgument(EnableOption::P2pTransport, "tma")
+  return hasEnableOptionArgument(EnableOption::P2pTransport, "Tma")
       ? P2pTransport::Tma
       : P2pTransport::CopyEngine;
 }
@@ -113,7 +113,7 @@ void launchAlltoallvKernel(
       constexpr size_t kLogSize = 8192;
       std::array<char, kLogSize> error_log{};
       std::array<char, kLogSize> info_log{};
-      // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,performance-no-int-to-ptr)
       CUjit_option options[] = {
           CU_JIT_ERROR_LOG_BUFFER,
           CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
@@ -122,13 +122,11 @@ void launchAlltoallvKernel(
           CU_JIT_LOG_VERBOSE};
       void* option_values[] = {
           error_log.data(),
-          reinterpret_cast<void*>(
-              kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(kLogSize),
           info_log.data(),
-          reinterpret_cast<void*>(
-              kLogSize), // NOLINT(performance-no-int-to-ptr)
-          reinterpret_cast<void*>(1)}; // NOLINT(performance-no-int-to-ptr)
-      // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+          reinterpret_cast<void*>(kLogSize),
+          reinterpret_cast<void*>(1)};
+      // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,performance-no-int-to-ptr)
       cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
       NVF_ERROR(
           false,
@@ -272,7 +270,7 @@ void launchMulticastKernel(
       constexpr size_t kLogSize = 8192;
       std::array<char, kLogSize> error_log{};
       std::array<char, kLogSize> info_log{};
-      // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+      // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,performance-no-int-to-ptr)
       CUjit_option options[] = {
           CU_JIT_ERROR_LOG_BUFFER,
           CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
@@ -281,13 +279,11 @@ void launchMulticastKernel(
           CU_JIT_LOG_VERBOSE};
       void* option_values[] = {
           error_log.data(),
-          reinterpret_cast<void*>(
-              kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(kLogSize),
           info_log.data(),
-          reinterpret_cast<void*>(
-              kLogSize), // NOLINT(performance-no-int-to-ptr)
-          reinterpret_cast<void*>(1)}; // NOLINT(performance-no-int-to-ptr)
-      // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+          reinterpret_cast<void*>(kLogSize),
+          reinterpret_cast<void*>(1)};
+      // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,performance-no-int-to-ptr)
 
       cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
 
