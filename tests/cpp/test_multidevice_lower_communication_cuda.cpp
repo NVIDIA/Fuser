@@ -347,10 +347,6 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Reduce) {
     GTEST_SKIP() << "Takes >30 seconds to run in CI: http://nv/e.)";
   }
 
-  c10::cuda::CUDAStream stream =
-      c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
-  c10::cuda::setCurrentCUDAStream(stream);
-
   EnableOptionsGuard guard;
   setupProtocolOptions(protocol_enum, guard);
 
@@ -432,10 +428,6 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allreduce) {
   if (message_size_bytes > 32LL * 1024 * 1024) {
     GTEST_SKIP() << "Takes >5 seconds to run in CI: http://nv/e.)";
   }
-
-  c10::cuda::CUDAStream stream =
-      c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
-  c10::cuda::setCurrentCUDAStream(stream);
 
   EnableOptionsGuard guard;
   setupProtocolOptions(protocol_enum, guard);
