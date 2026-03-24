@@ -323,8 +323,6 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Reduce) {
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
 
-  at::manual_seed(getATenRandomSeed());
-
   if (!communicator_->is_available() || communicator_->size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
   }
@@ -410,8 +408,6 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allreduce) {
   const int64_t message_size = message_size_bytes / sizeof(float);
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
-
-  at::manual_seed(getATenRandomSeed());
 
   if (!communicator_->is_available() || communicator_->size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
