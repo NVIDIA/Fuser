@@ -93,8 +93,7 @@ void launchAlltoallvKernel(
     opts.push_back("-I/usr/local/cuda/include");
     opts.push_back("-I/usr/local/cuda/include/cccl");
 
-    nvrtcResult res =
-        nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
     if (res != NVRTC_SUCCESS) {
       size_t logSize = 0;
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
@@ -123,9 +122,11 @@ void launchAlltoallvKernel(
           CU_JIT_LOG_VERBOSE};
       void* option_values[] = {
           error_log.data(),
-          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(
+              kLogSize), // NOLINT(performance-no-int-to-ptr)
           info_log.data(),
-          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(
+              kLogSize), // NOLINT(performance-no-int-to-ptr)
           reinterpret_cast<void*>(1)}; // NOLINT(performance-no-int-to-ptr)
       // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
       cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
@@ -280,9 +281,11 @@ void launchMulticastKernel(
           CU_JIT_LOG_VERBOSE};
       void* option_values[] = {
           error_log.data(),
-          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(
+              kLogSize), // NOLINT(performance-no-int-to-ptr)
           info_log.data(),
-          reinterpret_cast<void*>(kLogSize), // NOLINT(performance-no-int-to-ptr)
+          reinterpret_cast<void*>(
+              kLogSize), // NOLINT(performance-no-int-to-ptr)
           reinterpret_cast<void*>(1)}; // NOLINT(performance-no-int-to-ptr)
       // NOLINTEND(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 
@@ -394,8 +397,7 @@ void launchTmaCopy(void* dst, const void* src, size_t size, CUstream stream) {
         std::to_string(prop.major) + std::to_string(prop.minor);
     std::vector<const char*> opts = {arch_arg.c_str(), "--std=c++17"};
 
-    nvrtcResult res =
-        nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
     if (res != NVRTC_SUCCESS) {
       size_t logSize = 0;
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
@@ -411,34 +413,25 @@ void launchTmaCopy(void* dst, const void* src, size_t size, CUstream stream) {
     NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
 
     NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, ptx.data()));
-    NVFUSER_CUDA_SAFE_CALL(
-        cuModuleGetFunction(&kernel, module, "tma_copy_1d"));
+    NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&kernel, module, "tma_copy_1d"));
   }
 
   NVF_CHECK(size % 16 == 0, "TMA requires size to be a multiple of 16");
 
   constexpr int kDefaultSmem = 48 * 1024;
   constexpr int kMbarrierBytes = 8;
-  constexpr int max_chunk = ((kDefaultSmem - kMbarrierBytes) / 16) * 16;
+  constexpr int kMaxChunk = ((kDefaultSmem - kMbarrierBytes) / 16) * 16;
 
-  auto* dst_bytes = static_cast<char*>(dst);
-  auto* src_bytes = static_cast<const char*>(src);
-  size_t remaining = size;
+  int total_bytes = static_cast<int>(size);
+  int max_chunk = kMaxChunk;
+  unsigned int num_blocks =
+      static_cast<unsigned int>((size + kMaxChunk - 1) / kMaxChunk);
+  int smem_size = kMaxChunk + static_cast<int>(sizeof(uint64_t));
 
-  while (remaining > 0) {
-    int chunk =
-        static_cast<int>(std::min(remaining, static_cast<size_t>(max_chunk)));
-    int smem_size = chunk + static_cast<int>(sizeof(uint64_t));
-    void* d = dst_bytes;
-    const void* s = src_bytes;
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-multi-level-implicit-pointer-conversion)
-    void* args[] = {&d, &s, &chunk};
-    NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-        kernel, 1, 1, 1, 32, 1, 1, smem_size, stream, args, nullptr));
-    dst_bytes += chunk;
-    src_bytes += chunk;
-    remaining -= chunk;
-  }
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-multi-level-implicit-pointer-conversion)
+  void* args[] = {&dst, &src, &total_bytes, &max_chunk};
+  NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
+      kernel, num_blocks, 1, 1, 32, 1, 1, smem_size, stream, args, nullptr));
 }
 
 namespace {
