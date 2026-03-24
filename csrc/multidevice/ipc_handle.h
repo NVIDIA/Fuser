@@ -213,7 +213,7 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
 // SymmetricMemoryHandle for allreduce using NVLink SHARP (multimem ld_reduce).
 // All ranks bind their input to the multicast object; ld_reduce from the
 // multicast VA returns the reduction across ranks.
-class SymMemForAllreduce : public SymmetricMemoryHandle {
+class SymmetricMemoryForAllreduce : public SymmetricMemoryHandle {
  public:
   SymMemForAllreduce(Communication* communication, at::Tensor output_buffer);
 

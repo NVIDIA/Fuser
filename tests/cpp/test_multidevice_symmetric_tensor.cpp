@@ -165,7 +165,7 @@ TEST_F(SymmetricTensorTest, Multicast) {
 #endif
 }
 
-TEST_F(SymmetricTensorTest, LdReduce) {
+TEST_F(SymmetricTensorTest, MulticastReduce) {
 #if (CUDA_VERSION < 13000)
   GTEST_SKIP() << "LD_REDUCE (multicast reduce) requires CUDA 13.0+";
 #else
