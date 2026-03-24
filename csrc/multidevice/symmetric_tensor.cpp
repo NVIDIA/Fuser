@@ -64,7 +64,9 @@ std::string ensurePyTorchSymmMemBackend(SymmetricMemoryBackend backend) {
     std::call_once(pg0_once, [&]() {
       try {
         (void)c10d::resolve_process_group("0");
-      } catch (const c10::Error&) {
+      } catch (const std::exception&) {
+        // resolve_process_group throws c10::Error
+        // (derives from std::exception)
         auto pg = c10d::resolve_process_group(group_name);
         c10d::register_process_group("0", pg);
       }
@@ -164,7 +166,7 @@ at::Tensor SymmetricTensor::allocate(
     // NCCLSymmetricMemoryAllocator::alloc must not be called with a group_name.
     c10::optional<std::string> alloc_group_name =
         (backend == SymmetricMemoryBackend::PyTorchNccl ||
-          backend == SymmetricMemoryBackend::PyTorchNvshmem)
+        backend == SymmetricMemoryBackend::PyTorchNvshmem)
         ? c10::nullopt
         : c10::optional<std::string>(group_name);
     return c10d::symmetric_memory::empty_strided_p2p(
