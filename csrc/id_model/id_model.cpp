@@ -543,10 +543,6 @@ void mapDivisibleSplits(ValGraph& graph) {
   }
 }
 
-// Outer-split only: for a Merge (e.g. merging reshape), match the outer output
-// of the consumer split of merge->out() (use_m_out) with the outer output of
-// the producer split of merge->outer() (use_merge_outer), when factors match
-// and splits are divisible — e.g. DIDx shard axes across reshape sides.
 void mapDivisibleMergeSplits(ValGraph& graph) {
   std::vector<std::pair<Val*, Val*>> ids_to_map;
   // Given
