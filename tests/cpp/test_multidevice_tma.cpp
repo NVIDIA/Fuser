@@ -16,6 +16,7 @@
 // stringified at build time. It is compiled at runtime via NVRTC,
 // same pattern as csrc/multidevice/cuda_p2p.cpp.
 
+#include <c10/cuda/CUDAStream.h>
 #include <cuda.h>
 #include <nvrtc.h>
 
@@ -25,6 +26,7 @@
 #include "cuda_utils.h"
 #include "driver_api.h"
 #include "exceptions.h"
+#include "multidevice/cuda_p2p.h"
 #include "multidevice/symmetric_tensor.h"
 #include "multidevice/utils.h"
 #include "nvfuser_resources/tma_copy.h"
@@ -58,7 +60,11 @@ TEST_F(TmaTest, TmaLocalCopy) {
   at::Tensor src = at::arange(kNumElems, options);
   at::Tensor dst = at::zeros({kNumElems}, options);
 
-  launchTmaCopy(dst.data_ptr(), src.data_ptr(), kSizeBytes);
+  launchTmaCopy(
+      dst.data_ptr(),
+      src.data_ptr(),
+      kSizeBytes,
+      c10::cuda::getCurrentCUDAStream());
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 
   EXPECT_TRUE(dst.equal(src));
@@ -97,7 +103,11 @@ TEST_F(TmaTest, TmaInterDeviceCopy) {
       {kNumElems},
       at::TensorOptions().dtype(at::kInt).device(at::kCUDA, local_rank));
 
-  launchTmaCopy(output.data_ptr(), peer.data_ptr(), kSizeBytes);
+  launchTmaCopy(
+      output.data_ptr(),
+      peer.data_ptr(),
+      kSizeBytes,
+      c10::cuda::getCurrentCUDAStream());
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
 
   at::Tensor expected = at::full(
@@ -159,7 +169,11 @@ TEST_F(TmaTest, TmaMulticastWrite) {
   // Root: TMA-write source data to MC pointer (NVLS broadcasts it)
   if (rank == root) {
     at::Tensor src = at::arange(kTmaElems, opts);
-    launchTmaCopy(sym.multicastPtr(), src.data_ptr(), kTmaBytes);
+    launchTmaCopy(
+        sym.multicastPtr(),
+        src.data_ptr(),
+        kTmaBytes,
+        c10::cuda::getCurrentCUDAStream());
     NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
   }
 
