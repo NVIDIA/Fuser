@@ -3127,10 +3127,12 @@ class TmaOuterReductionTest
     if ((iter_size * dtype_bytes) % 16 != 0) {
       return false;
     }
-    // Check minimum tile smem fits for all inputs
+    // Check minimum tile smem fits for all inputs, accounting for
+    // block reduction workspace + static smem overhead.
     int64_t min_smem_per_input = 16 * 32 * dtype_bytes;
+    int64_t smem_overhead = ((512 * dtype_bytes + 127) & ~127) + 128;
     auto* dev_prop = at::cuda::getCurrentDeviceProperties();
-    if (min_smem_per_input * n_inputs >
+    if (min_smem_per_input * n_inputs + smem_overhead >
         (int64_t)dev_prop->sharedMemPerBlockOptin) {
       return false;
     }

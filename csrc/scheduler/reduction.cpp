@@ -291,11 +291,16 @@ bool mayUseTmaOuter(
   // Check that TMA tiles for all inputs fit in shared memory.
   // The heuristic will shrink tiles to fit, but the minimum tile size is
   // bdimy × bdimx (16 × 32). Reject if even minimum tiles don't fit.
+  // Reserve space for block reduction workspace and static smem overhead.
   const int64_t min_tile_r = 16; // bdimy
   const int64_t min_tile_i = 32; // bdimx
-  int64_t min_smem_per_input = min_tile_r * min_tile_i *
-      (props.max_dtype_size_bit_for_vectorization / 8);
-  int64_t min_total_smem = min_smem_per_input * props.n_tensor_inputs;
+  const int64_t threads_per_block = min_tile_i * min_tile_r;
+  int64_t smem_overhead =
+      alignSharedMemoryBytes(threads_per_block * dtype_bytes) +
+      kSharedMemoryAlignmentBytes;
+  int64_t min_smem_per_input = min_tile_r * min_tile_i * dtype_bytes;
+  int64_t min_total_smem =
+      min_smem_per_input * props.n_tensor_inputs + smem_overhead;
   if (min_total_smem > (int64_t)dev_prop->sharedMemPerBlockOptin) {
     return false;
   }
