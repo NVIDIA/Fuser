@@ -736,7 +736,7 @@ void postAllreduceWithCudaBackend(
     Communication* communication,
     at::Tensor input,
     at::Tensor output,
-    SymMemForAllreduce* reduce_handle,
+    SymmetricMemoryForAllreduce* reduce_handle,
     CUstream stream) {
   MulticastProtocol protocol = getMulticastProtocol();
   NVF_CHECK(
@@ -829,7 +829,7 @@ void postAllreduceWithCudaBackend(
 
 void waitAllreduceWithCudaBackend(
     Communication* communication,
-    SymMemForAllreduce* reduce_handle,
+    SymmetricMemoryForAllreduce* reduce_handle,
     CUstream stream) {
   (void)communication;
   Communicator& communicator = Communicator::getInstance();
@@ -859,7 +859,7 @@ void postReduceWithCudaBackend(
     Communication* communication,
     at::Tensor input,
     at::Tensor output,
-    SymMemForReduce* reduce_handle,
+    SymmetricMemoryForReduce* reduce_handle,
     CUstream stream,
     int64_t root) {
   Communicator& communicator = Communicator::getInstance();
@@ -953,7 +953,7 @@ void postReduceWithCudaBackend(
 
 void waitReduceWithCudaBackend(
     Communication* communication,
-    SymMemForReduce* reduce_handle,
+    SymmetricMemoryForReduce* reduce_handle,
     CUstream stream,
     int64_t root) {
   (void)communication;
@@ -1256,7 +1256,7 @@ void postWithCudaBackend(
     }
     case CommunicationType::Allreduce: {
       auto* reduce_handle =
-          dynamic_cast<SymMemForAllreduce*>(symmetric_memory_handle);
+          dynamic_cast<SymmetricMemoryForAllreduce*>(symmetric_memory_handle);
       NVF_ERROR(reduce_handle != nullptr, "Invalid allreduce handle");
       postAllreduceWithCudaBackend(
           communication, input, output, reduce_handle, stream);
@@ -1264,7 +1264,7 @@ void postWithCudaBackend(
     }
     case CommunicationType::Reduce: {
       auto* reduce_handle =
-          dynamic_cast<SymMemForReduce*>(symmetric_memory_handle);
+          dynamic_cast<SymmetricMemoryForReduce*>(symmetric_memory_handle);
       NVF_ERROR(reduce_handle != nullptr, "Invalid reduce handle");
       postReduceWithCudaBackend(
           communication, input, output, reduce_handle, stream, root);
@@ -1315,14 +1315,14 @@ void waitWithCudaBackend(
     }
     case CommunicationType::Reduce: {
       auto* reduce_handle =
-          dynamic_cast<SymMemForReduce*>(symmetric_memory_handle);
+          dynamic_cast<SymmetricMemoryForReduce*>(symmetric_memory_handle);
       NVF_ERROR(reduce_handle != nullptr, "Invalid reduce handle");
       waitReduceWithCudaBackend(communication, reduce_handle, stream, root);
       break;
     }
     case CommunicationType::Allreduce: {
       auto* allreduce_handle =
-          dynamic_cast<SymMemForAllreduce*>(symmetric_memory_handle);
+          dynamic_cast<SymmetricMemoryForAllreduce*>(symmetric_memory_handle);
       NVF_ERROR(allreduce_handle != nullptr, "Invalid allreduce handle");
       waitAllreduceWithCudaBackend(communication, allreduce_handle, stream);
       break;

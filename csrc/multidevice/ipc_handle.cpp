@@ -214,7 +214,7 @@ void* SymMemForBroadcast::semaphoreUnicastPtr(int64_t rank) const {
   return semaphore_sym_tensor_->remoteTensor(rank).data_ptr();
 }
 
-SymMemForAllreduce::SymMemForAllreduce(
+SymmetricMemoryForAllreduce::SymmetricMemoryForAllreduce(
     Communication* communication,
     at::Tensor output_buffer)
     : size_bytes_(output_buffer.numel() * output_buffer.element_size()) {
@@ -261,22 +261,22 @@ SymMemForAllreduce::SymMemForAllreduce(
   }
 }
 
-at::Tensor SymMemForAllreduce::inputBuffer() const {
+at::Tensor SymmetricMemoryForAllreduce::inputBuffer() const {
   return input_sym_tensor_->localTensor();
 }
 
-void* SymMemForAllreduce::multicastPtr() const {
+void* SymmetricMemoryForAllreduce::multicastPtr() const {
   return input_sym_tensor_->multicastPtr();
 }
 
-void* SymMemForAllreduce::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
+void* SymmetricMemoryForAllreduce::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
     const {
   uint8_t* base_ptr =
       (uint8_t*)semaphores_sym_tensor_->remoteTensor(rank).data_ptr();
   return base_ptr + (root_rank * sizeof(IpcSemaphore));
 }
 
-SymMemForReduce::SymMemForReduce(
+SymmetricMemoryForReduce::SymmetricMemoryForReduce(
     Communication* communication,
     int64_t root,
     at::Tensor output_buffer)
@@ -319,15 +319,15 @@ SymMemForReduce::SymMemForReduce(
   semaphore_sym_tensor_->setupRemoteHandles(store_key_prefix + "_semaphore");
 }
 
-at::Tensor SymMemForReduce::inputBuffer() const {
+at::Tensor SymmetricMemoryForReduce::inputBuffer() const {
   return input_sym_tensor_->localTensor();
 }
 
-void* SymMemForReduce::multicastPtr() const {
+void* SymmetricMemoryForReduce::multicastPtr() const {
   return input_sym_tensor_->multicastPtr();
 }
 
-void* SymMemForReduce::semaphoreUnicastPtr(int64_t rank) const {
+void* SymmetricMemoryForReduce::semaphoreUnicastPtr(int64_t rank) const {
   return semaphore_sym_tensor_->remoteTensor(rank).data_ptr();
 }
 
@@ -427,9 +427,9 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
     } else if (comm->type() == CommunicationType::Allgather) {
       handle = std::make_unique<SymMemForAllgather>(comm, key.buffer);
     } else if (comm->type() == CommunicationType::Allreduce) {
-      handle = std::make_unique<SymMemForAllreduce>(comm, key.buffer);
+      handle = std::make_unique<SymmetricMemoryForAllreduce>(comm, key.buffer);
     } else if (comm->type() == CommunicationType::Reduce) {
-      handle = std::make_unique<SymMemForReduce>(comm, key.root, key.buffer);
+      handle = std::make_unique<SymmetricMemoryForReduce>(comm, key.root, key.buffer);
     } else {
       NVF_ERROR(
           false,

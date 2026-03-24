@@ -215,9 +215,9 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
 // multicast VA returns the reduction across ranks.
 class SymmetricMemoryForAllreduce : public SymmetricMemoryHandle {
  public:
-  SymMemForAllreduce(Communication* communication, at::Tensor output_buffer);
+  SymmetricMemoryForAllreduce(Communication* communication, at::Tensor output_buffer);
 
-  ~SymMemForAllreduce() override = default;
+  ~SymmetricMemoryForAllreduce() override = default;
 
   // Local buffer for this rank's input (copy input here before reduce)
   at::Tensor inputBuffer() const;
@@ -241,14 +241,14 @@ class SymmetricMemoryForAllreduce : public SymmetricMemoryHandle {
 // SymmetricMemoryHandle for reduce (root receives result) using NVLink SHARP
 // (multimem ld_reduce). Same setup as Allreduce but used for Reduce collective.
 // root is the rank that exports the multicast handle (same as reduce root).
-class SymMemForReduce : public SymmetricMemoryHandle {
+class SymmetricMemoryForReduce : public SymmetricMemoryHandle {
  public:
-  SymMemForReduce(
+  SymmetricMemoryForReduce(
       Communication* communication,
       int64_t root,
       at::Tensor output_buffer);
 
-  ~SymMemForReduce() override = default;
+  ~SymmetricMemoryForReduce() override = default;
 
   at::Tensor inputBuffer() const;
   void* multicastPtr() const;
