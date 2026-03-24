@@ -16,8 +16,8 @@
 #include "multidevice/utils.h"
 
 #ifdef NVFUSER_DISTRIBUTED
-#include <torch/csrc/distributed/c10d/symm_mem/SymmetricMemory.hpp>
 #include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
+#include <torch/csrc/distributed/c10d/symm_mem/SymmetricMemory.hpp>
 #endif
 
 namespace nvfuser {
@@ -25,57 +25,60 @@ namespace nvfuser {
 namespace {
 
 #ifdef NVFUSER_DISTRIBUTED
-  std::string ensurePyTorchSymmMemBackend(SymmetricMemoryBackend backend) {
-    static std::once_flag once;
-    std::call_once(once, [backend]() {
-      const char* name = nullptr;
-      switch (backend) {
-        case SymmetricMemoryBackend::PyTorchNccl:
-          name = "NCCL";
-          c10d::symmetric_memory::set_backend(name);
-          break;
-        case SymmetricMemoryBackend::PyTorchNvshmem:
-          name = "NVSHMEM";
-          c10d::symmetric_memory::set_backend(name);
-          break;
-        case SymmetricMemoryBackend::PyTorchCuda:
-          name = "CUDA";
-          break;
-        default:
-          NVF_ERROR(false, "Unexpected PyTorch symmetric memory backend");
+std::string ensurePyTorchSymmMemBackend(SymmetricMemoryBackend backend) {
+  static std::once_flag once;
+  std::call_once(once, [backend]() {
+    const char* name = nullptr;
+    switch (backend) {
+      case SymmetricMemoryBackend::PyTorchNccl:
+        name = "NCCL";
+        c10d::symmetric_memory::set_backend(name);
+        break;
+      case SymmetricMemoryBackend::PyTorchNvshmem:
+        name = "NVSHMEM";
+        c10d::symmetric_memory::set_backend(name);
+        break;
+      case SymmetricMemoryBackend::PyTorchCuda:
+        name = "CUDA";
+        // set_backend(name) is not required for CUDA backend
+        break;
+      default:
+        NVF_ERROR(false, "Unexpected PyTorch symmetric memory backend");
+    }
+  });
+
+  Communicator& comm = Communicator::getInstance();
+  NVF_CHECK(
+      comm.is_available(), "Communicator not available for symmetric memory");
+
+  // Always return a valid group name
+  if (backend != SymmetricMemoryBackend::Native) {
+    NVF_CHECK(
+        comm.isBackendAvailable(CommunicatorBackend::kNccl),
+        "NCCL backend is required for non-native symmetric memory backend");
+
+    const std::string group_name =
+        comm.getSymmMemGroupKey(CommunicatorBackend::kNccl);
+
+    static std::once_flag pg0_once;
+    std::call_once(pg0_once, [&]() {
+      try {
+        (void)c10d::resolve_process_group("0");
+      } catch (const c10::Error&) {
+        auto pg = c10d::resolve_process_group(group_name);
+        c10d::register_process_group("0", pg);
       }
     });
 
-    Communicator& comm = Communicator::getInstance();
-    NVF_CHECK(comm.is_available(), "Communicator not available for symmetric memory");
-
-    // Always return a valid group name
-    if (backend != SymmetricMemoryBackend::Native) {
-      NVF_CHECK(
-          comm.isBackendAvailable(CommunicatorBackend::kNccl),
-          "NCCL backend is required for symmetric_memory_backend(nccl)");
-
-      const std::string group_name = comm.getSymmMemGroupKey(CommunicatorBackend::kNccl);
-
-      static std::once_flag pg0_once;
-      std::call_once(pg0_once, [&]() {
-        try {
-          (void)c10d::resolve_process_group("0");
-        } catch (const c10::Error&) {
-          auto pg = c10d::resolve_process_group(group_name);
-          c10d::register_process_group("0", pg);
-        }
-      });
-
-      comm.barrier(CommunicatorBackend::kNccl);
-      return group_name;
-    }
-
-    NVF_ERROR(
-        false,
-        "No c10d backend available for symmetric memory rendezvous. "
-        "Expected NCCL or UCC process group.");
+    comm.barrier(CommunicatorBackend::kNccl);
+    return group_name;
   }
+
+  NVF_ERROR(
+      false,
+      "No c10d backend available for symmetric memory rendezvous. "
+      "Expected NCCL or UCC process group.");
+}
 #endif
 
 
@@ -160,7 +163,8 @@ at::Tensor SymmetricTensor::allocate(
     }
     // NCCLSymmetricMemoryAllocator::alloc must not be called with a group_name.
     c10::optional<std::string> alloc_group_name =
-        (backend == SymmetricMemoryBackend::PyTorchNccl || backend == SymmetricMemoryBackend::PyTorchNvshmem)
+        (backend == SymmetricMemoryBackend::PyTorchNccl ||
+          backend == SymmetricMemoryBackend::PyTorchNvshmem)
         ? c10::nullopt
         : c10::optional<std::string>(group_name);
     return c10d::symmetric_memory::empty_strided_p2p(
@@ -176,7 +180,8 @@ at::Tensor SymmetricTensor::allocate(
     NVF_ERROR(
         false,
         "PyTorch symmetric memory backend requires a build with "
-        "NVFUSER_DISTRIBUTED. Use NVFUSER_ENABLE=symmetric_memory_backend(native) "
+        "NVFUSER_DISTRIBUTED. Use "
+        "NVFUSER_ENABLE=symmetric_memory_backend(native) "
         "or do not set symmetric_memory_backend.");
   }
 #endif
@@ -415,12 +420,13 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
     return;
   }
 #ifdef NVFUSER_DISTRIBUTED
-  // PyTorch backend: perform rendezvous here (lazy, on first setupRemoteHandles).
+  // PyTorch backend: perform rendezvous here (lazy, on first
+  // setupRemoteHandles).
   SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
   if (backend != SymmetricMemoryBackend::Native) {
     const std::string group_name = ensurePyTorchSymmMemBackend(backend);
-    torch_symm_handle_ = c10d::symmetric_memory::rendezvous(
-        local_tensor_, group_name);
+    torch_symm_handle_ =
+        c10d::symmetric_memory::rendezvous(local_tensor_, group_name);
     are_remote_tensors_setup_ = true;
     if (torch_symm_handle_->has_multicast_support()) {
       is_multicast_setup_ = true;
@@ -509,7 +515,7 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
 #ifdef NVFUSER_DISTRIBUTED
   if (torch_symm_handle_) {
     return torch_symm_handle_->get_remote_tensor(
-      rank, local_tensor_.sizes(), local_tensor_.scalar_type());
+        rank, local_tensor_.sizes(), local_tensor_.scalar_type());
   }
 #endif
 
@@ -535,8 +541,8 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
 #ifdef NVFUSER_DISTRIBUTED
   if (torch_symm_handle_) {
     NVF_THROW(
-        false,
-        "Contiguous view is not yet supported for PyTorch symmetric memory backend. "
+        "Contiguous view is not yet supported for PyTorch symmetric memory "
+        "backend."
         "Use native backend for SymmetricContiguousView.");
   }
 #endif
@@ -606,8 +612,8 @@ at::Tensor SymmetricTensor::getContiguousView() const {
 #ifdef NVFUSER_DISTRIBUTED
   if (torch_symm_handle_) {
     NVF_THROW(
-        false,
-        "Contiguous view is not yet supported for PyTorch symmetric memory backend.");
+        "Contiguous view is not yet supported for PyTorch symmetric memory "
+        "backend.");
   }
 #endif
   NVF_CHECK(is_contiguous_view_setup_, "Contiguous view not setup");
@@ -625,7 +631,9 @@ void SymmetricTensor::setupMulticast(
   if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
     if (!torch_symm_handle_) {
       setupRemoteHandles(tag);
-      NVF_CHECK(torch_symm_handle_->has_multicast_support(), "Multicast not supported");
+      NVF_CHECK(
+          torch_symm_handle_->has_multicast_support(),
+          "Multicast not supported");
     }
     return;
   }

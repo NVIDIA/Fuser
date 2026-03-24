@@ -417,7 +417,7 @@ c10d::Backend* Communicator::getBackendForTeam(
 #endif
 #if NVFUSER_CAN_REGISTER_C10D_PROCESS_GROUP
     std::optional<c10d::ProcessGroup::BackendType> pg_backend =
-    (b == CommunicatorBackend::kNccl)
+        (b == CommunicatorBackend::kNccl)
         ? std::optional<c10d::ProcessGroup::BackendType>(
               c10d::ProcessGroup::BackendType::NCCL)
         : std::nullopt;
@@ -459,12 +459,12 @@ void Communicator::barrier(std::optional<CommunicatorBackend> backend) {
 }
 
 std::string Communicator::getSymmMemGroupKey(
-  std::optional<CommunicatorBackend> backend) {
-std::vector<RankType> all_ranks(size_);
-std::iota(all_ranks.begin(), all_ranks.end(), 0);
-CommunicatorBackend b = backend.value_or(default_backend_);
-(void)getBackendForTeam(all_ranks, b);
-return getTeamKey(all_ranks, b);
+    std::optional<CommunicatorBackend> backend) {
+  std::vector<RankType> all_ranks(size_);
+  std::iota(all_ranks.begin(), all_ranks.end(), 0);
+  CommunicatorBackend b = backend.value_or(default_backend_);
+  (void)getBackendForTeam(all_ranks, b);
+  return getTeamKey(all_ranks, b);
 }
 
 } // namespace nvfuser

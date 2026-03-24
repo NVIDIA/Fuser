@@ -35,8 +35,9 @@ MulticastProtocol getMulticastProtocol();
 
 // Backend for symmetric memory allocation and rendezvous.
 // Native: Fuser's own CUDA VMM + IPC implementation (default, maintained).
-// PyTorch*: Use PyTorch's symmetric memory (torch.distributed._symmetric_memory)
-// with the given transport backend (Nccl, Nvshmem, or Cuda).
+// PyTorch*: Use PyTorch's symmetric memory
+// (torch.distributed._symmetric_memory) with the given transport backend (Nccl,
+// Nvshmem, or Cuda).
 enum class SymmetricMemoryBackend {
   Native,
   PyTorchNccl,

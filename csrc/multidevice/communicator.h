@@ -123,7 +123,7 @@ class NVF_API Communicator {
 
   // Returns the world process-group name for the given backend.
   std::string getSymmMemGroupKey(
-    std::optional<CommunicatorBackend> backend = std::nullopt);
+      std::optional<CommunicatorBackend> backend = std::nullopt);
 
   // returns if a backend is available for creation
   bool isBackendAvailable(CommunicatorBackend backend) const {

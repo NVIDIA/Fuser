@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "multidevice/ipc_utils.h"
 #include "multidevice/symmetric_tensor.h"
 #include "tests/cpp/multidevice.h"
-#include "multidevice/ipc_utils.h"
 
 namespace nvfuser {
 
@@ -236,7 +236,6 @@ TEST_F(SymmetricTensorTest, SmallAllocation) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }
-  std::cout << "Vishal chishta" << std::endl;
 
   const int64_t rank = communicator_->deviceId();
   const int64_t world_size = communicator_->size();
