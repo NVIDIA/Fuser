@@ -194,8 +194,11 @@ void scheduleReduction(Fusion* fusion, const TmaOuterReductionParams* rparams) {
   redu_tv->axis(4)->parallelize(ParallelType::BIDx);
   redu_tv->axis(5)->parallelize(ParallelType::TIDx); // bdimx
 
-  // Use Vectorize so it gets converted to Group for iterGroupedGridReduce
-  redu_tv->axis(6)->parallelize(ParallelType::Vectorize); // iter_unroll
+  // Vectorize gets converted to Group for iterGroupedGridReduce.
+  // When iter_unroll_factor == 1, use Serial to avoid an invalid size-1
+  // Vectorize axis; this falls back to regular (non-grouped) grid reduction.
+  redu_tv->axis(6)->parallelize(
+      iter_unroll_factor > 1 ? ParallelType::Vectorize : ParallelType::Serial);
 
   // Phase 7: rFactor for grid reduction
   // rFactor reduction axes that are not thread-parallelized
@@ -219,8 +222,9 @@ void scheduleReduction(Fusion* fusion, const TmaOuterReductionParams* rparams) {
   MaxLogicalDomainInfoSpanningTree(reference_tv, &non_tma_selector)
       .traverse(&non_tma_propagator);
 
-  // Phase 9: Propagate parallelization with iter-grouped reduction
-  const bool use_iter_grouped_reduction = true;
+  // Phase 9: Propagate parallelization with iter-grouped reduction.
+  // Iter-grouping requires iter_unroll_factor > 1 (Vectorize -> Group).
+  const bool use_iter_grouped_reduction = iter_unroll_factor > 1;
 
   if (reference_tv != redu_tv) {
     reduction_scheduler_utils::propagateRFactor(
