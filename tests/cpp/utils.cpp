@@ -769,6 +769,7 @@ size_t getCRandomSeed() {
                  std::chrono::system_clock::now().time_since_epoch())
                  .count();
     }
+    found_seed = true;
   }
 
   return seed;
