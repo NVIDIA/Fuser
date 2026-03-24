@@ -269,8 +269,9 @@ void* SymmetricMemoryForAllreduce::multicastPtr() const {
   return input_sym_tensor_->multicastPtr();
 }
 
-void* SymmetricMemoryForAllreduce::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
-    const {
+void* SymmetricMemoryForAllreduce::semaphoreUnicastPtr(
+    int64_t root_rank,
+    int64_t rank) const {
   uint8_t* base_ptr =
       (uint8_t*)semaphores_sym_tensor_->remoteTensor(rank).data_ptr();
   return base_ptr + (root_rank * sizeof(IpcSemaphore));
@@ -429,7 +430,8 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
     } else if (comm->type() == CommunicationType::Allreduce) {
       handle = std::make_unique<SymmetricMemoryForAllreduce>(comm, key.buffer);
     } else if (comm->type() == CommunicationType::Reduce) {
-      handle = std::make_unique<SymmetricMemoryForReduce>(comm, key.root, key.buffer);
+      handle = std::make_unique<SymmetricMemoryForReduce>(
+          comm, key.root, key.buffer);
     } else {
       NVF_ERROR(
           false,

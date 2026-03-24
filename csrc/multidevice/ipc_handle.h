@@ -216,7 +216,9 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
 // multicast VA returns the reduction across ranks.
 class SymmetricMemoryForAllreduce : public SymmetricMemoryHandle {
  public:
-  SymmetricMemoryForAllreduce(Communication* communication, at::Tensor output_buffer);
+  SymmetricMemoryForAllreduce(
+      Communication* communication,
+      at::Tensor output_buffer);
 
   ~SymmetricMemoryForAllreduce() override = default;
 
