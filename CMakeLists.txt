@@ -32,6 +32,7 @@ set(NVFUSER_CUTLASS "${NVFUSER_ROOT}/cutlass")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
+option(NVFUSER_BUILD_WITH_NIXL "" OFF)
 option(NVFUSER_EXPLICIT_ERROR_CHECK "" OFF)
 option(NVFUSER_ENABLE_DEPENDENCY_REPORT "Enable Python-based dependency reporting and log capture" ON)
 
@@ -76,6 +77,7 @@ include(cmake/deps/handle_torch.cmake)
 include(cmake/deps/handle_pybind11.cmake)
 include(cmake/deps/handle_llvm.cmake)
 include(cmake/deps/handle_nvmmh.cmake)
+include(cmake/deps/handle_nixl.cmake)
 include(cmake/deps/handle_git_submodules.cmake)
 
 # Initialize success flag
@@ -95,6 +97,7 @@ handle_torch() # Must come AFTER python and cudatoolkit.
 handle_pybind11()
 handle_llvm()
 handle_nvmmh() # Must come AFTER python to query correct site-packages
+handle_nixl()  # Must come AFTER python and cudatoolkit for CUDA version check
 
 if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
   stop_capture(DEP_LOGS)
@@ -248,6 +251,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/ipc_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/nixl.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/execution_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/propagation.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/resharding.cpp
@@ -1002,6 +1006,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication_cuda.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_nixl.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_stream_parallel_type.cpp
@@ -1305,6 +1310,12 @@ if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCX_DIR : $ENV{UCX_DIR}")
 endif()
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
+message(STATUS "  NVFUSER_BUILD_WITH_NIXL : ${NVFUSER_BUILD_WITH_NIXL}")
+message(STATUS "  NIXL_FOUND                         : ${NIXL_FOUND}")
+if(NIXL_FOUND)
+  message(STATUS "    NIXL_INCLUDE_DIR: ${NIXL_INCLUDE_DIR}")
+  message(STATUS "    NIXL_LIBRARY    : ${NIXL_LIBRARY}")
+endif()
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
