@@ -127,6 +127,8 @@ enum class EnableOption : std::uint8_t {
   P2pProtocol, //! Prescribe P2P protocol: put|get
   MulticastProtocol, //! Prescribe multicast protocol:
                      //! memcpy|multimem|batch_memcpy
+  SymmetricMemoryBackend, //! Prescribe symmetric memory backend:
+                          //! native|pytorch_nccl|pytorch_nvshmem|pytorch_cuda
   EndOfOption //! Placeholder for counting the number of elements
 };
 

@@ -11,8 +11,9 @@
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
 
-#ifdef NVFUSER_DISTRIBUTED
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
 #include <torch/csrc/distributed/c10d/Backend.hpp>
+#include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
 #include <torch/csrc/distributed/c10d/Work.hpp>
 #else
@@ -110,6 +111,10 @@ class NVF_API Communicator {
   c10d::Backend* getWorld(
       std::optional<CommunicatorBackend> backend = std::nullopt);
 
+  // Returns the world process-group name for the given backend.
+  std::string getSymmMemGroupKey(
+      std::optional<CommunicatorBackend> backend = std::nullopt);
+
   // returns if a backend is available for creation
   bool isBackendAvailable(CommunicatorBackend backend) const {
     if (backend == CommunicatorBackend::kUcc) {
@@ -153,6 +158,11 @@ class NVF_API Communicator {
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
+  // c10d process-group wrappers registered for symmetric-memory rendezvous.
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
+  std::unordered_map<std::string, c10::intrusive_ptr<c10d::ProcessGroup>>
+      process_groups_;
+#endif
 };
 
 } // namespace nvfuser
