@@ -11,7 +11,7 @@
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
 
-#ifdef NVFUSER_DISTRIBUTED
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
 #include <torch/csrc/distributed/c10d/Backend.hpp>
 #include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
@@ -159,7 +159,7 @@ class NVF_API Communicator {
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
   // c10d process-group wrappers registered for symmetric-memory rendezvous.
-#ifdef NVFUSER_DISTRIBUTED
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::ProcessGroup>>
       process_groups_;
 #endif

@@ -412,6 +412,7 @@ c10d::Backend* Communicator::getBackendForTeam(
 #else
     backends_[team_key] = nullptr;
 #endif
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
     std::optional<c10d::ProcessGroup::BackendType> pg_backend =
         (b == CommunicatorBackend::kNccl)
         ? std::optional<c10d::ProcessGroup::BackendType>(
@@ -432,6 +433,7 @@ c10d::Backend* Communicator::getBackendForTeam(
       c10d::register_process_group(team_key, pg);
       process_groups_[team_key] = std::move(pg);
     }
+#endif
   }
   return backends_.at(team_key).get();
 }

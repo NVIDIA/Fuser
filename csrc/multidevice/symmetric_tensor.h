@@ -10,7 +10,7 @@
 #include <ATen/core/Tensor.h>
 #include <cuda.h>
 
-#ifdef NVFUSER_DISTRIBUTED
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
 #include <torch/csrc/distributed/c10d/symm_mem/SymmetricMemory.hpp>
 #endif
 
@@ -85,7 +85,7 @@ class SymmetricTensor {
   int peer_fd_{-1};
   bool is_contiguous_view_setup_ = false;
   at::Tensor contiguous_view_;
-#ifdef NVFUSER_DISTRIBUTED
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
   c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory>
       torch_symm_handle_;
 #endif
