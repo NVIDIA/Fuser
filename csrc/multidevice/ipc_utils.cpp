@@ -38,7 +38,7 @@ int createIpcSocket(const std::string& path) {
   int sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
   NVF_CHECK(sockfd >= 0, "Failed to create socket: ", strerror(errno));
 
-  struct sockaddr_un addr;
+  struct sockaddr_un addr {};
   setupSockAddr(addr, path);
 
   // For abstract namespace, len is usually calculated specifically, but for
@@ -69,7 +69,7 @@ void sendFd(
   int sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
   NVF_CHECK(sockfd >= 0, "Failed to create socket: ", strerror(errno));
 
-  struct sockaddr_un addr;
+  struct sockaddr_un addr {};
   setupSockAddr(addr, path);
   socklen_t addrlen = sizeof(addr.sun_family) + path.length();
 
@@ -77,8 +77,9 @@ void sendFd(
   int ret = -1;
   for (int i = 0; i < 100; ++i) {
     ret = connect(sockfd, (struct sockaddr*)&addr, addrlen);
-    if (ret == 0)
+    if (ret == 0) {
       break;
+    }
     usleep(10000); // 10ms
   }
   if (ret < 0) {
@@ -86,14 +87,16 @@ void sendFd(
     NVF_CHECK(false, "Failed to connect to ", path, ": ", strerror(errno));
   }
 
-  struct msghdr msg = {0};
-  struct cmsghdr* cmsg;
+  struct msghdr msg {};
+  struct cmsghdr* cmsg = nullptr;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays)
   char buf[CMSG_SPACE(sizeof(int))];
 
   // If no header data, send at least one byte
   char dummy = '.';
-  struct iovec iov;
+  struct iovec iov {};
   if (header_data && header_len > 0) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     iov.iov_base = const_cast<void*>(header_data);
     iov.iov_len = header_len;
   } else {
@@ -121,21 +124,22 @@ void sendFd(
 }
 
 int recvFd(int socket_fd, void* header_data, size_t header_len) {
-  struct sockaddr_un client_addr;
+  struct sockaddr_un client_addr {};
   socklen_t client_len = sizeof(client_addr);
   int client_fd =
       accept(socket_fd, (struct sockaddr*)&client_addr, &client_len);
   NVF_CHECK(client_fd >= 0, "Failed to accept connection: ", strerror(errno));
 
-  struct msghdr msg = {0};
-  struct cmsghdr* cmsg;
+  struct msghdr msg {};
+  struct cmsghdr* cmsg = nullptr;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays)
   char buf[CMSG_SPACE(sizeof(int))];
 
   // If header_len > 0, we expect that much data.
   // Note: recvmsg might return fewer bytes if strict requirements aren't met,
   // but for local unix sockets with small payloads, it usually delivers all.
-  char dummy;
-  struct iovec iov;
+  char dummy = '.';
+  struct iovec iov {};
   if (header_data && header_len > 0) {
     iov.iov_base = header_data;
     iov.iov_len = header_len;
@@ -168,7 +172,7 @@ int recvFd(int socket_fd, void* header_data, size_t header_len) {
 
   int recv_fd = -1;
   cmsg = CMSG_FIRSTHDR(&msg);
-  if (cmsg != NULL && cmsg->cmsg_len == CMSG_LEN(sizeof(int))) {
+  if (cmsg != nullptr && cmsg->cmsg_len == CMSG_LEN(sizeof(int))) {
     if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
       memcpy(&recv_fd, CMSG_DATA(cmsg), sizeof(int));
     }

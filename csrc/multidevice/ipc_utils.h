@@ -29,7 +29,7 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 
 // IPC Utils for sharing file descriptors
 
-enum class MulticastProtocol { Memcpy, Multimem, BatchMemcpy };
+enum class MulticastProtocol : uint8_t { Memcpy, Multimem, BatchMemcpy };
 
 MulticastProtocol getMulticastProtocol();
 
@@ -38,7 +38,7 @@ MulticastProtocol getMulticastProtocol();
 // PyTorch*: Use PyTorch's symmetric memory
 // (torch.distributed._symmetric_memory) with the given transport backend (Nccl,
 // Nvshmem, or Cuda).
-enum class SymmetricMemoryBackend {
+enum class SymmetricMemoryBackend : uint8_t {
   Native,
   PyTorchNccl,
   PyTorchNvshmem,
