@@ -914,7 +914,8 @@ void postReduceWithCudaBackend(
         cuStreamBatchMemOp(stream, world_size - 1, ops.data(), 0));
 
     // Root launches the ld_reduce kernel
-    NVF_ERROR(output.defined(), "Output must be defined for reduce on the root");
+    NVF_ERROR(
+        output.defined(), "Output must be defined for reduce on the root");
     launchMulticastReduceKernel(
         reduce_handle->multicastPtr(), output.data_ptr(), size, stream);
 

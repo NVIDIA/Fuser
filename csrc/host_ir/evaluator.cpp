@@ -376,7 +376,8 @@ void HostIrEvaluator::handle(Communication* communication) {
          communication->type() == CommunicationType::Reduce)
         ? root_val
         : -1;
-    // For Broadcast and Reduce, non-roots may have no output; use input for cache key
+    // For Broadcast and Reduce, non-roots may have no output; use input for
+    // cache key
     at::Tensor cache_buffer =
         output_tensor.defined() ? output_tensor : input_tensor;
     // For Reduce specifically, use the input tensor for the cache key
