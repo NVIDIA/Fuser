@@ -7,6 +7,14 @@
 // clang-format on
 namespace warp {
 
+// Broadcast a value from lane 0 to all lanes in the warp via __shfl_sync.
+// This makes the value provably warp-uniform to PTXAS, enabling it to skip
+// redundant VOTEU.ALL/WARPSYNC.ALL uniformity checks on branch predicates.
+// See CUTLASS canonical_warp_idx_sync() for the same pattern.
+__device__ __forceinline__ unsigned uniformWarpId(unsigned warp_id) {
+  return __shfl_sync(0xffffffff, warp_id, 0);
+}
+
 template <typename T>
 __device__ __forceinline__ T shfl_xor(T var, int laneMask, int width = 32) {
   return __shfl_xor_sync(0xffffffff, var, laneMask, width);
