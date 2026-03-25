@@ -159,8 +159,10 @@ class NVF_API Communicator {
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
   // c10d process-group wrappers registered for symmetric-memory rendezvous.
+#ifdef NVFUSER_DISTRIBUTED
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::ProcessGroup>>
       process_groups_;
+#endif
 };
 
 } // namespace nvfuser

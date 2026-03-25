@@ -228,7 +228,7 @@ at::Tensor SymmetricTensor::allocate(
 
   std::vector<int64_t> strides(sizes.size());
   strides.back() = 1;
-  for (size_t i = strides.size() - 2; i >= 0; --i) {
+  for (int64_t i = static_cast<int64_t>(strides.size()) - 2; i >= 0; --i) {
     strides[i] = strides[i + 1] * sizes[i + 1];
   }
 
