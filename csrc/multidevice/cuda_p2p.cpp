@@ -857,7 +857,6 @@ void waitAllreduceWithCudaBackend(
 
 void postReduceWithCudaBackend(
     Communication* communication,
-    at::Tensor input,
     at::Tensor output,
     SymmetricMemoryForReduce* reduce_handle,
     CUstream stream,
@@ -875,7 +874,7 @@ void postReduceWithCudaBackend(
       "Only SUM reduction is supported for multimem reduce; got ",
       communication->reduceOp());
   NVF_CHECK(
-      input.scalar_type() == at::kFloat &&
+      reduce_handle->inputBuffer().scalar_type() == at::kFloat &&
           (!output.defined() || output.scalar_type() == at::kFloat),
       "Only float32 is supported for multimem reduce.");
 
@@ -885,14 +884,6 @@ void postReduceWithCudaBackend(
       "Reduce size must be a multiple of 16 bytes for multimem ld_reduce. "
       "size=",
       size);
-
-  // Copy input to symmetric buffer
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-      reduce_handle->inputBuffer().data_ptr(),
-      input.data_ptr(),
-      size,
-      cudaMemcpyDeviceToDevice,
-      stream));
 
   const int64_t world_size = communicator.size();
   // All ranks signal ready by writing kInProgress to their own semaphore
@@ -923,10 +914,9 @@ void postReduceWithCudaBackend(
         cuStreamBatchMemOp(stream, world_size - 1, ops.data(), 0));
 
     // Root launches the ld_reduce kernel
-    void* dst = output.defined() ? output.data_ptr()
-                                 : reduce_handle->inputBuffer().data_ptr();
+    NVF_ERROR(output.defined(), "Output must be defined for reduce on the root");
     launchMulticastReduceKernel(
-        reduce_handle->multicastPtr(), dst, size, stream);
+        reduce_handle->multicastPtr(), output.data_ptr(), size, stream);
 
     // Root signals completion by writing kIdle to all non-root semaphores
     std::vector<CUstreamBatchMemOpParams> write_complete_ops(world_size - 1);
@@ -1267,7 +1257,7 @@ void postWithCudaBackend(
           dynamic_cast<SymmetricMemoryForReduce*>(symmetric_memory_handle);
       NVF_ERROR(reduce_handle != nullptr, "Invalid reduce handle");
       postReduceWithCudaBackend(
-          communication, input, output, reduce_handle, stream, root);
+          communication, output, reduce_handle, stream, root);
       break;
     }
     default:

@@ -764,6 +764,11 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
   C->axis(1)->parallelize(ParallelType::DIDx);
   C->axis(0)->parallelize(ParallelType::Stream);
 
+  // Set the matmul's output to be symmetric in order to use NVLS multimem reduce.
+  if (communicator_backend == CommunicatorBackend::kCuda) {
+    C_unreduced->setMemoryType(MemoryType::Symmetric);
+  }
+
   MultiDeviceExecutorParams params;
   params.lower.communicator_backend = communicator_backend;
   params.lower.offset_stream_indexing_by_rank = false; // Will fail if true
