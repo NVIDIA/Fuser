@@ -58,7 +58,7 @@ with FusionDefinition() as fd:
     for t in [inp, up_w, down_w]:
         t.set_device_mesh(mesh)
 
-    # Annotate how tensor axes are mapped to mesh axes as nvFuser "schedules".
+    # Annotate how tensor axes are mapped to mesh axes as an nvFuser "schedule".
     up_w.outer_split(0, d)
     up_w.axis(0).parallelize(ParallelType.mesh_x)
     down_w.outer_split(1, d)
@@ -101,16 +101,16 @@ objects -- corresponding to the input activations, the up-projection weights,
 and the down-projection weights. The result is a list containing a single
 `DTensor` that represents the output activations of the MLP block.
 
-Under the hood, nvFuser derives a **multi-GPU** schedule from the definition and
-the input `DTensor`s, then executes that schedule across multiple GPUs. This
-automatically handles sharding and communication and therefore removes the need
-for users to explicitly orchestrate communications such as
-`torch.distributed.all_reduce`.
+Under the hood, nvFuser derives the same multi-GPU schedule from the definition
+and the input `DTensor`s as the schedule in the raw-API example, then executes
+that schedule across multiple GPUs. This automatically handles sharding and
+communication and therefore removes the need for users to explicitly
+orchestrate communications such as `torch.distributed.all_reduce`.
 
 By default, nvFuser strives to generate an efficient schedule automatically.
 For performance-critical workloads, however, users can extend `define_fusion`
-with schedules that nvFuser must honor. These are specified through the
-scheduling Python API, using primitives such as `TensorView.split` and
+with a (partial) schedule that nvFuser must honor. These are specified through
+the scheduling Python API, using primitives such as `TensorView.split` and
 `IterDomain.parallelize`.
 
 ## Parallelisms
