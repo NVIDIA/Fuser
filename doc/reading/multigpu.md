@@ -107,9 +107,9 @@ that schedule across multiple GPUs. This automatically handles sharding and
 communication and therefore removes the need for users to explicitly
 orchestrate communications such as `torch.distributed.all_reduce`.
 
-Note that `DTensor`s are merely used as annotations. Internals like sharding
-propagation and decomposition, which will be described later in this document,
-don't use `DTensor`s because `DTensor`s can't represent some shardings that an
+Note that `DTensor`s are used only as annotations. Internals such as sharding
+propagation and decomposition, which are described later in this document,
+do not use `DTensor`s because they cannot represent some shardings that an
 SPMD program needs in practice.
 
 By default, nvFuser strives to generate an efficient schedule automatically.
@@ -149,11 +149,11 @@ and the latter by
 ```
 
 Below is a more complicated use case in AlphaFold 3. AlphaFold 3 takes large
-activations with two sequence dimensions; the weights however are much smaller.
+activations with two sequence dimensions; the weights, however, are much smaller.
 Therefore, [Fold
 CP](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/fold_cp.pdf)
 chooses to shard both sequence dimensions and replicate the weight. During the
-backprop of a linear layer, the batch dimension and the two sequence dimenisons
+backprop of a linear layer, the batch dimension and the two sequence dimensions
 are flattened into one dimension. That dimension gets a non-outermost sharding.
 
 <img src="multigpu/nonoutermost_sharding.png" alt="Non-outermost sharding" width="600">
