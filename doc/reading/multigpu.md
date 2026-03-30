@@ -131,17 +131,18 @@ dt = dist.tensor.distribute_tensor(gt, mesh, [Shard(0)])
 ```
 `dt` will be `[0, 1]` on GPU 0 and `[2, 3]` on GPU 1.
 
-However, there's no way to distribute `gt` so GPU 0 gets `[0, 2]` and GPU 1
-gets `[1, 3]`.
+There's no way to distribute `gt` so GPU 0 gets `[0, 2]` and GPU 1 gets `[1,
+3]`.
 
-In nvFuser, the former is represented by
+nvFuser can distinguish the outer and the inner of a split and apply different
+`ParallelType`s on them. Therefore, the former is represented as
 ```
     [4]
     / \
    2   2
 (DIDx)
 ```
-and the latter by
+and the latter as
 ```
     [4]
     / \
@@ -149,15 +150,15 @@ and the latter by
      (DIDx)
 ```
 
-Below is a more complicated use case in AlphaFold 3. AlphaFold 3 takes large
-activations with two sequence dimensions; the weights, however, are much smaller.
-Therefore, [Fold
+Below is a pratical use case from AlphaFold 3. AlphaFold 3 takes large
+activations with two sequence dimensions; the weights, however, are much
+smaller. Therefore, [Fold
 CP](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/fold_cp.pdf)
 chooses to shard both sequence dimensions and replicate the weight. During the
 backprop of a linear layer, the batch dimension and the two sequence dimensions
 are flattened into one dimension. That dimension gets a non-outermost sharding.
 
-<img src="multigpu/nonoutermost_sharding.png" alt="Non-outermost sharding" width="600">
+<img src="multigpu/nonoutermost_sharding.png" alt="Non-outermost sharding" width="400">
 
 > Non-outermost sharding
 
