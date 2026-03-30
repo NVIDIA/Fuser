@@ -107,11 +107,62 @@ that schedule across multiple GPUs. This automatically handles sharding and
 communication and therefore removes the need for users to explicitly
 orchestrate communications such as `torch.distributed.all_reduce`.
 
+Note that `DTensor`s are merely used as annotations. Internals like sharding
+propagation and decomposition, which will be described later in this document,
+don't use `DTensor`s because `DTensor`s can't represent some shardings that an
+SPMD program needs in practice.
+
 By default, nvFuser strives to generate an efficient schedule automatically.
 For performance-critical workloads, however, users can extend `define_fusion`
 with a (partial) schedule that nvFuser must honor. These are specified through
 the scheduling Python API, using primitives such as `TensorView.split` and
 `IterDomain.parallelize`.
+
+### DTensor's representation limitations
+
+#### Non-outermost sharding
+
+DTensor assumes shardings are applied outermost. For example, given
+```python
+gt = torch.tensor([0, 1, 2, 3])
+mesh = dist.device_mesh.init_device_mesh("cuda", [2])
+dt = dist.tensor.distribute_tensor(gt, mesh, [Shard(0)])
+```
+`dt` will be `[0, 1]` on GPU 0 and `[2, 3]` on GPU 1.
+
+However, there's no way to distribute `gt` so GPU 0 gets `[0, 2]` and GPU 1
+gets `[1, 3]`.
+
+In nvFuser, the former is represented by
+```
+    [4]
+    / \
+   2   2
+(DIDx)
+```
+and the latter by
+```
+    [4]
+    / \
+   2   2
+     (DIDx)
+```
+
+Below is a more complicated use case in AlphaFold 3. AlphaFold 3 takes large
+activations with two sequence dimensions; the weights however are much smaller.
+Therefore, [Fold
+CP](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/fold_cp.pdf)
+chooses to shard both sequence dimensions and replicate the weight. During the
+backprop of a linear layer, the batch dimension and the two sequence dimenisons
+are flattened into one dimension. That dimension gets a non-outermost sharding.
+
+<img src="multigpu/nonoutermost_sharding.png" alt="Non-outermost sharding" width="600">
+
+> Non-outermost sharding
+
+#### Non-uniform sharding
+
+#### Computation
 
 ## Parallelisms
 
@@ -347,9 +398,9 @@ operations (e.g., Allgather, ReduceScatter) and computation operations (e.g.,
 GEMM) one after another, it breaks them into smaller pieces and overlaps
 communication with computation to reduce wall time.
 
-<img src="multigpu/allgather_matmul_overlap.png" alt="Figure 1" width="600">
+<img src="multigpu/allgather_matmul_overlap.png" alt="Overlap allgather with GEMM" width="600">
 
-> **Figure 1.** Overlap allgather with GEMM[^1]
+> Overlap allgather with GEMM[^1]
 
 [^1]: Wang et al., *Overlap Communication with Dependent Computation via
     Decomposition in Large Deep Learning Models*, ASPLOS 2023.
@@ -656,7 +707,9 @@ The figure below shows how Llama 4 MoE is expert-parallelized with the tensor
 list abstraction. For conciseness, it shows only the router and dispatch
 steps.
 
-<img src="multigpu/expert_parallelism.png" alt="Figure 2" width="600">
+<img src="multigpu/expert_parallelism.png" alt="Router and dispatcher in EP MoE" width="600">
+
+> Router and dispatcher in EP MoE
 
 ## Debugging
 
