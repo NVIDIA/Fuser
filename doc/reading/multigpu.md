@@ -160,8 +160,6 @@ are flattened into one dimension. That dimension gets a non-outermost sharding.
 
 <img src="multigpu/nonoutermost_sharding.png" alt="Non-outermost sharding" width="400">
 
-> Non-outermost sharding
-
 #### Non-uniform sharding
 
 #### Computation
@@ -710,8 +708,6 @@ list abstraction. For conciseness, it shows only the router and dispatch
 steps.
 
 <img src="multigpu/expert_parallelism.png" alt="Router and dispatcher in EP MoE" width="600">
-
-> Router and dispatcher in EP MoE
 
 ## Debugging
 
