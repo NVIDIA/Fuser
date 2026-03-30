@@ -108,9 +108,10 @@ communication and therefore removes the need for users to explicitly
 orchestrate communications such as `torch.distributed.all_reduce`.
 
 Note that `DTensor`s are used only as annotations. Internals such as sharding
-propagation and decomposition, which are described later in this document,
-do not use `DTensor`s because they cannot represent some shardings that an
-SPMD program needs in practice.
+propagation and decomposition, which are described later in this document, do
+not use `DTensor`s because they [cannot yet
+represent]((#dtensor-representation-limitations) some shardings that an SPMD
+program needs in practice.
 
 By default, nvFuser strives to generate an efficient schedule automatically.
 For performance-critical workloads, however, users can extend `define_fusion`
@@ -118,7 +119,7 @@ with a (partial) schedule that nvFuser must honor. These are specified through
 the scheduling Python API, using primitives such as `TensorView.split` and
 `IterDomain.parallelize`.
 
-### DTensor's representation limitations
+### DTensor representation limitations
 
 #### Non-outermost sharding
 
