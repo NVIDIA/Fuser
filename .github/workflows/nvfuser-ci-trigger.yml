@@ -42,6 +42,7 @@ jobs:
             github.actor == 'protonu' ||
             github.actor == 'ptrblck' ||
             github.actor == 'rdspring1' ||
+            github.actor == 'saivishal1999' ||
             github.actor == 'samnordmann' ||
             github.actor == 'x41lakazam' ||
             github.actor == 'syed-ahmed' ||
