@@ -219,6 +219,11 @@ and inter-GPU reduction. After decomposition, the fusion IR becomes:
                                   [t, h, r{d}]
 ```
 
+Note that the output of the local linear is a 3D tensor, ignoring the reduction
+dimension, which is present only for convenience. The extra `d` dimension comes
+from the `rfactor` operation, first introduced by Halide. It indicates that
+each GPU holds different partial results until they are all-reduced.
+
 This fusion IR then goes through segmentation, (intra-GPU) scheduling, device
 lowering, and host IR lowering. Eventually, the `linear`s and the `gelu` become
 CUDA kernels and the `sum` becomes a call to `ncclAllReduce`.
@@ -685,7 +690,7 @@ steps.
 
 When implementing the parallelism techniques above, we encountered several
 major challenges when writing SPMD programs with `DTensor`. Recall that
-nvFuser adopts a global SPMD programming model, similar to XLA's GSPMD, where
+nvFuser adopts a *global SPMD* programming model, similar to XLA's GSPMD, where
 tensor shapes are global and shardings are dictated by schedules.
 
 ### Non-outermost Sharding
@@ -699,8 +704,8 @@ dt = dist.tensor.distribute_tensor(gt, mesh, [Shard(0)])
 `dt` will be `[0, 1]` on GPU 0 and `[2, 3]` on GPU 1.
 
 There's no way to distribute `gt` so GPU 0 gets `[0, 2]` and GPU 1 gets `[1,
-3]` unless we reshape `gt`. However, that would change the logical shape,
-defeating the benefit of global SPMD.
+3]` unless we reshape `gt`. However, that would change the logical shape in the
+user program, defeating the benefit of global SPMD.
 
 nvFuser can distinguish the outer and the inner of a split and apply different
 `ParallelType`s on them. Therefore, the former is represented as
@@ -736,6 +741,23 @@ is a 3D tensor of shape `[e, j, h]`, where `e` is the number of experts, `j` is
 the size of a jagged dimension, and `h` is the hidden dimension size. Unlike a
 regular `IterDomain`, whose size is a scalar integer, `j` is a GPU `TensorView`
 that holds the number of tokens per expert.
+
+### Per-GPU Partial Results
+
+This was briefly discussed in [this
+section](#communication-computation-decomposition).
+
+Consider a linear operation between two matrices of shape `[m, k]` and `[n, k]`
+where `k` is the contraction dimension sharded across `d` GPUs. It is computed
+in two steps: a local linear followed by an all-reduce. In global SPMD, the
+result of the local linear should be `[m, n, d]`. By nvFuser convention, `d` is
+placed at the end of the shape, but conceptually its position does not matter
+as long as it exists.
+
+Currently, DTensor handles this using the `Partial` state, which works for
+reductions but does not generalize, for example, to partial sort used in
+[MetaShuffling](https://pytorch.org/blog/metashuffling-accelerating-llama-4-moe-inference/)
+for EP MoE.
 
 ### Ring-based Decomposition and Overlapping
 
