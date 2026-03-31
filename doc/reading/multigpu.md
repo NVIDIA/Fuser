@@ -121,6 +121,11 @@ the scheduling Python API, using primitives such as `TensorView.split` and
 
 ### DTensor representation limitations
 
+This section describes several major challenges we encountered when writing
+SPMD programs with `DTensor`. Recall that nvFuser adopts a global SPMD
+programming model, similar to XLA's GSPMD, where tensor shapes are global and
+shardings are dictated by schedules.
+
 #### Non-outermost sharding
 
 DTensor assumes shardings are applied outermost. For example, given
@@ -132,7 +137,8 @@ dt = dist.tensor.distribute_tensor(gt, mesh, [Shard(0)])
 `dt` will be `[0, 1]` on GPU 0 and `[2, 3]` on GPU 1.
 
 There's no way to distribute `gt` so GPU 0 gets `[0, 2]` and GPU 1 gets `[1,
-3]`.
+3]` unless we reshape `gt`. However, that would change the logical shape,
+defeating the benefit of global SPMD.
 
 nvFuser can distinguish the outer and the inner of a split and apply different
 `ParallelType`s on them. Therefore, the former is represented as
@@ -150,7 +156,7 @@ and the latter as
      (DIDx)
 ```
 
-Below is a pratical use case from AlphaFold 3. AlphaFold 3 takes large
+Below is a practical use case from AlphaFold 3. AlphaFold 3 takes large
 activations with two sequence dimensions; the weights, however, are much
 smaller. Therefore, [Fold
 CP](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/fold_cp.pdf)
@@ -161,6 +167,13 @@ are flattened into one dimension. That dimension gets a non-outermost sharding.
 <img src="multigpu/nonoutermost_sharding.png" alt="Non-outermost sharding" width="400">
 
 #### Non-uniform sharding
+
+As shown in [this figure](#ep-figure), in an
+[expert-parallel](#expert-parallelism-ep) MoE layer, the output of the dispatch
+is a 3D tensor of shape `[e, j, h]`, where `e` is the number of experts, `j` is
+the size of a jagged dimension, and `h` is the hidden dimension size. Unlike a
+regular `IterDomain`, whose size is a scalar integer, `j` is a GPU `TensorView`
+that holds the number of tokens per expert.
 
 #### Computation
 
@@ -707,6 +720,7 @@ The figure below shows how Llama 4 MoE is expert-parallelized with the tensor
 list abstraction. For conciseness, it shows only the router and dispatch
 steps.
 
+<span id="ep-figure"></span>
 <img src="multigpu/expert_parallelism.png" alt="Router and dispatcher in EP MoE" width="600">
 
 ## Debugging
