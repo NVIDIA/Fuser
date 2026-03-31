@@ -347,8 +347,8 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
     CUmemGenericAllocationHandle peer_handle = 0;
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &peer_handle,
-        reinterpret_cast<void*>(static_cast<uint64_t>(
-            local_fd)), // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<void*>(static_cast<uint64_t>( // NOLINT(performance-no-int-to-ptr)
+            local_fd)),
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
 
     alloc_handles_[sender_rank] = peer_handle;
@@ -402,8 +402,8 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
 
   NVF_CHECK(are_remote_tensors_setup_ == true, "Remote tensors not setup");
   return at::from_blob(
-      reinterpret_cast<void*>(
-          remote_ptrs_[rank]), // NOLINT(performance-no-int-to-ptr)
+      reinterpret_cast<void*>( // NOLINT(performance-no-int-to-ptr)
+          remote_ptrs_[rank]),
       local_tensor_.sizes(),
       local_tensor_.strides(),
       at::TensorOptions()
@@ -539,8 +539,8 @@ void SymmetricTensor::setupMulticast(
 
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &mcast_handle_,
-        reinterpret_cast<void*>(static_cast<uint64_t>(
-            peer_fd_)), // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<void*>(static_cast<uint64_t>( // NOLINT(performance-no-int-to-ptr)
+            peer_fd_)),
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
   } else {
     for (int i = 0; i < world_size_; ++i) {
@@ -590,8 +590,8 @@ void SymmetricTensor::setupMulticast(
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(mc_ptr, aligned_size_, &access, 1));
 
-  mc_ptr_ = reinterpret_cast<void*>(
-      mc_ptr + offset_diff); // NOLINT(performance-no-int-to-ptr)
+  mc_ptr_ = reinterpret_cast<void*>( // NOLINT(performance-no-int-to-ptr)
+      mc_ptr + offset_diff);
   mc_base_ptr_ = mc_ptr;
   is_multicast_setup_ = true;
 
