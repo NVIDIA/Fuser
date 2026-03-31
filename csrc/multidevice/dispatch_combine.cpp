@@ -93,8 +93,8 @@ AlltoallvMetadata prepareAlltoallvMetadataGpu(
   for (int64_t r = 0; r < W; r++) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
         counts_matrix[r].data_ptr<int64_t>(),
-        reinterpret_cast<void*>( // NOLINT(performance-no-int-to-ptr)
-            a2av.syncRemotePtr(r)),
+        // NOLINTNEXTLINE(performance-no-int-to-ptr)
+        reinterpret_cast<void*>(a2av.syncRemotePtr(r)),
         W * sizeof(int64_t),
         cudaMemcpyDeviceToDevice,
         reinterpret_cast<cudaStream_t>(stream)));
