@@ -119,64 +119,6 @@ with a (partial) schedule that nvFuser must honor. These are specified through
 the scheduling Python API, using primitives such as `TensorView.split` and
 `IterDomain.parallelize`.
 
-### DTensor representation limitations
-
-This section describes several major challenges we encountered when writing
-SPMD programs with `DTensor`. Recall that nvFuser adopts a global SPMD
-programming model, similar to XLA's GSPMD, where tensor shapes are global and
-shardings are dictated by schedules.
-
-#### Non-outermost sharding
-
-DTensor assumes shardings are applied outermost. For example, given
-```python
-gt = torch.tensor([0, 1, 2, 3])
-mesh = dist.device_mesh.init_device_mesh("cuda", [2])
-dt = dist.tensor.distribute_tensor(gt, mesh, [Shard(0)])
-```
-`dt` will be `[0, 1]` on GPU 0 and `[2, 3]` on GPU 1.
-
-There's no way to distribute `gt` so GPU 0 gets `[0, 2]` and GPU 1 gets `[1,
-3]` unless we reshape `gt`. However, that would change the logical shape,
-defeating the benefit of global SPMD.
-
-nvFuser can distinguish the outer and the inner of a split and apply different
-`ParallelType`s on them. Therefore, the former is represented as
-```
-    [4]
-    / \
-   2   2
-(DIDx)
-```
-and the latter as
-```
-    [4]
-    / \
-   2   2
-     (DIDx)
-```
-
-Below is a practical use case from AlphaFold 3. AlphaFold 3 takes large
-activations with two sequence dimensions; the weights, however, are much
-smaller. Therefore, [Fold
-CP](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/fold_cp.pdf)
-chooses to shard both sequence dimensions and replicate the weight. During the
-backprop of a linear layer, the batch dimension and the two sequence dimensions
-are flattened into one dimension. That dimension gets a non-outermost sharding.
-
-<img src="multigpu/nonoutermost_sharding.png" alt="Non-outermost sharding" width="400">
-
-#### Non-uniform sharding
-
-As shown in [this figure](#ep-figure), in an
-[expert-parallel](#expert-parallelism-ep) MoE layer, the output of the dispatch
-is a 3D tensor of shape `[e, j, h]`, where `e` is the number of experts, `j` is
-the size of a jagged dimension, and `h` is the hidden dimension size. Unlike a
-regular `IterDomain`, whose size is a scalar integer, `j` is a GPU `TensorView`
-that holds the number of tokens per expert.
-
-#### Computation
-
 ## Parallelisms
 
 This section walks through several common forms of parallelism and shows how
@@ -402,13 +344,13 @@ This fusion IR then goes through the rest of the nvFuser stack. The `set`
 becomes a call to `ncclAllGather` and the `sum` becomes a call to
 `ncclReduceScatter`.
 
-### Overlap Communication with GEMM via Decomposition
+### Overlapping Communication with GEMM
 
 [This technique](https://dl.acm.org/doi/10.1145/3567955.3567959) is orthogonal
 and can be applied to different types of parallelism (e.g., sequence, tensor,
 and context parallelism) to cut down latency. Instead of running communication
 operations (e.g., Allgather, ReduceScatter) and computation operations (e.g.,
-GEMM) one after another, it breaks them into smaller pieces and overlaps
+GEMM) one after another, it decomposes them into smaller pieces and overlaps
 communication with computation to reduce wall time.
 
 <img src="multigpu/allgather_matmul_overlap.png" alt="Overlap allgather with GEMM" width="600">
@@ -429,11 +371,24 @@ The tradeoffs are:
 * Ring-based decomposition requires the number of chunks to be a multiple of the number of devices, whereas collective-based decomposition doesn't.
 * Ring-based decomposition supports canonical layouts better.
 
+The following figure shows how all-gather and `linear` can be decomposed and
+overlapped. Matrix A is sharded row-wise across three GPUs, while B and C are
+sharded column-wise.
+
+<img src="multigpu/overlap_iterations.png" alt="Overlapping linear with communication" width="600">
+
+In each iteration after the first, each GPU sends its local shard of A to the
+GPU on its left, that is, `0 -> 2`, `1 -> 0`, and `2 -> 1`.
+
 [This
 test](https://github.com/NVIDIA/Fuser/blob/main/tests/cpp/test_overlap.cpp#L57)
-shows how the fusion IR represents a decomposed allgather with GEMM using
-ring-based scheme. This decomposition allows host IR optimizations to assign
-different loop iterations to different CUDA streams, enabling overlapping.
+shows a `FusionDefinition` that implements the algorithm above. To represent
+this pattern explicitly in fusion IR, we added:
+1. `ParallelType::Stream`, which represents a host-side `for` loop.
+2. `Swizzle`, an `IterDomain` operation that generates an index such as `(loop_iteration + rank) % world_size`.
+
+During host IR optimization, nvFuser assigns different loop iterations to
+different CUDA streams, enabling overlap.
 
 ### Distributed Data Parallelism (DDP)
 
@@ -696,7 +651,7 @@ for i in range(3):
 ```
 
 Similar to [GEMM-communication
-overlap](#overlap-communication-with-gemm-via-decomposition), nvFuser can
+overlap](#overlapping-communication-with-gemm), nvFuser can
 assign different loop iterations to different CUDA streams to enable
 overlapping. I've omitted those details here for brevity.
 
@@ -722,6 +677,70 @@ steps.
 
 <span id="ep-figure"></span>
 <img src="multigpu/expert_parallelism.png" alt="Router and dispatcher in EP MoE" width="600">
+
+## DTensor Representation Limitations
+
+When implementing the parallelism techniques above, we encountered several
+major challenges when writing SPMD programs with `DTensor`. Recall that
+nvFuser adopts a global SPMD programming model, similar to XLA's GSPMD, where
+tensor shapes are global and shardings are dictated by schedules.
+
+### Non-outermost Sharding
+
+DTensor assumes shardings are applied outermost. For example, given
+```python
+gt = torch.tensor([0, 1, 2, 3])
+mesh = dist.device_mesh.init_device_mesh("cuda", [2])
+dt = dist.tensor.distribute_tensor(gt, mesh, [Shard(0)])
+```
+`dt` will be `[0, 1]` on GPU 0 and `[2, 3]` on GPU 1.
+
+There's no way to distribute `gt` so GPU 0 gets `[0, 2]` and GPU 1 gets `[1,
+3]` unless we reshape `gt`. However, that would change the logical shape,
+defeating the benefit of global SPMD.
+
+nvFuser can distinguish the outer and the inner of a split and apply different
+`ParallelType`s on them. Therefore, the former is represented as
+```
+    [4]
+    / \
+   2   2
+(DIDx)
+```
+and the latter as
+```
+    [4]
+    / \
+   2   2
+     (DIDx)
+```
+
+Below is a practical use case from AlphaFold 3. AlphaFold 3 takes large
+activations with two sequence dimensions; the weights, however, are much
+smaller. Therefore,
+[Fold-CP](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/fold_cp.pdf)
+chooses to shard both sequence dimensions and replicate the weight. During the
+backprop of a linear layer, the batch dimension and the two sequence dimensions
+are flattened into one dimension. That dimension gets a non-outermost sharding.
+
+<img src="multigpu/nonoutermost_sharding.png" alt="Non-outermost sharding" width="400">
+
+### Non-uniform Sharding
+
+As shown in [this figure](#ep-figure), in an
+[expert-parallel](#expert-parallelism-ep) MoE layer, the output of the dispatch
+is a 3D tensor of shape `[e, j, h]`, where `e` is the number of experts, `j` is
+the size of a jagged dimension, and `h` is the hidden dimension size. Unlike a
+regular `IterDomain`, whose size is a scalar integer, `j` is a GPU `TensorView`
+that holds the number of tokens per expert.
+
+### Ring-based Decomposition and Overlapping
+
+This is the pattern illustrated in [the overlap
+section](#overlapping-communication-with-gemm). While some deep learning
+compilers hide such decomposition and overlap decisions from users, we believe
+there is value in letting users express them explicitly before heuristics can
+handle them automatically and optimally.
 
 ## Debugging
 
