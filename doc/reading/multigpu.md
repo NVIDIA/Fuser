@@ -28,8 +28,13 @@ parallelization of deep learning workloads across multiple GPUs.
 The following example demonstrates how to run a distributed GPT-3 style MLP
 block using nvFuser's multi-GPU API.
 
+### Raw API
+
 ```python
-def define_fusion(fd: FusionDefinition):
+h = 12288
+d = dist.get_world_size()
+
+with FusionDefinition() as fd:
     inp = fd.define_tensor([-1, h])  # [batch * sequence, hidden]
     up_w = fd.define_tensor([h * 4, h])
     out = fd.ops.linear(inp, up_w)
@@ -43,7 +48,46 @@ def define_fusion(fd: FusionDefinition):
 
     fd.add_output(out)
 
-inp_dtensors: list[DTensor]
+    # Annotate the shardings of the input activation tensor and the weights.
+    # They will be propagated to the remaining tensors. The user can also
+    # annotate intermediate and output tensors if/when they needs more control.
+    # It's not necessary for this particular example.
+    #
+    # Annotate the device mesh.
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    for t in [inp, up_w, down_w]:
+        t.set_device_mesh(mesh)
+
+    # Annotate how tensor axes are mapped to mesh axes as an nvFuser "schedule".
+    up_w.outer_split(0, d)
+    up_w.axis(0).parallelize(ParallelType.mesh_x)
+    down_w.outer_split(1, d)
+    down_w.axis(1).parallelize(ParallelType.mesh_x)
+
+inp = torch.randn(b * s, h, device="cuda")
+up_w = torch.randn(h * 4 // d, h, device="cuda")
+down_w = torch.randn(h, h * 4 // d, device="cuda")
+(out,) = fd.execute([inp, up_w, down_w])
+# `out` is a torch.Tensor of shape [b * s, h].
+```
+
+### DTensor API
+
+For convenience, the user can also annotate shardings via `DTensor`s. For
+example, the snippet above can be rewritten in a higher level:
+
+```python
+def define_fusion(fd: FusionDefinition):
+    # The same single-GPU definition as the previous example.
+    inp = fd.define_tensor([-1, h])  # [batch * sequence, hidden]
+    up_w = fd.define_tensor([h * 4, h])
+    out = fd.ops.linear(inp, up_w)
+    out = gelu(out)
+    down_w = fd.define_tensor([h, h * 4])
+    out = fd.ops.linear(out, down_w)
+    fd.add_output(out)
+
+inp_dtensors: list[DTensor] = [...]  # populate with inp, up_w, down_w DTensors
 fdw = FusionDefinitionWrapper(define_fusion)
 out_dtensors: list[DTensor] = fdw(inp_dtensors)
 ```
@@ -57,16 +101,16 @@ objects -- corresponding to the input activations, the up-projection weights,
 and the down-projection weights. The result is a list containing a single
 `DTensor` that represents the output activations of the MLP block.
 
-Under the hood, nvFuser derives a **multi-GPU** schedule from the definition and
-the input `DTensor`s, then executes that schedule across multiple GPUs. This
-automatically handles sharding and communication and therefore removes the need
-for users to explicitly orchestrate communications such as
-`torch.distributed.all_reduce`.
+Under the hood, nvFuser derives the same multi-GPU schedule from the definition
+and the input `DTensor`s as the schedule in the raw-API example, then executes
+that schedule across multiple GPUs. This automatically handles sharding and
+communication and therefore removes the need for users to explicitly
+orchestrate communications such as `torch.distributed.all_reduce`.
 
 By default, nvFuser strives to generate an efficient schedule automatically.
 For performance-critical workloads, however, users can extend `define_fusion`
-with schedules that nvFuser must honor. These are specified through the
-scheduling Python API, using primitives such as `TensorView.split` and
+with a (partial) schedule that nvFuser must honor. These are specified through
+the scheduling Python API, using primitives such as `TensorView.split` and
 `IterDomain.parallelize`.
 
 ## Parallelisms

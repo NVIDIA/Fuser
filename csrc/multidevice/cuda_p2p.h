@@ -9,6 +9,7 @@
 
 #include <ATen/core/Tensor.h>
 #include <cuda.h>
+#include <cstdint>
 
 #include "multidevice/ipc_handle.h"
 
@@ -16,6 +17,7 @@ namespace nvfuser {
 
 enum class P2pProtocol : std::uint8_t { Get, Put };
 
+// Prescribed P2P protocol from NVFUSER_ENABLE (p2p_protocol put|get).
 P2pProtocol getP2pProtocol();
 
 std::ostream& operator<<(std::ostream& os, P2pProtocol protocol);
@@ -42,7 +44,8 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream);
 void postWithCudaBackend(
     Communication* communication,
     at::Tensor input,
-    SymmetricMemoryHandle* multicast_handle,
+    at::Tensor output,
+    SymmetricMemoryHandle* symmetric_memory_handle,
     CUstream stream,
     int64_t root);
 
@@ -76,5 +79,14 @@ void alltoallvWithCudaBackend(
     CUstream stream);
 
 void alltoallvBarrier(const std::string& tag);
+
+// Launch ld_reduce kernel (multimem) for NVLS reduce. Used by multicast reduce
+// path and by tests. mc_src and dst must be 16-byte aligned; size multiple
+// of 16.
+void launchMulticastReduceKernel(
+    const void* mc_src,
+    void* dst,
+    size_t size,
+    CUstream stream);
 
 } // namespace nvfuser

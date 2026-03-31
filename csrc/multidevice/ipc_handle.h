@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
+
 #include <ATen/core/TensorBody.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -22,7 +24,9 @@ namespace hir {
 class SymmetricContiguousView;
 } // namespace hir
 
-// Semaphore values for P2P communication synchronization
+// Semaphore values for P2P communication synchronization. Values are stored in
+// int tensors and cast to cuuint32_t for stream ops; keep 4-byte backing.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class IpcSemaphore : cuuint32_t { kIdle, kInProgress };
 
 // Basic IPC handle for legacy P2P communication using cudaIpc* APIs
@@ -102,7 +106,7 @@ struct TensorEqual {
 // pointer
 class IpcHandleCache {
  public:
-  IpcHandleCache(const ExpressionEvaluator& expr_evaluator)
+  explicit IpcHandleCache(const ExpressionEvaluator* expr_evaluator)
       : expr_evaluator_(expr_evaluator) {}
   ~IpcHandleCache() = default;
 
@@ -153,15 +157,15 @@ class IpcHandleCache {
   }
 
   KeyType getKey(P2PCommunication* comm) const {
-    auto peer = expr_evaluator_.evaluate(comm->peer()).as<int64_t>();
-    auto buffer = expr_evaluator_.evaluate(comm->buffer()).as<at::Tensor>();
-    return KeyType{peer, buffer, comm};
+    auto peer = expr_evaluator_->evaluate(comm->peer()).as<int64_t>();
+    auto buffer = expr_evaluator_->evaluate(comm->buffer()).as<at::Tensor>();
+    return KeyType{.peer = peer, .buffer = buffer, .comm = comm};
   }
 
   std::string getTcpStoreKey(P2PCommunication* communication, int64_t rank)
       const;
 
-  const ExpressionEvaluator& expr_evaluator_;
+  const ExpressionEvaluator* expr_evaluator_;
   std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyType::Hash>
       handles_;
 };
@@ -190,7 +194,7 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
       int64_t root,
       const std::string& name_suffix);
 
-  ~SymMemForBroadcast() = default;
+  ~SymMemForBroadcast() override = default;
 
   void* bufferMulticastPtr() const;
 
@@ -204,6 +208,63 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
   // Buffer symmetric tensor with multicast support
   std::unique_ptr<SymmetricTensor> buffer_sym_tensor_;
   // Semaphore symmetric tensor with multicast support
+  std::unique_ptr<SymmetricTensor> semaphore_sym_tensor_;
+};
+
+// SymmetricMemoryHandle for allreduce using NVLink SHARP (multimem ld_reduce).
+// All ranks bind their input to the multicast object; ld_reduce from the
+// multicast VA returns the reduction across ranks.
+class SymmetricMemoryForAllreduce : public SymmetricMemoryHandle {
+ public:
+  SymmetricMemoryForAllreduce(
+      Communication* communication,
+      at::Tensor output_buffer);
+
+  ~SymmetricMemoryForAllreduce() override = default;
+
+  // Local buffer for this rank's input (copy input here before reduce)
+  at::Tensor inputBuffer() const;
+
+  // Multicast VA for ld_reduce kernel (same on all ranks)
+  void* multicastPtr() const;
+
+  // Per-rank semaphore slots (same layout as SymMemForAllgather)
+  void* semaphoreUnicastPtr(int64_t root_rank, int64_t rank) const;
+
+  size_t sizeBytes() const {
+    return size_bytes_;
+  }
+
+ private:
+  size_t size_bytes_ = 0;
+  std::unique_ptr<SymmetricTensor> input_sym_tensor_;
+  std::unique_ptr<SymmetricTensor> semaphores_sym_tensor_;
+};
+
+// SymmetricMemoryHandle for reduce (root receives result) using NVLink SHARP
+// (multimem ld_reduce). Same setup as Allreduce but used for Reduce collective.
+// root is the rank that exports the multicast handle (same as reduce root).
+class SymmetricMemoryForReduce : public SymmetricMemoryHandle {
+ public:
+  SymmetricMemoryForReduce(
+      Communication* communication,
+      int64_t root,
+      at::Tensor output_buffer);
+
+  ~SymmetricMemoryForReduce() override = default;
+
+  at::Tensor inputBuffer() const;
+  void* multicastPtr() const;
+
+  void* semaphoreUnicastPtr(int64_t rank) const;
+
+  size_t sizeBytes() const {
+    return size_bytes_;
+  }
+
+ private:
+  size_t size_bytes_ = 0;
+  std::unique_ptr<SymmetricTensor> input_sym_tensor_;
   std::unique_ptr<SymmetricTensor> semaphore_sym_tensor_;
 };
 

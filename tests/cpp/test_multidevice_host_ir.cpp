@@ -396,7 +396,7 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   std::vector<P2PCommunication*> grouped_communications = {send, recv};
 
   ExpressionEvaluator expr_evaluator;
-  IpcHandleCache ipc_handle_cache(expr_evaluator);
+  IpcHandleCache ipc_handle_cache(&expr_evaluator);
 
   auto options =
       at::TensorOptions().dtype(at::kInt).device(communicator_->device());
