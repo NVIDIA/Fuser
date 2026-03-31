@@ -48,8 +48,10 @@ extern "C" __global__ void __launch_bounds__(32, 1) tma_copy_1d(
     const void* __restrict__ src,
     int total_bytes,
     int max_chunk) {
-  int64_t offset = static_cast<int>(blockIdx.x) * max_chunk;
-  int64_t num_bytes = min(max_chunk, total_bytes - offset);
+  long long offset = static_cast<long long>(blockIdx.x) * max_chunk;
+  int num_bytes = static_cast<int>(
+      min(static_cast<long long>(max_chunk),
+          static_cast<long long>(total_bytes) - offset));
 
   const char* block_src = static_cast<const char*>(src) + offset;
   char* block_dst = static_cast<char*>(dst) + offset;
