@@ -375,7 +375,7 @@ The following figure shows how all-gather and `linear` can be decomposed and
 overlapped. Matrix A is sharded row-wise across three GPUs, while B and C are
 sharded column-wise.
 
-<img src="multigpu/overlap_iterations.png" alt="Overlapping linear with communication" width="600">
+<img src="multigpu/overlap_iterations.png" alt="Overlapping allgather with linear" width="800">
 
 In each iteration after the first, each GPU sends its local shard of A to the
 GPU on its left, that is, `0 -> 2`, `1 -> 0`, and `2 -> 1`.
