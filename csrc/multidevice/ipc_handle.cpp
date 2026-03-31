@@ -458,4 +458,181 @@ SymMemForContiguousView::SymMemForContiguousView(
   tensor_ = sym_tensor_->getContiguousView();
 }
 
+SymMemForAlltoallv::SymMemForAlltoallv(
+    at::Device device,
+    const std::string& tag)
+    : tag_(tag) {
+  Communicator& comm = Communicator::getInstance();
+  world_size_ = comm.size();
+  my_rank_ = comm.deviceId();
+
+  // Counts buffer: [W] int64 — one send_count per peer.
+  sync_buf_ = SymmetricTensor::allocate({world_size_}, at::kLong, device);
+  sync_buf_.zero_();
+  sync_sym_ = std::make_unique<SymmetricTensor>(sync_buf_);
+  sync_sym_->setupRemoteHandles(tag + "_sync");
+  sync_ptrs_.resize(world_size_);
+  for (int64_t r = 0; r < world_size_; r++) {
+    sync_ptrs_[r] =
+        reinterpret_cast<CUdeviceptr>(sync_sym_->remoteTensor(r).data_ptr());
+  }
+
+  // Semaphore buffer: [2*W] int32 — counts_sem + done_sem, one
+  // slot per (owner, peer) pair, matching the 32-bit stream ops.
+  sem_buf_ = SymmetricTensor::allocate({2 * world_size_}, at::kInt, device);
+  sem_buf_.zero_();
+  sem_sym_ = std::make_unique<SymmetricTensor>(sem_buf_);
+  sem_sym_->setupRemoteHandles(tag + "_sem");
+  sem_ptrs_.resize(world_size_);
+  for (int64_t r = 0; r < world_size_; r++) {
+    sem_ptrs_[r] =
+        reinterpret_cast<CUdeviceptr>(sem_sym_->remoteTensor(r).data_ptr());
+  }
+}
+
+const SymMemForAlltoallv::RecvHandle& SymMemForAlltoallv::recv(
+    const std::string& name,
+    int64_t first_dim,
+    at::IntArrayRef extra_sizes,
+    at::ScalarType dtype,
+    at::Device device) {
+  auto& entry = recv_entries_[name];
+  if (entry.sym && entry.cached_first_dim >= first_dim) {
+    return entry.handle;
+  }
+
+  // Re-allocating after the first setup would invalidate any CUDA
+  // graph that captured the old buffer pointer. This is expected to
+  // happen only on the very first call (rendezvous); subsequent
+  // calls must hit the cache.
+  NVF_CHECK(
+      !entry.sym,
+      "SymMemForAlltoallv::recv: buffer '",
+      name,
+      "' capacity ",
+      entry.cached_first_dim,
+      " < requested ",
+      first_dim,
+      ". Re-allocation after initial setup is not supported "
+      "(would invalidate captured CUDA graphs).");
+
+  std::vector<int64_t> sizes = {first_dim};
+  for (auto d : extra_sizes) {
+    sizes.push_back(d);
+  }
+
+  auto buf = SymmetricTensor::allocate(sizes, dtype, device);
+  entry.sym = std::make_unique<SymmetricTensor>(buf);
+  entry.sym->setupRemoteHandles(tag_ + "_" + name);
+  entry.handle.buffer = buf;
+  entry.handle.remote_ptrs = entry.sym->remotePointersTensor();
+  entry.cached_first_dim = first_dim;
+  return entry.handle;
+}
+
+void SymMemForAlltoallv::batchSignal(
+    CUstream stream,
+    cuuint32_t value,
+    CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const) {
+  if (world_size_ <= 1) {
+    return;
+  }
+  std::vector<CUstreamBatchMemOpParams> ops(world_size_ - 1);
+  int idx = 0;
+  for (int64_t r = 0; r < world_size_; r++) {
+    if (r == my_rank_) {
+      continue;
+    }
+    ops[idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    ops[idx].writeValue.address = (this->*addr)(r, my_rank_);
+    ops[idx].writeValue.value = value;
+    ops[idx].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+    idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size_ - 1, ops.data(), 0));
+}
+
+void SymMemForAlltoallv::batchWait(
+    CUstream stream,
+    cuuint32_t value,
+    CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const) {
+  if (world_size_ <= 1) {
+    return;
+  }
+  std::vector<CUstreamBatchMemOpParams> ops(world_size_ - 1);
+  int idx = 0;
+  for (int64_t r = 0; r < world_size_; r++) {
+    if (r == my_rank_) {
+      continue;
+    }
+    ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+    ops[idx].waitValue.address = (this->*addr)(my_rank_, r);
+    ops[idx].waitValue.value = value;
+    ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+    idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size_ - 1, ops.data(), 0));
+}
+
+void SymMemForAlltoallv::batchReset(
+    CUstream stream,
+    cuuint32_t value,
+    CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const) {
+  if (world_size_ <= 1) {
+    return;
+  }
+  std::vector<CUstreamBatchMemOpParams> ops(world_size_ - 1);
+  int idx = 0;
+  for (int64_t r = 0; r < world_size_; r++) {
+    if (r == my_rank_) {
+      continue;
+    }
+    ops[idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    ops[idx].writeValue.address = (this->*addr)(my_rank_, r);
+    ops[idx].writeValue.value = value;
+    ops[idx].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+    idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size_ - 1, ops.data(), 0));
+}
+
+void SymMemForAlltoallv::signalCountsReady(CUstream stream) {
+  batchSignal(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      &SymMemForAlltoallv::countsSemAddr);
+}
+
+void SymMemForAlltoallv::waitCountsReady(CUstream stream) {
+  batchWait(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      &SymMemForAlltoallv::countsSemAddr);
+}
+
+void SymMemForAlltoallv::resetCountsSem(CUstream stream) {
+  batchReset(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kIdle),
+      &SymMemForAlltoallv::countsSemAddr);
+}
+
+void SymMemForAlltoallv::doneBarrier(CUstream stream) {
+  batchSignal(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      &SymMemForAlltoallv::doneSemAddr);
+  batchWait(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      &SymMemForAlltoallv::doneSemAddr);
+  batchReset(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kIdle),
+      &SymMemForAlltoallv::doneSemAddr);
+}
+
 } // namespace nvfuser
