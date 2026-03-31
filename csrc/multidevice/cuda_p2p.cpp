@@ -11,8 +11,8 @@
 
 #include "nvfuser_resources/alltoallv.h"
 #include "nvfuser_resources/multicast.h"
-#include "nvfuser_resources/tma_copy.h"
 #include "nvfuser_resources/multicast_reduce.h"
+#include "nvfuser_resources/tma_copy.h"
 
 #include "cuda_utils.h"
 #include "multidevice/communication.h"
@@ -469,7 +469,8 @@ void launchTmaCopy(void* dst, const void* src, size_t size, CUstream stream) {
     NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&kernel, module, "tma_copy_1d"));
   }
 
-  NVF_CHECK(size % 16 == 0, "TMA requires size (", size, ") to be a multiple of 16");
+  NVF_CHECK(
+      size % 16 == 0, "TMA requires size (", size, ") to be a multiple of 16");
 
   constexpr int kDefaultSmem = 48 * 1024;
   constexpr int kMbarrierBytes = 8;
