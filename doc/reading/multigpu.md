@@ -361,7 +361,8 @@ communication with computation to reduce wall time.
     Decomposition in Large Deep Learning Models*, ASPLOS 2023.
 https://dl.acm.org/doi/pdf/10.1145/3567955.3567959
 
-There are two types of decomposition:
+There are two types of decomposition, both representable in fusion IR through
+`IterDomain`:
 * Collective-based. A large communication collective is decomposed into collectives of the same nature.
 * Ring-based. A large communication collective is decomposed into circular-shift point-to-point communications.
 
@@ -371,9 +372,11 @@ The tradeoffs are:
 * Ring-based decomposition requires the number of chunks to be a multiple of the number of devices, whereas collective-based decomposition doesn't.
 * Ring-based decomposition supports canonical layouts better.
 
-The following figure shows how all-gather and `linear` can be decomposed and
-overlapped. Matrix A is sharded row-wise across three GPUs, while B and C are
-sharded column-wise.
+The following figure shows one way to decompose and overlap all-gather with
+`linear`. Matrix A is sharded row-wise across three GPUs, while B and C are
+sharded column-wise. Instead of all-gathering A up front, which would prevent
+overlap and require a buffer large enough to hold the full A, we decompose the
+all-gather into a sequence of ring-based peer-to-peer communications.
 
 <img src="multigpu/overlap_iterations.png" alt="Overlapping allgather with linear" width="800">
 
