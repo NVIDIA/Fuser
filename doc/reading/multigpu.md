@@ -87,7 +87,7 @@ def define_fusion(fd: FusionDefinition):
     out = fd.ops.linear(out, down_w)
     fd.add_output(out)
 
-inp_dtensors: list[DTensor]
+inp_dtensors: list[DTensor] = [...]  # populate with inp, up_w, down_w DTensors
 fdw = FusionDefinitionWrapper(define_fusion)
 out_dtensors: list[DTensor] = fdw(inp_dtensors)
 ```
