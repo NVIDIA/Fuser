@@ -347,8 +347,9 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
     CUmemGenericAllocationHandle peer_handle = 0;
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &peer_handle,
-        reinterpret_cast<void*>(static_cast<uint64_t>( // NOLINT(performance-no-int-to-ptr)
-            local_fd)),
+        reinterpret_cast<void*>(
+            static_cast<uint64_t>( // NOLINT(performance-no-int-to-ptr)
+                local_fd)),
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
 
     alloc_handles_[sender_rank] = peer_handle;
@@ -539,8 +540,9 @@ void SymmetricTensor::setupMulticast(
 
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &mcast_handle_,
-        reinterpret_cast<void*>(static_cast<uint64_t>( // NOLINT(performance-no-int-to-ptr)
-            peer_fd_)),
+        reinterpret_cast<void*>(
+            static_cast<uint64_t>( // NOLINT(performance-no-int-to-ptr)
+                peer_fd_)),
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
   } else {
     for (int i = 0; i < world_size_; ++i) {
