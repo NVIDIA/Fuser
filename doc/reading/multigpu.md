@@ -110,7 +110,7 @@ orchestrate communications such as `torch.distributed.all_reduce`.
 Note that `DTensor`s are used only as annotations. Internals such as sharding
 propagation and decomposition, which are described later in this document, do
 not use `DTensor`s because they [cannot yet
-represent]((#dtensor-representation-limitations) some shardings that an SPMD
+represent](#dtensor-representation-limitations) some shardings that an SPMD
 program needs in practice.
 
 By default, nvFuser strives to generate an efficient schedule automatically.
