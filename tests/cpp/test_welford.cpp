@@ -11,19 +11,13 @@
 #include "ops/all_ops.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "type.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class WelfordTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using WelfordTest = NVFuserTest;
 
 TEST_F(WelfordTest, SerialWelford) {
   int x = 128, y = 64, z = 64;
@@ -725,10 +719,11 @@ TEST_F(NVFuserTest, Translate1Welford) {
   const int64_t smem_buffer_count =
       ceilDiv(deviceAvailableSharedMemoryBytes(), 4);
   const int64_t total_elements = sm_per_cluster == 1
-      ? scheduler_utils::roundUpPow2Or8(smem_buffer_count)
+      ? std::max(
+            scheduler_utils::roundUpPow2Or8(smem_buffer_count),
+            regs_buffer_count)
       : regs_buffer_count * sm_per_cluster;
   auto runtime2 = run_test(total_elements + 1024);
-
   bool found_welford = false;
   for (auto group : runtime2->fusionSegments()->groups()) {
     for (auto expr : group->exprs()) {

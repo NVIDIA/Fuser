@@ -328,7 +328,7 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
     TensorView* w1,
     TensorView* mask,
     TensorView* sdpa_output,
-    TensorView* sdpa_log_sumexp,
+    TensorView* sdpa_logsumexp,
     TensorView* sdpa_seed,
     TensorView* sdpa_offset,
     TensorView* grad,
@@ -367,7 +367,7 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
       reshape(linear1_grads.grad_x, {D, B * S, E / D}, {D, B, S, H / D, E / H});
   linear1_x_grad = transpose(linear1_x_grad, 2, 3); // D, B, H/D, S, E/H
   // Explicitly shard inputs before SDPA backward node
-  for (auto tv : {linear1_x_grad, sdpa_output, sdpa_log_sumexp}) {
+  for (auto tv : {linear1_x_grad, sdpa_output, sdpa_logsumexp}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
@@ -377,7 +377,7 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
       qkv[1],
       qkv[2],
       sdpa_output,
-      sdpa_log_sumexp,
+      sdpa_logsumexp,
       /*dropout_p=*/IrBuilder::create<Val>(kSdpaProb),
       /*is_causal=*/IrBuilder::create<Val>(true),
       sdpa_seed,
@@ -406,7 +406,7 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
        {w0,
         w1,
         sdpa_output,
-        sdpa_log_sumexp,
+        sdpa_logsumexp,
         linear0,
         linear1_grads.grad_x,
         linear1_grads.grad_w,
@@ -536,7 +536,7 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::backward(
   TensorView* mha_mask = makeContigTensor(2, DataType::Bool);
   TensorView* mlp_mask = makeContigTensor(2, DataType::Bool);
   TensorView* mha_sdpa_out = makeConcreteTensor({D, B, H / D, S, E / H}, dtype);
-  TensorView* mha_sdpa_log_sumexp =
+  TensorView* mha_sdpa_logsumexp =
       makeContigConcreteTensor({D, B, H / D, S}, DataType::Float);
   auto [mha_sdpa_seed, mha_sdpa_offset] = createSdpaRngTvs();
   TensorView* ln1_w = makeContigTensor(1);
@@ -560,7 +560,7 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::backward(
   fusion->addInput(mlp_mask);
   fusion->addInput(mha_mask);
   fusion->addInput(mha_sdpa_out);
-  fusion->addInput(mha_sdpa_log_sumexp);
+  fusion->addInput(mha_sdpa_logsumexp);
   fusion->addInput(mha_sdpa_seed);
   fusion->addInput(mha_sdpa_offset);
   fusion->addInput(ln1_w);
@@ -611,7 +611,7 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::backward(
       mha_w1,
       mha_mask,
       mha_sdpa_out,
-      mha_sdpa_log_sumexp,
+      mha_sdpa_logsumexp,
       mha_sdpa_seed,
       mha_sdpa_offset,
       resid1_grad,

@@ -8,20 +8,18 @@
 #pragma once
 #include <functional>
 
-#include <exceptions.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/cloner.h>
-#include <ir/printer.h>
-#include <runtime/allocations.h>
-#include <runtime/compiled_kernel.h>
-#include <runtime/executor_abstract.h>
-#include <runtime/executor_params.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/scheduler_types.h>
-#include <serde/fusion_cache_generated.h>
-#include <utils.h>
+#include "base.h"
+#include "exceptions.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/cloner.h"
+#include "runtime/allocations.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor_abstract.h"
+#include "runtime/executor_params.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/scheduler_types.h"
 
 namespace nvfuser {
 
@@ -180,22 +178,6 @@ class KernelExecutor : public ExecutorAbstract {
     group_id_ = gid;
   }
 
-  //! Serialize Fusion Executor using flatbuffers
-  flatbuffers::Offset<serde::KernelExecutor> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Fusion Executor using flatbuffers
-  void deserialize(
-      const serde::KernelExecutor* buffer,
-      Fusion* fusion,
-      int8_t device_index,
-      CompileParams compile_params,
-      SchedulerType scheduler_type,
-      int64_t fusion_id,
-      int64_t concrete_id,
-      int64_t runtime_id,
-      int64_t group_id);
-
   const std::unique_ptr<CompiledKernel>& compiledKernel() const {
     return compiled_kernel_;
   }
@@ -241,34 +223,6 @@ class KernelExecutor : public ExecutorAbstract {
   KernelArgumentHolder resolveTMA(
       KernelExecutorEntry& entry,
       const KernelArgumentHolder& args) const;
-
-  //! Serialize CompiledKernel using flatbuffers
-  flatbuffers::Offset<serde::CudaKernel> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const executor_utils::CudaExecutable* kernel) const;
-
-  // KernelExecutorEntry is an internal POD struct for the KernelExecutor class.
-  // We define KernelExecutorEntry's serialize and deserialize as private
-  // methods in KernelExecutor.
-  flatbuffers::Offset<serde::KernelExecutorEntry> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const KernelExecutorEntry& data) const;
-
-  //! Deserialize KernelExecutorEntry using flatbuffers
-  KernelExecutorEntry deserialize(const serde::KernelExecutorEntry* buffer);
-
-  // GlobalBufferInfo is an internal POD struct for the KernelExecutor class.
-  // We define GlobalBufferInfo's serialize and deserialize as private methods
-  // in KernelExecutor.
-  flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const GlobalBufferInfo& data,
-      int64_t tv_position,
-      bool is_fusion_output,
-      bool is_fusion_input) const;
-
-  //! Deserialize GlobalBufferInfo using flatbuffers
-  GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();

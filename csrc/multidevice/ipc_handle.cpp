@@ -70,7 +70,7 @@ std::string IpcHandleCache::getTcpStoreKey(
     int64_t rank) const {
   const int64_t my_rank = Communicator::getInstance().deviceId();
   const int64_t peer =
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
+      expr_evaluator_->evaluate(communication->peer()).as<int64_t>();
   const int64_t src =
       communication->type() == P2PCommunicationType::SEND ? my_rank : peer;
   const int64_t dst =
@@ -88,7 +88,7 @@ void IpcHandleCache::exchangeHandles(
   std::vector<P2PCommunication*> non_cached_communications;
   for (auto communication : communications) {
     NVF_ERROR(
-        expr_evaluator_.evaluate(communication->peer()).as<int64_t>() !=
+        expr_evaluator_->evaluate(communication->peer()).as<int64_t>() !=
             my_rank,
         "send to self not supported");
     if (find(communication) != nullptr) {
@@ -103,7 +103,7 @@ void IpcHandleCache::exchangeHandles(
   auto store = communicator->getTcpStore();
   for (P2PCommunication* communication : non_cached_communications) {
     at::Tensor tensor =
-        expr_evaluator_.evaluate(communication->buffer()).as<at::Tensor>();
+        expr_evaluator_->evaluate(communication->buffer()).as<at::Tensor>();
     NVF_ERROR(
         tensor.is_contiguous(), "IpcHandle only supports contiguous tensors");
     auto buffer_handle = std::make_unique<IpcHandle>(tensor);
@@ -116,7 +116,7 @@ void IpcHandleCache::exchangeHandles(
   // Get memhandles from TCP store
   for (P2PCommunication* communication : non_cached_communications) {
     const int64_t peer =
-        expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
+        expr_evaluator_->evaluate(communication->peer()).as<int64_t>();
     std::string key = getTcpStoreKey(communication, peer);
     // TCP store get is blocking until a timeout
     // TODO: use multiGet
@@ -214,6 +214,124 @@ void* SymMemForBroadcast::semaphoreUnicastPtr(int64_t rank) const {
   return semaphore_sym_tensor_->remoteTensor(rank).data_ptr();
 }
 
+SymmetricMemoryForAllreduce::SymmetricMemoryForAllreduce(
+    Communication* communication,
+    at::Tensor output_buffer)
+    : size_bytes_(output_buffer.numel() * output_buffer.element_size()) {
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t world_size = communicator.size();
+
+  std::string name_suffix =
+      "for_Communication" + std::to_string(communication->name());
+  std::string store_key_prefix = "nvls_allreduce_" + name_suffix;
+
+  at::Tensor input_sym = SymmetricTensor::allocate(
+      output_buffer.sizes(),
+      output_buffer.scalar_type(),
+      output_buffer.device());
+  input_sym_tensor_ = std::make_unique<SymmetricTensor>(input_sym);
+  input_sym_tensor_->setupRemoteHandles(store_key_prefix + "_input_unicast");
+
+  MulticastProtocol protocol = getMulticastProtocol();
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    input_sym_tensor_->setupMulticast(
+        /*exporter_rank=*/0, store_key_prefix + "_input_mcast");
+  }
+
+  // Semaphore vector per device
+  at::Tensor semaphores = SymmetricTensor::allocate(
+      at::IntArrayRef({world_size}),
+      at::ScalarType::Int,
+      output_buffer.device());
+  std::vector<IpcSemaphore> init_values(world_size, IpcSemaphore::kIdle);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      semaphores.data_ptr(),
+      init_values.data(),
+      world_size * sizeof(IpcSemaphore),
+      cudaMemcpyHostToDevice));
+
+  semaphores_sym_tensor_ = std::make_unique<SymmetricTensor>(semaphores);
+  semaphores_sym_tensor_->setupRemoteHandles(
+      store_key_prefix + "_semaphores_unicast");
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    semaphores_sym_tensor_->setupMulticast(
+        /*exporter_rank=*/0, store_key_prefix + "_semaphores_mcast");
+  }
+}
+
+at::Tensor SymmetricMemoryForAllreduce::inputBuffer() const {
+  return input_sym_tensor_->localTensor();
+}
+
+void* SymmetricMemoryForAllreduce::multicastPtr() const {
+  return input_sym_tensor_->multicastPtr();
+}
+
+void* SymmetricMemoryForAllreduce::semaphoreUnicastPtr(
+    int64_t root_rank,
+    int64_t rank) const {
+  uint8_t* base_ptr =
+      (uint8_t*)semaphores_sym_tensor_->remoteTensor(rank).data_ptr();
+  return base_ptr + (root_rank * sizeof(IpcSemaphore));
+}
+
+SymmetricMemoryForReduce::SymmetricMemoryForReduce(
+    Communication* communication,
+    int64_t root,
+    at::Tensor output_buffer)
+    : size_bytes_(output_buffer.numel() * output_buffer.element_size()) {
+  std::string name_suffix =
+      "for_Communication" + std::to_string(communication->name());
+  std::string store_key_prefix = "nvls_reduce_" + name_suffix;
+
+  at::Tensor input_sym = SymmetricTensor::allocate(
+      output_buffer.sizes(),
+      output_buffer.scalar_type(),
+      output_buffer.device());
+  input_sym_tensor_ = std::make_unique<SymmetricTensor>(input_sym);
+  input_sym_tensor_->setupRemoteHandles(store_key_prefix + "_input_unicast");
+
+  MulticastProtocol protocol = getMulticastProtocol();
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    input_sym_tensor_->setupMulticast(root, store_key_prefix + "_input_mcast");
+  }
+
+  // Create semaphore tensor
+  at::Tensor semaphore = SymmetricTensor::allocate(
+      /*sizes=*/at::IntArrayRef({1}),
+      /*dtype=*/at::ScalarType::Int,
+      /*device=*/output_buffer.device());
+
+  // Initialize the semaphore to kIdle
+  IpcSemaphore init_value = IpcSemaphore::kIdle;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      semaphore.data_ptr(),
+      &init_value,
+      sizeof(IpcSemaphore),
+      cudaMemcpyHostToDevice));
+
+  // Create symmetric tensor for the semaphore
+  semaphore_sym_tensor_ = std::make_unique<SymmetricTensor>(semaphore);
+
+  // Setup (unicast) IPC handles for the semaphore
+  semaphore_sym_tensor_->setupRemoteHandles(store_key_prefix + "_semaphore");
+}
+
+at::Tensor SymmetricMemoryForReduce::inputBuffer() const {
+  return input_sym_tensor_->localTensor();
+}
+
+void* SymmetricMemoryForReduce::multicastPtr() const {
+  return input_sym_tensor_->multicastPtr();
+}
+
+void* SymmetricMemoryForReduce::semaphoreUnicastPtr(int64_t rank) const {
+  return semaphore_sym_tensor_->remoteTensor(rank).data_ptr();
+}
+
 SymMemForAllgather::SymMemForAllgather(
     Communication* communication,
     at::Tensor buffer) {
@@ -304,11 +422,16 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
     // SymmetricContiguousView
     handle = std::make_unique<SymMemForContiguousView>(key.buffer, contig_view);
   } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
-    // Communication (Broadcast/Allgather)
+    // Communication (Broadcast/Allgather/Allreduce/Reduce)
     if (comm->type() == CommunicationType::Broadcast) {
       handle = std::make_unique<SymMemForBroadcast>(comm, key.root, key.buffer);
     } else if (comm->type() == CommunicationType::Allgather) {
       handle = std::make_unique<SymMemForAllgather>(comm, key.buffer);
+    } else if (comm->type() == CommunicationType::Allreduce) {
+      handle = std::make_unique<SymmetricMemoryForAllreduce>(comm, key.buffer);
+    } else if (comm->type() == CommunicationType::Reduce) {
+      handle = std::make_unique<SymmetricMemoryForReduce>(
+          comm, key.root, key.buffer);
     } else {
       NVF_ERROR(
           false,
@@ -333,6 +456,183 @@ SymMemForContiguousView::SymMemForContiguousView(
   sym_tensor_->setupContiguousView(tag);
 
   tensor_ = sym_tensor_->getContiguousView();
+}
+
+SymMemForAlltoallv::SymMemForAlltoallv(
+    at::Device device,
+    const std::string& tag)
+    : tag_(tag) {
+  Communicator& comm = Communicator::getInstance();
+  world_size_ = comm.size();
+  my_rank_ = comm.deviceId();
+
+  // Counts buffer: [W] int64 — one send_count per peer.
+  sync_buf_ = SymmetricTensor::allocate({world_size_}, at::kLong, device);
+  sync_buf_.zero_();
+  sync_sym_ = std::make_unique<SymmetricTensor>(sync_buf_);
+  sync_sym_->setupRemoteHandles(tag + "_sync");
+  sync_ptrs_.resize(world_size_);
+  for (int64_t r = 0; r < world_size_; r++) {
+    sync_ptrs_[r] =
+        reinterpret_cast<CUdeviceptr>(sync_sym_->remoteTensor(r).data_ptr());
+  }
+
+  // Semaphore buffer: [2*W] int32 — counts_sem + done_sem, one
+  // slot per (owner, peer) pair, matching the 32-bit stream ops.
+  sem_buf_ = SymmetricTensor::allocate({2 * world_size_}, at::kInt, device);
+  sem_buf_.zero_();
+  sem_sym_ = std::make_unique<SymmetricTensor>(sem_buf_);
+  sem_sym_->setupRemoteHandles(tag + "_sem");
+  sem_ptrs_.resize(world_size_);
+  for (int64_t r = 0; r < world_size_; r++) {
+    sem_ptrs_[r] =
+        reinterpret_cast<CUdeviceptr>(sem_sym_->remoteTensor(r).data_ptr());
+  }
+}
+
+const SymMemForAlltoallv::RecvHandle& SymMemForAlltoallv::recv(
+    const std::string& name,
+    int64_t first_dim,
+    at::IntArrayRef extra_sizes,
+    at::ScalarType dtype,
+    at::Device device) {
+  auto& entry = recv_entries_[name];
+  if (entry.sym && entry.cached_first_dim >= first_dim) {
+    return entry.handle;
+  }
+
+  // Re-allocating after the first setup would invalidate any CUDA
+  // graph that captured the old buffer pointer. This is expected to
+  // happen only on the very first call (rendezvous); subsequent
+  // calls must hit the cache.
+  NVF_CHECK(
+      !entry.sym,
+      "SymMemForAlltoallv::recv: buffer '",
+      name,
+      "' capacity ",
+      entry.cached_first_dim,
+      " < requested ",
+      first_dim,
+      ". Re-allocation after initial setup is not supported "
+      "(would invalidate captured CUDA graphs).");
+
+  std::vector<int64_t> sizes = {first_dim};
+  for (auto d : extra_sizes) {
+    sizes.push_back(d);
+  }
+
+  auto buf = SymmetricTensor::allocate(sizes, dtype, device);
+  entry.sym = std::make_unique<SymmetricTensor>(buf);
+  entry.sym->setupRemoteHandles(tag_ + "_" + name);
+  entry.handle.buffer = buf;
+  entry.handle.remote_ptrs = entry.sym->remotePointersTensor();
+  entry.cached_first_dim = first_dim;
+  return entry.handle;
+}
+
+void SymMemForAlltoallv::batchSignal(
+    CUstream stream,
+    cuuint32_t value,
+    CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const) {
+  if (world_size_ <= 1) {
+    return;
+  }
+  std::vector<CUstreamBatchMemOpParams> ops(world_size_ - 1);
+  int idx = 0;
+  for (int64_t r = 0; r < world_size_; r++) {
+    if (r == my_rank_) {
+      continue;
+    }
+    ops[idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    ops[idx].writeValue.address = (this->*addr)(r, my_rank_);
+    ops[idx].writeValue.value = value;
+    ops[idx].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+    idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size_ - 1, ops.data(), 0));
+}
+
+void SymMemForAlltoallv::batchWait(
+    CUstream stream,
+    cuuint32_t value,
+    CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const) {
+  if (world_size_ <= 1) {
+    return;
+  }
+  std::vector<CUstreamBatchMemOpParams> ops(world_size_ - 1);
+  int idx = 0;
+  for (int64_t r = 0; r < world_size_; r++) {
+    if (r == my_rank_) {
+      continue;
+    }
+    ops[idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+    ops[idx].waitValue.address = (this->*addr)(my_rank_, r);
+    ops[idx].waitValue.value = value;
+    ops[idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+    idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size_ - 1, ops.data(), 0));
+}
+
+void SymMemForAlltoallv::batchReset(
+    CUstream stream,
+    cuuint32_t value,
+    CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const) {
+  if (world_size_ <= 1) {
+    return;
+  }
+  std::vector<CUstreamBatchMemOpParams> ops(world_size_ - 1);
+  int idx = 0;
+  for (int64_t r = 0; r < world_size_; r++) {
+    if (r == my_rank_) {
+      continue;
+    }
+    ops[idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    ops[idx].writeValue.address = (this->*addr)(my_rank_, r);
+    ops[idx].writeValue.value = value;
+    ops[idx].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+    idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size_ - 1, ops.data(), 0));
+}
+
+void SymMemForAlltoallv::signalCountsReady(CUstream stream) {
+  batchSignal(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      &SymMemForAlltoallv::countsSemAddr);
+}
+
+void SymMemForAlltoallv::waitCountsReady(CUstream stream) {
+  batchWait(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      &SymMemForAlltoallv::countsSemAddr);
+}
+
+void SymMemForAlltoallv::resetCountsSem(CUstream stream) {
+  batchReset(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kIdle),
+      &SymMemForAlltoallv::countsSemAddr);
+}
+
+void SymMemForAlltoallv::doneBarrier(CUstream stream) {
+  batchSignal(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      &SymMemForAlltoallv::doneSemAddr);
+  batchWait(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      &SymMemForAlltoallv::doneSemAddr);
+  batchReset(
+      stream,
+      static_cast<cuuint32_t>(IpcSemaphore::kIdle),
+      &SymMemForAlltoallv::doneSemAddr);
 }
 
 } // namespace nvfuser

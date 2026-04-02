@@ -6,27 +6,29 @@
  */
 // clang-format on
 
-#include <runtime/allocations.h>
+#include "runtime/allocations.h"
 
-#include <expr_evaluator.h>
-#include <instrumentation.h>
-#include <ir/iostream.h>
-#include <multidevice/execution_utils.h>
-#include <multidevice/utils.h>
-#include <polymorphic_value.h>
-#include <runtime/executor.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/executor_utils.h>
-#include <tensor_metadata.h>
+#include <ranges>
+
+#include "expr_evaluator.h"
+#include "instrumentation.h"
+#include "ir/internal_nodes.h"
+#include "multidevice/execution_utils.h"
+#include "multidevice/utils.h"
+#include "polymorphic_value.h"
+#include "runtime/executor.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/executor_utils.h"
+#include "tensor_metadata.h"
 
 namespace nvfuser {
 
-KernelArgumentHolder inferOutputShapeAndContiguousStrides(
+KernelArgumentHolder inferContiguousOutputMetaTensor(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values) {
   FUSER_PERF_SCOPE(
-      "fusion_executor::allocations::inferOutputShapeAndContiguousStrides");
+      "fusion_executor::allocations::inferContiguousOutputMetaTensor");
   ExpressionEvaluator expr_eval;
 
   std::unique_ptr<PrecomputedValues> evaluator_precomputed_values_up = nullptr;
@@ -111,22 +113,22 @@ int64_t computeSharedMemory(
         debug() << "buffer: " << smem_alloc->buffer()->toString()
                 << ", first_byte: " << first_byte
                 << ", last_byte: " << last_byte << ", size: " << size_bytes
-                << std::endl;
+                << '\n';
       }
     }
   }
   if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
-    int64_t available_shared_memory_bytes = deviceAvailableSharedMemoryBytes();
-    debug() << "total requested shared memory bytes: " << total << std::endl;
+    auto available_shared_memory_bytes = deviceAvailableSharedMemoryBytes();
+    debug() << "total requested shared memory bytes: " << total << '\n';
     debug() << "available shared memory bytes: "
-            << available_shared_memory_bytes << std::endl;
+            << available_shared_memory_bytes << '\n';
     if (total > 0) {
       debug() << "shared memory limited blocks per SM: "
-              << available_shared_memory_bytes / total << std::endl;
+              << available_shared_memory_bytes / total << '\n';
     } else {
       debug() << "shared memory limited blocks per SM: unlimited (no shared "
                  "memory requested)"
-              << std::endl;
+              << '\n';
     }
   }
   return total;
@@ -395,7 +397,7 @@ bool areDimsToBeMergedContiguous(
       std::count(new_shape.begin(), new_shape.end(), -1) <= 1,
       "new_shape can contain at most one -1");
 
-  auto it = std::find(new_shape.begin(), new_shape.end(), -1);
+  auto it = std::ranges::find(new_shape, -1);
   if (it == new_shape.end()) {
     return true;
   }
@@ -484,8 +486,10 @@ getShapeAndStrideAfterDimMerged(
 
 class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  const ExpressionEvaluator& ee_;
-  std::list<IterDomain*>& frontier_;
+  const ExpressionEvaluator&
+      ee_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  std::list<IterDomain*>&
+      frontier_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 
   // Forward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 15, ...] as [..., 3, 5, ...]
@@ -494,7 +498,7 @@ class ForwardTraverseFromAllocToLogical {
     auto inner = split->inner();
     auto outer = split->outer();
     auto factor = ee_.evaluate(split->factor()).as<int64_t>();
-    auto in_it = std::find(frontier_.begin(), frontier_.end(), in);
+    auto in_it = std::ranges::find(frontier_, in);
     // NVF_ERROR(in_it != frontier_.end());
     if (in_it == frontier_.end()) {
       // TODO: We should get rid of this return and enable the above assert.
@@ -537,8 +541,8 @@ class ForwardTraverseFromAllocToLogical {
     auto inner = merge->inner();
     auto outer = merge->outer();
     auto out = merge->out();
-    auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
-    auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
+    auto inner_it = std::ranges::find(frontier_, inner);
+    auto outer_it = std::ranges::find(frontier_, outer);
     // NVF_ERROR(inner_it != frontier_.end());
     // NVF_ERROR(outer_it != frontier_.end());
     if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
@@ -596,11 +600,23 @@ class ForwardTraverseFromAllocToLogical {
     }
   }
 
+  void handle(Swizzle1D* swizzle1d) {
+    auto in = swizzle1d->in();
+    auto out = swizzle1d->out();
+    auto in_it = std::ranges::find(frontier_, in);
+    if (in_it == frontier_.end()) {
+      return;
+    }
+    *in_it = out;
+  }
+
   void handle(Expr* expr) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       handle(split);
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
+    } else if (auto swizzle1d = dynamic_cast<Swizzle1D*>(expr)) {
+      handle(swizzle1d);
     } else {
       NVF_THROW("Unsupported transormation in allocation domain");
     }
@@ -629,8 +645,10 @@ class ForwardTraverseFromAllocToLogical {
 // transformations.
 class BackwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  const ExpressionEvaluator& ee_;
-  std::list<IterDomain*>& frontier_;
+  const ExpressionEvaluator&
+      ee_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  std::list<IterDomain*>&
+      frontier_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 
   // Backward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
@@ -638,8 +656,8 @@ class BackwardTraverseFromAllocToLogical {
     auto inner = split->inner();
     auto outer = split->outer();
     auto in = split->in();
-    auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
-    auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
+    auto inner_it = std::ranges::find(frontier_, inner);
+    auto outer_it = std::ranges::find(frontier_, outer);
     // NVF_ERROR(inner_it != frontier_.end());
     // NVF_ERROR(outer_it != frontier_.end());
     if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
@@ -705,7 +723,7 @@ class BackwardTraverseFromAllocToLogical {
     auto inner = merge->inner();
     auto outer = merge->outer();
     auto factor = ee_.evaluate(inner->extent()).as<int64_t>();
-    auto out_it = std::find(frontier_.begin(), frontier_.end(), out);
+    auto out_it = std::ranges::find(frontier_, out);
     // NVF_ERROR(out_it != frontier_.end());
     if (out_it == frontier_.end()) {
       // TODO: see [Allocation domain on both side of logical]
@@ -729,11 +747,23 @@ class BackwardTraverseFromAllocToLogical {
     frontier_.erase(out_it);
   }
 
+  void handle(Swizzle1D* swizzle1d) {
+    auto out = swizzle1d->out();
+    auto in = swizzle1d->in();
+    auto out_it = std::ranges::find(frontier_, out);
+    if (out_it == frontier_.end()) {
+      return;
+    }
+    *out_it = in;
+  }
+
   void handle(Expr* expr) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       handle(split);
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
+    } else if (auto swizzle1d = dynamic_cast<Swizzle1D*>(expr)) {
+      handle(swizzle1d);
     } else {
       NVF_THROW("Unsupported transormation in allocation domain");
     }
@@ -751,7 +781,7 @@ class BackwardTraverseFromAllocToLogical {
       const std::vector<IterDomain*>& alloc) {
     auto backward_exprs = StmtSort::getExprsBetween(
         {logical.begin(), logical.end()}, {alloc.begin(), alloc.end()});
-    std::reverse(backward_exprs.begin(), backward_exprs.end());
+    std::ranges::reverse(backward_exprs);
     for (auto expr : backward_exprs) {
       handle(expr);
     }
@@ -922,21 +952,23 @@ TensorShapeInfo inferTensorShapes(
 
     if (!tv->hasAllocation()) {
       return TensorShapeInfo{
-          tensor.sizes().vec(),
-          tensor.strides().vec(),
-          isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
-                        : std::vector<int64_t>(),
+          .logical_sizes = tensor.sizes().vec(),
+          .logical_strides = tensor.strides().vec(),
+          .unsharded_logical_sizes = isSharded(tv)
+              ? unshardedSizes(tv, tensor.sizes().vec())
+              : std::vector<int64_t>(),
       };
     }
     auto allocation_size_stride =
         inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
     return TensorShapeInfo{
-        tensor.sizes().vec(),
-        tensor.strides().vec(),
-        isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
-                      : std::vector<int64_t>(),
-        allocation_size_stride.first,
-        allocation_size_stride.second};
+        .logical_sizes = tensor.sizes().vec(),
+        .logical_strides = tensor.strides().vec(),
+        .unsharded_logical_sizes = isSharded(tv)
+            ? unshardedSizes(tv, tensor.sizes().vec())
+            : std::vector<int64_t>(),
+        .allocation_sizes = allocation_size_stride.first,
+        .allocation_strides = allocation_size_stride.second};
   }
 
   // Non-alias handling:
@@ -944,10 +976,11 @@ TensorShapeInfo inferTensorShapes(
       inferAllocationShapeAndContiguousStride(tv, expr_eval);
   if (!tv->hasAllocation()) {
     return TensorShapeInfo{
-        allocation_size_stride.first,
-        allocation_size_stride.second,
-        isSharded(tv) ? unshardedSizes(tv, allocation_size_stride.first)
-                      : std::vector<int64_t>(),
+        .logical_sizes = allocation_size_stride.first,
+        .logical_strides = allocation_size_stride.second,
+        .unsharded_logical_sizes = isSharded(tv)
+            ? unshardedSizes(tv, allocation_size_stride.first)
+            : std::vector<int64_t>(),
     };
   }
 
@@ -961,12 +994,13 @@ TensorShapeInfo inferTensorShapes(
   logical_meta_tensor =
       transformFromAllocationToLogical(logical_meta_tensor, tv, expr_eval);
   return TensorShapeInfo{
-      logical_meta_tensor.sizes().vec(),
-      logical_meta_tensor.strides().vec(),
-      isSharded(tv) ? unshardedSizes(tv, logical_meta_tensor.sizes().vec())
-                    : std::vector<int64_t>(),
-      allocation_size_stride.first,
-      allocation_size_stride.second};
+      .logical_sizes = logical_meta_tensor.sizes().vec(),
+      .logical_strides = logical_meta_tensor.strides().vec(),
+      .unsharded_logical_sizes = isSharded(tv)
+          ? unshardedSizes(tv, logical_meta_tensor.sizes().vec())
+          : std::vector<int64_t>(),
+      .allocation_sizes = allocation_size_stride.first,
+      .allocation_strides = allocation_size_stride.second};
 }
 
 } // namespace nvfuser

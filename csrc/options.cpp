@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 
@@ -40,7 +40,7 @@ auto parseEnvOptions(
             available_options.end(),
             std::back_inserter(option_values),
             [](const auto& kv) { return kv.first; });
-        std::sort(option_values.begin(), option_values.end());
+        std::ranges::sort(option_values);
         NVF_CHECK(
             false,
             "Parsing ",
@@ -139,8 +139,6 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"ptx", DebugDumpOption::Ptx},
       {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
       {"python_definition", DebugDumpOption::PythonDefinition},
-      {"python_definition_segments", DebugDumpOption::PythonDefinitionSegments},
-      {"python_frontend_debug", DebugDumpOption::PythonFrontendDebug},
       {"sass", DebugDumpOption::Sass},
       {"sass_to_file", DebugDumpOption::SassToFile},
       {"segmented_fusion", DebugDumpOption::FusionSegments},
@@ -162,7 +160,6 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"cutlass_scheduler", EnableOption::CutlassScheduler},
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
-          {"id_model", EnableOption::IdModel},
           {"id_model_extra_validation", EnableOption::IdModelExtraValidation},
           {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
           {"kernel_db", EnableOption::KernelDb},
@@ -183,8 +180,8 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"insert_resharding_after", EnableOption::InsertReshardingAfter},
           {"fast_math", EnableOption::FastMath},
           {"p2p_protocol", EnableOption::P2pProtocol},
+          {"p2p_transport", EnableOption::P2pTransport},
           {"multicast_protocol", EnableOption::MulticastProtocol},
-          {"parallel_serde", EnableOption::ParallelSerde},
       };
   return available_options;
 }
@@ -231,7 +228,8 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"resize_scheduler", DisableOption::ResizeScheduler},
           {"reuse_mismatched_type_registers",
            DisableOption::ReuseMismatchedTypeRegisters},
-          {"multidevice", DisableOption::Multidevice}};
+          {"multidevice", DisableOption::Multidevice},
+          {"infer_contiguity", DisableOption::InferContiguity}};
   return available_options;
 }
 

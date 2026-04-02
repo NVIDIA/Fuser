@@ -7,20 +7,19 @@
 // clang-format on
 #pragma once
 
-#include <compute_at_map.h>
-#include <device_lower/analysis/divisible_split.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <scheduler/tools/maxinfo_propagator.h>
-#include <visibility.h>
-// TODO: Move to cpp file.
-#include <ir/builder.h>
-
 #include <sstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#include "compute_at_map.h"
+#include "device_lower/analysis/divisible_split.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "scheduler/tools/maxinfo_propagator.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -233,22 +232,7 @@ class NVF_API ContiguousInnerDimensionsMapper
   };
 
   // TODO: make pe a lanmda function so it is not evaluated if not needed
-  void addProjectedExtent(IterDomain* id, Val* pe) {
-    if (!recording_) {
-      return;
-    }
-
-    NVF_ERROR(
-        projected_extent_.count(id) == 0,
-        "Already registered: ",
-        id->toString(),
-        ", existing: ",
-        projected_extent_.at(id)->toInlineString(),
-        ", new: ",
-        pe->toInlineString());
-
-    projected_extent_[id] = pe;
-  }
+  void addProjectedExtent(IterDomain* id, Val* pe);
 
   // Return a boolean predicate indicating if the given ID is fully projected.
   Val* isFullyProjected(IterDomain* id);
@@ -279,10 +263,17 @@ class NVF_API ContiguousInnerDimensionsMapper
       TensorView* to,
       std::shared_ptr<Information> from_info) final;
 
-  // Projection from root<->logical domains
+  // Projects domain `from` to domain `to`, returns the projected IDs, and saves
+  // project extents to `projected_extent_`. One of `from` and `to` is the
+  // logical domain and the other is the root domain.
+  //
+  // In addition to root<>logical projection, this function projects domain
+  // `from` down to domain `leaf`. This is for vectorization analysis to know
+  // the projected extents of allocation IDs.
   std::vector<IterDomain*> projectId(
       const std::vector<IterDomain*>& from,
-      const std::vector<IterDomain*>& to);
+      const std::vector<IterDomain*>& to,
+      const std::vector<IterDomain*>& leaf);
 
   // Propagator functions
   void propagateC2P(TensorView* from, TensorView* to) final;

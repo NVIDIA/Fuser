@@ -12,10 +12,9 @@
 #include <fusion.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 #include <deque>
 #include <list>

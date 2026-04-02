@@ -7,11 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/executor_params.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/scheduler_types.h>
+#include "fusion.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/executor_params.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/scheduler_types.h"
 
 namespace nvfuser {
 

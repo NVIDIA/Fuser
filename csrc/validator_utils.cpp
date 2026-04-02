@@ -17,7 +17,6 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <runtime/executor_utils.h>
 
@@ -326,7 +325,7 @@ std::vector<std::pair<double, double>> getValTolerances(
     int64_t reduction_size = reduction_sizes.at(fusion_output_tv);
 
     auto tolerance_value = getTolerance(
-        fusion_output_tv->getDataType().value(), reduction_size, tolerances);
+        fusion_output_tv->getDataType(), reduction_size, tolerances);
     tolerance_values.push_back(tolerance_value);
   }
   return tolerance_values;
@@ -421,7 +420,7 @@ void testValidate(
         fusion_output_tensor.sizes());
 
     auto tolerance_values =
-        getTolerance(out_tv->getDataType().value(), reduction_size, tolerances);
+        getTolerance(out_tv->getDataType(), reduction_size, tolerances);
 
     if (aten_output_tensor.is_floating_point() ||
         aten_output_tensor.is_complex()) {

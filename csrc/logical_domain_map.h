@@ -11,8 +11,8 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <iter_visitor.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 namespace nvfuser {
 
@@ -547,6 +547,10 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
   }
 
   void handle(BlockQuantizationOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
+  void handle(GroupedBlockQuantizationOp* op) override {
     mapPointwiseLikeOp(op);
   }
 

@@ -5,20 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <instrumentation.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/normalization_inner.h>
-#include <scheduler/normalization_inner_non_tma.h>
-#include <scheduler/normalization_inner_tma.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
+#include "scheduler/normalization_inner.h"
+
+#include <memory>
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <memory>
+#include "instrumentation.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/normalization_inner_non_tma.h"
+#include "scheduler/normalization_inner_tma.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 using PersistentKernelProperties =
@@ -29,6 +30,11 @@ namespace {
 bool mayUseTma(Fusion* fusion, const PersistentKernelProperties& prop) {
   // Hardware requirement: TMA is only available on Hopper (SM 9.0) and later
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return false;
+  }
+
+  // TMA requires compile-time known contiguous innermost dimension on inputs
+  if (!scheduler_utils::inputsHaveContiguousInnerDim(fusion)) {
     return false;
   }
 

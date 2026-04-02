@@ -9,8 +9,8 @@
 
 #include <unordered_map>
 
-#include <fusion.h>
-#include <optimization_pass.h>
+#include "fusion.h"
+#include "optimization_pass.h"
 
 namespace nvfuser::preseg_passes {
 

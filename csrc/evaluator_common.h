@@ -11,8 +11,8 @@
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_params.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 #include <c10/core/DeviceType.h>
 

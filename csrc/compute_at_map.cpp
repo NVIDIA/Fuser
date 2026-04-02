@@ -72,17 +72,7 @@ IterDomainGraph::IterDomainGraph(Fusion* fusion, bool allow_self_mapping) {
 //!   few build out steps.
 void mapMaybeSwizzleOp(
     DisjointSets<IterDomain*>& disjoint_sets,
-    IterDomain* id) {
-  if (auto swizzle_2d = dynamic_cast<Swizzle2D*>(id->definition())) {
-    // Map each input to its corresponding output on the given
-    // disjoint set if this is a loop swizzle. Loop swizzles don't impact
-    // indexing, only iteration order.
-    if (swizzle_2d->swizzleMode() == SwizzleMode::Loop) {
-      disjoint_sets.mapEntries(swizzle_2d->inX(), swizzle_2d->outX());
-      disjoint_sets.mapEntries(swizzle_2d->inY(), swizzle_2d->outY());
-    }
-  }
-}
+    IterDomain* id) {}
 
 bool IterDomainGraph::exprsMap(
     Expr* first,
@@ -446,12 +436,9 @@ void IterDomainGraph::build(Fusion* fusion) {
         // Look for matching ID transformations in producer and consumer, replay
         // producer as consumer. We use the symmetric API of BestEffortReplay so
         // that both broadcast and squeeze are handled correctly.
-        //
-        // Note on the boolean flags: swizzles are skipped in both
-        // producer and consumer but resizes are not.
         const auto permissive_disjoint_sets =
             BestEffortReplay::replayPasC(
-                p_tv, c_tv, -1, pairwise_map, true, true, false)
+                p_tv, c_tv, -1, pairwise_map, /*skip_resize=*/false)
                 .getIterDomainEquivalence();
 
         // Permissive-Resize map allows mappings of resize inputs and
@@ -460,14 +447,11 @@ void IterDomainGraph::build(Fusion* fusion) {
         //
         // TODO: clean this up. Maybe this can be just the PERMISSIVE
         // map? Revisit after the ID map refactor.
-        //
-        // Note on the boolean flags: swizzles and resizes are skipped
-        // in the permissive-resize map
         const auto pairwise_resize_map =
             PairwiseLogicalDomainMap(p_tv, c_tv).mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
-                p_tv, c_tv, -1, pairwise_resize_map, true, true, true)
+                p_tv, c_tv, -1, pairwise_resize_map, /*skip_resize=*/true)
                 .getIterDomainEquivalence();
 
         // For exact mapings do not map any broadcast dimensions to
@@ -1362,15 +1346,6 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     return false;
   }
 
-  if (expr_1->isA<Swizzle2D>()) {
-    auto swizzle_1 = expr_1->as<Swizzle2D>();
-    auto swizzle_2 = expr_2->as<Swizzle2D>();
-    if (swizzle_1->swizzleType() != swizzle_2->swizzleType() ||
-        swizzle_1->swizzleMode() != swizzle_2->swizzleMode()) {
-      return false;
-    }
-  }
-
   if (expr_1->isA<Swizzle>()) {
     auto swizzle_1 = expr_1->as<Swizzle>();
     auto swizzle_2 = expr_2->as<Swizzle>();
@@ -1435,18 +1410,8 @@ void ComputeAtMap::buildUniqueExactExprMaps() {
           // Definition to this exact map, shouldn't be marked as a definition
           // to traverse on the exact map.
 
-          // This is a WAR for FusionSimpleSwizzle2_CUDA wher there is a pattern
-          // like:
-          //
-          // tv0[32, 32]
-          // tv0->swizzle(Swizzle2DType::ZShape, 0, 1);
-          //
-          // each root domain is exact mapped with the outputs of the swizzle.
-          // So the pre and post swizzle ID is in an exact set, but that exact
-          // set also has the swizzle as a definition that leads to itself.
-          //
-          // TODO: Try to formalize this better in the exact ID traversal. Right
-          // now its just interfering with concrete ID detection.
+          // This was originally a WAR for Swizzle2D. Unclear if this
+          // branch is still necessary. See PR #5899 for the legacy code.
           continue;
         }
         bool match = false;

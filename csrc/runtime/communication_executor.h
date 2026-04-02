@@ -7,11 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <multidevice/communicator.h>
-#include <runtime/executor_abstract.h>
-#include <runtime/executor_kernel_arg.h>
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "multidevice/communicator.h"
+#include "runtime/executor_abstract.h"
+#include "runtime/executor_kernel_arg.h"
 
 namespace nvfuser {
 

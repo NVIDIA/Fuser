@@ -7,21 +7,15 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "ops/all_ops.h"
 #include "runtime/fusion_executor_cache.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class SelectTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-    NVFuserTest::SetUp();
-  }
-};
+using SelectTest = NVFuserTest;
 
 TEST_F(SelectTest, Pointwise) {
   auto fusion_ptr = std::make_unique<Fusion>();

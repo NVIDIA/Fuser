@@ -5,16 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/graphviz.h>
-
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <type.h>
+#include "ir/graphviz.h"
 
 #include <fstream>
 #include <sstream>
+
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "type.h"
 
 namespace nvfuser {
 

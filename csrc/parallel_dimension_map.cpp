@@ -152,7 +152,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
-int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
+int64_t ParallelDimensionMap::getStaticComputeThreadsInDim(ParallelType pt) {
   if (!dim_map_.contains(pt)) {
     return 1;
   }
@@ -163,12 +163,12 @@ int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
   // use the actual compile parameter value
   NVF_ERROR(GpuLower::hasCurrent());
   const auto& cparams = GpuLower::current()->compileParams();
-  if (pt == ParallelType::TIDx && cparams.bdimx.has_value()) {
-    return cparams.bdimx.value();
-  } else if (pt == ParallelType::TIDy && cparams.bdimy.has_value()) {
-    return cparams.bdimy.value();
-  } else if (pt == ParallelType::TIDz && cparams.bdimz.has_value()) {
-    return cparams.bdimz.value();
+  if (pt == ParallelType::TIDx && cparams.compute_bdimx.has_value()) {
+    return cparams.compute_bdimx.value();
+  } else if (pt == ParallelType::TIDy && cparams.compute_bdimy.has_value()) {
+    return cparams.compute_bdimy.value();
+  } else if (pt == ParallelType::TIDz && cparams.compute_bdimz.has_value()) {
+    return cparams.compute_bdimz.value();
   }
   // Return -1 for dynamic dimensions when compile-time CTA shape is not known,
   // this disables register sharing on dynamic dimensions since we can't
@@ -192,13 +192,26 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
     if (pt == ws_pt) {
       continue;
     }
-    int64_t thread_count_for_pt = getThreadCountInDim(pt);
+    int64_t thread_count_for_pt = getStaticComputeThreadsInDim(pt);
     NVF_ERROR(
         thread_count_for_pt != -1,
         "Detected dynamic size for parallel type ",
         pt,
         " in warp specialization kernel.");
     other_active_pts_threads *= thread_count_for_pt;
+
+    // If bdimx, bdimy, or bdimz is used
+    // If it is const scalar, check if it is equal to thread_count_for_pt
+    // If it is not const scalar, update the dimension to thread_count_for_pt
+    if (dim_map_.contains(pt)) {
+      if (dim_map_.at(pt)->isConstScalar()) {
+        NVF_ERROR(
+            dim_map_.at(pt)->evaluate().as<int64_t>() == thread_count_for_pt);
+      } else {
+        dim_map_[pt] =
+            IrBuilder::create<Val>(thread_count_for_pt, DataType::Index);
+      }
+    }
   }
   NVF_ERROR(
       other_active_pts_threads <= 128,
@@ -208,7 +221,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
       "The # active threads in other thread dimensions is not evenly ",
       "divisible with 128 threads.");
   int64_t ws_num_threads_pad = 128 / other_active_pts_threads;
-  int64_t after_pad = getThreadCountInDim(ws_pt) + ws_num_threads_pad;
+  int64_t after_pad = getStaticComputeThreadsInDim(ws_pt) + ws_num_threads_pad;
   NVF_ERROR(
       (after_pad * other_active_pts_threads) % 128 == 0,
       "Illegal register sharing on ",

@@ -9,13 +9,16 @@
 
 #include <algorithm>
 #include <ostream>
+#include <ranges>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "compute_at_map.h"
+#include "ir/builder.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
+#include "ops/arith.h"
 #include "transform_replay.h"
 #include "type.h"
 
@@ -178,6 +181,8 @@ int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
       id = merge->outer();
+    } else if (auto* swizzle = dynamic_cast<Swizzle1D*>(def)) {
+      id = swizzle->in();
     } else {
       NVF_THROW(
           "Unexpected transforms from logical to a DID-parallel allocation "
@@ -216,21 +221,6 @@ IterDomain* getShardedIterDomain(
     }
   }
   return nullptr;
-}
-
-std::unordered_set<IterDomain*> getInputsInTargetDomain(
-    const std::vector<IterDomain*>& loop_id,
-    const std::vector<IterDomain*>& target_domain) {
-  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-      {loop_id.begin(), loop_id.end()},
-      {target_domain.begin(), target_domain.end()});
-
-  std::unordered_set<IterDomain*> inputs_as_iter_domains;
-  inputs_as_iter_domains.reserve(inputs_as_vals.size());
-  for (auto val : inputs_as_vals) {
-    inputs_as_iter_domains.insert(val->as<IterDomain>());
-  }
-  return inputs_as_iter_domains;
 }
 
 namespace {
@@ -272,7 +262,7 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(
     }
   }
 
-  std::stable_sort(rank_to_axis.begin(), rank_to_axis.end());
+  std::ranges::stable_sort(rank_to_axis);
 
   // old position to new position
   std::unordered_map<int64_t, int64_t> order;
@@ -351,6 +341,29 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   }
 
   return rfactor_did_idx;
+}
+
+int64_t getRelativeIndex(const Team& team, DeviceIdxType rank) {
+  auto i = std::ranges::find(team, rank);
+  NVF_ERROR(i != team.end(), "Unable to find rank ", rank, " in team ", team);
+  return std::distance(team.begin(), i);
+}
+
+std::pair<Val*, Val*> dispatchSwizzle1D(
+    Val* host_loop_index,
+    DeviceIdxType device_id,
+    ParallelType pt,
+    const DeviceMesh& mesh) {
+  int64_t team_size = mesh.size(pt);
+  at::Tensor md_index = mesh.multiDimensionalIndexOf(device_id);
+  auto pt_axis = mesh.parallelTypeToAxis(pt);
+  int64_t team_index = md_index[pt_axis].item<int64_t>();
+  Val* team_size_val = IrBuilder::create<Val>(team_size, DataType::Index);
+  Val* team_index_val = IrBuilder::create<Val>(team_index, DataType::Index);
+  return std::make_pair(
+      mod(add(host_loop_index, team_index_val), team_size_val),
+      mod(add(team_size_val, sub(team_index_val, host_loop_index)),
+          team_size_val));
 }
 
 } // namespace nvfuser

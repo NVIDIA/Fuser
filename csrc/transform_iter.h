@@ -117,7 +117,8 @@ class ReplayTransformations : public IterVisitor {
   // We're going to replay this swizzle operation on the corresponding IDs
   //  if replaying swizzle is enabled.
   void handle(Swizzle* m) override;
-  void handle(Swizzle2D* m) override;
+
+  void handle(Swizzle1D* swizzle1d) override;
 
   void handle(Resize* resize) override;
 
@@ -340,48 +341,6 @@ class BestEffortReplay {
   // deterministic.
   size_t counter = 0;
 
-  // Determine if current replay will ignore swizzle ops.
-  // When not skipping swizzles, swizzle ops will have to be matched
-  //  same way as split and merge to progress forward on the mapping.
-  //
-  // When skipping swizzles, mismatched swizzle ops will not stop matching
-  //  further down the tensor domains but only the swizzle outputs will be on
-  //  the target to replay map, since we only generate one-to-one maps in
-  //  BestEffortReplay and the swizzle outputs is just picked as a convention
-  //  for simpler and uniform mapping behavior. The swizzle op inputs will be
-  //  added by the disjoint set passes when building the iterdomain graph.
-  //
-  // Example:
-  //   Target:
-  //     I0o, I0i   = split I0
-  //     Ix0o, Ix0i = swizzle I0o, I0i
-  //     I02        = merge Ix0o, Ix0i
-  //   Replay:
-  //     I1o, I1i = split I1
-  //     I12      = merge I1o, I1i
-  //
-  //   BestEffortReplay **no** skip swizzle gives:
-  //  {
-  //   I0->I1,
-  //   I0o->I1o,
-  //   I0i->I1i,
-  //  }
-  //
-  //   BestEffortReplay skip swizzle gives:
-  //  {
-  //    I0->I1,
-  //    Ix0o->I1o,
-  //    Ix0i->I1i,
-  //    I02->I12
-  //  }
-  //
-  // TODO: Reevaluate swizzle and transform replays. We have some concepts on
-  // iter domain mapping we should formalize. It would be good to have these
-  // options accessible while specified in a consistent manner.
-  // https://github.com/ftxj/pytorch/pull/1#pullrequestreview-1210168522
-  bool skip_replay_swizzle_ = true;
-  bool skip_target_swizzle_ = true;
-
   bool error_on_failure_ = true;
 
   bool inReplayForwardMap(IterDomain* id) const {
@@ -416,15 +375,6 @@ class BestEffortReplay {
       const std::unordered_map<IterDomain*, std::vector<IterDomain*>>&
           compliment_map);
 
-  // Skip swizzle step to make sure both target and
-  //  replay swizzles are skipped while the mapping
-  //  makes progress. This makes sure that, for example
-  //  different tensors can still be inlined despite
-  //  different local swizzle patterns.
-  void skipSwizzles(
-      const std::unordered_map<IterDomain*, Expr*>& target_id2expr,
-      const std::unordered_map<IterDomain*, Expr*>& replay_id2expr);
-
   // Skip resize in both target and replay domains
   void skipResizes(
       const std::vector<Expr*>& target_exprs,
@@ -438,8 +388,6 @@ class BestEffortReplay {
       std::unordered_map<IterDomain*, IterDomain*> target2replay_map,
       std::unordered_map<IterDomain*, IterDomain*> replay_forward_id_map = {},
       std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map = {},
-      bool skip_replay_swizzle = true,
-      bool skip_target_swizzle = true,
       bool skip_resize = false,
       bool error_on_failure = true);
 
@@ -493,8 +441,6 @@ class BestEffortReplay {
       const TensorView* producer,
       int64_t producer_compute_at_axis,
       const LogicalDomainMap& logical_map,
-      bool skip_consumer_swizzle = true,
-      bool skip_producer_swizzle = true,
       bool skip_resize = true);
 
   // Runs a best effort replay that ignores broadcast axes that appear in
@@ -506,8 +452,6 @@ class BestEffortReplay {
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
       const LogicalDomainMap& logical_map,
-      bool skip_producer_swizzle = true,
-      bool skip_consumer_swizzle = true,
       bool skip_resize = true);
 
   // Find the first position i where td1[i] is not the same as td2[i]. "Same"

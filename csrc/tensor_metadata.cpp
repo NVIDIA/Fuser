@@ -11,7 +11,6 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
@@ -28,8 +27,10 @@ namespace {
 // sizes and strides, validate that splits are divisible and merges are
 // contiguous, and update active_ids_ correspondingly.
 class ForwardTraverseFromLogicalToAlloc {
-  ExpressionEvaluator& ee_;
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
+  ExpressionEvaluator&
+      ee_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>&
+      active_ids_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 
   void handle(Split* split) {
     auto in = split->in();
@@ -95,11 +96,27 @@ class ForwardTraverseFromLogicalToAlloc {
             .second);
   }
 
+  void handle(Swizzle1D* swizzle1d) {
+    // Swizzle1D does not affect allocation (same size/stride, just reindexing).
+    auto in = swizzle1d->in();
+    auto out = swizzle1d->out();
+    auto in_it = active_ids_.find(in);
+    if (in_it == active_ids_.end()) {
+      return;
+    }
+    auto [in_size, in_stride] = in_it->second;
+    NVF_ERROR(active_ids_.erase(in) == 1);
+    NVF_ERROR(
+        active_ids_.emplace(out, std::make_pair(in_size, in_stride)).second);
+  }
+
   void handle(Expr* expr) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       handle(split);
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
+    } else if (auto swizzle1d = dynamic_cast<Swizzle1D*>(expr)) {
+      handle(swizzle1d);
     } else {
       NVF_THROW("Unsupported transormation in allocation domain");
     }
@@ -127,8 +144,10 @@ class ForwardTraverseFromLogicalToAlloc {
 // Similar to ForwardTraverseFromLogicalToAlloc, but in the opposite direction.
 class BackwardTraverseFromLogicalToAlloc {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
+  ExpressionEvaluator&
+      ee_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>&
+      active_ids_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 
   void handle(Split* split) {
     auto in = split->in();
@@ -190,11 +209,27 @@ class BackwardTraverseFromLogicalToAlloc {
                   .second);
   }
 
+  void handle(Swizzle1D* swizzle1d) {
+    // Swizzle1D does not affect allocation (same size/stride, just reindexing).
+    auto in = swizzle1d->in();
+    auto out = swizzle1d->out();
+    auto out_it = active_ids_.find(out);
+    if (out_it == active_ids_.end()) {
+      return;
+    }
+    auto [out_size, out_stride] = out_it->second;
+    NVF_ERROR(active_ids_.erase(out) == 1);
+    NVF_ERROR(
+        active_ids_.emplace(in, std::make_pair(out_size, out_stride)).second);
+  }
+
   void handle(Expr* expr) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       handle(split);
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
+    } else if (auto swizzle1d = dynamic_cast<Swizzle1D*>(expr)) {
+      handle(swizzle1d);
     } else {
       NVF_THROW("Unsupported transormation in allocation domain");
     }
@@ -213,7 +248,7 @@ class BackwardTraverseFromLogicalToAlloc {
     FUSER_PERF_SCOPE("BackwardTraverseFromLogicalToAlloc::run");
     auto backward_exprs = StmtSort::getExprsBetween(
         {alloc.begin(), alloc.end()}, {logical.begin(), logical.end()});
-    std::reverse(backward_exprs.begin(), backward_exprs.end());
+    std::ranges::reverse(backward_exprs);
     for (auto expr : backward_exprs) {
       handle(expr);
     }
@@ -269,7 +304,7 @@ void validateAllocationSizesAndStrides(
 
     NVF_CHECK(contiguity[domain_index].has_value());
     if (size > 1) {
-      if (*contiguity[domain_index]) {
+      if (valueOrError(contiguity[domain_index])) {
         NVF_CHECK_EQ(
             stride,
             expected_stride_if_contiguous,
@@ -358,6 +393,12 @@ inferAndValidateAllocationSizesAndStrides(
   if (tv->definition() && tv->definition()->isA<BlockQuantizationOp>()) {
     auto bqop = tv->definition()->as<BlockQuantizationOp>();
     if (bqop->isSwizzledScales() && tv == bqop->blockScales()) {
+      skip_validation = true;
+    }
+  } else if (
+      tv->definition() && tv->definition()->isA<GroupedBlockQuantizationOp>()) {
+    auto bqop = tv->definition()->as<GroupedBlockQuantizationOp>();
+    if (tv == bqop->blockScales()) {
       skip_validation = true;
     }
   }

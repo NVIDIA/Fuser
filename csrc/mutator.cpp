@@ -9,8 +9,8 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <utils.h>
 #include <vector>
+#include "base.h"
 
 /*
  * Mutators are the mechanism used to modify IR nodes. Since most nodes are
@@ -291,7 +291,7 @@ Expr* OptOutMutator::mutateExpr(
   return new_expr;
 }
 
-void OptOutMutator::removeExpr(IrContainer* container, Expr* expr) const {
+void OptOutMutator::removeExpr(Fusion* container, Expr* expr) const {
   container->removeExpr(expr);
 }
 

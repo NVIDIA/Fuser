@@ -6,13 +6,15 @@
  */
 // clang-format on
 
+#include "scheduler/reduction_tma.h"
+
 #include <ATen/cuda/CUDAContext.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/reduction_tma.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
+
+#include "scheduler/cache_policy_refiner.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 namespace reduction {
@@ -26,6 +28,15 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   FusionGuard fg(fusion);
 
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
+
+  // Vectorization is not as useful for TMA since we're not doing global loads.
+  // For now we don't do it.
+  int64_t vectorization_factor = 1;
+
+  // Benchmarking shows some benefit to 512 block size for has_mufu_computation,
+  // but it's not across the board. Stick to 256 for now.
+  int64_t threads_per_block = 256;
+
   const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
   const int64_t target_threads_per_sm = max_threads_per_sm / 2;
 
@@ -36,11 +47,9 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
       target_threads_per_sm,
       props.has_mufu_computation);
 
-  // Initialize split factors
-  int64_t vectorization_factor =
-      std::min(target_vect_unroll, props.vectorize_factor);
-  int64_t threads_per_block = 128;
-  int64_t unroll_factor = target_vect_unroll / vectorization_factor;
+  // Since vectorization isn't currently performed, fold the entire vect_unroll
+  // factor into unroll.
+  int64_t unroll_factor = scheduler_utils::lastPow2(target_vect_unroll);
 
   auto params = std::make_unique<TmaInnerReductionParams>();
   params->vectorization_factor = vectorization_factor;
@@ -62,6 +71,8 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
+
+  scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
@@ -109,8 +120,11 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   //        -> [I, R/vect/tidx/unroll, unroll, tidx, vect]
 
   // Split 1: Vectorization factor (innermost serial split for TMA)
-  reduction_tv->split(inner_reduce_axis, rparams->vectorization_factor);
-  reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::Serial);
+  if (rparams->vectorization_factor > 1) {
+    reduction_tv->split(inner_reduce_axis, rparams->vectorization_factor);
+    reduction_tv->axis(inner_reduce_axis + 1)
+        ->parallelize(ParallelType::Serial);
+  }
 
   // Split 2: TIDx (always applied)
   reduction_tv->split(inner_reduce_axis, rparams->threads_per_block);

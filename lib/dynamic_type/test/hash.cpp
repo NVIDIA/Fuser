@@ -11,6 +11,8 @@
 
 #include "dynamic_type/dynamic_type.h"
 
+#include <cstdint>
+
 using namespace dynamic_type;
 
 using DoubleInt64Bool = DynamicType<NoContainers, double, int64_t, bool>;
@@ -22,12 +24,12 @@ TEST_F(DynamicTypeTest, Hash) {
   using IntOrStr = DynamicType<NoContainers, int64_t, std::string>;
   static_assert(!has_cross_type_equality<IntOrStr>);
   std::unordered_map<IntOrStr, double> m;
-  m[IntOrStr(0L)] = 0;
-  m[IntOrStr(299792458L)] = 299792458;
+  m[IntOrStr(int64_t{0})] = 0;
+  m[IntOrStr(int64_t{299792458})] = 299792458;
   m[IntOrStr("speed of light")] = 299792458;
   m[IntOrStr("pi")] = 3.14159;
-  EXPECT_EQ(m.at(IntOrStr(0L)), 0);
-  EXPECT_EQ(m.at(IntOrStr(299792458L)), 299792458);
+  EXPECT_EQ(m.at(IntOrStr(int64_t{0})), 0);
+  EXPECT_EQ(m.at(IntOrStr(int64_t{299792458})), 299792458);
   EXPECT_EQ(m.at(IntOrStr("speed of light")), 299792458);
   EXPECT_EQ(m.at(IntOrStr("pi")), 3.14159);
 }
@@ -42,12 +44,12 @@ struct std::hash<DoubleInt64Bool> {
 TEST_F(DynamicTypeTest, Hash2) {
   std::unordered_map<DoubleInt64Bool, double> m;
   m[DoubleInt64Bool(false)] = 0;
-  m[DoubleInt64Bool(299792458L)] = 299792458;
+  m[DoubleInt64Bool(int64_t{299792458})] = 299792458;
   m[DoubleInt64Bool(3.14159)] = 3.14159;
   EXPECT_EQ(m.at(DoubleInt64Bool(false)), 0);
-  EXPECT_EQ(m.at(DoubleInt64Bool(0L)), 0);
+  EXPECT_EQ(m.at(DoubleInt64Bool(int64_t{0})), 0);
   EXPECT_EQ(m.at(DoubleInt64Bool(0.0)), 0);
-  EXPECT_EQ(m.at(DoubleInt64Bool(299792458L)), 299792458);
+  EXPECT_EQ(m.at(DoubleInt64Bool(int64_t{299792458})), 299792458);
   EXPECT_EQ(m.at(DoubleInt64Bool(299792458.0)), 299792458);
   EXPECT_EQ(m.at(DoubleInt64Bool(3.14159)), 3.14159);
 }

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
 #include <iosfwd>
 
 #include "fusion.h"
@@ -15,7 +16,7 @@
 namespace nvfuser {
 
 // Identifies which TensorView domain to inspect.
-enum class DomainType : int {
+enum class DomainType : std::uint8_t {
   kRoot,
   kLogical,
   kLoop,
@@ -27,10 +28,6 @@ std::ostream& operator<<(std::ostream& os, DomainType domain_type);
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
 bool isSharded(const TensorView*);
-
-std::unordered_set<IterDomain*> getInputsInTargetDomain(
-    const std::vector<IterDomain*>& loop_ids,
-    const std::vector<IterDomain*>& target_domain);
 
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
@@ -55,7 +52,8 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId
 // `tv->getLogicalDomain()` map one-to-one modulo reduction. However, a size in
 // `at::Tensor::sizes` is a factor of the corresponding logical IterDomain's
 // extent if that IterDomain is sharded.
-int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
+NVF_API int64_t
+getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
 // Returns the IterDomain that's parallelized on `parallel_type` in the domain
 // of type `domain_type`.
@@ -90,5 +88,14 @@ bool isValidDeviceSplit(Expr* expr);
 // Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
 // See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
+
+// Returns the relative index of the rank in the team.
+int64_t getRelativeIndex(const Team& team, DeviceIdxType rank);
+
+std::pair<Val*, Val*> dispatchSwizzle1D(
+    Val* host_loop_index,
+    DeviceIdxType device_id,
+    ParallelType pt,
+    const DeviceMesh& mesh);
 
 } // namespace nvfuser

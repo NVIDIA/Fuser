@@ -31,7 +31,7 @@ class LRUCache {
   // If the fusion is already in the cache, it will be moved to the front of the
   // cache and returned immediately.
   // If the cache is full, the least recently used fusion will be evicted.
-  FusionExecutorCache* cacheCompile(std::shared_ptr<Fusion> fusion);
+  FusionExecutorCache* cacheCompile(std::unique_ptr<Fusion> fusion);
 
   // Print stats about LRU Cache
   std::string stats() const;
@@ -45,23 +45,21 @@ class LRUCache {
  private:
   // Item is a tuple of key, value, and visits per key
   struct Item {
-    std::shared_ptr<Fusion> fusion;
+    Fusion* fusion;
     std::unique_ptr<FusionExecutorCache> executor_cache;
     size_t visits;
   };
 
   // Custom Hasher Functor for Fusion
   struct FusionHasher {
-    size_t operator()(const std::shared_ptr<Fusion>& fusion) const {
+    size_t operator()(const Fusion* fusion) const {
       return fusion->hash();
     }
   };
 
   // Custom Equality Functor for Fusion
   struct FusionEqualTo {
-    bool operator()(
-        const std::shared_ptr<Fusion>& lhs,
-        const std::shared_ptr<Fusion>& rhs) const {
+    bool operator()(const Fusion* lhs, const Fusion* rhs) const {
       return lhs->sameDefinition(*rhs);
     }
   };
@@ -80,7 +78,7 @@ class LRUCache {
   // The map provides O(1) access to list nodes.
   // It stores keys and iterators to the corresponding pairs in the list.
   std::unordered_map<
-      std::shared_ptr<Fusion>,
+      Fusion*,
       typename std::list<Item>::iterator,
       FusionHasher,
       FusionEqualTo>

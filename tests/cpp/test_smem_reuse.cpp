@@ -13,7 +13,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
 #include "ir/builder.h"
@@ -23,14 +23,14 @@
 #include "scheduler/tools/inlining.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
 using namespace at::indexing;
 
-class SmemReuseTest : public NVFuserTest {};
+using SmemReuseTest = NVFuserTest;
 
 // Test that we re-use different-size smem allocations
 //

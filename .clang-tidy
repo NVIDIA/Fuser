@@ -47,6 +47,5 @@ performance-*,
 readability-container-size-empty,
 readability-braces-around-statements,
 '
-AnalyzeTemporaryDtors: false
 WarningsAsErrors: '*'
 ...

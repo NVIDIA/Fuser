@@ -5,31 +5,30 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/analysis/circular_buffer.h>
-#include <device_lower/utils.h>
-#include <disjoint_set.h>
-#include <id_model/schedule.h>
-#include <instrumentation.h>
-#include <ir/utils.h>
-#include <mma_type.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/matmul.h>
-#include <scheduler/matmul_heuristic.h>
-#include <scheduler/matmul_hopper+.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <utils.h>
-#include <val_graph.h>
-#include <val_graph_visitor.h>
-
-// NOTE: included to avoid compilation error caused by missing destructor in
-// 'SchedulerRuntimeInfo'
-#include <runtime/executor_utils.h>
+#include "scheduler/matmul_hopper+.h"
 
 #include <cmath>
+
+#include "base.h"
+#include "device_lower/analysis/circular_buffer.h"
+#include "device_lower/utils.h"
+#include "disjoint_set.h"
+#include "id_model/schedule.h"
+#include "instrumentation.h"
+#include "ir/utils.h"
+#include "mma_type.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/matmul.h"
+#include "scheduler/matmul_heuristic.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "val_graph.h"
+#include "val_graph_visitor.h"
+
+#include "runtime/executor_utils.h"
 
 namespace nvfuser {
 

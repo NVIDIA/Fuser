@@ -16,10 +16,10 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include "codegen.h"
-#include "csrc/exceptions.h"
 #include "device_lower/analysis/divisible_split.h"
 #include "device_lower/lower2device.h"
 #include "disjoint_set.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "fusion_segmenter.h"
@@ -52,13 +52,7 @@ namespace nvfuser {
 
 using testing::UnorderedElementsAre;
 
-class ReshapeTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using ReshapeTest = NVFuserTest;
 
 TEST_F(ReshapeTest, ViewDtypeSameSizeOutput) {
   Fusion fusion;
@@ -397,7 +391,6 @@ class ReshapeReduction : public NVFuserFixtureParamTest<ReshapeReductionParam> {
  protected:
   void SetUp() override {
     NVFuserFixtureParamTest<ReshapeReductionParam>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

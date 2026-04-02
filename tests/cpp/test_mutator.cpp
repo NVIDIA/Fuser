@@ -8,14 +8,14 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
 #include "dispatch.h"
+#include "exceptions.h"
 #include "ir/builder.h"
 #include "ir/interface_nodes.h"
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

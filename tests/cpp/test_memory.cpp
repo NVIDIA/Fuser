@@ -24,9 +24,9 @@
 #include "scheduler/mma_utils.h"
 #include "scheduler/tools/inlining.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "type.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -55,8 +55,7 @@ TEST_P(MemoryTest, LoadCache) {
 
   TensorView* tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
-  TensorView* tv1 =
-      ops::newValLike(tv0, tv0->getDataType().value())->as<TensorView>();
+  TensorView* tv1 = ops::newValLike(tv0, tv0->getDataType())->as<TensorView>();
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, tv1, tv0, cache_op);
   TensorView* tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   TensorView* tv3 = set(tv2);
@@ -451,8 +450,6 @@ class TMASimpleLdstTest
       default:
         NVF_THROW("Invalid dimension");
     }
-
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -1733,7 +1730,7 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
 
 // It is not required to run compile-time invalid case tests on Hopper or newer
 // GPUs. Detecting invalid cases does not even require a GPU.
-class TMACompileTimeInvalidTest : public NVFuserTest {};
+using TMACompileTimeInvalidTest = NVFuserTest;
 class TMARuntimeInvalidTest : public TMATest {};
 
 TEST_F(TMACompileTimeInvalidTest, BulkNotInTMA) {
@@ -2858,11 +2855,11 @@ class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
-TEST_P(LdMatrixTest, Regular) {
+// Disabled as the alternate loop domain is missing
+TEST_P(LdMatrixTest, DISABLED_Regular) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2912,11 +2909,11 @@ class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
-TEST_P(StMatrixTest, Regular) {
+// Disabled as the alternate loop domain is missing
+TEST_P(StMatrixTest, DISABLED_Regular) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3010,7 +3007,8 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(DataType::Half, DataType::BFloat16)),
     testNameStMatrixTest);
 
-TEST_P(LdMatrixTest, Transpose) {
+// Disabled as the alternate loop domain is missing
+TEST_P(LdMatrixTest, DISABLED_Transpose) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <algorithm>
+
 #include <debug.h>
 #include <exceptions.h>
 #include <fusion.h>
@@ -15,8 +17,8 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 #include <deque>
 #include <functional>
@@ -74,22 +76,6 @@ class SegmentedGroup {
     exprs_.push_back(expr);
   }
 
-  //! Serialize SegmentedGroup using flatbuffers
-  flatbuffers::Offset<serde::SegmentedGroup> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const std::unordered_map<Val*, int64_t>& vals_map,
-      const std::unordered_map<Expr*, int64_t>& exprs_map,
-      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
-      const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const;
-
-  //! Deserialize SegmentedGroup using flatbuffers
-  void deserialize(
-      const serde::SegmentedGroup* buffer,
-      const std::deque<Val*>& vals,
-      const std::deque<Expr*>& exprs,
-      const std::vector<SegmentedGroup*>& groups,
-      const std::vector<SegmentedEdge*>& edges);
-
   //! returns the id assigned by segment pass
   int groupId() const {
     return group_id_;
@@ -146,9 +132,9 @@ class SegmentedGroup {
   //! Returns a new scheduler with the same heuristics
   //!  for this group if possible.
   //!  Note that the schedule params can be different.
-  //! Returns a nullopt if this group cannot be scheduled
+  //! Returns nullptr if this group cannot be scheduled
   //!  with the same heuristics.
-  std::optional<std::unique_ptr<HeuristicParams>> getMaybeHeuristicParams(
+  std::unique_ptr<HeuristicParams> getMaybeHeuristicParams(
       SchedulerRuntimeInfo& runtime_info);
 
   //! Get the SegmentedFusion this group belongs to
@@ -368,27 +354,7 @@ class SegmentedFusion {
       const SegmentedGroup* from,
       const SegmentedGroup* to) const;
 
-  //! Serialize SegmentedFusion using flatbuffers
-  flatbuffers::Offset<serde::SegmentedFusion> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize SegmentedFusion using flatbuffers
-  void deserialize(const serde::SegmentedFusion* buffer);
-
   void validateDisjoint() const;
-
- private:
-  //! Serialize SegmentedEdge using flatbuffers
-  flatbuffers::Offset<serde::SegmentedEdge> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const nvfuser::SegmentedEdge* edge,
-      const std::unordered_map<Val*, int64_t>& vals_map,
-      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const;
-
-  //! Deserialize SegmentedEdge using flatbuffers
-  nvfuser::SegmentedEdge deserialize(
-      const serde::SegmentedEdge* buffer,
-      const std::deque<Val*>& vals);
 
  private:
   //! Unique name for segmented fusion
@@ -742,10 +708,8 @@ class SegmentCandidateFinder {
 
   //! Query if a val is a fusion input or a forwarded input
   bool isFusionInput(Val* val) const {
-    return std::find(
-               forwarded_fusion_inputs_.begin(),
-               forwarded_fusion_inputs_.end(),
-               val) != forwarded_fusion_inputs_.end();
+    return std::ranges::find(forwarded_fusion_inputs_, val) !=
+        forwarded_fusion_inputs_.end();
   };
 
   // Get all auxiliary groups created for fusion inputs

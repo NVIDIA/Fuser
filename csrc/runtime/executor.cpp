@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <runtime/executor.h>
+#include "runtime/executor.h"
 
 #include <cmath>
 #include <cstring>
@@ -19,32 +19,31 @@
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include <codegen.h>
-#include <debug.h>
-#include <device_lower/analysis/bank_conflict.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
-#include <driver_api.h>
-#include <fusion_profiler.h>
-#include <global_allocator.h>
-#include <host_ir/container.h>
-#include <host_ir/lower_to_communication.h>
-#include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ir/graphviz.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <multidevice/execution_utils.h>
-#include <multidevice/utils.h>
-#include <options.h>
-#include <polymorphic_value.h>
-#include <runtime/allocations.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/executor_utils.h>
-#include <serde/utils.h>
-#include <tensor_metadata.h>
-#include <utils.h>
+#include "base.h"
+#include "codegen.h"
+#include "debug.h"
+#include "device_lower/analysis/bank_conflict.h"
+#include "device_lower/lower2device.h"
+#include "device_lower/utils.h"
+#include "driver_api.h"
+#include "fusion_profiler.h"
+#include "global_allocator.h"
+#include "host_ir/container.h"
+#include "host_ir/lower_to_communication.h"
+#include "instrumentation.h"
+#include "ir/all_nodes.h"
+#include "ir/graphviz.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
+#include "multidevice/execution_utils.h"
+#include "multidevice/utils.h"
+#include "options.h"
+#include "polymorphic_value.h"
+#include "runtime/allocations.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/executor_utils.h"
+#include "tensor_metadata.h"
 
 namespace nvfuser {
 
@@ -197,9 +196,8 @@ void KernelExecutor::compile(
   //! Force index_type to int and disable magic zero if we detect that the
   //! kernel contains any TMA memory operations.
   std::vector<Expr*> exprs = fusion->exprs();
-  bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-    return ir_utils::isCpAsyncBulk(e);
-  });
+  bool has_cp_async_bulk = std::ranges::any_of(
+      exprs, [](Expr* e) { return ir_utils::isCpAsyncBulk(e); });
 
   // Disable magic zero if there are any TMA operations in Fusion
   if (has_cp_async_bulk) {
@@ -486,7 +484,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
     if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
       debug() << "reduction_broadcast_workspace shared memory bytes: "
-              << reduction_broadcast_workspace << std::endl;
+              << reduction_broadcast_workspace << '\n';
     }
   }
 
@@ -622,17 +620,17 @@ void dumpFusionArgs(
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
     const KernelArgumentHolder& outputs) {
-  debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
-          << "Inputs:" << std::endl;
+  debug() << "Arguments for fusion" << fusion_id << ":" << '\n'
+          << "Inputs:" << '\n';
   for (auto i : arange(args.size())) {
-    debug() << "  " << args[i] << std::endl;
+    debug() << "  " << args[i] << '\n';
   }
-  debug() << "Outputs:" << std::endl;
+  debug() << "Outputs:" << '\n';
   for (const auto& output : outputs) {
-    debug() << PolymorphicValue_functions::toString(output) << std::endl;
+    debug() << PolymorphicValue_functions::toString(output) << '\n';
   }
   debug() << launch_constraints.toString();
-  debug() << "maxrregcount= " << compile_params.maxrregcount << std::endl;
+  debug() << "maxrregcount= " << compile_params.maxrregcount << '\n';
 }
 
 // Dump arguments that are passed to a CUDA kernel call, which include
@@ -650,24 +648,23 @@ void dumpKernelArgs(
     const std::vector<GlobalBufferInfo>& intermediates_info) {
   using namespace PolymorphicValue_functions;
   debug() << "Arguments for fusion " << fusion_id << " group " << group_id
-          << ":" << std::endl
-          << "Inputs:" << std::endl;
+          << ":" << '\n'
+          << "Inputs:" << '\n';
   for (auto i : arange(num_inputs)) {
-    debug() << "  " << toString(args[i]) << std::endl;
+    debug() << "  " << toString(args[i]) << '\n';
   }
-  debug() << "Outputs:" << std::endl;
+  debug() << "Outputs:" << '\n';
   // note: add aliased outputs here.
   for (const auto& output : allocated_outputs) {
-    debug() << "  " << PolymorphicValue_functions::toString(output)
-            << std::endl;
+    debug() << "  " << PolymorphicValue_functions::toString(output) << '\n';
   }
-  debug() << "Intermediate global buffers:" << std::endl;
+  debug() << "Intermediate global buffers:" << '\n';
   for (const auto i : arange(intermediates.size())) {
     const auto& zero_init = intermediates_info.at(i).zero_init;
     const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
     debug() << "  " << PolymorphicValue_functions::toString(intermediates[i])
             << " is_zero_initialized: " << zero_init
-            << " resets_to_zero: " << resets_to_zero << std::endl;
+            << " resets_to_zero: " << resets_to_zero << '\n';
   }
 }
 
@@ -750,12 +747,12 @@ void KernelExecutor::initializeExecutorEntry(
     shape_info.allocation_sizes = alloc_sizes;
     shape_info.allocation_strides = alloc_strides;
     GlobalBufferInfo info{
-        input_tv,
-        shape_info,
-        data_type_to_aten(input_tv->dtype()),
-        false,
-        false,
-        false};
+        .tv = input_tv,
+        .shape_info = shape_info,
+        .type = data_type_to_aten(input_tv->dtype()),
+        .zero_init = false,
+        .resets_to_zero = false,
+        .is_profile_buffer = false};
     input_info.emplace_back(info);
   }
 
@@ -1057,10 +1054,13 @@ KernelArgumentHolder KernelExecutor::run(
   // Placeholder for the case where parameter cache is not used
   KernelExecutorEntry temporary_executor_entry;
 
-  KernelExecutorEntry* executor_entry = args.getCacheId().has_value() &&
-          !compiled_kernel_->launchParamCacheDisabled()
-      ? &executor_entry_lookup_[*args.getCacheId()]
-      : &temporary_executor_entry;
+  KernelExecutorEntry* executor_entry = nullptr;
+  if (args.getCacheId().has_value() &&
+      !compiled_kernel_->launchParamCacheDisabled()) {
+    executor_entry = &executor_entry_lookup_[valueOrError(args.getCacheId())];
+  } else {
+    executor_entry = &temporary_executor_entry;
+  }
 
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
@@ -1121,9 +1121,8 @@ KernelArgumentHolder KernelExecutor::run(
       }
     }
     NVF_ERROR(
-        std::all_of(
-            output_args.begin(),
-            output_args.end(),
+        std::ranges::all_of(
+            output_args,
             [](const PolymorphicValue& arg) {
               return arg.hasValue() && arg.is<at::Tensor>();
             }),
@@ -1232,7 +1231,7 @@ KernelArgumentHolder KernelExecutor::run(
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
     debug() << "Index type: " << compiled_kernel_->kernel()->indexType()
-            << std::endl;
+            << '\n';
   }
 
   if (execute_kernel_ && !compiled_kernel_->kernel()->topLevelExprs().empty()) {
@@ -1265,7 +1264,7 @@ KernelArgumentHolder KernelExecutor::run(
       debug() << "num_sms=" << prop->multiProcessorCount
               << ", blocks_per_sm=" << blocks_per_sm
               << ", warps_per_sm=" << warps_per_sm
-              << ", occupancy=" << oss.str() << std::endl;
+              << ", occupancy=" << oss.str() << '\n';
     }
 
     const auto& kernel_summary = compiled_kernel_->kernel()->summary();
@@ -1319,7 +1318,7 @@ KernelArgumentHolder KernelExecutor::run(
         launch_attributes.push_back(attribute);
       }
 
-      if (launch_attributes.size() > 0) {
+      if (!launch_attributes.empty()) {
         config.attrs = launch_attributes.data();
         config.numAttrs = (unsigned int)launch_attributes.size();
       } else {
@@ -1361,365 +1360,6 @@ KernelArgumentHolder KernelExecutor::run(
   }
 
   return output_args;
-}
-
-flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
-    flatbuffers::FlatBufferBuilder& builder) const {
-  // See table definition for KernelExecutor in serde/fusion_cache.fbs
-  using fb_executor_entry = flatbuffers::Offset<serde::KernelExecutorEntry>;
-
-  // Separate unordered_map for executor_entry_lookup into key and value
-  // vectors. The key value is the cache_id value in the KernelArgumentHolder.
-  std::vector<size_t> executor_entry_lookup_keys_fb;
-  std::vector<fb_executor_entry> executor_entry_lookup_values_fb;
-  for (const auto& [key, value] : executor_entry_lookup_) {
-    executor_entry_lookup_keys_fb.push_back(key);
-    executor_entry_lookup_values_fb.push_back(serialize(builder, value));
-  }
-
-  // When compilation is skipped, avoid serializing cubin because it doesn't
-  // exist. The remaining fields are also not necessary in this case.
-  if (!compiledKernel()->isCompiled()) {
-    return serde::CreateKernelExecutorDirect(builder);
-  }
-
-  return serde::CreateKernelExecutorDirect(
-      builder,
-      device_smem_limit_,
-      compiledKernel()->blockSizeHighWatermark(),
-      compiledKernel()->maxrregcountHighWatermark(),
-      warp_size_,
-      toUnderlying(compiledKernel()->schedulerType()),
-      fusion_id_,
-      concrete_id_,
-      runtime_id_,
-      group_id_,
-      compiledKernel()->kernelCode().c_str(),
-      &executor_entry_lookup_keys_fb,
-      &executor_entry_lookup_values_fb,
-      toUnderlying(compiledKernel()->kernel()->indexType()),
-      serialize(builder, compiledKernel()->cudaExecutable().get()),
-      has_rng_,
-      has_tma_,
-      has_dynamic_alias_);
-}
-
-flatbuffers::Offset<serde::CudaKernel> KernelExecutor::serialize(
-    flatbuffers::FlatBufferBuilder& builder,
-    const executor_utils::CudaExecutable* compiled_kernel) const {
-  NVF_ERROR(
-      compiledKernel()->cudaExecutable() != nullptr &&
-          (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
-      "Expected compiled cuda kernel before serializing KernelExecutor.");
-
-  auto fb_kernel_name = builder.CreateString(compiled_kernel->kernel_name);
-  auto fb_compile_args = builder.CreateString(compiled_kernel->compile_args);
-
-  flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_cubin = 0;
-  flatbuffers::Offset<flatbuffers::String> fb_cubin_filename = 0;
-  if (!compiled_kernel->cubin.empty()) {
-    uint8_t* cubin_ptr = nullptr;
-    fb_cubin = builder.CreateUninitializedVector(
-        compiled_kernel->cubin.size(), &cubin_ptr);
-    std::copy(
-        compiled_kernel->cubin.begin(),
-        compiled_kernel->cubin.end(),
-        cubin_ptr);
-    fb_cubin_filename = builder.CreateString(compiled_kernel->cubin_filename);
-  }
-
-  flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
-  flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
-  if (!compiled_kernel->ptx.empty()) {
-    uint8_t* ptx_ptr = nullptr;
-    fb_ptx = builder.CreateUninitializedVector(
-        compiled_kernel->ptx.size(), &ptx_ptr);
-    std::copy(
-        compiled_kernel->ptx.begin(), compiled_kernel->ptx.end(), ptx_ptr);
-    fb_ptx_filename = builder.CreateString(compiled_kernel->ptx_filename);
-  }
-
-  serde::CudaKernelBuilder ckb(builder);
-  ckb.add_cubin(fb_cubin);
-  ckb.add_cubin_filename(fb_cubin_filename);
-  ckb.add_ptx(fb_ptx);
-  ckb.add_ptx_filename(fb_ptx_filename);
-  ckb.add_kernel_name(fb_kernel_name);
-  ckb.add_compile_args(fb_compile_args);
-  ckb.add_block_size(compiled_kernel->block_size);
-  return ckb.Finish();
-}
-
-flatbuffers::Offset<serde::KernelExecutorEntry> KernelExecutor::serialize(
-    flatbuffers::FlatBufferBuilder& builder,
-    const KernelExecutorEntry& data) const {
-  // See table definition for KernelExecutorEntry in serde/fusion_cache.fbs
-
-  // Serialize GlobalBufferInfo for outputs.
-  // We map the output TensorView pointer to its corresponding position in
-  // fusion outputs assuming that the output ordering is consistent.
-  using fb_global_buffer_info = flatbuffers::Offset<serde::GlobalBufferInfo>;
-  std::vector<fb_global_buffer_info> outputs_fb;
-  outputs_fb.reserve(data.outputs.size());
-  for (const auto& buffer : data.outputs) {
-    auto tv_iter = std::find(
-        compiledKernel()->kernel()->outputs().cbegin(),
-        compiledKernel()->kernel()->outputs().cend(),
-        buffer.tv);
-    auto tv_position = (tv_iter == compiledKernel()->kernel()->outputs().cend())
-        ? -1
-        : std::distance(
-              compiledKernel()->kernel()->outputs().cbegin(), tv_iter);
-    NVF_ERROR(
-        tv_position != -1, "Output TensorView not found in kernel outputs");
-    outputs_fb.push_back(serialize(
-        builder,
-        buffer,
-        tv_position,
-        true /* is_fusion_output */,
-        false /* is_fusion_input */));
-  }
-
-  // Serialize GlobalBufferInfo for intermediates.
-  // We map the intermediate TensorView pointer to its corresponding position in
-  // KernelSummary global allocations. We assume that the ordering is consistent
-  // between GpuLower objects with the same scheduled fusion.
-  std::vector<fb_global_buffer_info> intermediates_fb;
-  intermediates_fb.reserve(data.intermediates.size());
-  for (const auto& buffer : data.intermediates) {
-    auto match_tv_predicate = [buffer_tv = buffer.tv](const kir::Allocate* a) {
-      return a->buffer() == buffer_tv;
-    };
-    auto tv_iter = std::find_if(
-        compiledKernel()->kernel()->summary().global_allocations.cbegin(),
-        compiledKernel()->kernel()->summary().global_allocations.cend(),
-        match_tv_predicate);
-    auto tv_position =
-        (tv_iter ==
-         compiledKernel()->kernel()->summary().global_allocations.cend())
-        ? -1
-        : std::distance(
-              compiledKernel()->kernel()->summary().global_allocations.cbegin(),
-              tv_iter);
-    NVF_ERROR(
-        tv_position != -1,
-        "Intermediate TensorView not found in kernel global allocations");
-    intermediates_fb.push_back(serialize(
-        builder,
-        buffer,
-        tv_position,
-        false /* is_fusion_output */,
-        false /* is_fusion_input */));
-  }
-
-  std::vector<fb_global_buffer_info> inputs_fb;
-  inputs_fb.reserve(data.inputs.size());
-  for (const auto& buffer : data.inputs) {
-    auto tv_iter = std::find(
-        compiledKernel()->kernel()->inputs().cbegin(),
-        compiledKernel()->kernel()->inputs().cend(),
-        buffer.tv);
-    auto tv_position = (tv_iter == compiledKernel()->kernel()->inputs().cend())
-        ? -1
-        : std::distance(compiledKernel()->kernel()->inputs().cbegin(), tv_iter);
-    NVF_ERROR(tv_position != -1, "Input TensorView not found in kernel inputs");
-    inputs_fb.push_back(serialize(
-        builder,
-        buffer,
-        tv_position,
-        false /* is_fusion_output */,
-        true /* is_fusion_input */));
-  }
-  return serde::CreateKernelExecutorEntryDirect(
-      builder,
-      data.init,
-      data.launch_params.serialize(builder),
-      &outputs_fb,
-      &intermediates_fb,
-      &inputs_fb,
-      &data.output_aliased_to_input);
-}
-
-flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
-    flatbuffers::FlatBufferBuilder& builder,
-    const GlobalBufferInfo& data,
-    int64_t tv_position,
-    bool is_fusion_output,
-    bool is_fusion_input) const {
-  // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
-  return serde::CreateGlobalBufferInfoDirect(
-      builder,
-      tv_position,
-      &data.shape_info.logical_sizes,
-      &data.shape_info.logical_strides,
-      &data.shape_info.unsharded_logical_sizes,
-      &data.shape_info.allocation_sizes,
-      &data.shape_info.allocation_strides,
-      nvfuser::toUnderlying(data.type),
-      data.zero_init,
-      data.resets_to_zero,
-      data.is_profile_buffer,
-      is_fusion_output,
-      is_fusion_input);
-}
-
-void KernelExecutor::deserialize(
-    const serde::KernelExecutor* buffer,
-    Fusion* _fusion,
-    int8_t device_index,
-    CompileParams compile_params,
-    SchedulerType scheduler_type,
-    int64_t fusion_id,
-    int64_t concrete_id,
-    int64_t runtime_id,
-    int64_t group_id) {
-  // See table definition for KernelExecutor in serde/fusion_cache.fbs
-  NVF_ERROR(buffer != nullptr, "serde::KernelExecutor is nullptr.");
-  NVF_ERROR(_fusion != nullptr, "Fusion is nullptr.");
-
-  NVF_ERROR(
-      fusion_id == buffer->fusion_id(),
-      "Expected given fusion_id to match serde fusion_id.");
-  NVF_ERROR(
-      concrete_id == buffer->concrete_id(),
-      "Expected given concrete_id to match serde concrete_id: ",
-      concrete_id,
-      " vs ",
-      buffer->concrete_id());
-  NVF_ERROR(
-      runtime_id == buffer->runtime_id(),
-      "Expected given runtime_id to match serde runtime_id.");
-  NVF_ERROR(
-      group_id == buffer->group_id(),
-      "Expected given group_id to match serde group_id.");
-  NVF_ERROR(
-      toUnderlying(scheduler_type) == buffer->heuristic(),
-      ": ",
-      toUnderlying(scheduler_type),
-      " vs ",
-      buffer->heuristic());
-
-  auto device = c10::Device(c10::DeviceType::CUDA, device_index);
-  c10::DeviceGuard dg(device);
-
-  // Initialize internal fields
-  device_smem_limit_ = buffer->device_smem_limit();
-  warp_size_ = buffer->warp_size();
-
-  compiled_kernel_ = std::make_unique<CompiledKernel>(
-      _fusion,
-      compile_params,
-      device,
-      scheduler_type,
-      fusion_id,
-      concrete_id,
-      runtime_id,
-      group_id);
-
-  compiled_kernel_->deserialize(buffer);
-
-  // GlobalBufferInfo requires lowered kernel before deserialization
-  for (auto idx : arange(buffer->executor_entry_lookup_keys()->size())) {
-    executor_entry_lookup_.emplace(
-        buffer->executor_entry_lookup_keys()->Get(idx),
-        deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
-  }
-
-  has_rng_ = buffer->has_rng();
-  has_tma_ = buffer->has_tma();
-  has_dynamic_alias_ = buffer->has_dynamic_alias();
-}
-
-KernelExecutorEntry KernelExecutor::deserialize(
-    const serde::KernelExecutorEntry* buffer) {
-  // See table definition for KernelExecutorEntry in serde/fusion_cache.fbs
-
-  NVF_ERROR(buffer != nullptr, "serde::KernelExecutorEntry is nullptr.");
-
-  KernelExecutorEntry entry;
-
-  entry.init = buffer->init();
-
-  entry.launch_params.deserialize(buffer->launch_params());
-
-  for (auto output_buffer : *buffer->outputs()) {
-    entry.outputs.push_back(deserialize(output_buffer));
-  }
-
-  for (auto intermediate_buffer : *buffer->intermediates()) {
-    entry.intermediates.push_back(deserialize(intermediate_buffer));
-  }
-
-  for (auto input_buffer : *buffer->inputs()) {
-    entry.inputs.push_back(deserialize(input_buffer));
-  }
-
-  for (auto output_aliased_to_input : *buffer->output_aliased_to_input()) {
-    entry.output_aliased_to_input.push_back(output_aliased_to_input);
-  }
-
-  return entry;
-}
-
-GlobalBufferInfo KernelExecutor::deserialize(
-    const serde::GlobalBufferInfo* buffer) {
-  // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
-
-  NVF_ERROR(buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
-
-  NVF_ERROR(
-      buffer->tv_pos() != -1,
-      "Serialization failed to encode buffer tv position.");
-
-  NVF_ERROR(
-      compiled_kernel_->lowered() != nullptr,
-      "Lowered kernel is not initialized.");
-
-  GlobalBufferInfo info;
-  if (buffer->is_fusion_output()) {
-    auto out_val = compiled_kernel_->kernel()->outputs().at(buffer->tv_pos());
-    NVF_ERROR(out_val != nullptr);
-    info.tv = dynamic_cast<TensorView*>(out_val);
-  } else if (buffer->is_fusion_input()) {
-    auto in_val = compiled_kernel_->kernel()->inputs().at(buffer->tv_pos());
-    NVF_ERROR(in_val != nullptr);
-    info.tv = dynamic_cast<TensorView*>(in_val);
-  } else {
-    auto out_val = compiled_kernel_->kernel()->summary().global_allocations.at(
-        buffer->tv_pos());
-    NVF_ERROR(out_val != nullptr);
-    info.tv = dynamic_cast<TensorView*>(out_val->buffer());
-  }
-
-  TensorShapeInfo shape_info;
-
-  for (auto dim_size : *buffer->logical_sizes()) {
-    shape_info.logical_sizes.emplace_back(dim_size);
-  }
-
-  for (auto dim_stride : *buffer->logical_strides()) {
-    shape_info.logical_strides.emplace_back(dim_stride);
-  }
-
-  for (auto dim_size : *buffer->unsharded_logical_sizes()) {
-    shape_info.unsharded_logical_sizes.emplace_back(dim_size);
-  }
-
-  for (auto dim_size : *buffer->alloc_sizes()) {
-    shape_info.allocation_sizes.emplace_back(dim_size);
-  }
-
-  for (auto dim_stride : *buffer->alloc_strides()) {
-    shape_info.allocation_strides.emplace_back(dim_stride);
-  }
-
-  info.shape_info = shape_info;
-
-  info.type = serde::mapToAtenDtype(buffer->dtype());
-  info.zero_init = buffer->zero_init();
-  info.resets_to_zero = buffer->resets_to_zero();
-  info.is_profile_buffer = buffer->is_profile_buffer();
-  return info;
 }
 
 } // namespace nvfuser

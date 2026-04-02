@@ -6,11 +6,12 @@
  */
 // clang-format on
 
-#include <ir/allocation_utils.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <linked_hash_map.h>
-#include <logical_domain_map.h>
+#include "ir/allocation_utils.h"
+
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "linked_hash_map.h"
+#include "logical_domain_map.h"
 
 namespace nvfuser {
 
@@ -102,61 +103,66 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
                              {logical.begin(), logical.end()},
                              {allocation.begin(), allocation.end()}) |
            std::views::reverse) {
-    auto* split = dynamic_cast<Split*>(transform);
-    if (split == nullptr) {
-      // We can handle merges using a similar logic if/when we need to.
-      return std::nullopt;
+    if (auto* swizzle1d = dynamic_cast<Swizzle1D*>(transform)) {
+      const auto [contiguity, next_i] =
+          allocation_to_contiguity.erase(swizzle1d->out());
+      allocation_to_contiguity.insert(next_i, swizzle1d->in(), contiguity);
+      continue;
     }
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      // When split->outer() is parallelized and split->inner() is serial, we
+      // remove split->outer() regardless of its position and replace
+      // split->inner() with split->in(). This way, even when split->outer() is
+      // not adjacent to split->inner() (e.g. when it's outermost), we can
+      // still undo the split.
+      //
+      // Several other cases that I haven't implemented for simplicity.
+      //
+      // When split->outer() is serial and split->inner() is parallelized, we
+      // could remove split->inner() and replace split->outer() with
+      // split->in() regardless of split->inner()'s position.
+      //
+      // When split->outer() and split->inner() are both parallelized, we could
+      // replace either of them with split->in() and remove the other.
+      //
+      // `markAliases` and hence `canonicalizeLayout` is called by schedulers
+      // after scheduling tensorviews. In such cases, it is possible for the
+      // allocation domain to have other parallel types. For example, we
+      // encounter this case when scheduling a reduction fusion: logical: [b, s,
+      // e] allocation/loop: [DIDx(d), b, s//d, e] `s//d` is parallelized on
+      // ParallelType::BIDx by the scheduler. Here, we can still revert the
+      // split by replacing s->inner() with s->in() and ignoring other parallel
+      // types.
+      NVF_ERROR(
+          !(split->inner()->isDeviceDim() || split->inner()->isStream()),
+          "Unexpected parallelization of ",
+          split->toString(),
+          " in ",
+          toDelimitedString(tv->getAllocationDomain()));
 
-    // When split->outer() is parallelized and split->inner() is serial, we
-    // remove split->outer() regardless of its position and replace
-    // split->inner() with split->in(). This way, even when split->outer() is
-    // not adjacent to split->inner() (e.g. when it's outermost), we can
-    // still undo the split.
-    //
-    // Several other cases that I haven't implemented for simplicity.
-    //
-    // When split->outer() is serial and split->inner() is parallelized, we
-    // could remove split->inner() and replace split->outer() with
-    // split->in() regardless of split->inner()'s position.
-    //
-    // When split->outer() and split->inner() are both parallelized, we could
-    // replace either of them with split->in() and remove the other.
-    //
-    // `markAliases` and hence `canonicalizeLayout` is called by schedulers
-    // after scheduling tensorviews. In such cases, it is possible for the
-    // allocation domain to have other parallel types. For example, we encounter
-    // this case when scheduling a reduction fusion: logical: [b, s, e]
-    // allocation/loop: [DIDx(d), b, s//d, e] `s//d` is parallelized on
-    // ParallelType::BIDx by the scheduler. Here, we can still revert the split
-    // by replacing s->inner() with s->in() and ignoring other parallel types.
-    NVF_ERROR(
-        !(split->inner()->isDeviceDim() || split->inner()->isStream()),
-        "Unexpected parallelization of ",
-        split->toString(),
-        " in ",
-        toDelimitedString(tv->getAllocationDomain()));
-
-    const auto [outer_contiguity, next_i] =
-        allocation_to_contiguity.erase(split->outer());
-    if (!split->outer()->isParallelized()) {
-      // Check adjacency only if split->outer() is not parallelized.
-      if (next_i == allocation_to_contiguity.end() ||
-          next_i->first != split->inner()) {
+      const auto [outer_contiguity, next_i] =
+          allocation_to_contiguity.erase(split->outer());
+      if (!split->outer()->isParallelized()) {
+        // Check adjacency only if split->outer() is not parallelized.
+        if (next_i == allocation_to_contiguity.end() ||
+            next_i->first != split->inner()) {
+          return std::nullopt;
+        }
+      }
+      const auto [inner_contiguity, merge_i] =
+          allocation_to_contiguity.erase(split->inner());
+      const auto [mergeable, contiguity] = mergeContiguity(
+          split->outer()->hasExpandedExtent(),
+          outer_contiguity,
+          split->inner()->hasExpandedExtent(),
+          inner_contiguity);
+      if (!mergeable) {
         return std::nullopt;
       }
+      allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
+      continue;
     }
-    const auto [inner_contiguity, merge_i] =
-        allocation_to_contiguity.erase(split->inner());
-    const auto [mergeable, contiguity] = mergeContiguity(
-        split->outer()->hasExpandedExtent(),
-        outer_contiguity,
-        split->inner()->hasExpandedExtent(),
-        inner_contiguity);
-    if (!mergeable) {
-      return std::nullopt;
-    }
-    allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
+    return std::nullopt;
   }
 
   std::vector<IterDomain*> canonicalized_allocation;

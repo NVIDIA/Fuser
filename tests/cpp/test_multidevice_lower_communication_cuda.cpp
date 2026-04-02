@@ -23,7 +23,7 @@
 #include "runtime/communication_executor.h"
 #include "runtime/fusion_executor_cache.h"
 #include "tests/cpp/multidevice.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -313,6 +313,166 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Broadcast) {
 
   EXPECT_TRUE(
       at::allclose(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
+}
+
+// Reduce: only kNccl and kMultimem implement Reduce; kMemcpy and kBatchedMemcpy
+// do not.
+TEST_P(LowerCollectiveCudaAndNcclTest, Reduce) {
+  const auto& [message_size_bytes, protocol_enum] = GetParam();
+  const int64_t message_size = message_size_bytes / sizeof(float);
+  const CommunicatorBackend backend_type = getBackend(protocol_enum);
+  const std::string protocol_str = getProtocolString(protocol_enum);
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  if (protocol_enum == CommunicationProtocol::kMemcpy ||
+      protocol_enum == CommunicationProtocol::kBatchedMemcpy) {
+    GTEST_SKIP() << "Reduce is not implemented for protocol " << protocol_str
+                 << "; skipping.";
+  }
+
+  if (!isMulticastSupported() &&
+      protocol_enum == CommunicationProtocol::kMultimem) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
+  if (message_size_bytes % 16 != 0 &&
+      protocol_enum == CommunicationProtocol::kMultimem) {
+    GTEST_SKIP() << "Multimem reduce requires size multiple of 16 bytes.";
+  }
+
+  if (message_size_bytes > 32LL * 1024 * 1024) {
+    GTEST_SKIP() << "Takes >30 seconds to run in CI: http://nv/e.)";
+  }
+
+  EnableOptionsGuard guard;
+  setupProtocolOptions(protocol_enum, guard);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = sum(in, {0});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  if (backend_type == CommunicatorBackend::kCuda) {
+    out->setMemoryType(MemoryType::Symmetric);
+  }
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  constexpr DeviceIdxType kRoot = 0;
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh({kRoot});
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, message_size}, tensor_options_);
+  const auto device_id = communicator_->deviceId();
+  at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = backend_type;
+  params.executor.use_allocation_cache = true;
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
+
+  at::Tensor out_tensor = runBenchmark(
+      executor,
+      {in_tensor},
+      message_size_bytes,
+      backend_type,
+      "Reduce/" + protocol_str,
+      1.0f);
+
+  if (device_id == kRoot) {
+    EXPECT_TRUE(at::allclose(
+        out_tensor,
+        unsharded_tensor.sum(0),
+        /*rtol=*/1e-3,
+        /*atol=*/1e-4));
+  }
+}
+
+// Allreduce: only kNccl and kMultimem implement Allreduce; kMemcpy and
+// kBatchedMemcpy do not.
+TEST_P(LowerCollectiveCudaAndNcclTest, Allreduce) {
+  const auto& [message_size_bytes, protocol_enum] = GetParam();
+  const int64_t message_size = message_size_bytes / sizeof(float);
+  const CommunicatorBackend backend_type = getBackend(protocol_enum);
+  const std::string protocol_str = getProtocolString(protocol_enum);
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  if (protocol_enum == CommunicationProtocol::kMemcpy ||
+      protocol_enum == CommunicationProtocol::kBatchedMemcpy) {
+    GTEST_SKIP() << "Allreduce is not implemented for protocol " << protocol_str
+                 << "; skipping.";
+  }
+
+  if (!isMulticastSupported() &&
+      protocol_enum == CommunicationProtocol::kMultimem) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
+  if (message_size_bytes % 16 != 0 &&
+      protocol_enum == CommunicationProtocol::kMultimem) {
+    GTEST_SKIP() << "Multimem allreduce requires size multiple of 16 bytes.";
+  }
+
+  if (message_size_bytes > 32LL * 1024 * 1024) {
+    GTEST_SKIP() << "Takes >5 seconds to run in CI: http://nv/e.)";
+  }
+
+  EnableOptionsGuard guard;
+  setupProtocolOptions(protocol_enum, guard);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = sum(in, {0});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  if (backend_type == CommunicatorBackend::kCuda) {
+    out->setMemoryType(MemoryType::Symmetric);
+  }
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, message_size}, tensor_options_);
+  at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = backend_type;
+  params.executor.use_allocation_cache = true;
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
+
+  at::Tensor out_tensor = runBenchmark(
+      executor,
+      {in_tensor},
+      message_size_bytes,
+      backend_type,
+      "Allreduce/" + protocol_str,
+      1.0f);
+
+  EXPECT_TRUE(at::allclose(
+      out_tensor,
+      unsharded_tensor.sum(0),
+      /*rtol=*/1e-3,
+      /*atol=*/1e-4));
 }
 
 namespace {

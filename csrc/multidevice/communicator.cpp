@@ -24,9 +24,9 @@
 #endif
 #endif
 
+#include "base.h"
 #include "cuda_utils.h"
 #include "options.h"
-#include "utils.h"
 
 namespace nvfuser {
 

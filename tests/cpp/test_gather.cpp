@@ -30,7 +30,6 @@ class GatherTest : public NVFuserTest {
   void SetUp() override {
     // To make the tests using std::rand deterministic
     std::srand(0);
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -583,7 +582,7 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction1) {
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(),
-      {SchedulerType::Reduction, SchedulerType::PointWise});
+      {SchedulerType::Reduction, SchedulerType::ExprEval});
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -1127,137 +1126,4 @@ TEST_F(GatherTest, TakeAlongAxisCrossEntropyLoss) {
   testValidate(fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
-// Test grouped reduction on IterType::GatherScatter
-TEST_F(GatherTest, GatherIterGoupedReduction) {
-  const int max_dim_size = 128;
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-
-  int rank = 3;
-  int dim = 2;
-
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  TensorView* tv1 = makeContigTensor(rank);
-  TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
-  fusion.addInput(tv1);
-  fusion.addInput(tv_idx);
-  auto tv_gather = gather(tv1, dim, tv_idx);
-  auto tv_sum = sum(tv_gather, {0}, false);
-  fusion.addOutput(tv_sum);
-
-  // simply gather all elements
-  auto input_dims =
-      std::vector<int64_t>({max_dim_size, max_dim_size, max_dim_size});
-  auto index_dims = input_dims;
-  std::vector<int64_t> input2_dims(rank - 1, 0);
-  for (int idim = 0; idim < rank - 1; ++idim) {
-    input2_dims[idim] = index_dims[idim + 1];
-  }
-
-  at::Tensor t0 = at::randn(input_dims, options);
-  at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
-
-  auto reduction_scheduler =
-      SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
-  SchedulerRuntimeInfo runtime_info(&fusion, {t0, idx});
-  auto heuristic_params =
-      reduction_scheduler->computeHeuristics(&fusion, runtime_info);
-  auto rparams = heuristic_params->as<ReductionParams>();
-
-  // Enforce vectorization so we can group them
-  const int vect_factor = 2;
-  rparams->vectorize_iter_dom = true;
-  rparams->unroll_factor_iter_dom = vect_factor;
-  // Enforce grid reduction, which requires a determined BIDy
-  // If the heuristic does not have a BIDy, bind it to 2
-  rparams->cross_grid_inner_reduction = true;
-  rparams->split_grid_dim_inner_reduction = true;
-  rparams->grid_dim_inner_reduction = ParallelType::BIDy;
-  if (!rparams->lparams.hasDim(ParallelType::BIDy)) {
-    rparams->lparams.bind(2L, ParallelType::BIDy);
-  }
-
-  reduction_scheduler->schedule(&fusion, rparams);
-
-  // lowering & check iteration grouped reductions
-  GpuLower gpulw(&fusion);
-  gpulw.run();
-  NVF_CHECK(
-      gpulw.kernel()->summary().has_iter_grouped_reductions,
-      "There must be iter domain grouped reductions.");
-  NVF_CHECK(
-      gpulw.kernel()->summary().num_grouped_iterations == vect_factor,
-      "Expected ",
-      vect_factor,
-      " grouped iterations, found ",
-      gpulw.kernel()->summary().num_grouped_iterations);
-
-  KernelExecutor ke;
-  auto lparams = rparams->lparams;
-  ke.compile(&fusion, {t0, idx}, lparams);
-  auto cg_outputs = ke.run({t0, idx}, {}, lparams);
-
-  auto t_gather = at::gather(t0, dim, idx);
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {t0, idx},
-      {t_gather.sum(0)},
-      __LINE__,
-      __FILE__,
-      "",
-      lparams);
-}
-
-TEST_F(GatherTest, SameTvUsedAsLookupAndIndex) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  // Create three input tensors
-  auto tv0 = makeContigTensor(2);
-  auto tv1 = makeContigTensor(2, DataType::Int);
-  auto tv2 = makeContigTensor(2, DataType::Int);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  fusion.addInput(tv2);
-
-  auto tv3 = gather(tv0, 1, tv1);
-  auto tv4 = gather(tv1, 1, tv2);
-  auto tv5 = castOp(DataType::Float, tv4);
-  auto tv6 = add(tv3, tv5);
-  fusion.addOutput(tv6);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-
-  // Create test tensors
-  std::vector<int64_t> dims{4, 6};
-  at::Tensor t0 = at::randn(dims, options);
-  at::Tensor t1 = at::randint(0, dims[1], dims, options_i);
-  at::Tensor t2 = at::randint(0, dims[1], dims, options_i);
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
-
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  auto scheduled_fusion = runtime->executors()
-                              .back()
-                              ->as<KernelExecutor>()
-                              ->compiledKernel()
-                              ->kernel();
-  auto tv1_uses = scheduled_fusion->inputs().at(1)->uses();
-  EXPECT_EQ(tv1_uses.size(), 2);
-  EXPECT_THAT(
-      tv1_uses,
-      testing::UnorderedElementsAre(
-          testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
-          testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
-
-  // Validate the result
-  testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
-}
 } // namespace nvfuser

@@ -9,7 +9,6 @@
 #include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <val_graph.h>

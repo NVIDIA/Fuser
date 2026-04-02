@@ -17,19 +17,13 @@
 #include "preseg_passes/mark_aliases_prepare.h"
 #include "runtime/executor.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
 using testing::ElementsAre;
 
-class AllocationOrderInferenceTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using AllocationOrderInferenceTest = NVFuserTest;
 
 std::vector<int64_t> getAllocationOrder(TensorView* tv) {
   std::optional<std::vector<int64_t>> permutation =
@@ -352,12 +346,12 @@ TEST_F(AllocationOrderInferenceTest, QkvSplitSdpaForward) {
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/nullptr);
   fusion.addOutput(outs.output);
-  fusion.addOutput(outs.log_sumexp);
+  fusion.addOutput(outs.logsumexp);
 
   OptimizationPass<preseg_passes::MarkAliasesPreparePass>::runPass(&fusion);
   OptimizationPass<preseg_passes::AllocationDomainPass>::runPass(&fusion);
   EXPECT_THAT(getAllocationOrder(outs.output), ElementsAre(0, 2, 1, 3));
-  EXPECT_THAT(getAllocationOrder(outs.log_sumexp), ElementsAre(0, 1, 2));
+  EXPECT_THAT(getAllocationOrder(outs.logsumexp), ElementsAre(0, 1, 2));
 }
 
 TEST_F(AllocationOrderInferenceTest, SdpaBackward) {

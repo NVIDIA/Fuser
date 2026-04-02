@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <compute_at_map.h>
-
 #include <unordered_set>
 #include <vector>
+
+#include "compute_at_map.h"
 
 namespace nvfuser {
 

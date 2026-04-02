@@ -5,56 +5,28 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/id_model.h>
-#include <id_model/loop_promotion.h>
-#include <id_model/to_string.h>
-#include <id_model/transform_replay.h>
-#include <id_model/utils.h>
-#include <id_model/validation_utils.h>
-
-#include <device_lower/analysis/circular_buffer.h>
-#include <device_lower/analysis/trivial_broadcast.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
-#include <disjoint_set.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <logical_domain_map.h>
-#include <transform_iter.h>
-#include <val_graph_visitor.h>
+#include "id_model/id_model.h"
 
 #include <memory>
 #include <tuple>
 #include <utility>
 
+#include "device_lower/analysis/circular_buffer.h"
+#include "device_lower/lower2device.h"
+#include "device_lower/utils.h"
+#include "disjoint_set.h"
+#include "expr_simplifier.h"
+#include "id_model/loop_promotion.h"
+#include "id_model/to_string.h"
+#include "id_model/transform_replay.h"
+#include "id_model/utils.h"
+#include "id_model/validation_utils.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "logical_domain_map.h"
+#include "transform_iter.h"
+
 namespace nvfuser {
-
-namespace {
-
-// Map through loop swizzles, as input/output IterDomains are exact, only the
-// order they're traversed differs.
-void mapThroughLoopSwizzles(ValGraph& graph) {
-  std::vector<Swizzle2D*> all_swizzles;
-
-  for (const auto& expr_set :
-       std::as_const(graph).disjointExprSets().disjointSets()) {
-    auto swizzles_in_expr_set = ir_utils::filterByType<Swizzle2D>(
-        expr_set->vector().begin(), expr_set->vector().end());
-    all_swizzles.insert(
-        all_swizzles.end(),
-        swizzles_in_expr_set.begin(),
-        swizzles_in_expr_set.end());
-  }
-
-  for (auto swizzle : all_swizzles) {
-    if (swizzle->swizzleMode() == SwizzleMode::Loop) {
-      graph.mapVals(swizzle->inX(), swizzle->outX());
-      graph.mapVals(swizzle->inY(), swizzle->outY());
-    }
-  }
-}
-
-} // namespace
 
 void IdModel::assertNoSelfMapping(const ValGraph& graph) const {
   for (TensorView* tv : tvs_) {
@@ -85,14 +57,10 @@ IdModel::IdModel(
     : allow_self_mapping_(allow_self_mapping),
       loop_promotion_map_builder_callback_(
           loop_promotion_map_builder_callback) {
-  std::copy_if(
-      exprs.begin(),
-      exprs.end(),
-      std::back_inserter(tv_exprs_),
-      [](Expr* expr) {
-        NVF_ERROR(expr != nullptr);
-        return ir_utils::isTvOp(expr);
-      });
+  std::ranges::copy_if(exprs, std::back_inserter(tv_exprs_), [](Expr* expr) {
+    NVF_ERROR(expr != nullptr);
+    return ir_utils::isTvOp(expr);
+  });
 
   auto all_tvs = ir_utils::allTvsOfExprs(tv_exprs_);
   all_tvs.pushBack(additional_tvs.begin(), additional_tvs.end());
@@ -123,11 +91,8 @@ IdModel::IdModel(
       loop_promotion_map_builder_callback_(
           loop_promotion_map_builder_callback) {
   auto all_exprs = fusion->exprs();
-  std::copy_if(
-      all_exprs.begin(),
-      all_exprs.end(),
-      std::back_inserter(tv_exprs_),
-      [](Expr* expr) {
+  std::ranges::copy_if(
+      all_exprs, std::back_inserter(tv_exprs_), [](Expr* expr) {
         NVF_ERROR(expr != nullptr);
         return ir_utils::isTvOp(expr);
       });
@@ -187,8 +152,7 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         // domain is marked as an rfactor product and is in the rfactor
         // domain, it's a view like rfactor iteration domain
         const auto& logical_domain = tv->domain()->logical();
-        if (std::find(logical_domain.begin(), logical_domain.end(), id) !=
-            logical_domain.end()) {
+        if (std::ranges::find(logical_domain, id) != logical_domain.end()) {
           view_rfactor_ids_.emplace(id);
         }
       }
@@ -211,13 +175,10 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
       // not include the definition in the model. Note that it is
       // possible that some are included but not all since a single ID
       // may be used by multiple exprs.
-      if (std::any_of(
-              def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
-                return std::find(
-                           all_ids.begin(),
-                           all_ids.end(),
-                           inp->as<IterDomain>()) == all_ids.end();
-              })) {
+      if (std::ranges::any_of(def->inputs(), [&](Val* inp) {
+            return std::ranges::find(all_ids, inp->as<IterDomain>()) ==
+                all_ids.end();
+          })) {
         continue;
       }
 
@@ -247,10 +208,10 @@ std::string IdModel::toString() const {
     ss << "  Disjoint Ids:\n"
        << idGroupsString(idGraph(mode), 2)
        << "\n  Disjoint Expression groups:\n"
-       << exprGroupsString(idGraph(mode), 2) << std::endl;
-    ss << "   } IdGraph\n" << std::endl;
+       << exprGroupsString(idGraph(mode), 2) << '\n';
+    ss << "   } IdGraph\n" << '\n';
   }
-  ss << " } IterDomainGraphs\n" << std::endl;
+  ss << " } IterDomainGraphs\n" << '\n';
   return ss.str();
 }
 
@@ -267,10 +228,9 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
     all_ids.push_back(id);
   }
 
-  std::sort(
-      all_ids.begin(), all_ids.end(), [](IterDomain* id1, IterDomain* id2) {
-        return id1->name() < id2->name();
-      });
+  std::ranges::sort(all_ids, [](IterDomain* id1, IterDomain* id2) {
+    return id1->name() < id2->name();
+  });
 
   for (auto id : all_ids) {
     auto uses_it = id_uses_.find(id);
@@ -419,9 +379,6 @@ ValGraph& IdModel::buildExactGraph() {
         }
       }
     }
-
-    // TODO: Revisit if we really should map domains in the exact map
-    mapThroughLoopSwizzles(graph);
   }
 
   // Map additional exact mappings if registered. Only map those that
@@ -521,14 +478,128 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
         }
       }
     }
-  } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
-    if (swizzle->swizzleType() == Swizzle2DType::NoSwizzle ||
-        swizzle->swizzleMode() == SwizzleMode::NoSwizzle) {
-      mapped_ids.push_back({swizzle->inX(), swizzle->outX()});
-      mapped_ids.push_back({swizzle->inY(), swizzle->outY()});
-    }
   }
   return mapped_ids;
+}
+
+// True when expr simplification proves split->isDivisible().
+bool isDivisible(Split* split) {
+  return simplifyExpr(split->isDivisible())->isTrue();
+}
+
+// The following is a subpattern of
+// https://github.com/NVIDIA/Fuser/blob/main/doc/reading/iterdomain.md#2-properties-of-iterdomain-transformations
+//
+// outer, _ = split(root)
+// outermost_grand, _ = split(outer)
+// outer', _ = split(root)
+//
+// If outermost_grand and outer' have the same extent, map them.
+// The splits must be divisible for this mapping to be valid.
+void mapDivisibleSplits(ValGraph& graph) {
+  std::vector<std::pair<Val*, Val*>> ids_to_map;
+  for (const ValGroup& root : graph.disjointValSets().disjointSets()) {
+    const ExprGroups& uses_of_root = graph.getUses(root);
+    std::vector<ValGroup> outermost_grands;
+    for (const ExprGroup& use_of_root : uses_of_root) {
+      auto* split0 = dynamic_cast<Split*>(use_of_root->front());
+      if (split0 == nullptr || !isDivisible(split0)) {
+        continue;
+      }
+      // Only follow the outer output of the first split; outer and inner
+      // must not be conflated.
+      const ValGroup& outer = graph.toGroup(split0->outer());
+      for (const ExprGroup& use_of_outer : graph.getUses(outer)) {
+        auto* split1 = dynamic_cast<Split*>(use_of_outer->front());
+        if (split1 == nullptr || !isDivisible(split1)) {
+          continue;
+        }
+        const ValGroup& outermost_grand = graph.toGroup(split1->outer());
+        outermost_grands.push_back(outermost_grand);
+      }
+    }
+
+    for (const ValGroup& outermost_grand : outermost_grands) {
+      Val* extent_of_grand =
+          outermost_grand->front()->as<IterDomain>()->extent();
+
+      for (const ExprGroup& use_of_root : uses_of_root) {
+        auto* split = dynamic_cast<Split*>(use_of_root->front());
+        if (split == nullptr || !isDivisible(split)) {
+          continue;
+        }
+
+        const ValGroup& outer = graph.toGroup(split->outer());
+        if (outer->front()->as<IterDomain>()->extent()->sameAs(
+                extent_of_grand)) {
+          ids_to_map.emplace_back(outermost_grand->front(), outer->front());
+        }
+      }
+    }
+  }
+
+  for (const auto& [id1, id2] : ids_to_map) {
+    graph.mapVals(id1, id2);
+  }
+}
+
+void mapDivisibleMergeSplits(ValGraph& graph) {
+  std::vector<std::pair<Val*, Val*>> ids_to_map;
+  // Given
+  //
+  //              merge_outer    merge_inner
+  //                   \        /
+  //                     [merge]
+  //                       |
+  //                    merge_out
+  //                       |
+  //                [split_merge]
+  //                 /        \.
+  // split_merge->outer()    split_merge->inner()
+  //
+  // and
+  //
+  //                merge_outer
+  //                     |
+  //               [split_outer]
+  //                   /   \.
+  // split_outer->outer() split_outer->inner()
+  //
+  // map split_merge->outer() and split_outer->outer() under certain
+  // divisibility conditions.
+  for (const ExprGroup& merge_group : graph.disjointExprSets().disjointSets()) {
+    auto* merge = dynamic_cast<Merge*>(merge_group->front());
+    if (merge == nullptr) {
+      continue;
+    }
+
+    const ValGroup& merge_out_group = graph.toGroup(merge->out());
+    for (const ExprGroup& split_merge_group : graph.getUses(merge_out_group)) {
+      auto* split_merge = dynamic_cast<Split*>(split_merge_group->front());
+      if (split_merge == nullptr || !isDivisible(split_merge) ||
+          split_merge->innerSplit()) {
+        continue;
+      }
+
+      const ValGroup& merge_outer_group = graph.toGroup(merge->outer());
+      for (const ExprGroup& split_outer_group :
+           graph.getUses(merge_outer_group)) {
+        auto* split_outer = dynamic_cast<Split*>(split_outer_group->front());
+        if (split_outer == nullptr || !isDivisible(split_outer) ||
+            split_outer->innerSplit()) {
+          continue;
+        }
+        if (!split_merge->factor()->sameAs(split_outer->factor())) {
+          continue;
+        }
+        ids_to_map.emplace_back(split_merge->outer(), split_outer->outer());
+      }
+    }
+  }
+
+  for (const auto& [id1, id2] : ids_to_map) {
+    graph.mapVals(id1, id2);
+  }
 }
 
 } // namespace
@@ -589,6 +660,9 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   for (const auto& [id1, id2] : ids_to_map) {
     almost_exact_graph.mapVals(id1, id2);
   }
+
+  mapDivisibleSplits(almost_exact_graph);
+  mapDivisibleMergeSplits(almost_exact_graph);
 
   almost_exact_graph.validateConsistency();
 
@@ -821,7 +895,7 @@ void buildAsyncWarpInliningInfo(
   std::vector<AsyncWarp> async_warps = createAsyncWarps(exprs);
 
   // short-circuit: no async operations detected.
-  if (async_warps.size() == 0) {
+  if (async_warps.empty()) {
     return;
   }
   NVF_ERROR(
@@ -1141,13 +1215,10 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
 
   // Replace the provided inputs with IterType::Iteration domains as
   // reduction domains cannot be merged with non-reduction domains.
-  if (std::any_of(
-          new_inputs.begin(),
-          new_inputs.end(),
-          [](IterDomain* id) { return id->isReduction(); }) &&
-      std::any_of(new_inputs.begin(), new_inputs.end(), [](IterDomain* id) {
-        return !id->isReduction();
-      })) {
+  if (std::ranges::any_of(
+          new_inputs, [](IterDomain* id) { return id->isReduction(); }) &&
+      std::ranges::any_of(
+          new_inputs, [](IterDomain* id) { return !id->isReduction(); })) {
     // Inputs have mismatched type, replace new_inputs
     auto tmp_inputs = new_inputs;
     for (const auto i : arange(new_inputs.size())) {
@@ -1303,13 +1374,6 @@ void IdModel::validateAndPropagatePType() {
       for (auto expr : id->uses()) {
         if (auto merge = dynamic_cast<Merge*>(expr);
             merge != nullptr && loop_group->has(merge->out())) {
-          not_a_loop_domain = true;
-          break;
-        }
-        // This is another case of input-output mappings
-        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(expr);
-            swizzle2d != nullptr &&
-            swizzle2d->swizzleMode() == SwizzleMode::Loop) {
           not_a_loop_domain = true;
           break;
         }

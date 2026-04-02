@@ -6,21 +6,23 @@
  */
 // clang-format on
 
+#include "scheduler/reduction_non_tma.h"
+
 #include <ATen/cuda/CUDAContext.h>
-#include <debug.h>
-#include <instrumentation.h>
-#include <multidevice/utils.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/mark_aliases.h>
-#include <scheduler/reduction.h>
-#include <scheduler/reduction_non_tma.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
+
+#include "debug.h"
+#include "instrumentation.h"
+#include "multidevice/utils.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/mark_aliases.h"
+#include "scheduler/reduction.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/domain_map.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "scheduler/vectorize_helper.h"
 
 namespace nvfuser {
 namespace reduction {

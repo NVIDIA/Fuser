@@ -7,8 +7,8 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
 #include "device_lower/lower2device.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
@@ -17,7 +17,7 @@
 #include "runtime/executor.h"
 #include "runtime/executor_utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -43,7 +43,6 @@ class SgLangMoETest : public NVFuserFixtureParamTest<MoEConfig> {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
     std::tie(
         num_experts, num_tokens, topk, rounding_factor, manual_scheduling) =

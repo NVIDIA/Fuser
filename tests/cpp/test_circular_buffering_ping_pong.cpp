@@ -13,7 +13,7 @@
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -54,7 +54,9 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   }
 
   constexpr int64_t dim1 = 128;
-  constexpr int64_t stages = 6;
+  // When stage_slice_position is 4, all rows and warp groups are decoupled,
+  // which means we need at least rows_per_stage * compute_warp_groups mbarriers
+  constexpr int64_t stages = rows_per_stage * compute_warp_groups;
 
   TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
   fusion->addInput(tv0);
@@ -329,7 +331,6 @@ TEST_P(SiblingPingPongCircularBuffering, TwoTmaLoads) {
 
   auto [use_id_model, stage_slice_position] = GetParam();
   if (use_id_model) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();

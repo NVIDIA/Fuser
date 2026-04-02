@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <type.h>
+#include "type.h"
 
 namespace nvfuser {
 namespace scheduler_tools {

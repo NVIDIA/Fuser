@@ -314,8 +314,8 @@ class WelfordVectorizer : public kir::ExprMutator {
   kir::VectorizedWelfordOp* applyVectorizeTransformation(
       WelfordOp* wop,
       Val* pred) {
-    DataType data_type = wop->outAvg()->getDataType().value();
-    DataType index_type = wop->outN()->getDataType().value();
+    DataType data_type = wop->outAvg()->getDataType();
+    DataType index_type = wop->outN()->getDataType();
 
     bool is_predicated = pred != nullptr;
     if (!is_predicated) {

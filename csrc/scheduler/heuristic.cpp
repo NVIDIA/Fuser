@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/heuristic.h>
+#include "scheduler/heuristic.h"
 
-#include <fusion.h>
-#include <scheduler/registry.h>
-#include <scheduler/runtime_info.h>
+#include "fusion.h"
+#include "scheduler/registry.h"
+#include "scheduler/runtime_info.h"
 
 namespace nvfuser {
 HeuristicParamsList::HeuristicParamsList(

@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <runtime/fusion_cache_utils.h>
+#include "runtime/fusion_cache_utils.h"
 
 #include <unordered_set>
 
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <polymorphic_value.h>
-#include <runtime/executor_kernel_arg.h>
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "polymorphic_value.h"
+#include "runtime/executor_kernel_arg.h"
 
 namespace nvfuser {
 
@@ -147,66 +147,6 @@ void ArgumentManager::setLastUsedSegmentID(
     for (auto item : last_used_segment_map) {
       vals_last_used_at_segment_[item.second].push_back(item.first);
     }
-  }
-}
-
-flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
-    flatbuffers::FlatBufferBuilder& builder) const {
-  // See definitions in serde/fusion_cache.fbs for table
-  // InputsIdLookup and struct EncodingEntry
-
-  using fb_string = flatbuffers::Offset<flatbuffers::String>;
-
-  // For serialization, we require a consistent ordering for the
-  // encoding_lookup_ map.
-  std::unordered_map<std::string, size_t> str_key_ordering;
-
-  // 1. Serialize used_entry_ list
-  std::vector<fb_string> lru_cache_fb;
-  for (const auto& str : used_entry_) {
-    lru_cache_fb.push_back(builder.CreateString(str));
-    str_key_ordering.emplace(str, str_key_ordering.size());
-  }
-
-  // 2. Serialize encoding_lookup_ map
-  std::vector<fb_string> encoding_lookup_keys_fb;
-  std::vector<serde::EncodingEntry> encoding_lookup_values_fb;
-  for (auto&& [key, value] : encoding_lookup_) {
-    encoding_lookup_keys_fb.push_back(builder.CreateString(key));
-    encoding_lookup_values_fb.emplace_back(value.id, str_key_ordering.at(key));
-  }
-
-  return serde::CreateInputsIdLookupDirect(
-      builder,
-      max_cache_size_,
-      current_id_,
-      &lru_cache_fb,
-      &encoding_lookup_keys_fb,
-      &encoding_lookup_values_fb);
-}
-
-void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
-  // See definitions in serde/fusion_cache.fbs for tables
-  // InputsIdLookup and EncodingEntry
-  NVF_ERROR(buffer != nullptr, "serde::InputsIdLookup is nullptr.");
-  using list_iter = std::list<std::string>::iterator;
-  std::vector<list_iter> used_entry_iterators;
-
-  max_cache_size_ = buffer->max_cache_size();
-  current_id_ = buffer->current_id();
-  for (auto fb_str : *buffer->lru_cache()) {
-    used_entry_.emplace_back(fb_str->str());
-    used_entry_iterators.emplace_back(std::prev(used_entry_.end()));
-  }
-
-  for (auto idx : arange(buffer->encoding_lookup_keys()->size())) {
-    auto fb_encoding_lookup_str = buffer->encoding_lookup_keys()->Get(idx);
-    auto fb_encoding_entry = buffer->encoding_lookup_values()->Get(idx);
-
-    EncodingEntry entry{
-        fb_encoding_entry->id(),
-        used_entry_iterators.at(fb_encoding_entry->lru_iter())};
-    encoding_lookup_.emplace(fb_encoding_lookup_str->str(), entry);
   }
 }
 

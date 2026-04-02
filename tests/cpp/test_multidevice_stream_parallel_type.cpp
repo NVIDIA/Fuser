@@ -5,13 +5,14 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include "driver_api.h"
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
 #include "host_ir/ir.h"
 #include "ir/all_nodes.h"
-#include "multidevice/communication.h"
 #include "multidevice/execution_utils.h"
+#include "multidevice/post_communication.h"
 #include "ops/all_ops.h"
 #include "preseg_passes/reorder_sharded_axis.h"
 #include "tests/cpp/multidevice.h"
@@ -21,7 +22,18 @@ namespace nvfuser {
 
 using testing::ElementsAre;
 
-using MultiDeviceStreamParallelTypeTest = MultiDeviceTest;
+class MultiDeviceStreamParallelTypeTest : public MultiDeviceTest {
+ protected:
+  bool isMulticastSupported() {
+    const int64_t local_rank = communicator_->local_rank();
+    int is_multicast_supported = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &is_multicast_supported,
+        CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+        static_cast<int>(local_rank)));
+    return is_multicast_supported != 0;
+  }
+};
 
 TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
@@ -398,7 +410,7 @@ class StreamParallelBackendTest : public MultiDeviceStreamParallelTypeTest,
                                       std::tuple<bool, CommunicatorBackend>> {};
 
 TEST_P(StreamParallelBackendTest, AllgatherP2p) {
-  constexpr int64_t kTensorSize = 2 * 1024 * 1024;
+  constexpr int64_t kTensorSize = 2LL * 1024 * 1024;
 
   // set the protocol to batch_memcpy to avoid relying on multicast support
   EnableOptionsGuard guard;
@@ -535,6 +547,75 @@ INSTANTIATE_TEST_SUITE_P(
       return p2p + "_" + backend;
     });
 
+namespace {
+bool containsConditionalSynchronize(const Expr* expr) {
+  if (auto* ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
+    for (auto* e : ite->thenBody().exprs()) {
+      if (e->isA<hir::Synchronize>()) {
+        return true;
+      }
+      if (containsConditionalSynchronize(e)) {
+        return true;
+      }
+    }
+    for (auto* e : ite->elseBody().exprs()) {
+      if (containsConditionalSynchronize(e)) {
+        return true;
+      }
+    }
+  }
+
+  if (auto* for_loop = dynamic_cast<const kir::ForLoop*>(expr)) {
+    for (auto* e : for_loop->body().exprs()) {
+      if (containsConditionalSynchronize(e)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+} // namespace
+
+TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherInterStreamSyncNoWrap) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeContigTensor(3); //[DIDx(D), M/D, K]
+  TensorView* tv1 = makeContigTensor(2); //[K, N]
+  TensorView* tv2 = matmul(tv0, tv1); //[Stream(D), M/D, N]
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+  tv2->setDeviceMesh(mesh);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv2->axis(0)->parallelize(ParallelType::Stream);
+
+  MultiDeviceExecutorParams params;
+  params.lower.offset_stream_indexing_by_rank = true;
+  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.lower.inter_stream_synchronization = true;
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
+
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  bool found = false;
+  for (auto* expr : container.topLevelExprs()) {
+    if (containsConditionalSynchronize(expr)) {
+      found = true;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(found)
+      << "Expected conditional inter-stream synchronize in lowered Host IR.";
+}
+
 class RSMatmulTest : public MultiDeviceStreamParallelTypeTest,
                      public testing::WithParamInterface<CommunicatorBackend> {};
 
@@ -544,6 +625,11 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
   constexpr int64_t K = 8;
   constexpr int64_t N = 2;
   constexpr int64_t S = 4;
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
   const int64_t D = communicator_->size();
   if (M % (S * D) != 0) {
     GTEST_SKIP() << "M must be a multiple of S * D, but got M = " << M
@@ -594,7 +680,7 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
 
   MultiDeviceExecutorParams params;
   params.lower.communicator_backend = communicator_backend;
-  params.lower.offset_stream_indexing_by_rank = true;
+  params.lower.offset_stream_indexing_by_rank = true; // Will fail if false
   MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
 
   auto tensor_options =
@@ -613,6 +699,94 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
   auto t2_ref = shardTensor1D(t2_unreduced, /*axis=*/0, mesh); // {M / D, N}
   EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-1, 1e-1))
       << "Output: " << t2 << " Expected: " << t2_ref;
+}
+
+// The difference between this test and the previous one is that this test
+// is resharding on the sum instead of the matmul.
+// TODO: support both true/false for params.lower.offset_stream_indexing_by_rank
+// in both fusions
+TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
+  CommunicatorBackend communicator_backend = GetParam();
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 64;
+  constexpr int64_t N = 64;
+  constexpr int64_t S = 4;
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  const int64_t D = communicator_->size();
+
+  if (M % (S * D) != 0) {
+    GTEST_SKIP() << "M must be a multiple of S * D, but got M = " << M
+                 << ", S = " << S << ", D = " << D;
+  }
+  if (K % D != 0) {
+    GTEST_SKIP() << "K must be a multiple of D, but got K = " << K
+                 << ", D = " << D;
+  }
+  if (communicator_backend == CommunicatorBackend::kCuda) {
+    if (!isMulticastSupported()) {
+      GTEST_SKIP() << "Device does not support Multicast; skipping.";
+    }
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"multimem"});
+  }
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::InsertReshardingAfter);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Only the reduced dimension (D) is actually sharded, M is split logically
+  // for convenience
+  TensorView* A = makeContigTensor(4); // [DIDx(D), Stream(D), M/D, K/D]
+  TensorView* B = makeContigTensor(4); // [DIDx(D), 1, K/D, N]
+  TensorView* C_unreduced = matmul(A, B); // [DIDx(D), Stream(D), M/D, N]
+  TensorView* C = sum(C_unreduced, {0}); // [Stream(r(D)), DIDx(D), M/D, N]
+
+  fusion->addInput(A);
+  fusion->addInput(B);
+  fusion->addOutput(C);
+
+  auto mesh = DeviceMesh::createForNumDevices(D);
+  A->setDeviceMesh(mesh);
+  B->setDeviceMesh(mesh);
+  C_unreduced->setDeviceMesh(mesh);
+  C->setDeviceMesh(mesh);
+
+  A->axis(0)->parallelize(ParallelType::DIDx);
+  A->axis(1)->parallelize(ParallelType::Stream);
+  B->axis(0)->parallelize(ParallelType::DIDx);
+  C_unreduced->axis(1)->parallelize(ParallelType::Stream);
+  C_unreduced->axis(0)->parallelize(ParallelType::DIDx);
+  C->axis(1)->parallelize(ParallelType::DIDx);
+  C->axis(0)->parallelize(ParallelType::Stream);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = communicator_backend;
+  params.lower.offset_stream_indexing_by_rank = false; // Will fail if true
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
+
+  auto tensor_options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  auto A_unsharded = at::randn({D, D, M / D, K / D}, tensor_options);
+  auto B_unsharded = at::randn({D, 1, K / D, N}, tensor_options);
+  auto A_sharded = shardTensor1D(A_unsharded, /*axis=*/0, mesh);
+  auto B_sharded = shardTensor1D(B_unsharded, /*axis=*/0, mesh);
+
+  auto C_out =
+      executor.runWithInput({A_sharded, B_sharded})[0].as<at::Tensor>();
+
+  auto C_unreduced_unsharded =
+      at::matmul(A_unsharded, B_unsharded); // {D, D, M / D, N}
+  auto C_reduced_unsharded =
+      at::sum(C_unreduced_unsharded, {0}); // {D, M / D, N}
+  auto C_ref =
+      shardTensor1D(C_reduced_unsharded, /*axis=*/0, mesh); // {M / D, N}
+  EXPECT_TRUE(at::allclose(C_ref, C_out, 1e-1, 1e-1))
+      << "Output: " << C_out << " Expected: " << C_ref;
 }
 
 INSTANTIATE_TEST_SUITE_P(

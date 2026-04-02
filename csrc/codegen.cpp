@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <ranges>
 #include <sstream>
 #include <vector>
@@ -22,7 +23,7 @@
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <type.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 namespace codegen {
@@ -580,10 +581,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Check if the current scope is aligned, i.e., guaranteed to cause
   //! no thread divergence
   bool isAligned() const {
-    return std::all_of(
-        aligned_scope_exprs_.begin(), aligned_scope_exprs_.end(), [](bool b) {
-          return b;
-        });
+    return std::ranges::all_of(aligned_scope_exprs_, std::identity());
   }
 
   std::ostream& indent() {
@@ -748,12 +746,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsGridRawSync(ti->view())) {
-      code_ << "*(volatile " << ti->getDataType().value() << "*)&";
+      code_ << "*(volatile " << ti->getDataType() << "*)&";
     }
 
     const bool different_dtype = ti->view()->dtype() != ti->dtype();
     if (different_dtype) {
-      code_ << "(*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
+      code_ << "(*reinterpret_cast<" << ti->getDataType() << "*>(&";
     }
     code_ << genVariableName(ti->view()) << "[" << genInline(ti->index())
           << "]";
@@ -975,10 +973,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       if (integer_op_str(op_type) && isIntegralType(data_type)) {
         auto int_op = integer_op_str(op_type);
-        expr << *int_op;
+        expr << valueOrError(int_op);
       } else if (bool_op_str(op_type) && isBooleanType(data_type)) {
         auto bool_op = bool_op_str(op_type);
-        expr << *bool_op;
+        expr << valueOrError(bool_op);
       } else {
         expr << op_type;
         if (needFloatSuffix(op_type) && data_type == DataType::Float) {
@@ -1133,11 +1131,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         } else {
           if (integer_op_str(op_type) && isIntegralType(bop->out()->dtype())) {
             auto int_op = integer_op_str(op_type);
-            code_ << " = " << *int_op << "(\n";
+            code_ << " = " << valueOrError(int_op) << "(\n";
           } else if (
               bool_op_str(op_type) && isBooleanType(bop->out()->dtype())) {
             auto bool_op = bool_op_str(op_type);
-            code_ << " = " << *bool_op << "(\n";
+            code_ << " = " << valueOrError(bool_op) << "(\n";
           } else {
             std::stringstream op_str;
             op_str << op_type;
@@ -1200,9 +1198,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             } else {
               // Note: currently arraySet option is not vectorized, so it will
               //  rely on auto vectorization pass of cuda compiler.
-              code_ << "arraySet<" << out_tv->getDataType().value() << ", "
+              code_ << "arraySet<" << out_tv->getDataType() << ", "
                     << vector_word_size << ">(&" << gen(top->out()) << ", ("
-                    << out_tv->getDataType().value() << ")" << gen(in) << ")";
+                    << out_tv->getDataType() << ")" << gen(in) << ")";
             }
           } else {
             generateVectorizedLdSt(
@@ -1814,7 +1812,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // 4, or 8 for Half. We achieve this by having the quantized output tv
     // scheduled to have the inner dimension grouped by 2/4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
-    auto output_dtype = output->getDataType();
+    bool is_mxfp8_output = output->getDataType() == DataType::Float8_e4m3fn;
 
     // Extract group size from the loop domain
     int64_t group_size = 1;
@@ -1829,7 +1827,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Validate group size based on input data type
     const auto input_dtype =
-        bqop->in()->as<kir::TensorIndex>()->view()->getDataType().value();
+        bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
     const bool is_half_precision =
         (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half);
     const bool is_valid_group_size = is_half_precision
@@ -1837,7 +1835,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         : (group_size == 2 || group_size == 4);
 
     NVF_ERROR(
-        is_valid_group_size,
+        is_mxfp8_output || is_valid_group_size,
         "Group size should be ",
         is_half_precision ? "2, 4 or 8" : "2 or 4",
         " for BlockQuantizationOp with input type ",
@@ -1850,7 +1848,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Build template arguments
     ArgumentBuilder template_args;
     // No global scale is required when quantizing to mxfp8
-    if (output_dtype == DataType::Float4_e2m1fn) {
+    if (!is_mxfp8_output) {
       template_args.arg(bqop->hasGlobalScale());
     }
     template_args.arg(group_size); // ITEMS_PER_THREAD
@@ -1864,7 +1862,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         bqop->blockScales()->as<kir::TensorIndex>()->view())); // block scales
     func_args.arg(genInline(
         bqop->attributeVal(0))); // linearized index for runtime function
-    if (output_dtype == DataType::Float4_e2m1fn) {
+    if (!is_mxfp8_output) {
       func_args.arg(
           bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");
     }
@@ -1890,12 +1888,132 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    auto fn_call = output_dtype == DataType::Float4_e2m1fn
-        ? "bq::block_quantize_to_nvfp4"
-        : "bq::block_quantize_to_mxfp8";
+    auto fn_call = is_mxfp8_output ? "bq::block_quantize_to_mxfp8"
+                                   : "bq::block_quantize_to_nvfp4";
 
     // Generate the function call
     indent() << genCall(fn_call, template_args, func_args) << ";\n";
+  }
+
+  // Special handling of GroupedBlockQuantizationOp to call the runtime
+  // function.
+  void handle(const GroupedBlockQuantizationOp* grouped_bqop) final {
+    // This operator is plumbed down to a runtime function call.
+    // One of the assumptions is that the device runtime expects
+    // n consecutive inputs per thread. Where n can be 2 or 4 for Float, and 2,
+    // 4, or 8 for Half. We achieve this by having the quantized output tv
+    // scheduled to have the inner dimension grouped by 2/4/8.
+    auto output =
+        grouped_bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
+    auto output_dtype = output->getDataType();
+
+    // Extract group size from the loop domain
+    int64_t group_size = 1;
+    const auto& loop_domain = output->getLoopDomain();
+    for (const auto* domain : loop_domain) {
+      if (domain->getParallelType() == ParallelType::Group &&
+          domain->extent()->isConstInt()) {
+        group_size = domain->extent()->evaluate().as<int64_t>();
+        break;
+      }
+    }
+
+    // Validate group size based on input data type
+    const auto input_dtype =
+        grouped_bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
+    const bool is_half_precision =
+        (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half);
+    const bool is_valid_group_size = is_half_precision
+        ? (group_size == 2 || group_size == 4 || group_size == 8)
+        : (group_size == 2 || group_size == 4);
+
+    NVF_ERROR(
+        is_valid_group_size,
+        "Group size should be ",
+        is_half_precision ? "2, 4 or 8" : "2 or 4",
+        " for GroupedBlockQuantizationOp with input type ",
+        input_dtype,
+        ". Found: ",
+        group_size,
+        ". Expr: ",
+        grouped_bqop->toString());
+
+    // Build template arguments
+    ArgumentBuilder template_args;
+    // No global scale is required when quantizing to mxfp8
+    if (output_dtype == DataType::Float4_e2m1fn) {
+      template_args.arg(grouped_bqop->hasGlobalScale());
+    }
+    switch (grouped_bqop->layout()) {
+      case BlockScalingFactorLayout::Block128x4:
+        template_args.arg(32); // block_row_outer
+        template_args.arg(4); // block_row_inner
+        template_args.arg(4); // block_col
+        break;
+      default:
+        NVF_THROW("unrecognized layout");
+        break;
+    }
+    template_args.arg(group_size); // ITEMS_PER_THREAD
+
+    // Build function arguments
+    ArgumentBuilder func_args;
+    func_args.arg(genInline(
+        grouped_bqop->input(0)->as<kir::TensorIndex>()->view())); // input data
+    func_args.arg(genInline(output)); // quantized output
+    func_args.arg(genInline(grouped_bqop->blockScales()
+                                ->as<kir::TensorIndex>()
+                                ->view())); // block scales
+
+    // generate logical index for runtime function
+    func_args.arg(genInline(grouped_bqop->attributeVal(2)));
+    func_args.arg(genInline(grouped_bqop->attributeVal(3)));
+    func_args.arg("&").append(
+        genVariableName(grouped_bqop->inputOffsets()) + "[0]");
+    func_args.arg("&").append(
+        genVariableName(grouped_bqop->outputOffsets()) + "[0]");
+    func_args.arg(genInline(grouped_bqop->k()));
+    func_args.arg(genInline(grouped_bqop->g()));
+
+    if (output_dtype == DataType::Float4_e2m1fn) {
+      func_args.arg(
+          grouped_bqop->hasGlobalScale()
+              ? genInline(grouped_bqop->globalScale())
+              : "{}");
+    }
+
+    // Add swizzled allocation domain parameters if needed
+    // This is always skipped when quantizing to mxfp8
+    auto block_scales_tv =
+        grouped_bqop->blockScales()->as<kir::TensorIndex>()->view();
+    if (block_scales_tv->hasAllocation()) {
+      auto logical_domain =
+          TensorDomain::noReductions(block_scales_tv->getLogicalDomain());
+      auto allocation_domain =
+          TensorDomain::noReductions(block_scales_tv->getAllocationDomain());
+
+      // Swizzled layout: 2D logical -> 5D allocation
+      if (logical_domain.size() == 2 && allocation_domain.size() == 5) {
+        // Add logical domain extent of the inner dimension
+        func_args.arg(genInline(logical_domain[1]->extent()));
+
+        // Add all allocation domain extents
+        for (const auto* alloc_id : allocation_domain) {
+          func_args.arg(genInline(alloc_id->extent()));
+        }
+      }
+    }
+
+    NVF_ERROR(
+        output_dtype == DataType::Float4_e2m1fn,
+        "only nvfp4 output is implemented");
+
+    // Generate the function call
+    indent() << genCall(
+                    "bq::grouped_block_quantize_to_nvfp4",
+                    template_args,
+                    func_args)
+             << ";\n";
   }
 
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
@@ -1985,7 +2103,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       template_args.arg(
           kernel_->paddedParallelDimensions().is_tidx_single_warp);
-      template_args.arg(/*Aligned=*/false);
+      template_args.arg(false); // not aligned
       template_args.arg(reduction_scheduler_utils::getComputeBdimx(
           warp_specialized_on_, lparams_.bdimx()));
 
@@ -2167,10 +2285,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           } else {
             // Note: currently arraySet option is not vectorized, so it will
             //  rely on auto vectorization pass of cuda compiler.
-            indent() << "arraySet<" << out_tv->getDataType().value() << ", "
+            indent() << "arraySet<" << out_tv->getDataType() << ", "
                      << vector_word_size << ">(&" << gen(ldst->out()) << ", "
-                     << "(" << out_tv->getDataType().value() << ")"
-                     << gen(ldst->in()) << ");\n";
+                     << "(" << out_tv->getDataType() << ")" << gen(ldst->in())
+                     << ");\n";
           }
         } else {
           // Vectorized load
@@ -2375,7 +2493,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     ArgumentBuilder template_args;
-    template_args.arg(out_avg->getDataType().value());
+    template_args.arg(out_avg->getDataType());
     if (is_predicated) {
       template_args.arg(output_gmem);
     }
@@ -2872,9 +2990,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Vector of indices of grouped loops
     std::vector<Val*> loop_indices;
-    std::transform(
-        grouped_loops_.begin(),
-        grouped_loops_.end(),
+    std::ranges::transform(
+        grouped_loops_,
         std::back_inserter(loop_indices),
         [](const kir::ForLoop* loop) { return loop->index(); });
 
@@ -3098,11 +3215,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       for (const auto& group_index : arange(index_replacement_maps.size())) {
         data_types.arg(data_type);
         index_types.arg(index_type);
-
-        auto work_buffer_offset = group_index == 0
-            ? "0"
-            : (genInline(grouped_gwop->buffer_stride()) + " * " +
-               std::to_string(group_index));
 
         // Setup arguments for avg, var, and N
         for (const auto i : arange(3)) {
@@ -3554,7 +3666,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::AllocateFusedReduction* alloc_fused_reduction) final {
     // See the runtime file of the fused reduction
-    enum class ReductionParallelTypeState { Reduce, Iter, Pred, Inactive };
+    enum class ReductionParallelTypeState : std::uint8_t {
+      Reduce,
+      Iter,
+      Pred,
+      Inactive
+    };
 
     using ReductionParallelTypeStateArray =
         ParallelTypeMap<ReductionParallelTypeState>;
@@ -4240,7 +4357,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       auto print_constraints_and_registers =
           [&](const auto& constraints_and_registers, std::string prefix) {
             int64_t counter = 0;
-            for (auto [constraint, register_] : constraints_and_registers) {
+            for (const auto& [constraint, register_] :
+                 constraints_and_registers) {
               auto next_line = [&]() {
                 (*asm_target) << ",";
                 if (multiline) {
@@ -4399,9 +4517,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     sync_call_template_parms.arg(bidx)
         .arg(bidy)
         .arg(bidz)
-        .arg(/*PERSISTENT=*/true)
-        .arg(/*Aligned=*/
-             has_warp_specialized_ ? false : isAligned());
+        .arg(true) // persistent
+        .arg(has_warp_specialized_ ? false : isAligned()); // aligned
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",
@@ -4683,11 +4800,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
   }
 
-  void handle(const LaunchDependentGridOp* launch) {
+  void handle(const LaunchDependentGridOp* launch) override {
     indent() << launch->getOpString() << "();\n";
   }
 
-  void handle(const WaitForPriorGridOp* wait) {
+  void handle(const WaitForPriorGridOp* wait) override {
     indent() << wait->getOpString() << "();\n";
   }
 

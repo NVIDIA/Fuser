@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include "llvm/ExecutionEngine/Orc/LLJIT.h"
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
 
 namespace nvfuser {
 

@@ -5,16 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "preseg_passes/propagate_shardings.h"
 
 #include <vector>
 
-#include <ir/interface_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <multidevice/propagation.h>
-#include <multidevice/utils.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <scheduler/utils.h>
+#include "ir/interface_nodes.h"
+#include "ir/utils.h"
+#include "multidevice/propagation.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser::preseg_passes {
 
@@ -149,7 +147,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
             getParallelTypesToPropagate(target);
         shardLoopLike(
             /*ref=*/ref_input,
-            /*tv=*/target,
+            /*target=*/target,
             selected_parallel_types,
             PropagateDirection::kForward);
       }
@@ -182,7 +180,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           getParallelTypesToPropagate(target);
       shardLoopLike(
           /*ref=*/ref_output,
-          /*tv=*/target,
+          /*target=*/target,
           selected_parallel_types,
           PropagateDirection::kBackward);
     }

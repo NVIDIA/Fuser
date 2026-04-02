@@ -258,7 +258,12 @@ void runGemm(
   auto status = gemm.initialize(arguments, workspace.data_ptr(), stream);
   NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 
-  status = gemm.run(arguments, workspace.data_ptr(), stream);
+  status = gemm.run(
+      arguments,
+      workspace.data_ptr(),
+      stream,
+      /*cuda_adapter=*/nullptr,
+      /*launch_with_pdl=*/true);
   NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 #else

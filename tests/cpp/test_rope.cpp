@@ -8,13 +8,13 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "ir/graphviz.h"
 #include "ops/all_ops.h"
 #include "runtime/fusion_executor_cache.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -50,7 +50,6 @@ struct RopeConfig {
 class RopeTest : public NVFuserFixtureParamTest<RopeConfig> {
   void SetUp() override {
     NVFuserFixtureParamTest<RopeConfig>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

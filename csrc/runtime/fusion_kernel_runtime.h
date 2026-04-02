@@ -7,18 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <c10/util/ArrayRef.h>
-
-#include <fusion_segmenter.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/jit.h>
-#include <polymorphic_value.h>
-#include <runtime/executor.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/fusion_cache_utils.h>
-
 #include <mutex>
 #include <vector>
+
+#include <c10/util/ArrayRef.h>
+
+#include "fusion_segmenter.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/jit.h"
+#include "polymorphic_value.h"
+#include "runtime/executor.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/fusion_cache_utils.h"
 
 namespace nvfuser {
 
@@ -26,9 +26,6 @@ class HeuristicParamsList;
 enum class PrimDataType;
 class Fusion;
 class Val;
-namespace serde {
-struct FusionKernelRuntime;
-}
 
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
@@ -39,17 +36,11 @@ struct FusionKernelRuntime;
 //!  and one for segmented/multi-kernel fusion.
 //! Conceptually this is a generalization of KernelExecutor that supports both
 //!  single-kernel and multi-kernel caching/compiling/launching
-//!
-//! When serde_buffer argument is a nullptr, we run the
-//! SegmentCandidateFinder::segment pass in the constructor and compile the
-//! fusions. When serde_buffer exists, we deserialize the segmented_fusion_ and
-//! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
   FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      const serde::FusionKernelRuntime* serde_buffer = nullptr,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
@@ -64,15 +55,6 @@ class FusionKernelRuntime {
 
   //! query if we have already attempted compilation
   bool isCompiled() const;
-
-  //! Serialize Fusion Kernel Runtime using flatbuffers
-  flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Fusion Kernel Runtime using flatbuffers
-  void deserialize(
-      const serde::FusionKernelRuntime* buffer,
-      int8_t device_index);
 
   //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const;
@@ -125,11 +107,11 @@ class FusionKernelRuntime {
   const ExecutorLog& getMostRecentExecutorLog() const;
 
   // Try to compute heuristics based on the SegmentedFusion managed
-  //  in this kernel runtime, and will return a nullopt if either
-  //  any segment cannot be scheduled or the parameters don't match
+  //  in this kernel runtime, and will return nullptr if either
+  //  any segment cannot be scheduled or the parameters don't match.
   //
   // Heuristics must use the index type of forced_index_type if given.
-  std::optional<std::unique_ptr<HeuristicParamsList>> getMaybeHeuristicsFor(
+  std::unique_ptr<HeuristicParamsList> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
@@ -172,6 +154,16 @@ class FusionKernelRuntime {
 
   //! Access the list of schedulers maintained in this runtime instance
   const std::vector<std::unique_ptr<HeuristicParams>>& schedulers() const;
+
+  //! Infer the output shape and stride of the fusion as tensors on Meta device
+  //! If the group is scheduled to be evaluated using ExprEval, the output
+  //! tensors are inferred using the ExprEval on meta device. Otherwise, the
+  //! output tensors are inferred assuming they are contiguous.
+  KernelArgumentHolder inferOutputMetaTensor(
+      HeuristicParamsList* heuristics,
+      SegmentedGroup* group_to_run,
+      const KernelArgumentHolder& group_runtime_inputs,
+      PrecomputedValues* evaluator_precomputed_values = nullptr) const;
 
   // Create KernelArgumentHolders for all of the segments. Sorted in
   // the run order.

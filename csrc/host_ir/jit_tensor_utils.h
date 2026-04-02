@@ -10,12 +10,12 @@
 #include <cstdint>
 #include <unordered_map>
 
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/LLVMContext.h"
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/LLVMContext.h>
 
-#include <ir/all_nodes.h>
-#include <type.h>
+#include "ir/all_nodes.h"
+#include "type.h"
 
 namespace nvfuser {
 

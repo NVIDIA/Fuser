@@ -6,14 +6,11 @@
  */
 // clang-format on
 // Extract size and strides
-#include <runtime/allocations.h>
-#include <runtime/fusion_executor_cache.h>
+#include "runtime/executor_kernel_arg.h"
 
-#include <instrumentation.h>
-#include <polymorphic_value.h>
-#include <runtime/executor_kernel_arg.h>
-#include <serde/polymorphic_value.h>
-#include <tensor_metadata.h>
+#include "polymorphic_value.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tensor_metadata.h"
 
 namespace nvfuser {
 
@@ -39,7 +36,7 @@ void KernelArgumentHolder::push(const std::vector<PolymorphicValue>& args) {
 
 void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
   for (const auto& tensor : tensors) {
-    arguments_.emplace_back(PolymorphicValue(tensor));
+    arguments_.emplace_back(tensor);
   }
 }
 
@@ -58,7 +55,7 @@ void KernelArgumentHolder::push(const std::vector<c10::IValue>& args) {
 }
 
 void KernelArgumentHolder::push(at::Tensor tensor) {
-  arguments_.emplace_back(PolymorphicValue(tensor));
+  arguments_.emplace_back(tensor);
 }
 
 void KernelArgumentHolder::push(PolymorphicValue val) {
@@ -70,15 +67,13 @@ void KernelArgumentHolder::push(std::optional<at::Tensor> tensor) {
       tensor.has_value(),
       "KernelArgumentHolder doesn't support empty optional values, it's "
       "expected that when pushed they exist.");
-  arguments_.emplace_back(PolymorphicValue(tensor.value()));
+  arguments_.emplace_back(*tensor);
 }
 
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {
-  auto iter = std::remove_if(
-      arguments_.begin(), arguments_.end(), [&](const auto& ref) {
-        return &arg_to_delete == &ref;
-      });
-  arguments_.erase(iter, arguments_.end());
+  auto result = std::ranges::remove_if(
+      arguments_, [&](const auto& ref) { return &arg_to_delete == &ref; });
+  arguments_.erase(result.begin(), result.end());
 }
 
 std::string KernelArgumentHolder::toString() const {
@@ -124,42 +119,6 @@ void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
     device_index_ = index.value();
   } else {
     device_index_ = getCommonDeviceCUDA(*this);
-  }
-}
-
-flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
-    serialize(flatbuffers::FlatBufferBuilder& builder) const {
-  // See table definitions for KernelArgumentHolder and PolymorphicValue
-  // in serde/fusion_cache.fbs
-
-  using fb_poly_value = flatbuffers::Offset<serde::PolymorphicValue>;
-
-  std::vector<fb_poly_value> arguments_fb;
-  arguments_fb.reserve(arguments_.size());
-  for (auto& arg : arguments_) {
-    arguments_fb.push_back(serde::serializePolymorphicValue(builder, arg));
-  }
-
-  return serde::CreateKernelArgumentHolderDirect(
-      builder, &arguments_fb, device_index_, cache_id_.value_or(SIZE_MAX));
-}
-
-void KernelArgumentHolder::deserialize(
-    const serde::KernelArgumentHolder* buffer) {
-  // See table definitions for KernelArgumentHolder and PolymorphicValue
-  // in serde/fusion_cache.fbs
-
-  NVF_ERROR(buffer != nullptr, "serde::KernelArgumentHolder is nullptr.");
-
-  device_index_ = buffer->device_index();
-  cache_id_ = (buffer->cache_id() != SIZE_MAX)
-      ? std::optional<size_t>(buffer->cache_id())
-      : std::nullopt;
-
-  serde::PolymorphicValueFactory poly_value_factory;
-  for (auto fb_poly_value : *buffer->arguments()) {
-    NVF_ERROR(fb_poly_value != nullptr, "serde::PolymorphicValue is nullptr.");
-    push(poly_value_factory.parse(fb_poly_value->data_type(), fb_poly_value));
   }
 }
 
@@ -378,7 +337,7 @@ std::vector<std::byte> tensorToBytes(
       // not just the change of definition of "unit". The effect of the
       // definition change of "unit" and the definition change of "increment by
       // one" cancel each other, so we just use the raw_stride as is.
-      int64_t stride = (i == size_to_use.size() - 1)
+      int64_t stride = (i == std::ssize(size_to_use) - 1)
           ? raw_stride
           : adjust_last_dim.fromATenToNVF(raw_stride);
       bytes.insert(
@@ -415,9 +374,9 @@ std::vector<std::byte> tensorToBytes(
     // See the comment of getLastDimAdjustment in type.h for more details.
     for (auto [i, raw_stride] : enumerate(alloc_strides)) {
       // See [Adjust all strides but not the last one]
-      int32_t stride32 = (i == size_to_use.size() - 1)
-          ? raw_stride
-          : (int32_t)adjust_last_dim.fromATenToNVF(raw_stride);
+      auto stride32 = (i == std::ssize(size_to_use) - 1)
+          ? static_cast<int32_t>(raw_stride)
+          : static_cast<int32_t>(adjust_last_dim.fromATenToNVF(raw_stride));
       bytes.insert(
           bytes.end(),
           (std::byte*)&stride32,

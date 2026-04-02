@@ -11,15 +11,15 @@
 #include <limits>
 #include <sstream>
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/builder_passkey.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/internal_nodes.h>
-#include <mma_type.h>
-#include <multidevice/device_mesh.h>
-#include <type.h>
-#include <visibility.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/builder_passkey.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/internal_nodes.h"
+#include "mma_type.h"
+#include "multidevice/device_mesh.h"
+#include "type.h"
+#include "visibility.h"
 
 //! Nodes in here are intended to be "user facing" users in this sense being
 //! those that want to be able to generate CUDA code.
@@ -646,6 +646,12 @@ class NVF_API TensorView : public Val {
   //!  to the 2 given indices.
   TensorView* swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
 
+  //! Swizzle1D is currently only used and handled in HostIr
+  //! It computes the `in` id to the swizzle as a function of the device id
+  //! (corresponding to the parallel type) and `out` id. See
+  //! `HostIrEvaluator::handle(ShardByStream)` for usage.
+  TensorView* swizzle1d(int64_t x, ParallelType pt);
+
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of
   //! (left_expansion + axis->extent() + right_expansion).
@@ -753,18 +759,6 @@ class NVF_API TensorView : public Val {
   //!  this should be used on the tvs that are inputs of a MmaOp or are loaded
   //!  using TMA.
   void applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle);
-
-  //! Returns if this tensor view has swizzle operator on its tensor domain.
-  //!  This is the temporary flag for indicating that the new swizzle
-  //!  implementation is used and will be removed in follow ups.
-  bool hasSwizzleOp() const {
-    return has_swizzle_op_;
-  }
-
-  //! A temporary helper function for the transition from Swizzle2D to Swizzle
-  void setHasSwizzleOp() {
-    has_swizzle_op_ = true;
-  }
 
   friend TransformPropagator;
   friend MostInlinedTransformPropagator;
@@ -928,11 +922,6 @@ class NVF_API TensorView : public Val {
   // copying of the data, so we want to pass the data value as a standard
   // kernel argument value.
   bool cpu_scalar_ = false;
-
-  //! Indicates if this tensor view has swizzle operator on its tensor domain.
-  //!  This is the temporary flag for indicating that the new swizzle
-  //!  implementation is used and will be removed in follow ups.
-  bool has_swizzle_op_ = false;
 
   //! Direct consumer tensors that this tensor is computed with
   std::vector<TensorView*> compute_with_consumers_;

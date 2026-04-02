@@ -275,8 +275,6 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
                         .mapProducerToConsumer(),
                     /*replay_forward_id_map=*/{},
                     /*target_forward_id_map=*/{},
-                    /*skip_replay_swizzle=*/false,
-                    /*skip_target_swizzle=*/false,
                     /*skip_resize=*/false,
                     /*error_on_failure=*/false)
                     .getReplay();
@@ -299,11 +297,16 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
           // sync/predication is handled there.
           if ((parallel_type == ParallelType::BIDx ||
                parallel_type == ParallelType::TIDx) &&
-              (consumer->definition()->isA<BlockQuantizationOp>() &&
-               consumer ==
-                   consumer->definition()
-                       ->as<BlockQuantizationOp>()
-                       ->blockScales())) {
+              ((consumer->definition()->isA<BlockQuantizationOp>() &&
+                consumer ==
+                    consumer->definition()
+                        ->as<BlockQuantizationOp>()
+                        ->blockScales()) ||
+               (consumer->definition()->isA<GroupedBlockQuantizationOp>() &&
+                consumer ==
+                    consumer->definition()
+                        ->as<GroupedBlockQuantizationOp>()
+                        ->blockScales()))) {
             continue;
           }
 
@@ -397,21 +400,6 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
               (!p_id->isBroadcast() || producer_parallel_bcast);
 
           // Handle special cases first
-
-          // If any loop id of producer is block or grid parallel and is
-          // involved
-          //  in any swizzle pattern, track this parallel dim as a communication
-          //  dimension that requires the corresponding synchronization and
-          //  memory type.
-          if (isParallelTypeThread(producer_ptype) &&
-              producer->hasSwizzleOp()) {
-            if (!ir_utils::getAllSwizzlesBetween(
-                     producer->getLogicalDomain(), {p_id})
-                     .empty()) {
-              raw_dims.set(producer_ptype);
-              continue;
-            }
-          }
 
           // When the producer axis is not parallelized, no sync is
           // necessary
@@ -514,7 +502,8 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
         if (error_on_failure) {
           if (raw_dims.hasBID()) {
             NVF_ERROR(
-                producer->getMemoryType() == MemoryType::Global,
+                ir_utils::isScheduleOp(consumer) ||
+                    producer->getMemoryType() == MemoryType::Global,
                 "Inconsistent parallelization found between T",
                 producer->name(),
                 " (",
@@ -529,7 +518,8 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
                 raw_dims.toString());
           } else if (raw_dims.hasTID()) {
             NVF_ERROR(
-                ir_utils::isLdMatrixOp(producer->definition()) ||
+                ir_utils::isScheduleOp(consumer) ||
+                    ir_utils::isLdMatrixOp(producer->definition()) ||
                     ir_utils::isStMatrixOp(consumer->definition()) ||
                     producer->getMemoryType() == MemoryType::Global ||
                     producer->getMemoryType() == MemoryType::Shared ||

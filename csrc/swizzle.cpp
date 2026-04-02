@@ -73,24 +73,6 @@ std::pair<Val*, Val*> unCyclicShift(Val* x, Val* y, Val* size_x) {
 } // namespace swizzles
 
 std::pair<Val*, Val*> dispatchSwizzle(
-    Swizzle2DType type,
-    Val* x,
-    Val* y,
-    Val* maybe_size_x,
-    Val* maybe_size_y) {
-  switch (type) {
-    case Swizzle2DType::ZShape:
-      return swizzles::ZShape(x, y, maybe_size_y);
-    case Swizzle2DType::XOR:
-      return swizzles::Xor(x, y);
-    case Swizzle2DType::CyclicShift:
-      return swizzles::CyclicShift(x, y, maybe_size_x);
-    default:
-      NVF_THROW("Unsupported swizzle type");
-  }
-}
-
-std::pair<Val*, Val*> dispatchSwizzle(
     SwizzleType type,
     Val* x,
     Val* y,
@@ -99,24 +81,6 @@ std::pair<Val*, Val*> dispatchSwizzle(
   switch (type) {
     case SwizzleType::XOR:
       return swizzles::Xor(x, y);
-    default:
-      NVF_THROW("Unsupported swizzle type");
-  }
-}
-
-std::pair<Val*, Val*> dispatchUnSwizzle(
-    Swizzle2DType type,
-    Val* x,
-    Val* y,
-    Val* maybe_size_x,
-    Val* maybe_size_y) {
-  switch (type) {
-    case Swizzle2DType::ZShape:
-      return swizzles::unZShape(x, y, maybe_size_y);
-    case Swizzle2DType::XOR:
-      return swizzles::unXor(x, y);
-    case Swizzle2DType::CyclicShift:
-      return swizzles::unCyclicShift(x, y, maybe_size_x);
     default:
       NVF_THROW("Unsupported swizzle type");
   }

@@ -5,24 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <expr_evaluator.h>
-#include <grouped_reduction.h>
-#include <id_model/id_model.h>
-#include <instrumentation.h>
-#include <iter_visitor.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <utils.h>
-#include <val_graph_visitor.h>
+#include "scheduler/normalization_utils.h"
+
+#include <ranges>
 
 #include <ATen/cuda/CUDAContext.h>
+
+#include "base.h"
+#include "expr_evaluator.h"
+#include "grouped_reduction.h"
+#include "id_model/id_model.h"
+#include "instrumentation.h"
+#include "iter_visitor.h"
+#include "scheduler/cache_policy_refiner.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/domain_map.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 namespace normalization_scheduler_utils {
@@ -81,7 +84,7 @@ void PreferredLaunchConfig::initValidGdims() {
   // Reverse the first half and swap gridDim.x and gridDim.y. That
   // list becomes the latter half
   auto latter_half = grid_dims;
-  std::reverse(latter_half.begin(), latter_half.end());
+  std::ranges::reverse(latter_half);
   for (const auto& gdimx_gdimy : latter_half) {
     if (gdimx_gdimy.second == gdimx_gdimy.first) {
       // This is already in the first half
@@ -685,7 +688,7 @@ int64_t partialReductionBufferSize(
     }
     buffer_size = (buffer_size == -1) ? 0
                                       : buffer_size *
-            dataTypeSizeByte(buffer->getDataType().value(),
+            dataTypeSizeByte(buffer->getDataType(),
                              runtime_info.getIndexType());
     partial_reduction_buffer_size += buffer_size;
   }
@@ -803,8 +806,7 @@ int64_t sharedMemoryRoundUpOverheadBit(
             buffer, runtime_info, persistent_buffer_info);
     // Required shared memory size if store that tensor in shared memory
     int64_t buffer_size_smem = roundUpSharedMemory(
-        logical_buffer_size_bit,
-        dataTypeSizeBit(buffer->getDataType().value()));
+        logical_buffer_size_bit, dataTypeSizeBit(buffer->getDataType()));
     // The difference is counted as roundup overhead
     total_smem_overhead_bit += (buffer_size_smem - logical_buffer_size_bit);
   }
@@ -1044,8 +1046,7 @@ PersistentKernelProperties getPersistentKernelProperties(
     }
     max_dtype_size_bit = std::max(
         max_dtype_size_bit,
-        dataTypeSizeBit(
-            tv->getDataType().value(), runtime_info.getIndexType()));
+        dataTypeSizeBit(tv->getDataType(), runtime_info.getIndexType()));
     n_tensor_inputs++;
   }
   // To prevent division by zero, ensure that n_tensor_inputs is not equal to
@@ -1341,7 +1342,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         ? (int)rparams->unroll_factor_inner_reduction
         : 1;
     size_t loading_size =
-        dataTypeSizeByte(smem_tv->getDataType().value()) * vect_factor;
+        dataTypeSizeByte(smem_tv->getDataType()) * vect_factor;
     bool is_supported_bytes =
         (loading_size == 4 || loading_size == 8 || loading_size == 16);
     return is_supported_bytes;
@@ -1437,9 +1438,17 @@ namespace {
 void recomputeNonPersistentUnmappableTvs(
     const scheduler_utils::PersistentBufferInfo& persistent_info) {
   for (auto non_persistent_buffer : persistent_info.non_persistent_buffers) {
+    std::vector<Expr*> filtered_uses;
+    std::copy_if(
+        non_persistent_buffer->uses().begin(),
+        non_persistent_buffer->uses().end(),
+        std::back_inserter(filtered_uses),
+        [](Expr* e) {
+          return !e->isOneOf<LaunchDependentGridOp, WaitForPriorGridOp>();
+        });
     // If there's only one use, it must be cached
-    if (non_persistent_buffer->uses().size() == 1) {
-      auto caching_load = non_persistent_buffer->uses().at(0);
+    if (filtered_uses.size() == 1) {
+      auto caching_load = filtered_uses.at(0);
       NVF_ERROR(caching_load->isA<LoadStoreOp>());
       non_persistent_buffer =
           caching_load->as<LoadStoreOp>()->out()->as<TensorView>();
@@ -1487,12 +1496,14 @@ void commonScheduleBeforeIterDomainTransform(
   bool unroll = rparams->isUnrolled();
   // Cache inputs even if not unrolled, as otherwise we may not create a
   // persistent buffer if that persistent buffer would be the input.
-  cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  cached_inputs = scheduler_utils::cacheInputs(fusion, /*unroll=*/true);
 
   recomputeNonPersistentUnmappableTvs(persistent_info);
 
   // Cache and fork outputs
   cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
+
+  scheduler_utils::applyPDL(fusion, cached_inputs, cached_outputs);
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
