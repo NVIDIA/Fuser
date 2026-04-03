@@ -79,7 +79,7 @@ class SymmetricTensor {
   bool is_multicast_setup_ = false;
   CUmemGenericAllocationHandle mcast_handle_{};
   CUdevice cu_dev_{};
-  void* mc_ptr_{nullptr};
+  void* multicast_ptr_{nullptr};
   CUdeviceptr mc_base_ptr_{0};
   int exporter_rank_{-1};
   int peer_fd_{-1};

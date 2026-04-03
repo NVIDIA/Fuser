@@ -334,6 +334,15 @@ Communicator& Communicator::getInstance() {
   return *communicator;
 }
 
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
+void Communicator::registerProcessGroup(
+    const std::string& name,
+    const c10::intrusive_ptr<c10d::ProcessGroup>& pg) {
+  c10d::register_process_group(name, pg);
+  process_groups_[name] = pg;
+}
+#endif
+
 void Communicator::cleanup() {
   static bool cleaned_up = false;
   NVF_CHECK(
@@ -367,10 +376,12 @@ void Communicator::cleanup() {
     }
   }
 #endif
+#if defined(USE_DISTRIBUTED)
   for (const auto& entry : process_groups_) {
     c10d::unregister_process_group(entry.first);
   }
   process_groups_.clear();
+#endif
 #endif
   backends_.clear();
 }
@@ -412,13 +423,10 @@ c10d::Backend* Communicator::getBackendForTeam(
 #else
     backends_[team_key] = nullptr;
 #endif
+  }
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
-    std::optional<c10d::ProcessGroup::BackendType> pg_backend =
-        (b == CommunicatorBackend::kNccl)
-        ? std::optional<c10d::ProcessGroup::BackendType>(
-              c10d::ProcessGroup::BackendType::NCCL)
-        : std::nullopt;
-    if (backends_[team_key] != nullptr && pg_backend.has_value()) {
+  if (process_groups_.find(team_key) == process_groups_.end()) {
+    if (b == CommunicatorBackend::kNccl) {
       auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
       RankType team_rank = std::distance(team.begin(), rank_it);
 
@@ -426,15 +434,17 @@ c10d::Backend* Communicator::getBackendForTeam(
           c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
           team_rank,
           static_cast<int>(team.size()));
-      pg->setBackend(c10::DeviceType::CUDA, *pg_backend, backends_[team_key]);
-      pg->setDefaultBackend(*pg_backend);
+      pg->setBackend(
+          c10::DeviceType::CUDA,
+          c10d::ProcessGroup::BackendType::NCCL,
+          backends_[team_key]);
+      pg->setDefaultBackend(c10d::ProcessGroup::BackendType::NCCL);
       pg->setGroupName(team_key);
 
-      c10d::register_process_group(team_key, pg);
-      process_groups_[team_key] = std::move(pg);
+      registerProcessGroup(team_key, pg);
     }
-#endif
   }
+#endif
   return backends_.at(team_key).get();
 }
 
@@ -453,15 +463,6 @@ void Communicator::barrier(std::optional<CommunicatorBackend> backend) {
   // https://github.com/pytorch/pytorch/blob/7e4329c258306cc14303895e5f1e6036b009e74f/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L3905-L3912.
   c10d::BarrierOptions options{.device_ids = {local_rank()}};
   getWorld(backend)->barrier(options)->wait();
-}
-
-std::string Communicator::getSymmMemGroupKey(
-    std::optional<CommunicatorBackend> backend) {
-  std::vector<RankType> all_ranks(size_);
-  std::iota(all_ranks.begin(), all_ranks.end(), 0);
-  CommunicatorBackend b = backend.value_or(default_backend_);
-  (void)getBackendForTeam(all_ranks, b);
-  return getTeamKey(all_ranks, b);
 }
 
 } // namespace nvfuser

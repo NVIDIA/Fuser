@@ -57,22 +57,30 @@ std::string ensurePyTorchSymmMemBackend(SymmetricMemoryBackend backend) {
         comm.isBackendAvailable(CommunicatorBackend::kNccl),
         "NCCL backend is required for non-native symmetric memory backend");
 
-    const std::string group_name =
-        comm.getSymmMemGroupKey(CommunicatorBackend::kNccl);
+    std::vector<RankType> all_ranks(comm.size());
+    std::iota(all_ranks.begin(), all_ranks.end(), 0);
+    (void)comm.getBackendForTeam(all_ranks, CommunicatorBackend::kNccl);
+    std::string group_name = std::accumulate(
+        std::begin(all_ranks),
+        std::end(all_ranks),
+        std::string("nccl"),
+        [](const std::string& a, const RankType& b) {
+          return a.empty() ? std::to_string(b) : a + ',' + std::to_string(b);
+        });
+    if (backend == SymmetricMemoryBackend::PyTorchNvshmem) {
+      static std::once_flag pg0_once;
+      std::call_once(pg0_once, [&]() {
+        try {
+          (void)c10d::resolve_process_group("0");
+        } catch (const std::exception&) {
+          // resolve_process_group throws c10d Error
+          // (derives from std::exception)
+          auto pg = c10d::resolve_process_group(group_name);
+          comm.registerProcessGroup("0", pg);
+        }
+      });
+    }
 
-    static std::once_flag pg0_once;
-    std::call_once(pg0_once, [&]() {
-      try {
-        (void)c10d::resolve_process_group("0");
-      } catch (const std::exception&) {
-        // resolve_process_group throws c10d Error
-        // (derives from std::exception)
-        auto pg = c10d::resolve_process_group(group_name);
-        c10d::register_process_group("0", pg);
-      }
-    });
-
-    comm.barrier(CommunicatorBackend::kNccl);
     return group_name;
   }
 
@@ -424,23 +432,24 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   if (are_remote_tensors_setup_ == true) {
     return;
   }
+  Communicator& comm = Communicator::getInstance();
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
   // PyTorch backend: perform rendezvous here (lazy, on first
   // setupRemoteHandles).
   SymmetricMemoryBackend backend = getSymmetricMemoryBackend();
   if (backend != SymmetricMemoryBackend::Native) {
     const std::string group_name = ensurePyTorchSymmMemBackend(backend);
+    comm.barrier(CommunicatorBackend::kNccl);
     torch_symm_handle_ =
         c10d::symmetric_memory::rendezvous(local_tensor_, group_name);
     are_remote_tensors_setup_ = true;
     if (torch_symm_handle_->has_multicast_support()) {
       is_multicast_setup_ = true;
-      mc_ptr_ = torch_symm_handle_->get_multicast_ptr();
+      multicast_ptr_ = torch_symm_handle_->get_multicast_ptr();
     }
     return;
   }
 #endif
-  Communicator& comm = Communicator::getInstance();
   CUmemGenericAllocationHandle local_handle = alloc_handles_[my_device_id_];
   CUdeviceptr local_ptr = remote_ptrs_[my_device_id_];
 
@@ -540,7 +549,7 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
 
 void* SymmetricTensor::multicastPtr() const {
   NVF_CHECK(is_multicast_setup_, "Multicast not setup");
-  return mc_ptr_;
+  return multicast_ptr_;
 }
 
 void SymmetricTensor::setupContiguousView(const std::string& tag) {
@@ -743,7 +752,7 @@ void SymmetricTensor::setupMulticast(
   NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(mc_ptr, aligned_size_, &access, 1));
 
   // NOLINTNEXTLINE(performance-no-int-to-ptr)
-  mc_ptr_ = reinterpret_cast<void*>(mc_ptr + offset_diff);
+  multicast_ptr_ = reinterpret_cast<void*>(mc_ptr + offset_diff);
   mc_base_ptr_ = mc_ptr;
   is_multicast_setup_ = true;
 
