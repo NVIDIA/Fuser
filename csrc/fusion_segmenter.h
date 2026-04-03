@@ -76,22 +76,6 @@ class SegmentedGroup {
     exprs_.push_back(expr);
   }
 
-  //! Serialize SegmentedGroup using flatbuffers
-  flatbuffers::Offset<serde::SegmentedGroup> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const std::unordered_map<Val*, int64_t>& vals_map,
-      const std::unordered_map<Expr*, int64_t>& exprs_map,
-      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
-      const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const;
-
-  //! Deserialize SegmentedGroup using flatbuffers
-  void deserialize(
-      const serde::SegmentedGroup* buffer,
-      const std::deque<Val*>& vals,
-      const std::deque<Expr*>& exprs,
-      const std::vector<SegmentedGroup*>& groups,
-      const std::vector<SegmentedEdge*>& edges);
-
   //! returns the id assigned by segment pass
   int groupId() const {
     return group_id_;
@@ -370,27 +354,7 @@ class SegmentedFusion {
       const SegmentedGroup* from,
       const SegmentedGroup* to) const;
 
-  //! Serialize SegmentedFusion using flatbuffers
-  flatbuffers::Offset<serde::SegmentedFusion> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize SegmentedFusion using flatbuffers
-  void deserialize(const serde::SegmentedFusion* buffer);
-
   void validateDisjoint() const;
-
- private:
-  //! Serialize SegmentedEdge using flatbuffers
-  flatbuffers::Offset<serde::SegmentedEdge> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const nvfuser::SegmentedEdge* edge,
-      const std::unordered_map<Val*, int64_t>& vals_map,
-      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const;
-
-  //! Deserialize SegmentedEdge using flatbuffers
-  nvfuser::SegmentedEdge deserialize(
-      const serde::SegmentedEdge* buffer,
-      const std::deque<Val*>& vals);
 
  private:
   //! Unique name for segmented fusion

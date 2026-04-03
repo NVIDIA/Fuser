@@ -9,6 +9,8 @@
 #include <utility>
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAGraph.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <gtest/gtest.h>
 
 #include "fusion.h"
@@ -77,6 +79,7 @@ TEST_P(DispatchCombineTest, DispatchCombineTop1) {
       recv_src_idx,
       n_tokens_to_rank,
       n_tokens_from_rank,
+      in_x->axis(0)->extent(),
       backend);
 
   hic->pushBackTopLevelExprs(dispatch);
@@ -270,6 +273,7 @@ TEST_P(DispatchCombineTest, CombineOnlyTop1) {
   auto* in_n_tokens_from_rank = makeSymbolicTensor(1, DataType::Int);
 
   auto* combined_x = makeSymbolicTensor(2);
+  auto* num_tokens_val = IrBuilder::create<Val>(kNumTokens, DataType::Int);
   auto* combine = IrBuilder::create<MoeCombine>(
       combined_x,
       in_x,
@@ -277,6 +281,7 @@ TEST_P(DispatchCombineTest, CombineOnlyTop1) {
       in_src_idx,
       in_n_tokens_to_rank,
       in_n_tokens_from_rank,
+      num_tokens_val,
       backend);
 
   hic->pushBackTopLevelExprs(combine);
@@ -307,6 +312,99 @@ INSTANTIATE_TEST_SUITE_P(
     DispatchCombineBackends,
     DispatchCombineTest,
     ::testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kCuda));
+
+// Verify that the kCuda backend data path is CUDA-graph-capturable.
+// The first two iterations warm up the caches (symmetric memory
+// rendezvous). Then we capture dispatch+combine into a graph, replay
+// with modified input, and verify correctness.
+class DispatchCombineCudaGraphTest : public MultiDeviceTest {};
+
+TEST_F(DispatchCombineCudaGraphTest, DispatchCombineGraphCapture) {
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  constexpr int64_t kNumExpertsPerRank = 2;
+  const int64_t num_experts = communicator_->size() * kNumExpertsPerRank;
+  constexpr int64_t kNumTokens = 4;
+  constexpr int64_t kHidden = 4;
+  const auto backend = CommunicatorBackend::kCuda;
+  const int64_t my_rank = communicator_->deviceId();
+
+  auto float_options =
+      at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
+  auto int_options =
+      at::TensorOptions().device(communicator_->device()).dtype(at::kLong);
+
+  auto x = at::arange(kNumTokens * kHidden, float_options)
+               .reshape({kNumTokens, kHidden}) +
+      static_cast<double>(my_rank) * 1000.0;
+  auto topk_idx = at::zeros({kNumTokens, 1}, int_options);
+  auto topk_weights =
+      at::arange(kNumTokens, float_options).reshape({kNumTokens, 1}) +
+      static_cast<double>(my_rank);
+
+  topk_idx.index_put_({0, 0}, 0);
+  topk_idx.index_put_({1, 0}, kNumExpertsPerRank);
+  topk_idx.index_put_({2, 0}, kNumExpertsPerRank + 1);
+  topk_idx.index_put_({3, 0}, kNumExpertsPerRank);
+
+  // Use a non-default stream — CUDA graphs cannot be captured on
+  // the default stream.
+  auto capture_stream = at::cuda::getStreamFromPool(
+      /*isHighPriority=*/false, communicator_->device().index());
+  c10::cuda::CUDAStreamGuard stream_guard(capture_stream);
+
+  // Warmup: two iterations to initialize all symmetric memory
+  // caches (rendezvous). This is outside the captured region.
+  CombineResult cr;
+  for (int i = 0; i < 2; i++) {
+    auto dr = doMoeDispatch(
+        x, topk_idx, topk_weights, num_experts, communicator_, backend);
+    cr = doMoeCombine(
+        dr.recv_x,
+        dr.recv_topk_weights,
+        dr.recv_src_idx,
+        dr.n_tokens_to_rank,
+        dr.n_tokens_from_rank,
+        kNumTokens,
+        communicator_,
+        backend);
+  }
+  capture_stream.synchronize();
+  EXPECT_TRUE(at::allclose(cr.combined_x, x))
+      << "Warmup mismatch on rank " << my_rank;
+
+  // Capture dispatch + combine into a CUDA graph.
+  // If any CPU-GPU sync occurs during capture, this will fail.
+  at::cuda::CUDAGraph graph;
+  graph.capture_begin();
+  auto dr = doMoeDispatch(
+      x, topk_idx, topk_weights, num_experts, communicator_, backend);
+  cr = doMoeCombine(
+      dr.recv_x,
+      dr.recv_topk_weights,
+      dr.recv_src_idx,
+      dr.n_tokens_to_rank,
+      dr.n_tokens_from_rank,
+      kNumTokens,
+      communicator_,
+      backend);
+  graph.capture_end();
+
+  // Replay multiple times with different data (same routing).
+  // The N-slot per-pair semaphore protocol is fully graph-capturable
+  // and correct for unlimited replays — no barrier needed.
+  for (int i = 0; i < 5; i++) {
+    x.add_(static_cast<double>(100 * (i + 1)));
+    graph.replay();
+    capture_stream.synchronize();
+
+    EXPECT_TRUE(at::allclose(cr.combined_x, x))
+        << "Graph replay " << i << " dispatch/combine mismatch on rank "
+        << my_rank;
+  }
+}
 
 } // namespace hir
 } // namespace nvfuser

@@ -23,7 +23,7 @@ jobs:
       - name: Look for missing license headers
         working-directory: ${{ env.working_directory }}
         run: |
-          find . -regextype posix-extended -regex '.*\.(cpp|h|py|md|svg)' | egrep -v '^./(\.|third_party|bin|build|nvfuser/include|nvfuser/version.py|tools/linter/adapters|csrc/serde/fusion_cache_generated.h)' | xargs grep -L SPDX-FileCopyrightText | tee missing-header-files.txt
+          find . -regextype posix-extended -regex '.*\.(cpp|h|py|md|svg)' | egrep -v '^./(\.|third_party|bin|build|nvfuser/include|nvfuser/version.py|tools/linter/adapters)' | xargs grep -L SPDX-FileCopyrightText | tee missing-header-files.txt
           # test that file is empty
           test ! -s missing-header-files.txt
 
@@ -55,10 +55,6 @@ jobs:
 
           # Run cmake build
           NVFUSER_BUILD_CMAKE_ONLY=1 python setup.py
-
-          # Generate csrc/serde/fusion_cache_generated.h
-          # NOTE: this might cause a compile of flatbuffers if it is missing
-          ninja -C build build_flatbuffer_config
 
           # Return to root to run clang-tidy
           cd ..
