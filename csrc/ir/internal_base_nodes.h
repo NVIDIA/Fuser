@@ -303,10 +303,8 @@ class NVF_API IterDomain : public Val {
         "padToMultipleOfWarp : warp padding only supported on TIDx parallel "
         "dimension");
     is_padded_dimension_ = true;
-    if (maybe_to_size.has_value()) {
-      if (maybe_to_size.value() > 0) {
-        padded_to_size_ = maybe_to_size.value();
-      }
+    if (maybe_to_size.has_value() && maybe_to_size.value() > 0) {
+      padded_to_size_ = maybe_to_size;
     }
   }
 

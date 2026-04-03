@@ -347,11 +347,10 @@ IterDomain* IterDomain::cloneWithoutRFactor(bool map_with_original) {
 /*static*/ std::vector<IterDomain*> IterDomain::clone(
     const std::vector<IterDomain*>& domains) {
   std::vector<IterDomain*> cloned_domains;
-  std::transform(
-      domains.begin(),
-      domains.end(),
-      std::back_inserter(cloned_domains),
-      [](auto id) { return id->cloneWithoutRFactor(); });
+  std::ranges::transform(
+      domains, std::back_inserter(cloned_domains), [](auto id) {
+        return id->cloneWithoutRFactor();
+      });
   return cloned_domains;
 }
 
@@ -762,18 +761,12 @@ void validateLoopDomain(
     const std::vector<IterDomain*>& loop_domain,
     const std::vector<IterDomain*>& additional_ids) {
   // Skip if there's any symbolic ID
-  if (std::any_of(
-          logical_domain.begin(),
-          logical_domain.end(),
-          [](IterDomain* id) { return id->isSymbolic(); }) ||
-      std::any_of(
-          loop_domain.begin(),
-          loop_domain.end(),
-          [](IterDomain* id) { return id->isSymbolic(); }) ||
-      std::any_of(
-          additional_ids.begin(), additional_ids.end(), [](IterDomain* id) {
-            return id->isSymbolic();
-          })) {
+  if (std::ranges::any_of(
+          logical_domain, [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::ranges::any_of(
+          loop_domain, [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::ranges::any_of(
+          additional_ids, [](IterDomain* id) { return id->isSymbolic(); })) {
     return;
   }
 
@@ -789,9 +782,8 @@ void validateLoopDomain(
       ir_utils::compareDomainWithReference(loop_domain, reference);
 
   auto empty_or_broadcast = [](const auto& ids) {
-    return std::all_of(ids.begin(), ids.end(), [](IterDomain* id) {
-      return id->isBroadcast();
-    });
+    return std::ranges::all_of(
+        ids, [](IterDomain* id) { return id->isBroadcast(); });
   };
 
   NVF_ERROR(
@@ -1292,7 +1284,7 @@ TensorDomain::TensorDomain(
       logical_domain_(std::move(logical_domain)),
       allocation_domain_(std::move(allocation_domain)),
       loop_domain_(std::move(loop_domain)),
-      alternate_loop_domain_(alternate_loop_domain),
+      alternate_loop_domain_(std::move(alternate_loop_domain)),
       initial_loop_domain_(loop_domain_),
       additional_ids_(std::move(additional_ids)),
       contiguity_(
@@ -1346,31 +1338,25 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
 NVFUSER_DEFINE_CLONE(TensorDomain)
 
 bool TensorDomain::hasBlockBroadcast() const {
-  return std::any_of(
-      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isBroadcast() && id->isThreadDim();
-      });
+  return std::ranges::any_of(loop_domain_, [](IterDomain* id) {
+    return id->isBroadcast() && id->isThreadDim();
+  });
 }
 
 bool TensorDomain::hasReduction() const {
-  return std::any_of(
-      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isReduction();
-      });
+  return std::ranges::any_of(
+      loop_domain_, [](IterDomain* id) { return id->isReduction(); });
 }
 
 bool TensorDomain::hasBroadcast() const {
-  return std::any_of(
-      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isBroadcast();
-      });
+  return std::ranges::any_of(
+      loop_domain_, [](IterDomain* id) { return id->isBroadcast(); });
 }
 
 bool TensorDomain::hasGridBroadcast() const {
-  return std::any_of(
-      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isBroadcast() && id->isBlockDim();
-      });
+  return std::ranges::any_of(loop_domain_, [](IterDomain* id) {
+    return id->isBroadcast() && id->isBlockDim();
+  });
 }
 
 bool TensorDomain::sameDefinition(const Val* other) const {
@@ -1496,13 +1482,14 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     return true;
   }
 
+  const auto& alternate_loop = alternateLoop().value();
+
   // has_value is true for both this_td and other_td, so verify that all
   // iterDomains are the same.
   return std::ranges::all_of(
-      std::ranges::iota_view{0LL, (int64_t)alternateLoop().value().size()},
+      std::ranges::iota_view{0LL, (int64_t)alternate_loop.size()},
       [&](int64_t i) {
-        return alternateLoop().value()[i]->sameAs(
-            other_td->alternateLoop().value()[i]);
+        return alternate_loop[i]->sameAs(other_td->alternateLoop().value()[i]);
       });
 }
 
@@ -1528,22 +1515,23 @@ std::string TensorDomain::toString(const int indent_size, const bool loop_only)
     indent(ss, indent_size) << "[" << toDelimitedString(loop()) << "]";
   } else {
     indent(ss, indent_size)
-        << "logical=[" << toDelimitedString(logical()) << "]" << std::endl;
+        << "logical=[" << toDelimitedString(logical()) << "]" << "\n";
     if (hasRoot()) {
       indent(ss, indent_size + 1)
-          << "root=[" << toDelimitedString(root()) << "]" << std::endl;
+          << "root=[" << toDelimitedString(root()) << "]" << "\n";
     }
     indent(ss, indent_size + 1)
-        << "loop=[" << toDelimitedString(loop()) << "]" << std::endl;
+        << "loop=[" << toDelimitedString(loop()) << "]" << "\n";
     if (hasAllocation()) {
       indent(ss, indent_size + 1)
           << "allocation=[" << toDelimitedString(allocation()) << "]"
-          << std::endl;
+          << "\n";
     }
     if (alternateLoop().has_value()) {
+      const auto& alternate_loop = alternateLoop().value();
       indent(ss, indent_size + 1)
-          << "alternate_loop=[" << toDelimitedString(alternateLoop().value())
-          << "]" << std::endl;
+          << "alternate_loop=[" << toDelimitedString(alternate_loop) << "]"
+          << "\n";
     }
   }
   return ss.str();
@@ -1580,10 +1568,9 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
   // Operations like preprocessGroupedMatmulInputSf pad the logical domain to
   // create the allocation domain. strideOrder only checks for permutations
   // between logical and allocation domains.
-  bool is_complex_allocation = std::all_of(
-      allocation_domain_.begin(), allocation_domain_.end(), [](IterDomain* id) {
-        return id->extent()->definition() != nullptr;
-      });
+  bool is_complex_allocation = std::ranges::all_of(
+      allocation_domain_,
+      [](IterDomain* id) { return id->extent()->definition() != nullptr; });
   NVF_CHECK(
       !is_complex_allocation,
       "Encountered non-trivial allocation domain not expressible with stride "
@@ -1594,8 +1581,7 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
 
   for (size_t logical_idx : arange(logical_domain_.size())) {
     IterDomain* logical_id = logical_domain_.at(logical_idx);
-    auto alloc_iter = std::find(
-        allocation_domain_.begin(), allocation_domain_.end(), logical_id);
+    auto alloc_iter = std::ranges::find(allocation_domain_, logical_id);
     NVF_ERROR(
         alloc_iter != allocation_domain_.end(),
         "Unable to find logical IterDomain in allocation domain.");
@@ -1607,39 +1593,33 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
 }
 
 bool TensorDomain::hasBlockReduction() const {
-  return std::any_of(
-      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isThreadDim();
-      });
+  return std::ranges::any_of(loop_domain_, [](IterDomain* id) {
+    return id->isReduction() && id->isThreadDim();
+  });
 }
 
 bool TensorDomain::hasGridReduction() const {
-  return std::any_of(
-      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isBlockDim() &&
-            !id->isClusteredBlockDim();
-      });
+  return std::ranges::any_of(loop_domain_, [](IterDomain* id) {
+    return id->isReduction() && id->isBlockDim() && !id->isClusteredBlockDim();
+  });
 }
 
 bool TensorDomain::hasClusterReduction() const {
-  return std::any_of(
-      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isBlockDim() &&
-            id->isClusteredBlockDim();
-      });
+  return std::ranges::any_of(loop_domain_, [](IterDomain* id) {
+    return id->isReduction() && id->isBlockDim() && id->isClusteredBlockDim();
+  });
 }
 
 bool TensorDomain::hasSymbolicAxis() const {
   // If there's any Symbolic axis, there must be one at the root or
   // logical domain.
   return (hasRoot() &&
-          std::any_of(
-              root().begin(),
-              root().end(),
+          std::ranges::any_of(
+              root(),
               [](auto id) {
                 return id->getIterType() == IterType::Symbolic;
               })) ||
-      std::any_of(logical().begin(), logical().end(), [](auto id) {
+      std::ranges::any_of(logical(), [](auto id) {
            return id->getIterType() == IterType::Symbolic;
          });
 }
@@ -1652,30 +1632,26 @@ bool TensorDomain::hasViewLikeRFactor() const {
 
   // If there's an logical domain and no rfactor product is a reduction, this is
   // a view like rfactor
-  return std::none_of(logical().begin(), logical().end(), [](IterDomain* id) {
+  return std::ranges::none_of(logical(), [](IterDomain* id) {
     return (id->isReduction() || id->isStride()) && id->isRFactorProduct();
   });
 }
 
 bool TensorDomain::hasVectorize() const {
-  return std::any_of(
-      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return isParallelTypeVectorize(id->getParallelType());
-      });
+  return std::ranges::any_of(loop_domain_, [](IterDomain* id) {
+    return isParallelTypeVectorize(id->getParallelType());
+  });
 }
 
 bool TensorDomain::hasRaggedIterDomain() const {
-  return std::any_of(
-      logical().begin(), logical().end(), [](IterDomain* logical_id) {
-        return logical_id->isA<RaggedIterDomain>();
-      });
+  return std::ranges::any_of(logical(), [](IterDomain* logical_id) {
+    return logical_id->isA<RaggedIterDomain>();
+  });
 }
 
 std::optional<int64_t> TensorDomain::getReductionAxis() const {
-  auto it = std::find_if(
-      loop_domain_.begin(), loop_domain_.end(), [](const auto& id) {
-        return id->isReduction();
-      });
+  auto it = std::ranges::find_if(
+      loop_domain_, [](const auto& id) { return id->isReduction(); });
   if (it == loop_domain_.end()) {
     return std::optional<int64_t>();
   } else {
@@ -1705,7 +1681,7 @@ int64_t TensorDomain::posOf(IterDomain* id) const {
 int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   NVF_ERROR(
       !maybeRoot().empty(), "Tried to find an axis in a 0-dim root domain");
-  auto it = std::find(maybeRoot().begin(), maybeRoot().end(), id);
+  auto it = std::ranges::find(maybeRoot(), id);
   NVF_ERROR(it != maybeRoot().end(), "Provided id is not part of root domain.");
   return std::distance(maybeRoot().begin(), it);
 }
@@ -1792,9 +1768,8 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
   auto new2old = ir_utils::normalizeOld2New(old2new_, (int64_t)dom.size());
 
   std::vector<IterDomain*> reordered_domain;
-  std::transform(
-      new2old.begin(),
-      new2old.end(),
+  std::ranges::transform(
+      new2old,
       std::back_inserter(reordered_domain),
       [dom](int64_t i) -> IterDomain* { return dom[i]; });
 
@@ -1858,33 +1833,30 @@ void TensorDomain::resize(
 std::vector<IterDomain*> TensorDomain::noReductions(
     const std::vector<IterDomain*>& td) {
   std::vector<IterDomain*> noReductionDomain;
-  std::copy_if(
-      td.begin(),
-      td.end(),
-      std::back_inserter(noReductionDomain),
-      [](IterDomain* id) { return !id->isReduction() && !id->isStride(); });
+  std::ranges::copy_if(
+      td, std::back_inserter(noReductionDomain), [](IterDomain* id) {
+        return !id->isReduction() && !id->isStride();
+      });
   return noReductionDomain;
 }
 
 std::vector<IterDomain*> TensorDomain::noBroadcasts(
     const std::vector<IterDomain*>& td) {
   std::vector<IterDomain*> noBroadcastDomain;
-  std::copy_if(
-      td.begin(),
-      td.end(),
-      std::back_inserter(noBroadcastDomain),
-      [](IterDomain* id) { return !id->isBroadcast(); });
+  std::ranges::copy_if(
+      td, std::back_inserter(noBroadcastDomain), [](IterDomain* id) {
+        return !id->isBroadcast();
+      });
   return noBroadcastDomain;
 }
 
 std::vector<IterDomain*> TensorDomain::noDevices(
     const std::vector<IterDomain*>& td) {
   std::vector<IterDomain*> noDeviceDomain;
-  std::copy_if(
-      td.begin(),
-      td.end(),
-      std::back_inserter(noDeviceDomain),
-      [](IterDomain* id) { return !id->isDeviceDim(); });
+  std::ranges::copy_if(
+      td, std::back_inserter(noDeviceDomain), [](IterDomain* id) {
+        return !id->isDeviceDim();
+      });
   return noDeviceDomain;
 }
 
@@ -2107,15 +2079,14 @@ std::vector<Expr*> TensorDomain::allExprs() const {
       continue;
     }
 
-    if (std::all_of(def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+    if (std::ranges::all_of(def->inputs(), [&](Val* inp) {
           return all_id_set.find(inp) != all_id_set.end();
         })) {
       exprs.pushBack(def);
     } else {
-      NVF_ERROR(std::none_of(
-          def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
-            return all_id_set.find(inp) != all_id_set.end();
-          }));
+      NVF_ERROR(std::ranges::none_of(def->inputs(), [&](Val* inp) {
+        return all_id_set.find(inp) != all_id_set.end();
+      }));
     }
   }
 
@@ -2131,16 +2102,14 @@ std::vector<Statement*> TensorDomain::allStatements() const {
     // Visit definition if available and all inputs are already visited
     auto def = id->definition();
     if (def != nullptr) {
-      if (std::all_of(
-              def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
-                return all_id_set.find(inp) != all_id_set.end();
-              })) {
+      if (std::ranges::all_of(def->inputs(), [&](Val* inp) {
+            return all_id_set.find(inp) != all_id_set.end();
+          })) {
         stmts.pushBack(def);
       } else {
-        NVF_ERROR(std::none_of(
-            def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
-              return all_id_set.find(inp) != all_id_set.end();
-            }));
+        NVF_ERROR(std::ranges::none_of(def->inputs(), [&](Val* inp) {
+          return all_id_set.find(inp) != all_id_set.end();
+        }));
       }
     }
 
