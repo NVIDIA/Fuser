@@ -10,6 +10,7 @@
 #include <exception>
 #include <utility>
 
+#include "codegen.h"
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
 #include "tests/cpp/utils.h"
@@ -2558,5 +2559,80 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_pt_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+// Verify warp-specialized kernels emit warp::uniformWarpId (__shfl_sync
+// broadcast) instead of raw threadIdx comparisons for warp dispatch predicates.
+TEST_F(NVFuserTest, UniformWarpIdPredicate) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t number_of_stages = 4;
+  constexpr int64_t prefetch_distance = 1;
+  constexpr int64_t tensor_outer_dim = 128;
+  constexpr int64_t tensor_inner_dim = 1024;
+  constexpr int64_t bulk_inner_dim = 256;
+
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDx);
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
+  TensorView* tv3 = exp(tv2);
+  fusion->addOutput(tv3);
+
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* tv4 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv4->setMemoryType(MemoryType::Shared);
+
+  TensorView* tv5 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv5->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv3;
+  reference->split(-1, bulk_inner_dim);
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  inlineAllAt(tv2, /*pos=*/2);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(2)->parallelize(ParallelType::Bulk);
+  tv4->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+
+  tv5->axis(0)->parallelize(ParallelType::BIDx);
+  tv5->axis(2)->parallelize(ParallelType::Bulk);
+  tv5->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+
+  reference->split(-1, bulk_inner_dim);
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Check generated CUDA uses warp::uniformWarpId for warp dispatch
+  GpuLower gpulw(fusion.get());
+  const std::string kernel_string = codegen::generateCudaKernel(gpulw.run());
+
+  EXPECT_NE(kernel_string.find("warp::uniformWarpId"), std::string::npos)
+      << "Expected warp::uniformWarpId in generated kernel.\n"
+      << kernel_string;
+
+  // Verify correctness
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor expected = at::exp(t0 + t1);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams());
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(
+      fusion.get(), cg_outputs, {t0, t1}, {expected}, __LINE__, __FILE__);
+}
 
 } // namespace nvfuser
