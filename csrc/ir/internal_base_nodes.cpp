@@ -1477,19 +1477,20 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     return false;
   }
 
+  const auto& alternate_loop = alternateLoop();
+
   // has_value is false for both this_td and other_td
-  if (!alternateLoop().has_value() && !other_td->alternateLoop().has_value()) {
+  if (!alternate_loop.has_value()) {
     return true;
   }
-
-  const auto& alternate_loop = alternateLoop().value();
 
   // has_value is true for both this_td and other_td, so verify that all
   // iterDomains are the same.
   return std::ranges::all_of(
-      std::ranges::iota_view{0LL, (int64_t)alternate_loop.size()},
+      std::ranges::iota_view{0LL, (int64_t)alternate_loop->size()},
       [&](int64_t i) {
-        return alternate_loop[i]->sameAs(other_td->alternateLoop().value()[i]);
+        return alternate_loop->at(i)->sameAs(
+            other_td->alternateLoop().value()[i]);
       });
 }
 
@@ -1527,10 +1528,10 @@ std::string TensorDomain::toString(const int indent_size, const bool loop_only)
           << "allocation=[" << toDelimitedString(allocation()) << "]"
           << "\n";
     }
-    if (alternateLoop().has_value()) {
-      const auto& alternate_loop = alternateLoop().value();
+    const auto& alternate_loop = alternateLoop();
+    if (alternate_loop.has_value()) {
       indent(ss, indent_size + 1)
-          << "alternate_loop=[" << toDelimitedString(alternate_loop) << "]"
+          << "alternate_loop=[" << toDelimitedString(*alternate_loop) << "]"
           << "\n";
     }
   }
@@ -1868,7 +1869,7 @@ std::vector<IterDomain*> TensorDomain::noDevices(
   contiguity.reserve(allocation_domain.size());
   for (auto id : allocation_domain) {
     if (id->isBroadcast() || id->isReduction()) {
-      contiguity.push_back(std::nullopt);
+      contiguity.emplace_back(std::nullopt);
     } else {
       contiguity.emplace_back(fill_value);
     }
