@@ -1,0 +1,85 @@
+name: Gemini CLI PR Review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+run-name: Gemini review for PR ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  gemini-pr-review:
+    # Skip if PR is in draft
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install Gemini CLI
+        shell: bash
+        run: |
+          npm install -g @google/gemini-cli@latest
+          echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
+
+      - name: Verify Gemini CLI
+        shell: bash
+        run: |
+          which gemini
+          gemini --version
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install/Upgrade Google Python Client
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade google-generativeai
+          # If you have a requirements.txt file, you might use this instead:
+          # pip install -r requirements.txt --upgrade
+
+      - name: Run Gemini PR review
+        env:
+          #GEMINI_MODEL: gemini-1.5-flash-latest
+          GEMINI_OUTPUT_DIR: artifacts/gemini_review/${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          python -m tools.pr_preflight_launcher --ai-backend gemini --output-dir "${GEMINI_OUTPUT_DIR}"
+
+      - name: Print Gemini error (if any)
+        if: always()
+        run: |
+          if [ -f "${{ env.GEMINI_OUTPUT_DIR }}/error.txt" ]; then
+            echo "===== Gemini error.txt ====="
+            sed -n '1,200p' "${{ env.GEMINI_OUTPUT_DIR }}/error.txt"
+          else
+            echo "No error.txt found in ${{ env.GEMINI_OUTPUT_DIR }}"
+          fi
+
+      - name: Upload Gemini review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ env.GEMINI_OUTPUT_DIR }}/**
+
+
