@@ -1026,9 +1026,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     contig_alloc_groups = contig_alloc_strides.first;
     contig_strides = contig_alloc_strides.second;
   } else {
-    std::transform(
-        alloc_info.ids.begin(),
-        alloc_info.ids.end(),
+    std::ranges::transform(
+        alloc_info.ids,
         std::back_inserter(contig_alloc_groups),
         [&](IterDomain* allocation_domain) {
           return traversalGraph().toGroup(allocation_domain);
