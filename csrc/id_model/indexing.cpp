@@ -176,8 +176,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     const std::vector<kir::ForLoop*>& for_loops,
     bool use_magic_zero) const {
   auto info = computeIndex(expr, index_ids, for_loops);
-  const auto& replacement_map = getIndexReplacementMap(
-      expr, as_consumer, info.loop_ids, for_loops, info.index_map);
+  const auto& replacement_map =
+      getIndexReplacementMap(expr, as_consumer, info.loop_ids, for_loops);
 
   // Note that IDs of index_ids may be mapped as the traversal graph
   // is the AlmostExact graph.
@@ -348,8 +348,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const Expr* expr,
     bool as_consumer,
     const std::vector<IterDomain*>& loop_domains,
-    const std::vector<kir::ForLoop*>& for_loops,
-    const std::unordered_map<ValGroup, Val*>& index_map) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
@@ -1000,8 +999,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     index_info.index_map[traversalGraph().toGroup(indexed_id)] = index;
   }
   const auto& index_map = index_info.index_map;
-  auto replacement_map = getIndexReplacementMap(
-      expr, as_consumer, index_info.loop_ids, for_loops, index_map);
+  auto replacement_map =
+      getIndexReplacementMap(expr, as_consumer, index_info.loop_ids, for_loops);
 
   // War for MmaOp. The allocation domain may involve parallelized
   // IDs, either directly or by traversal. Ideally, we should set the
@@ -1026,9 +1025,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     contig_alloc_groups = contig_alloc_strides.first;
     contig_strides = contig_alloc_strides.second;
   } else {
-    std::transform(
-        alloc_info.ids.begin(),
-        alloc_info.ids.end(),
+    std::ranges::transform(
+        alloc_info.ids,
         std::back_inserter(contig_alloc_groups),
         [&](IterDomain* allocation_domain) {
           return traversalGraph().toGroup(allocation_domain);

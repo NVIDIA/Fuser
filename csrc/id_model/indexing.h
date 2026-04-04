@@ -96,6 +96,25 @@ class TensorIndexer {
       const std::unordered_map<IterDomain*, Val*>& override_index,
       bool ld_st_matrix = false) const;
 
+  // Get a replace map for tensor indexing. Examples include replacing
+  // an index of a vectorized loop with zero.
+  //
+  // This replacement map is used to replace a tensor index after an
+  // index map is generated. Since replacment is only done for loop
+  // domains, this could be done as part of getInitialIndexMap. One
+  // reason that we might want to first generate an index and do some
+  // replacements, rather than using final index vals to build the
+  // index map, is that one index map could be used for multiple
+  // indices. For normal tensor indexing, this may not matter, but for
+  // predicate indexing, it needs to generate both start and stop
+  // predicates, and one index map would be sufficient for both
+  // indices by using different replacement maps.
+  std::unordered_map<Val*, Val*> getIndexReplacementMap(
+      const Expr* expr,
+      bool as_consumer,
+      const std::vector<IterDomain*>& loop_domains,
+      const std::vector<kir::ForLoop*>& for_loops) const;
+
   // Grab all for-loops whose indices are actually used in the given
   // index vals. Note that IndexingInfo.loop_group_dependencies can be
   // used to find loop IDs that are connected to the index IDs, but
@@ -202,26 +221,6 @@ class TensorIndexer {
   std::pair<std::vector<ValGroup>, std::vector<Val*>> getContigDomainsAndStrides(
       const AllocationDomainInfo& alloc_info,
       const ExprPath<ExprGroup>& traversal_path) const;
-
-  // Get a replace map for tensor indexing. Examples include replacing
-  // an index of a vectorized loop with zero.
-  //
-  // This replacement map is used to replace a tensor index after an
-  // index map is generated. Since replacment is only done for loop
-  // domains, this could be done as part of getInitialIndexMap. One
-  // reason that we might want to first generate an index and do some
-  // replacements, rather than using final index vals to build the
-  // index map, is that one index map could be used for multiple
-  // indices. For normal tensor indexing, this may not matter, but for
-  // predicate indexing, it needs to generate both start and stop
-  // predicates, and one index map would be sufficient for both
-  // indices by using different replacement maps.
-  std::unordered_map<Val*, Val*> getIndexReplacementMap(
-      const Expr* expr,
-      bool as_consumer,
-      const std::vector<IterDomain*>& loop_domains,
-      const std::vector<kir::ForLoop*>& for_loops,
-      const std::unordered_map<ValGroup, Val*>& index_map) const;
 
   // Grab all non-divisible splits whose input IDs need to be
   // predicated.
