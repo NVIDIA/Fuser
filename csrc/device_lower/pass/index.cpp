@@ -843,6 +843,11 @@ void IndexLowering::handleSerialGridReduction(
         work_buffer_idx_val, SimplifyingIrBuilder::mulExpr(idx, stride));
     stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
   }
+  const auto replacement_map =
+      GpuLower::current()->tensorIndexer().getIndexReplacementMap(
+          out_tv->definition(), true, out_tv->getLoopDomain(), for_loops_);
+  work_buffer_idx_val =
+      ir_utils::replaceValRecursively(work_buffer_idx_val, replacement_map);
 
   auto work_buffer_idx = IrBuilder::create<kir::TensorIndex>(
       work_buffer_tv,
