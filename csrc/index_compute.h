@@ -13,6 +13,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "type.h"
+
 namespace nvfuser {
 
 class TensorIndexer;
