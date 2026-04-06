@@ -255,8 +255,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     } else {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkS2GIndex";
-      auto gmem_address =
-          getConsumerIndex(consumer_tv, loops, {}, true);
+      auto gmem_address = getConsumerIndex(consumer_tv, loops, {}, true);
       index = IrBuilder::structExpr(
           {{"raw_gmem_addr", gmem_address}, {"bytes", expected_bytes}},
           ss.str());
