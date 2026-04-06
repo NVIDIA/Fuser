@@ -79,12 +79,13 @@ void TensorIndexer::buildLoopIndexMap() {
       loop_index_map_[loop_group] = loop_index;
     }
 
-    if (!tv_output->getAlternateLoopDomain().has_value()) {
+    const auto& alternate_loop_domain_opt = tv_output->getAlternateLoopDomain();
+    if (!alternate_loop_domain_opt.has_value()) {
       continue;
     }
 
     const std::vector<IterDomain*>& alternate_loop_domain =
-        tv_output->getAlternateLoopDomain().value();
+        alternate_loop_domain_opt.value();
     const std::vector<IterDomain*>& loop_domain = tv_output->getLoopDomain();
     // NOTE For scheduling ldmatrix and stmatrix, the assumption is the original
     // and alternate loop domains have the same number of iterDomains. This
@@ -340,7 +341,11 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   IndexingInfo info{
-      loop_ids, index_ids, traversal_path, index_map, loop_group_dependencies};
+      .loop_ids = loop_ids,
+      .index_ids = index_ids,
+      .traversal_path = traversal_path,
+      .index_map = index_map,
+      .loop_group_dependencies = loop_group_dependencies};
   return info;
 }
 
@@ -911,8 +916,7 @@ std::vector<kir::ForLoop*> TensorIndexer::getUsedForLoopsOf(
   std::vector<kir::ForLoop*> dep_loops;
   for (auto [i, for_loop] : enumerate(for_loops)) {
     auto initial_loop_index = loop_indices.at(i);
-    if (std::find(dep_vals.begin(), dep_vals.end(), initial_loop_index) !=
-        dep_vals.end()) {
+    if (std::ranges::find(dep_vals, initial_loop_index) != dep_vals.end()) {
       dep_loops.push_back(for_loop);
     }
   }

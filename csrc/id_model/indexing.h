@@ -241,6 +241,7 @@ class TensorIndexer {
  private:
   // Using non-const references of IdModel because traversalGraph() returns a
   // non-const reference
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   IdModel& id_model_;
 
   // Mappings from loop groups to their indices. Serial loops will
