@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
+
 #include "base.h"
 #include "disjoint_set.h"
 #include "exceptions.h"
@@ -26,7 +28,7 @@ class HeuristicDataCache;
 //! transform propagation passes will propagate the transforms.
 //! For example, in sharding propagation or
 //! BoundedDirectionalTransformPropagator.
-enum class PropagateDirection { kBackward = 0, kForward };
+enum class PropagateDirection : std::uint8_t { kBackward = 0, kForward };
 
 std::ostream& operator<<(std::ostream& os, PropagateDirection direction);
 
@@ -1024,6 +1026,10 @@ std::pair<int64_t, int64_t> getRegisterSharing(
 // set the "breakpoint" in a loop domain so scheduling only affects non-device
 // and non-stream IterDomains.
 int64_t countLeadingParallelDimensions(const TensorView*);
+
+// Check if all fusion input TensorViews have compile-time known contiguous
+// innermost dimension. TMA requires contiguity to be known at compile time.
+bool inputsHaveContiguousInnerDim(Fusion* fusion);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

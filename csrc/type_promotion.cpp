@@ -7,6 +7,8 @@
 // clang-format on
 #include <type_promotion.h>
 
+#include <cstdint>
+
 #include <ir/interface_nodes.h>
 #include <ops/arith.h>
 
@@ -14,7 +16,7 @@ namespace nvfuser {
 
 namespace {
 
-enum ValueType { Tensor, Scalar, None };
+enum ValueType : std::uint8_t { Tensor, Scalar, None };
 
 struct OperandType {
   ValueType value_type = ValueType::Tensor;
@@ -159,29 +161,30 @@ OperandType getValueType(at::TypePtr type) {
         "Missing Scalar Type information");
     // TODO: Type Inference does not propagate Shape Information
     return {
-        ValueType::Tensor,
-        aten_to_data_type(tensor_type->scalarType().value()),
-        tensor_type->dim().has_value() ? tensor_type->dim().value() : 1};
+        .value_type = ValueType::Tensor,
+        .scalar_type =
+            aten_to_data_type(valueOrError(tensor_type->scalarType())),
+        .dim = tensor_type->dim().has_value() ? valueOrError(tensor_type->dim())
+                                              : 1};
   } else if (auto scalar_type = tryScalarTypeFromJitType(*type)) {
-    return {ValueType::Scalar, aten_to_data_type(scalar_type.value())};
+    return {
+        .value_type = ValueType::Scalar,
+        .scalar_type = aten_to_data_type(*scalar_type)};
   } else {
-    return {ValueType::None, DataType::Null};
+    return {.value_type = ValueType::None, .scalar_type = DataType::Null};
   }
 }
 
 OperandType getValueType(Val* type) {
-  NVF_ERROR(type->getDataType().has_value());
-
   if (type->isA<TensorView>()) {
     auto tensor_view = type->as<TensorView>();
     return {
-        ValueType::Tensor,
-        tensor_view->getDataType().value(),
-        tensor_view->getLogicalDomain().size()};
-  } else if (type->getDataType().has_value()) {
-    return {ValueType::Scalar, type->getDataType().value()};
+        .value_type = ValueType::Tensor,
+        .scalar_type = tensor_view->getDataType(),
+        .dim = tensor_view->getLogicalDomain().size()};
   } else {
-    return {ValueType::None, DataType::Null};
+    return {
+        .value_type = ValueType::Scalar, .scalar_type = type->getDataType()};
   }
 }
 
@@ -231,20 +234,18 @@ std::vector<Val*> promoteValues(
 }
 
 Val* optionalCast(DataType dtype, Val* v) {
-  NVF_ERROR(v->getDataType().has_value());
   // Avoid casting Float/Int/ComplexDouble scalar to any corresponding
   // FloatingPoint/Integral/Double type in fusion. Instead, we cast them
   // directly. The exception is Bool, which is always cast to the desired
   // type.
-  const bool kSameDtype = v->getDataType().value() == dtype;
+  const bool kSameDtype = v->getDataType() == dtype;
   const bool kIsScalarFloat =
       !v->isA<TensorView>() && isFloatingPointType(dtype);
   const bool kIsScalarInt = !v->isA<TensorView>() && isIntegralType(dtype);
   const bool kIsScalarComplex = !v->isA<TensorView>() && isComplexType(dtype);
-  if (kSameDtype ||
-      (kIsScalarFloat && isFloatingPointType(v->getDataType().value())) ||
-      (kIsScalarInt && isIntegralType(v->getDataType().value())) ||
-      (kIsScalarComplex && isComplexType(v->getDataType().value()))) {
+  if (kSameDtype || (kIsScalarFloat && isFloatingPointType(v->getDataType())) ||
+      (kIsScalarInt && isIntegralType(v->getDataType())) ||
+      (kIsScalarComplex && isComplexType(v->getDataType()))) {
     return v;
   } else {
     return castOp(dtype, v);
@@ -252,8 +253,7 @@ Val* optionalCast(DataType dtype, Val* v) {
 }
 
 Val* optionalCastStrict(DataType dtype, Val* v) {
-  NVF_ERROR(v->getDataType().has_value());
-  const bool kSameDtype = v->getDataType().value() == dtype;
+  const bool kSameDtype = v->getDataType() == dtype;
   return (kSameDtype) ? v : castOp(dtype, v);
 }
 

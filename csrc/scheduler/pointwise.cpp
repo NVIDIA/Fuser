@@ -324,12 +324,10 @@ bool PointWiseScheduler::canScheduleRunTime(
         auto data_type_width = op->isA<BlockQuantizationOp>()
             ? dataTypeSizeBit(op->as<BlockQuantizationOp>()
                                   ->quantizedOutput()
-                                  ->getDataType()
-                                  .value())
+                                  ->getDataType())
             : dataTypeSizeBit(op->as<GroupedBlockQuantizationOp>()
                                   ->quantizedOutput()
-                                  ->getDataType()
-                                  .value());
+                                  ->getDataType());
 
         if (data_type_width % 8 != 0) {
           scheduler_debug_utils::canScheduleRejectReason(
@@ -380,7 +378,8 @@ bool mayHaveTmaCompatibleInputs(
     // inner TMA domain size of 2 * 16 bytes. Additionally, skip if the inner
     // TMA domain size equals the total element count, as this would mean the
     // outer TMA domain is 1, which is not a valid 2D TMA configuration.
-    const int64_t tma_domain_inner_min = 2 * 128 / dtype_bits;
+    const int64_t tma_domain_inner_min =
+        static_cast<int64_t>(2 * 128) / dtype_bits;
     if (elem_count % tma_domain_inner_min != 0 ||
         elem_count == tma_domain_inner_min) {
       continue;
@@ -401,9 +400,16 @@ bool mayHaveTmaCompatibleInputs(
 // serves as a fast path to avoid computing full heuristics if TMA is clearly
 // not applicable. Passing this check does not guarantee that TMA will be used;
 // the final decision is made during heuristics computation.
-bool mayUseTma(const pointwise_utils::FusionRuntimeProperties& prop) {
+bool mayUseTma(
+    Fusion* fusion,
+    const pointwise_utils::FusionRuntimeProperties& prop) {
   // Hardware requirement: Don't use TMA for pre-Hopper GPUs
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return false;
+  }
+
+  // TMA requires compile-time known contiguous innermost dimension on inputs
+  if (!scheduler_utils::inputsHaveContiguousInnerDim(fusion)) {
     return false;
   }
   // Check if there are TMA-compatible inputs
@@ -431,7 +437,8 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   }
   const auto& prop = prop_opt.value();
 
-  bool use_tma = mayUseTma(prop) && isOptionEnabled(EnableOption::TmaPointwise);
+  bool use_tma =
+      mayUseTma(fusion, prop) && isOptionEnabled(EnableOption::TmaPointwise);
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
     pparams = pointwise::tma::getPointwiseHeuristics(

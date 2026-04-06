@@ -7,6 +7,7 @@
 // clang-format on
 #include <evaluator_common.h>
 
+#include <algorithm>
 #include <concepts>
 #include <optional>
 #include <ranges>
@@ -274,7 +275,7 @@ void PrecomputedValues::print() const {
   for (auto i : arange(symbols_.size())) {
     if (defined_[i]) {
       debug() << symbols_[i]->toInlineString() << " = "
-              << PolymorphicValue_functions::toString(values_[i]) << std::endl;
+              << PolymorphicValue_functions::toString(values_[i]) << '\n';
     }
   }
 }
@@ -289,7 +290,8 @@ void PrecomputedValues::invalidate() {
   // clear binding values
   binding_log_.clear();
 
-  // invalidate value entries
+  // invalidate value entries (vector<bool> is not a ranges output_range)
+  // NOLINTNEXTLINE(modernize-use-ranges)
   std::fill(defined_.begin(), defined_.end(), false);
 
   // invalidate flag
@@ -438,7 +440,7 @@ void PrecomputedValues::bindTensorMetaData(
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
-    : precomputed_values_(precomputed_values), num_of_instructions_{0} {
+    : precomputed_values_(precomputed_values) {
   for (auto val : precomputed_values_.symbols_) {
     auto def = val->definition();
     if (def) {
@@ -507,7 +509,7 @@ void NaiveValueMachine::makeUnaryOp(UnaryOp* uop) {
   inst_type_[index] = InstructionType::UNARY_OP;
   uop_type_[index] = uop->getUnaryOpType();
   if (uop_type_[index] == UnaryOpType::Cast) {
-    data_type_[index] = uop->out()->getDataType().value();
+    data_type_[index] = uop->out()->getDataType();
   }
   src0_[index] = in;
   dest_[index] = out;

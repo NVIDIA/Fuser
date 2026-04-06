@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <ranges>
 #include <vector>
 
 #include <c10/cuda/CUDAStream.h>
@@ -447,6 +448,33 @@ c10::intrusive_ptr<c10d::Work> postRecv(
   return backend->recv(packed_buffer, static_cast<int>(peer), /*tag=*/0);
 }
 
+c10::intrusive_ptr<c10d::Work> postCollectivePermute(
+    CollectivePermute* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType send_peer_index,
+    DeviceIdxType recv_peer_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor) {
+  if (my_device_index == send_peer_index &&
+      my_device_index == recv_peer_index) {
+    doLocalCopy(output_tensor, input_tensor);
+    return nullptr;
+  }
+  backend->startCoalescing();
+  std::vector<at::Tensor> send_tensors = {input_tensor};
+  backend->send(
+      send_tensors,
+      static_cast<int>(send_peer_index),
+      /*tag=*/0);
+  std::vector<at::Tensor> recv_tensors = {output_tensor};
+  backend->recv(
+      recv_tensors,
+      static_cast<int>(recv_peer_index),
+      /*tag=*/0);
+  return backend->endCoalescing();
+}
+
 } // namespace
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
@@ -457,7 +485,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     at::Tensor output_tensor,
     int64_t root_index) {
   const Team& team = communication->team();
-  if (std::find(team.begin(), team.end(), my_device) == team.end()) {
+  if (std::ranges::find(team, my_device) == team.end()) {
     return nullptr;
   }
   int64_t my_device_index = getRelativeIndex(team, my_device);
@@ -466,7 +494,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
   if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
     debug() << "Posting " << communication->toInlineString()
             << " with input_tensor " << input_tensor.sizes()
-            << " and output_tensor " << output_tensor.sizes() << std::endl;
+            << " and output_tensor " << output_tensor.sizes() << '\n';
   }
 
   switch (communication->type()) {
@@ -559,6 +587,36 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     default:
       NVF_THROW("Wrong communication type: ", communication->type());
   }
+}
+
+c10::intrusive_ptr<c10d::Work> postSingleCommunication(
+    CollectivePermute* communication,
+    DeviceIdxType my_device,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor,
+    DeviceIdxType send_peer_index,
+    DeviceIdxType recv_peer_index) {
+  NVF_CHECK(backend != nullptr);
+
+  int64_t my_device_index = getRelativeIndex(communication->team(), my_device);
+
+  if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
+    debug() << "Posting " << communication->toInlineString()
+            << " with input_tensor " << input_tensor.sizes()
+            << " and output_tensor " << output_tensor.sizes()
+            << " send_peer=" << send_peer_index
+            << " recv_peer=" << recv_peer_index << '\n';
+  }
+
+  return postCollectivePermute(
+      communication,
+      my_device_index,
+      send_peer_index,
+      recv_peer_index,
+      backend,
+      input_tensor,
+      output_tensor);
 }
 
 } // namespace nvfuser

@@ -190,7 +190,7 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     }
   }
 
-  for (auto [k, v] : from->managed_named_data_) {
+  for (const auto& [k, v] : from->managed_named_data_) {
     if (v.first.has_value()) {
       to->managed_named_data_.insert(std::make_pair(
           k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
@@ -344,12 +344,12 @@ void Fusion::removeVal(Val* val) {
 void Fusion::addInput(Val* input) {
   assertInContainer(input, "Cannot register input ");
 
-  if (input->getValType().value() == ValType::TensorView) {
+  if (input->getValType() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
     if (tv->getMemoryType() != MemoryType::Symmetric) {
       tv->setMemoryType(MemoryType::Global);
     }
-  } else if (input->getValType().value() == ValType::Others) {
+  } else if (input->getValType() == ValType::Others) {
     NVF_CHECK(
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not "
@@ -403,7 +403,7 @@ void Fusion::addOutput(Val* output) {
 }
 
 void Fusion::removeInput(Val* input) {
-  auto find_input = std::find(inputs_.begin(), inputs_.end(), input);
+  auto find_input = std::ranges::find(inputs_, input);
   if (find_input != inputs_.end()) {
     inputs_.erase(find_input);
   }
@@ -412,7 +412,7 @@ void Fusion::removeInput(Val* input) {
 }
 
 void Fusion::removeOutput(Val* output) {
-  auto find_output = std::find(outputs_.begin(), outputs_.end(), output);
+  auto find_output = std::ranges::find(outputs_, output);
   if (find_output != outputs_.end()) {
     outputs_.erase(find_output);
   }
@@ -421,17 +421,14 @@ void Fusion::removeOutput(Val* output) {
 }
 
 void Fusion::replaceOutput(Val* output, Val* replacement) {
-  auto find_output = std::find(outputs_.begin(), outputs_.end(), output);
+  auto find_output = std::ranges::find(outputs_, output);
   NVF_CHECK(find_output != outputs_.end(), "Unable to find output in Fusion");
 
   if (find_output != outputs_.end()) {
-    std::replace_if(
-        outputs_.begin(),
-        outputs_.end(),
-        [&output](Val* v) { return v == output; },
-        replacement);
+    std::ranges::replace_if(
+        outputs_, [&output](Val* v) { return v == output; }, replacement);
 
-    if (replacement->getValType().value() == ValType::TensorView) {
+    if (replacement->getValType() == ValType::TensorView) {
       replacement->setIsFusionOutput(true);
       NVF_CHECK(
           replacement->as<TensorView>()->getMemoryType() !=
@@ -440,7 +437,7 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
           replacement);
       replacement->as<TensorView>()->setMemoryType(MemoryType::Global);
     }
-    if (output->getValType().value() == ValType::TensorView) {
+    if (output->getValType() == ValType::TensorView) {
       output->setIsFusionOutput(false);
       // If `output` is both an input and an output before the replacement,
       // don't localize it.
@@ -522,14 +519,14 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     const {
   FUSER_PERF_SCOPE("Fusion::print");
 
-  os << "Inputs:" << std::endl;
+  os << "Inputs:" << '\n';
   for (auto inp : inputs()) {
-    os << "  " << inp << std::endl;
+    os << "  " << inp << '\n';
   }
 
-  os << "Outputs:" << std::endl;
+  os << "Outputs:" << '\n';
   for (auto out : outputs()) {
-    os << "  " << out << std::endl;
+    os << "  " << out << '\n';
   }
 
   os << "\n%kernel {\n";
@@ -594,8 +591,7 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
       return nullptr;
     }
     auto tv = ti->view();
-    auto it =
-        std::find(smem_tvs_in_kernel.begin(), smem_tvs_in_kernel.end(), tv);
+    auto it = std::ranges::find(smem_tvs_in_kernel, tv);
     if (it == smem_tvs_in_kernel.end()) {
       return nullptr;
     }
@@ -638,14 +634,14 @@ void Fusion::printMath(bool from_outputs_only) {
 
   FusionGuard fg(this);
   auto exprs_for_print = exprs();
-  debug() << "Inputs:" << std::endl;
+  debug() << "Inputs:" << '\n';
   for (auto inp : inputs()) {
-    debug() << "  " << inp << std::endl;
+    debug() << "  " << inp << '\n';
   }
 
-  debug() << "Outputs:" << std::endl;
+  debug() << "Outputs:" << '\n';
   for (auto out : outputs()) {
-    debug() << "  " << out << std::endl;
+    debug() << "  " << out << '\n';
   }
 
   // If we want everything in the fusion, grab all values without uses to
@@ -796,8 +792,7 @@ std::vector<Val*> Fusion::usedMathVals() const {
       continue;
     }
     for (auto out : def->outputs()) {
-      if (std::find(used_math_vals.begin(), used_math_vals.end(), out) ==
-          used_math_vals.end()) {
+      if (std::ranges::find(used_math_vals, out) == used_math_vals.end()) {
         if (!added_vals.count(out)) {
           vals_to_add.push_back(out);
           added_vals.insert(out);
@@ -903,11 +898,11 @@ std::ostream& operator<<(std::ostream& os, OutputVisibility visibility) {
 }
 
 std::ostream& operator<<(std::ostream& os, const AliasInfo& alias) {
-  os << "AliasInfo{" << std::endl;
-  os << "  type = " << alias.type << "," << std::endl;
-  os << "  aliased_io = " << alias.aliased_io << "," << std::endl;
-  os << "  visibility = " << alias.visibility << std::endl;
-  os << "}" << std::endl;
+  os << "AliasInfo{" << '\n';
+  os << "  type = " << alias.type << "," << '\n';
+  os << "  aliased_io = " << alias.aliased_io << "," << '\n';
+  os << "  visibility = " << alias.visibility << '\n';
+  os << "}" << '\n';
   return os;
 }
 
@@ -950,9 +945,6 @@ void Fusion::aliasOutputToInput(
 
   NVF_ERROR(type == AllocationType::ReuseBuffer);
   NVF_ERROR(input->isFusionInput(), "alias source can only be a fusion input");
-  NVF_ERROR(
-      input->getDataType().has_value() && output->getDataType().has_value(),
-      "requires DataType to be available for aliased output to input");
 
   if (output->isFusionInput()) {
     // ensure that codegen produce a write operation on the buffer.

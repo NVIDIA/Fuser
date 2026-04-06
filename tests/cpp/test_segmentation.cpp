@@ -96,7 +96,7 @@ TEST_F(SegmentationTest, SegmenterHint) {
   FusionGuard fg(fusion.get());
   std::vector<int64_t> input_shape{32, 64, 8, 128};
   auto tv0 = TensorViewBuilder()
-                 .ndims(input_shape.size())
+                 .ndims(std::ssize(input_shape))
                  .dtype(DataType::Double)
                  .build();
   fusion->addInput(tv0);
@@ -474,6 +474,9 @@ TEST_F(SegmentationTest, ForceFp16NotAllCast) {
   // Check that the edge that wasn't fp16 is the producer of the
   //  reduction op, i.e. tv8 = sum(tv5,{1});.
   for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    if (!edge->val->isA<TensorView>()) {
+      continue;
+    }
     auto* edge_tv = edge->val->as<TensorView>();
     if (edge_tv->getDataType() == DataType::Float) {
       Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
@@ -535,6 +538,9 @@ TEST_F(SegmentationTest, ForceBf16NotAllCast) {
   // Check that the edge that wasn't fp16 is the producer of the
   //  reduction op, i.e. tv8 = sum(tv5,{1});.
   for (SegmentedEdge* edge : segmented_fusion->edges()) {
+    if (!edge->val->isA<TensorView>()) {
+      continue;
+    }
     auto* edge_tv = edge->val->as<TensorView>();
     if (edge_tv->getDataType() == DataType::Float) {
       Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());

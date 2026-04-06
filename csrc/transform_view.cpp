@@ -110,6 +110,7 @@ class Transform : public PolymorphicBase {
   // top of this file).
   Transform(int64_t index) : index_(index) {}
 
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const int64_t index_ = 0;
 };
 
@@ -128,7 +129,7 @@ class ViewTransform : public Transform {
   static IterDomain* replaceRootIdWithRFactor(
       std::vector<IterDomain*>& root_domain,
       IterDomain* id) {
-    auto root_domain_it = std::find(root_domain.begin(), root_domain.end(), id);
+    auto root_domain_it = std::ranges::find(root_domain, id);
 
     NVF_ERROR(
         root_domain_it != root_domain.end(),
@@ -301,6 +302,7 @@ class SplitTransform final : public ViewTransform {
   }
 
  private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const int64_t split_factor_ = 0;
 };
 
@@ -313,7 +315,7 @@ class BroadcastTransform final : public Transform {
 
   std::string toString() const override {
     std::stringstream ss;
-    ss << "Broadcast at: " << index_ << std::endl;
+    ss << "Broadcast at: " << index_ << '\n';
     return ss.str();
   }
 };
@@ -326,7 +328,7 @@ class SqueezeTransform final : public Transform {
 
   std::string toString() const override {
     std::stringstream ss;
-    ss << "Squeeze at: " << index_ << std::endl;
+    ss << "Squeeze at: " << index_ << '\n';
     return ss.str();
   }
 };
@@ -420,7 +422,10 @@ class AnalyzeViewTransformation {
     auto broadcast_axes = generateBroadcastAxes();
 
     // Move data to AnalyzeViewResult and return it.
-    return {broadcast_axes, squeeze_axes, view_transforms_};
+    return {
+        .broadcast_axes = broadcast_axes,
+        .squeeze_axes = squeeze_axes,
+        .transforms = view_transforms_};
   }
 
  private:
@@ -446,21 +451,21 @@ class AnalyzeViewTransformation {
 
   std::string toString() {
     std::stringstream output;
-    output << "===============================" << std::endl;
+    output << "===============================\n";
     output << "old:";
     for (auto s : original_view_) {
       output << " " << s;
     }
-    output << std::endl;
+    output << '\n';
 
-    output << "===============================" << std::endl;
+    output << "===============================\n";
     output << "new:";
     for (auto s : new_view_) {
       output << " " << s;
     }
-    output << std::endl;
+    output << '\n';
 
-    output << "===============================" << std::endl;
+    output << "===============================\n";
     for (auto& squeeze : squeeze_transforms_) {
       output << squeeze->toString() << "\n";
     }
@@ -470,7 +475,7 @@ class AnalyzeViewTransformation {
     for (auto& broadcast : broadcast_transforms_) {
       output << broadcast->toString() << "\n";
     }
-    output << "===============================" << std::endl;
+    output << "===============================\n";
     return output.str();
   }
 
@@ -667,12 +672,16 @@ class AnalyzeViewTransformation {
   // If root domain isn't provided always assume size-1 dimensions are
   // compile-time dimensions. TODO: Remove runtime size-1 dimension support.
   // This should be cached higher in the stack.
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const bool root_domain_not_provided_ = true;
 
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const std::vector<IterDomain*> root_domain_;
   // Track if the root ID was transformed or kept ()
   std::vector<bool> root_is_transformed_;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const std::vector<int64_t>& original_view_;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const std::vector<int64_t>& new_view_;
 };
 
@@ -718,10 +727,8 @@ TensorDomain* createViewDomain(
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes) {
-  bool valid_original_sizes = std::all_of(
-      original_sizes.begin(), original_sizes.end(), [](int64_t dim) {
-        return dim >= 0;
-      });
+  bool valid_original_sizes =
+      std::ranges::all_of(original_sizes, [](int64_t dim) { return dim >= 0; });
   NVF_ERROR(valid_original_sizes);
 
   std::vector<int64_t> original_view(
@@ -769,13 +776,13 @@ AnalyzeViewResult analyzeView(
     const std::vector<int64_t>& new_sizes) {
   if (original_sizes.empty()) {
     NVF_ERROR(
-        std::all_of(
-            new_sizes.begin(),
-            new_sizes.end(),
-            [](int64_t s) { return s == 1; }),
+        std::ranges::all_of(new_sizes, [](int64_t s) { return s == 1; }),
         "Zero-dim tensors may only be reshaped to tensors with a single "
         "element (no expansion).");
-    return {std::vector<bool>(new_sizes.size(), true), {}, {}};
+    return {
+        .broadcast_axes = std::vector<bool>(new_sizes.size(), true),
+        .squeeze_axes = {},
+        .transforms = {}};
   }
 
   const auto logical_rank = std::ranges::distance(
@@ -948,7 +955,7 @@ TensorView* applyViewTransforms(
   TensorView* consumer = IrBuilder::createInContainer<TensorView>(
       orig_tv->container(),
       orig_tv->domain()->view(view_analysis),
-      orig_tv->getDataType().value());
+      orig_tv->getDataType());
   consumer->setDeviceMesh(orig_tv->getDeviceMesh());
 
   IrBuilder::createInContainer<ReshapeOp>(
@@ -964,10 +971,8 @@ TensorView* reshape(
     const AnalyzeViewResult& view_analysis) {
   NVF_ERROR(inp_tv != nullptr, "Input is invalid.");
 
-  auto squeezed = std::any_of(
-                      view_analysis.squeeze_axes.begin(),
-                      view_analysis.squeeze_axes.end(),
-                      [](bool s) { return s; })
+  auto squeezed =
+      std::ranges::any_of(view_analysis.squeeze_axes, [](bool s) { return s; })
       ? squeeze(inp_tv, view_analysis.squeeze_axes)
       : inp_tv;
 
@@ -975,10 +980,8 @@ TensorView* reshape(
       ? squeezed
       : applyViewTransforms(inp_tv, squeezed, view_analysis);
 
-  auto bcasted = std::any_of(
-                     view_analysis.broadcast_axes.begin(),
-                     view_analysis.broadcast_axes.end(),
-                     [](bool b) { return b; })
+  auto bcasted = std::ranges::any_of(
+                     view_analysis.broadcast_axes, [](bool b) { return b; })
       ? broadcast(view, view_analysis.broadcast_axes)
       : view;
 

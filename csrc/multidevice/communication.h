@@ -13,6 +13,8 @@
 #include "multidevice/c10d_mock.h"
 #endif
 
+#include <cstdint>
+
 #include "ir/base_nodes.h"
 #include "ir/builder.h"
 #include "ir/interface_nodes.h"
@@ -22,7 +24,7 @@
 
 namespace nvfuser {
 
-enum class CommunicationType {
+enum class CommunicationType : std::uint8_t {
   Gather,
   Allgather,
   Scatter,
@@ -31,7 +33,8 @@ enum class CommunicationType {
   ReduceScatter,
   Broadcast,
   SendRecv,
-  AllToAll
+  AllToAll,
+  CollectivePermute
 };
 
 std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
@@ -122,7 +125,62 @@ class Communication : public Expr {
   void validate();
 };
 
-enum class P2PCommunicationType { SEND, RECV };
+// CollectivePermute: send to send_peer, recv from recv_peer. Separate from
+// Communication (no root, no reduce op).
+class CollectivePermute : public Expr {
+ public:
+  using Expr::Expr;
+
+  CollectivePermute(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* in,
+      Team team,
+      Val* send_peer,
+      Val* recv_peer,
+      CommunicatorBackend backend = CommunicatorBackend::kNccl);
+
+  CollectivePermute(const CollectivePermute& other) = delete;
+  CollectivePermute& operator=(const CollectivePermute& other) = delete;
+  CollectivePermute(CollectivePermute&& other) = delete;
+  CollectivePermute& operator=(CollectivePermute&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "CollectivePermute";
+  }
+
+  CommunicationType type() const {
+    return attribute<CommunicationType>(0);
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+  Val* sendPeer() const {
+    return input(1);
+  }
+  Val* recvPeer() const {
+    return input(2);
+  }
+  const Team& team() const {
+    return attribute<Team>(1);
+  }
+  int64_t team_size() const {
+    return static_cast<int64_t>(team().size());
+  }
+  CommunicatorBackend backend() const {
+    return attribute<CommunicatorBackend>(2);
+  }
+};
+
+enum class P2PCommunicationType : std::uint8_t { SEND, RECV };
 
 std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type);
 
@@ -278,6 +336,7 @@ class MoeCombine : public Expr {
       TensorView* in_src_idx,
       TensorView* in_n_tokens_to_rank,
       TensorView* in_n_tokens_from_rank,
+      Val* num_tokens,
       CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
   MoeCombine(const MoeCombine& other) = delete;
@@ -315,6 +374,17 @@ class MoeCombine : public Expr {
 
   TensorView* inTokensFromRank() const {
     return input(4)->as<TensorView>();
+  }
+
+  //! Extent of the dispatch input's first axis (= original local
+  //! token count T).
+  //!
+  //! Used by the CUDA backend to size recv buffers and the output
+  //! without GPU-to-CPU sync. When pre-allocated outputs are
+  //! supported, the combine output TensorView's shape could be used
+  //! directly instead.
+  Val* numTokens() const {
+    return input(5);
   }
 
   CommunicatorBackend backend() const {

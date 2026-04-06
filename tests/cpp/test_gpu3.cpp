@@ -4889,41 +4889,41 @@ TEST_F(Gpu3Test, FusionFloatingPointType_CUDA) {
     NVF_CHECK(
         f2->getDataType() == DataType::Float,
         "Invalid data type: ",
-        f2->getDataType().value());
+        f2->getDataType());
 
     auto d3 = IrBuilder::create<Val>(double_val, DataType::Double);
     NVF_CHECK(
         d3->getDataType() == DataType::Double,
         "Invalid data type: ",
-        d3->getDataType().value());
+        d3->getDataType());
 
     // Adding two Floats produces a Float
     auto f4 = add(f2, f2);
     NVF_CHECK(
         f4->getDataType() == DataType::Float,
         "Invalid data type: ",
-        f4->getDataType().value());
+        f4->getDataType());
 
     // Adding a Double and a Float produces a Double
     auto d5 = add(f2, d3);
     NVF_CHECK(
         d5->getDataType() == DataType::Double,
         "Invalid data type: ",
-        d5->getDataType().value());
+        d5->getDataType());
 
     // Adding a Float and a Double produces a Double
     auto d6 = add(d3, f2);
     NVF_CHECK(
         d6->getDataType() == DataType::Double,
         "Invalid data type: ",
-        d6->getDataType().value());
+        d6->getDataType());
 
     // Adding two Doubles produce a Double
     auto d7 = add(d5, d6);
     NVF_CHECK(
         d7->getDataType() == DataType::Double,
         "Invalid data type: ",
-        d7->getDataType().value());
+        d7->getDataType());
 
     // Adding a Float to a Float tensor produces a Float tensor
     auto tv1 = add(tv0, f4);
@@ -4931,7 +4931,7 @@ TEST_F(Gpu3Test, FusionFloatingPointType_CUDA) {
         tv1->getDataType() == DataType::Float,
         tv1->toString(),
         " has an invalid data type: ",
-        tv1->getDataType().value());
+        tv1->getDataType());
 
     // Adding a Double to a Float tensor still produces a Float tensor
     auto tv2 = add(tv1, d7);
@@ -4939,7 +4939,7 @@ TEST_F(Gpu3Test, FusionFloatingPointType_CUDA) {
         tv2->getDataType() == DataType::Float,
         tv2->toString(),
         " has an invalid data type: ",
-        tv2->getDataType().value());
+        tv2->getDataType());
 
     fusion.addOutput(tv2);
   }
@@ -4995,7 +4995,7 @@ TEST_F(Gpu3Test, FusionIntegerType_CUDA) {
         tv1->getDataType() == DataType::Int32,
         tv1->toString(),
         " has an invalid data type: ",
-        tv1->getDataType().value());
+        tv1->getDataType());
 
     // Adding an Int to an Int32 tensor still produces an Int32 tensor
     auto tv2 = add(tv1, i6);
@@ -5003,7 +5003,7 @@ TEST_F(Gpu3Test, FusionIntegerType_CUDA) {
         tv2->getDataType() == DataType::Int32,
         tv2->toString(),
         " has an invalid data type: ",
-        tv2->getDataType().value());
+        tv2->getDataType());
 
     fusion.addOutput(tv2);
   }

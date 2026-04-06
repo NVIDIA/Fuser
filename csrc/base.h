@@ -131,9 +131,7 @@ T& valueOrError(std::optional<T>& opt) {
 template <typename T>
 T valueOrError(std::optional<T>&& opt) {
   NVF_ERROR(opt.has_value());
-  // Function arguments are lvalues, so `opt` is an lvalue and we need to
-  // std::move it.
-  return *std::move(opt);
+  return std::move(opt).value();
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:

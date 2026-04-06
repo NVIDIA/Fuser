@@ -17,7 +17,6 @@
 
 #include "base.h"
 #include "exceptions.h"
-#include "serde/fusion_cache_generated.h"
 #include "type.h"
 #include "visibility.h"
 
@@ -204,13 +203,6 @@ class NVF_API KernelArgumentHolder {
 
   std::string toString() const;
 
-  //! Serialize Kernel Argument Holder using flatbuffers
-  flatbuffers::Offset<serde::KernelArgumentHolder> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Kernel Argument Holder using flatbuffers
-  void deserialize(const serde::KernelArgumentHolder* buffer);
-
  private:
   void setCommonDevice();
 
@@ -234,7 +226,7 @@ std::vector<std::byte> tensorToBytes(
     const std::vector<int64_t>& logical_sizes,
     const std::vector<int64_t>& allocation_strides,
     PrimDataType idx_type,
-    AdjustLastDim adjust_last_dim = {1, 1},
+    AdjustLastDim adjust_last_dim = {.numerator = 1, .denominator = 1},
     const std::vector<int64_t>& unsharded_logical_sizes = {});
 
 int64_t computeBytes(const KernelArgumentHolder& args);

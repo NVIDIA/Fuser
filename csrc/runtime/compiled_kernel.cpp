@@ -89,7 +89,6 @@
 #include "runtime/allocations.h"
 #include "runtime/executor_kernel_arg.h"
 #include "runtime/executor_utils.h"
-#include "serde/utils.h"
 #include "tensor_metadata.h"
 
 namespace nvfuser {
@@ -164,9 +163,9 @@ class NvrtcCompileDriver {
     auto opts = getOptions();
     if (isDebugDumpEnabled(DebugDumpOption::CompileParams)) {
       debug() << "NVRTC Compile Parameters (" << opts.size()
-              << " options):" << std::endl;
+              << " options):" << '\n';
       for (const auto& opt : options_) {
-        debug() << "  " << opt << std::endl;
+        debug() << "  " << opt << '\n';
       }
     }
     auto result = nvrtcCompileProgram(
@@ -191,7 +190,7 @@ class NvrtcCompileDriver {
           log_buf);
     }
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      debug() << log_buf << std::endl;
+      debug() << log_buf << '\n';
     }
     return std::string(log_buf);
   }
@@ -357,7 +356,7 @@ class CuModuleLoadDataDriver {
         &module, image, opts.size(), opts.data(), opt_vals.data()));
 
     if (logging_enabled_) {
-      debug() << log_ << std::endl;
+      debug() << log_ << '\n';
     }
 
     return log_;
@@ -579,7 +578,7 @@ void fillCompileOptions(
   if (isOptionDisabled(DisableOption::NvrtcCaching) || is_ptxas_verbose) {
     // JIT caching is introduced in 12.9. It's always disabled in
     // prior versions.
-    int major, minor;
+    int major = 0, minor = 0;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&major, &minor));
     if ((major == 12 && minor >= 9) || major > 12) {
       nvrtc_compile_driver.setOption("--no-cache");
@@ -610,9 +609,9 @@ int warnRegisterSpill(const std::string& compile_log) {
   const std::string str_stack = "bytes stack frame";
   const std::string str_store = "bytes spill stores";
   const std::string str_load = "bytes spill loads";
-  int stack_count = get_preceding_int(compile_log, str_stack);
-  int store_count = get_preceding_int(compile_log, str_store);
-  int load_count = get_preceding_int(compile_log, str_load);
+  int64_t stack_count = get_preceding_int(compile_log, str_stack);
+  int64_t store_count = get_preceding_int(compile_log, str_store);
+  int64_t load_count = get_preceding_int(compile_log, str_load);
   int allowed_spill = 0;
   if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
     auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
@@ -621,15 +620,15 @@ int warnRegisterSpill(const std::string& compile_log) {
         allowed_spill = std::stoi(optionArgs[0]);
       } catch (const std::exception& e) {
         debug() << "skip invalid argument for WarnRegisterSpill, arg = "
-                << optionArgs[0] << std::endl;
+                << optionArgs[0] << '\n';
       }
     }
   }
   if (stack_count > allowed_spill || store_count > allowed_spill ||
       load_count > allowed_spill) {
-    debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
+    debug() << "WARNING: Register spill detected\n" << compile_log << '\n';
   }
-  return store_count + load_count;
+  return static_cast<int>(store_count + load_count);
 }
 
 void createNvrtcProgram(
@@ -663,7 +662,7 @@ std::string dumpCompiledCodeToFile(
     const std::string& suffix) {
   std::stringstream file_name;
   file_name << "__tmp_" << kernel_name << suffix;
-  debug() << "PRINTING: " << file_name.str() << std::endl;
+  debug() << "PRINTING: " << file_name.str() << '\n';
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
@@ -700,7 +699,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
 
   NVFUSER_NVRTC_SAFE_CALL(
       nvrtcAddNameExpression(program, canonical_func_name.c_str()));
-  log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
+  log << nvrtc_compile.invoke(program, full_src_code) << '\n';
 
   auto compiled_kernel = std::make_unique<executor_utils::CudaExecutable>();
   const char* lowered_kernel_name = nullptr;
@@ -802,7 +801,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
                              : compiled_kernel->ptx)))) {
     compiled_kernel = compileSource(
         full_src_code, func_name, compile_to_sass, nvrtc_compile_driver);
-    log << compiled_kernel->compile_log << std::endl;
+    log << compiled_kernel->compile_log << '\n';
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
@@ -821,7 +820,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
              compiled_kernel->module,
              (compile_to_sass ? compiled_kernel->cubin.data()
                               : compiled_kernel->ptx.data()))
-      << std::endl;
+      << '\n';
   compiled_kernel->compile_log = log.str();
   compiled_kernel->compile_args = compile_args;
 
@@ -840,97 +839,6 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
   if (opt_block_size.has_value()) {
     compiled_kernel->block_size = opt_block_size.value();
   }
-
-  return compiled_kernel;
-}
-
-std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
-    const serde::CudaKernel* buffer,
-    const CompileParams& compile_params) {
-  FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
-
-  NVF_ERROR(buffer != nullptr, "serde::CudaKernel is nullptr.");
-
-  // Deserialize flatbuffer into CudaExecutable
-  auto compiled_kernel = std::make_unique<executor_utils::CudaExecutable>();
-  compiled_kernel->kernel_name = buffer->kernel_name()->str();
-  compiled_kernel->compile_args = buffer->compile_args()->str();
-  compiled_kernel->block_size = buffer->block_size();
-
-  if (buffer->cubin() != nullptr) {
-    compiled_kernel->cubin.reserve(buffer->cubin()->size());
-    std::copy(
-        buffer->cubin()->begin(),
-        buffer->cubin()->end(),
-        std::back_inserter(compiled_kernel->cubin));
-    compiled_kernel->cubin_filename = buffer->cubin_filename()->str();
-  }
-
-  if (buffer->ptx() != nullptr) {
-    compiled_kernel->ptx.reserve(buffer->ptx()->size());
-    std::copy(
-        buffer->ptx()->begin(),
-        buffer->ptx()->end(),
-        std::back_inserter(compiled_kernel->ptx));
-    compiled_kernel->ptx_filename = buffer->ptx_filename()->str();
-  }
-
-  executor_utils::initializeCudaContext();
-
-  const auto prop = at::cuda::getCurrentDeviceProperties();
-
-  // Generate compile args and compare against saved args in compiled_kernel
-  NvrtcCompileDriver nvrtc_compile_driver;
-  CuModuleLoadDataDriver module_load_driver;
-
-  int64_t major = 0, minor = 0;
-  bool compile_to_sass = false;
-  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
-
-  std::optional<int64_t> opt_block_size;
-  if (compiled_kernel->block_size >= -1) {
-    opt_block_size = compiled_kernel->block_size;
-  }
-
-  fillCompileOptions(
-      nvrtc_compile_driver,
-      module_load_driver,
-      compile_to_sass,
-      major,
-      minor,
-      compile_params,
-      opt_block_size);
-
-  const auto latest_compile_args =
-      toDelimitedString(nvrtc_compile_driver.options(), " ");
-  NVF_ERROR(
-      latest_compile_args == compiled_kernel->compile_args,
-      "The compile arguments for the serialized cuda kernel does not ",
-      "match the latest generated compile args.\t",
-      latest_compile_args,
-      "\t",
-      compiled_kernel->compile_args);
-
-  NVF_ERROR(
-      !compile_to_sass || !compiled_kernel->cubin.empty(),
-      "Expected compiled cubin after deserializing CudaExecutable.");
-
-  NVF_ERROR(
-      compile_to_sass || !compiled_kernel->ptx.empty(),
-      "Expected compiled ptx after deserializing CudaExecutable.");
-
-  std::stringstream log;
-  log << module_load_driver.invoke(
-             compiled_kernel->module,
-             (compile_to_sass ? compiled_kernel->cubin.data()
-                              : compiled_kernel->ptx.data()))
-      << std::endl;
-  compiled_kernel->compile_log = log.str();
-
-  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
-      &(compiled_kernel->function),
-      compiled_kernel->module,
-      compiled_kernel->kernel_name.c_str()));
 
   return compiled_kernel;
 }
@@ -1000,10 +908,8 @@ bool requiresDisabledParamCache(const kir::Kernel* kernel) {
       input_dependencies.pushBack(inp);
     }
   }
-  if (std::any_of(
-          input_dependencies.begin(), input_dependencies.end(), [](Val* inp) {
-            return inp->isScalar();
-          })) {
+  if (std::ranges::any_of(
+          input_dependencies, [](Val* inp) { return inp->isScalar(); })) {
     return true;
   } else if (!input_dependencies.empty()) {
     VectorOfUniqueEntries<Expr*> all_exprs(DependencyCheck::getAllExprsBetween(
@@ -1105,9 +1011,9 @@ std::string _getStructuredCode(
   if (isDebugDumpEnabled(DebugDumpOption::CudaToFile)) {
     std::stringstream file_name;
     file_name << "__tmp_" << kernel_name << ".cu";
-    debug() << "PRINTING: " << file_name.str() << std::endl;
+    debug() << "PRINTING: " << file_name.str() << '\n';
     std::ofstream out(file_name.str());
-    out << code << std::endl;
+    out << code << '\n';
     out.close();
   }
 
@@ -1157,11 +1063,11 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
   std::ifstream cuda_src(single_code_path);
   if (!cuda_src.is_open()) {
     debug() << "Failed to open external source file: " << single_code_path
-            << std::endl;
+            << '\n';
     return "";
   }
   debug() << "--------> Compiling external CUDA code: " << single_code_path
-          << std::endl;
+          << '\n';
 
   std::stringstream buffer;
   buffer << cuda_src.rdbuf();
@@ -1254,11 +1160,11 @@ NVF_API CompiledKernel::CompiledKernel(
   if (lowered_->kernel()->summary().has_argsort ||
       lowered_->kernel()->summary().has_scan ||
       lowered_->kernel()->summary().has_topk) {
-    compile_params_.include_paths.push_back("/usr/local/cuda/include");
+    compile_params_.include_paths.emplace_back("/usr/local/cuda/include");
     // As of CUDA 13, the CUB header files are moved to the cccl
     // subdirectory. This include path is not necessary pre 13 but is
     // added anyway as it should be just a no-op.
-    compile_params_.include_paths.push_back("/usr/local/cuda/include/cccl");
+    compile_params_.include_paths.emplace_back("/usr/local/cuda/include/cccl");
   }
 }
 
@@ -1326,11 +1232,11 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
   if (isDebugDumpEnabled(DebugDumpOption::BankConflictInfo)) {
     auto bank_conflict_info = getBankConflictInfo(kernel);
     if (bank_conflict_info.empty()) {
-      debug() << "===== No bank confliction =====" << std::endl;
+      debug() << "===== No bank confliction =====" << '\n';
     } else {
-      debug() << "======= Bank confliction =======" << std::endl;
+      debug() << "======= Bank confliction =======" << '\n';
       for (auto info : bank_conflict_info) {
-        debug() << "Expr: " << info.first->toString() << std::endl;
+        debug() << "Expr: " << info.first->toString() << '\n';
         auto conflict = info.second;
         if (conflict.first > 1) {
           debug() << "input conflict: " << conflict.first << " way, ";
@@ -1338,9 +1244,9 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
         if (conflict.second > 1) {
           debug() << "output conflict: " << conflict.second << " way";
         }
-        debug() << std::endl;
+        debug() << '\n';
       }
-      debug() << "================================" << std::endl;
+      debug() << "================================" << '\n';
     }
   }
 
@@ -1413,7 +1319,7 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
   NVF_ERROR(validKernelId(), "Invalid kernel id for CompiledKernel.");
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
-    debug() << disassembledKernelSASS() << std::endl;
+    debug() << disassembledKernelSASS() << '\n';
   }
 }
 
@@ -1554,28 +1460,6 @@ float RtcKernel::run(
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 
   return kernel_time_ms;
-}
-
-void CompiledKernel::deserialize(const serde::KernelExecutor* buffer) {
-  // Initialize CompileOptions
-  c10::DeviceGuard dg(device_);
-
-  // Initialize internal fields
-  maxrregcount_high_watermark_ = buffer->maxrregcount_high_watermark();
-  warp_size_ = buffer->warp_size();
-  kernel_code_ = buffer->kernel_code()->str();
-
-  // KernelDB query checks kernel_code string and compile_params before
-  // copying cubin.
-  compile_params_.index_type = serde::mapToNvfuserDtype(buffer->index_type());
-  compile_params_.maxrregcount = maxrregcount_high_watermark_;
-
-  // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
-  createKernelId();
-  setUsedTVs();
-
-  compiled_kernel_ =
-      getCudaExecutable(buffer->compiled_kernel(), compile_params_);
 }
 
 void CompiledKernel::setUsedTVs() {

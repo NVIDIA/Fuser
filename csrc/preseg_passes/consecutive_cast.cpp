@@ -35,10 +35,10 @@ bool shouldSwapMetaCast(Expr* cast) {
   // increase in intermediate buffer size.
   // NOTE since we don't have dtype size for index at compile time, we'll skip
   // cast on index types.
-  if (cast->input(0)->getDataType().value() == DataType::Index ||
-      cast->output(0)->getDataType().value() == DataType::Index ||
-      (dataTypeSizeBit(cast->input(0)->getDataType().value()) <
-       dataTypeSizeBit(cast->output(0)->getDataType().value()))) {
+  if (cast->input(0)->getDataType() == DataType::Index ||
+      cast->output(0)->getDataType() == DataType::Index ||
+      (dataTypeSizeBit(cast->input(0)->getDataType()) <
+       dataTypeSizeBit(cast->output(0)->getDataType()))) {
     return false;
   }
 
@@ -69,16 +69,14 @@ Val* replayMetaOnNewInput(
     const std::vector<int64_t>& allocation_permutation) {
   // preparing new meta output.
   Val* replayed_meta_out = nullptr;
-  ops::newValLike(meta->output(0), new_in->getDataType().value());
+  ops::newValLike(meta->output(0), new_in->getDataType());
 
   if (meta->isA<SqueezeOp>()) {
-    replayed_meta_out =
-        ops::newValLike(meta->output(0), new_in->getDataType().value());
+    replayed_meta_out = ops::newValLike(meta->output(0), new_in->getDataType());
     IrBuilder::create<SqueezeOp>(
         replayed_meta_out, new_in, meta->as<SqueezeOp>()->getSqueezeDimFlags());
   } else if (meta->isA<BroadcastOp>()) {
-    replayed_meta_out =
-        ops::newValLike(meta->output(0), new_in->getDataType().value());
+    replayed_meta_out = ops::newValLike(meta->output(0), new_in->getDataType());
     IrBuilder::create<BroadcastOp>(
         replayed_meta_out,
         new_in,
@@ -126,15 +124,14 @@ Val* replayMetaOnNewInput(
             replayed_allocation_domain,
             replayed_logical_domain,
             meta_tv_out->getContiguity()),
-        new_in->getDataType().value());
+        new_in->getDataType());
 
     // create the view op.
     IrBuilder::create<ReshapeOp>(replayed_meta_out, new_in);
   } else {
     NVF_ERROR(
         ir_utils::isSimpleTVSet(meta), "Unidentified operation for replay");
-    replayed_meta_out =
-        ops::newValLike(meta->output(0), new_in->getDataType().value());
+    replayed_meta_out = ops::newValLike(meta->output(0), new_in->getDataType());
     IrBuilder::create<LoadStoreOp>(
         LoadStoreOpType::Set, replayed_meta_out, new_in);
   }
@@ -242,10 +239,10 @@ Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& folded) {
 
   // 1.3.1 Note, chain_cast_vals has a straight-line use without branches
   auto lo_anchor = chain_cast_vals.front()->definition()->input(0);
-  auto anchor_dtype = lo_anchor->getDataType().value();
+  auto anchor_dtype = lo_anchor->getDataType();
   auto starting_anchor = lo_anchor;
   for (auto val : chain_cast_vals) {
-    auto val_dtype = val->getDataType().value();
+    auto val_dtype = val->getDataType();
 
     // 1.3.2.a short-cut when we are not losing precision
     if (isInclusiveType(anchor_dtype, val_dtype)) {
@@ -270,16 +267,16 @@ Expr* removeChainedCasts(Expr* expr, std::unordered_set<Expr*>& folded) {
     }
     // 1.3.2.b/c updating new lo_anchor to current val
     lo_anchor = val;
-    anchor_dtype = lo_anchor->getDataType().value();
+    anchor_dtype = lo_anchor->getDataType();
   }
 
-  auto output_dtype = expr->output(0)->getDataType().value();
+  auto output_dtype = expr->output(0)->getDataType();
 
   if (isInclusiveType(output_dtype, anchor_dtype)) {
     // 1.4.a: if lo_anchor is no narrower than output_dtype, everything is an
     // no-op
 
-    if (starting_anchor->getDataType().value() == output_dtype) {
+    if (starting_anchor->getDataType() == output_dtype) {
       // if output dtype is identical to starting_anchor dtype, we can't keep
       // the last cast op and will need to re-write all uses here
       ir_utils::replaceValue(

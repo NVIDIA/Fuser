@@ -1051,8 +1051,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernelPipelining) {
 
   // Let us create the host-level TensorViews
   TensorView* tv0_i = select(tv0, /*dim=*/kPipelineAxis, index);
-  auto* tv1_i =
-      ops::newValLike(tv0_i, tv0_i->getDataType().value())->as<TensorView>();
+  auto* tv1_i = ops::newValLike(tv0_i, tv0_i->getDataType())->as<TensorView>();
   TensorView* tv2_i = select(tv2, /*dim=*/kPipelineAxis, index);
 
   // We post the two fusions with appropriate I/O

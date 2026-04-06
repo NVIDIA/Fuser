@@ -350,26 +350,28 @@ void canonicalizeLoopDomain(TensorView* tv) {
            {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()}) |
            std::views::reverse) {
-    auto* split = dynamic_cast<Split*>(transform);
-    NVF_ERROR(
-        split != nullptr,
-        "Only splits are expected so far, but found: ",
-        transform);
-
-    if (split->outer()->isParallelized() || split->inner()->isParallelized()) {
+    if (std::ranges::any_of(
+            ir_utils::filterByType<IterDomain>(transform->outputs()),
+            [&loop](IterDomain* id) {
+              return id->isParallelized() || !loop.contains(id);
+            })) {
       continue;
     }
-
-    if (!loop.contains(split->outer()) || !loop.contains(split->inner())) {
+    if (auto* swizzle1d = dynamic_cast<Swizzle1D*>(transform)) {
+      auto it = loop.erase(swizzle1d->out()).second;
+      loop.insert(it, swizzle1d->in(), std::monostate());
       continue;
     }
-
-    loop.erase(split->outer());
-    const auto inner_i = loop.erase(split->inner()).second;
-    // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
-    // `outer` and `inner` are all serial, `in`'s position in the loop domain
-    // doesn't matter.
-    loop.insert(inner_i, split->in(), std::monostate());
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      loop.erase(split->outer());
+      const auto inner_i = loop.erase(split->inner()).second;
+      // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
+      // `outer` and `inner` are all serial, `in`'s position in the loop domain
+      // doesn't matter.
+      loop.insert(inner_i, split->in(), std::monostate());
+      continue;
+    }
+    NVF_THROW("Expected a swizzle1d or split transform. Got: ", transform);
   }
 
   auto new_loop = std::views::keys(loop);

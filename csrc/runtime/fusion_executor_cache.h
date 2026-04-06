@@ -20,7 +20,6 @@
 #include "fusion_segmenter.h"
 #include "runtime/fusion_cache_utils.h"
 #include "scheduler/heuristic.h"
-#include "serde/fusion_cache_generated.h"
 
 namespace nvfuser {
 class DynamicTransformConcretizationInfo;
@@ -226,13 +225,6 @@ class NVF_API FusionExecutorCache {
   //! Return the kernel time of the most recent fusion execution. Can
   //! be zero if the measurement is not enabled
   float getMostRecentKernelTimeMs() const;
-
-  //! Serialize Fusion Executor Cache using flatbuffers
-  flatbuffers::Offset<serde::FusionExecutorCache> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Fusion Executor Cache using flatbuffers
-  void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
  private:
   //! Adds cache lookup information to provided argument holder

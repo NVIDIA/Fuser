@@ -10,7 +10,6 @@
 
 #include "polymorphic_value.h"
 #include "runtime/fusion_executor_cache.h"
-#include "serde/polymorphic_value.h"
 #include "tensor_metadata.h"
 
 namespace nvfuser {
@@ -120,42 +119,6 @@ void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
     device_index_ = index.value();
   } else {
     device_index_ = getCommonDeviceCUDA(*this);
-  }
-}
-
-flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
-    serialize(flatbuffers::FlatBufferBuilder& builder) const {
-  // See table definitions for KernelArgumentHolder and PolymorphicValue
-  // in serde/fusion_cache.fbs
-
-  using fb_poly_value = flatbuffers::Offset<serde::PolymorphicValue>;
-
-  std::vector<fb_poly_value> arguments_fb;
-  arguments_fb.reserve(arguments_.size());
-  for (auto& arg : arguments_) {
-    arguments_fb.push_back(serde::serializePolymorphicValue(builder, arg));
-  }
-
-  return serde::CreateKernelArgumentHolderDirect(
-      builder, &arguments_fb, device_index_, cache_id_.value_or(SIZE_MAX));
-}
-
-void KernelArgumentHolder::deserialize(
-    const serde::KernelArgumentHolder* buffer) {
-  // See table definitions for KernelArgumentHolder and PolymorphicValue
-  // in serde/fusion_cache.fbs
-
-  NVF_ERROR(buffer != nullptr, "serde::KernelArgumentHolder is nullptr.");
-
-  device_index_ = buffer->device_index();
-  cache_id_ = (buffer->cache_id() != SIZE_MAX)
-      ? std::optional<size_t>(buffer->cache_id())
-      : std::nullopt;
-
-  serde::PolymorphicValueFactory poly_value_factory;
-  for (auto fb_poly_value : *buffer->arguments()) {
-    NVF_ERROR(fb_poly_value != nullptr, "serde::PolymorphicValue is nullptr.");
-    push(poly_value_factory.parse(fb_poly_value->data_type(), fb_poly_value));
   }
 }
 

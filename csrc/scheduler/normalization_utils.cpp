@@ -7,6 +7,8 @@
 // clang-format on
 #include "scheduler/normalization_utils.h"
 
+#include <ranges>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include "base.h"
@@ -82,7 +84,7 @@ void PreferredLaunchConfig::initValidGdims() {
   // Reverse the first half and swap gridDim.x and gridDim.y. That
   // list becomes the latter half
   auto latter_half = grid_dims;
-  std::reverse(latter_half.begin(), latter_half.end());
+  std::ranges::reverse(latter_half);
   for (const auto& gdimx_gdimy : latter_half) {
     if (gdimx_gdimy.second == gdimx_gdimy.first) {
       // This is already in the first half
@@ -686,7 +688,7 @@ int64_t partialReductionBufferSize(
     }
     buffer_size = (buffer_size == -1) ? 0
                                       : buffer_size *
-            dataTypeSizeByte(buffer->getDataType().value(),
+            dataTypeSizeByte(buffer->getDataType(),
                              runtime_info.getIndexType());
     partial_reduction_buffer_size += buffer_size;
   }
@@ -804,8 +806,7 @@ int64_t sharedMemoryRoundUpOverheadBit(
             buffer, runtime_info, persistent_buffer_info);
     // Required shared memory size if store that tensor in shared memory
     int64_t buffer_size_smem = roundUpSharedMemory(
-        logical_buffer_size_bit,
-        dataTypeSizeBit(buffer->getDataType().value()));
+        logical_buffer_size_bit, dataTypeSizeBit(buffer->getDataType()));
     // The difference is counted as roundup overhead
     total_smem_overhead_bit += (buffer_size_smem - logical_buffer_size_bit);
   }
@@ -1045,8 +1046,7 @@ PersistentKernelProperties getPersistentKernelProperties(
     }
     max_dtype_size_bit = std::max(
         max_dtype_size_bit,
-        dataTypeSizeBit(
-            tv->getDataType().value(), runtime_info.getIndexType()));
+        dataTypeSizeBit(tv->getDataType(), runtime_info.getIndexType()));
     n_tensor_inputs++;
   }
   // To prevent division by zero, ensure that n_tensor_inputs is not equal to
@@ -1342,7 +1342,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         ? (int)rparams->unroll_factor_inner_reduction
         : 1;
     size_t loading_size =
-        dataTypeSizeByte(smem_tv->getDataType().value()) * vect_factor;
+        dataTypeSizeByte(smem_tv->getDataType()) * vect_factor;
     bool is_supported_bytes =
         (loading_size == 4 || loading_size == 8 || loading_size == 16);
     return is_supported_bytes;

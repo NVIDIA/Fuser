@@ -114,9 +114,6 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   virtual std::optional<ValType> getValType() const {
     return std::nullopt;
   }
-  virtual std::optional<DataType> getDataType() const {
-    return std::nullopt;
-  }
 
   // Short cut to figure out if it is a value/expression
   bool isVal() const {
@@ -309,8 +306,9 @@ class NVF_API Val : public Statement {
     return !value_.hasValue();
   }
 
-  // Throws if no DataType is found. Vals must have a DataType
-  std::optional<DataType> getDataType() const override;
+  // Returns this Val's data type. Unlike `dtype()`, it throws if dtype is Null
+  // (ill-formed Val).
+  DataType getDataType() const;
 
   bool isScalar() const {
     return vtype_ == ValType::Others || vtype_ == ValType::NamedScalar;

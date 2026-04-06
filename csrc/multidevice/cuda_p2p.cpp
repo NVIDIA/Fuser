@@ -6,15 +6,27 @@
  */
 // clang-format on
 #include "multidevice/cuda_p2p.h"
+
+#include <array>
+
 #include "nvfuser_resources/alltoallv.h"
 #include "nvfuser_resources/multicast.h"
+#include "nvfuser_resources/multicast_reduce.h"
+#include "nvfuser_resources/tma_copy.h"
 
 #include "cuda_utils.h"
+#include "multidevice/communication.h"
 #include "multidevice/ipc_handle.h"
 #include "multidevice/ipc_utils.h"
 #include "multidevice/symmetric_tensor.h"
 #include "multidevice/utils.h"
 #include "options.h"
+
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <exception>
+#include <string>
 
 namespace nvfuser {
 
@@ -34,7 +46,48 @@ P2pProtocol getP2pProtocol() {
       : P2pProtocol::Get;
 }
 
+std::ostream& operator<<(std::ostream& os, P2pTransport transport) {
+  switch (transport) {
+    case P2pTransport::CopyEngine:
+      return os << "CopyEngine";
+    case P2pTransport::Tma:
+      return os << "Tma";
+  }
+  std::unreachable();
+}
+
+P2pTransport getP2pTransport() {
+  return hasEnableOptionArgument(EnableOption::P2pTransport, "Tma")
+      ? P2pTransport::Tma
+      : P2pTransport::CopyEngine;
+}
+
+void launchMulticastReduceKernel(
+    const void* mc_src,
+    void* dst,
+    size_t size,
+    CUstream stream);
+
 namespace {
+// Copy a pointer value into storage of a compatible pointer type without
+// const_cast (cuLaunchKernel takes void* to each parameter's address).
+template <typename Dest, typename Src>
+void copyPointerRepresentation(Dest& dest, const Src& src) {
+  static_assert(sizeof(Dest) == sizeof(Src));
+  std::memcpy(
+      reinterpret_cast<void*>(&dest),
+      reinterpret_cast<const void*>(&src),
+      sizeof(Dest));
+}
+
+int parseIntOption(const std::string& s, int fallback) {
+  try {
+    return std::stoi(s);
+  } catch (const std::exception&) {
+    return fallback;
+  }
+}
+
 void launchAlltoallvKernel(
     const void* send,
     const uint64_t* recv_ptrs,
@@ -49,7 +102,7 @@ void launchAlltoallvKernel(
   static CUfunction kernel = nullptr;
 
   if (module == nullptr) {
-    nvrtcProgram prog;
+    nvrtcProgram prog = nullptr;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
         &prog,
         nvfuser_resources::alltoallv_cu,
@@ -62,7 +115,7 @@ void launchAlltoallvKernel(
     int minor = 0;
     int device = 0;
     NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
-    cudaDeviceProp prop;
+    cudaDeviceProp prop{};
     NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
     major = prop.major;
     minor = prop.minor;
@@ -70,20 +123,19 @@ void launchAlltoallvKernel(
     std::string arch_arg = "--gpu-architecture=compute_" +
         std::to_string(major) + std::to_string(minor);
     std::vector<const char*> opts = {arch_arg.c_str(), "--std=c++17"};
-    // NVRTC needs CUDA headers to compile alltoallv.cu.
     opts.push_back("-I/usr/local/cuda/include");
     opts.push_back("-I/usr/local/cuda/include/cccl");
 
     nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
     if (res != NVRTC_SUCCESS) {
-      size_t logSize;
+      size_t logSize = 0;
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
       std::vector<char> log(logSize);
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
       NVF_ERROR(false, "Alltoallv kernel compilation failed:\n", log.data());
     }
 
-    size_t ptxSize;
+    size_t ptxSize = 0;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
     std::vector<char> ptx(ptxSize);
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
@@ -92,29 +144,33 @@ void launchAlltoallvKernel(
     CUresult load_result = cuModuleLoadData(&module, ptx.data());
     if (load_result != CUDA_SUCCESS) {
       constexpr size_t kLogSize = 8192;
-      char error_log[kLogSize];
-      char info_log[kLogSize];
-      CUjit_option options[] = {
+      std::array<char, kLogSize> error_log{};
+      std::array<char, kLogSize> info_log{};
+      size_t error_log_size_bytes = kLogSize;
+      size_t info_log_size_bytes = kLogSize;
+      unsigned int jit_log_verbose = 1u;
+      std::array<CUjit_option, 5> options = {
           CU_JIT_ERROR_LOG_BUFFER,
           CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_INFO_LOG_BUFFER,
           CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_LOG_VERBOSE};
-      void* option_values[] = {
-          (void*)error_log,
-          (void*)kLogSize,
-          (void*)info_log,
-          (void*)kLogSize,
-          (void*)1};
-      cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
+      std::array<void*, 5> option_values = {
+          error_log.data(),
+          reinterpret_cast<void*>(&error_log_size_bytes),
+          info_log.data(),
+          reinterpret_cast<void*>(&info_log_size_bytes),
+          reinterpret_cast<void*>(&jit_log_verbose)};
+      cuModuleLoadDataEx(
+          &module, ptx.data(), 5, options.data(), option_values.data());
       NVF_ERROR(
           false,
           "Alltoallv kernel module load failed with error: ",
           load_result,
           "\nInfo Log:\n",
-          info_log,
+          info_log.data(),
           "\nError Log:\n",
-          error_log);
+          error_log.data());
     }
 
     NVFUSER_CUDA_SAFE_CALL(
@@ -127,15 +183,25 @@ void launchAlltoallvKernel(
 
   constexpr int kThreads = 256;
   const int64_t blocks_x = (max_send_bytes + kThreads - 1) / kThreads;
-  void* args_kernel[] = {
-      const_cast<void*>(static_cast<const void*>(&send)),
-      const_cast<void*>(static_cast<const void*>(&recv_ptrs)),
-      const_cast<void*>(static_cast<const void*>(&send_offsets)),
-      const_cast<void*>(static_cast<const void*>(&send_sizes)),
-      const_cast<void*>(static_cast<const void*>(&recv_offsets)),
-      &world_size,
-      &elem_size,
-      &max_send_bytes};
+  void* send_arg = nullptr;
+  uint64_t* recv_ptrs_arg = nullptr;
+  int64_t* send_offsets_arg = nullptr;
+  int64_t* send_sizes_arg = nullptr;
+  int64_t* recv_offsets_arg = nullptr;
+  copyPointerRepresentation(send_arg, send);
+  copyPointerRepresentation(recv_ptrs_arg, recv_ptrs);
+  copyPointerRepresentation(send_offsets_arg, send_offsets);
+  copyPointerRepresentation(send_sizes_arg, send_sizes);
+  copyPointerRepresentation(recv_offsets_arg, recv_offsets);
+  std::array<void*, 9> args_kernel = {
+      reinterpret_cast<void*>(&send_arg),
+      reinterpret_cast<void*>(&recv_ptrs_arg),
+      reinterpret_cast<void*>(&send_offsets_arg),
+      reinterpret_cast<void*>(&send_sizes_arg),
+      reinterpret_cast<void*>(&recv_offsets_arg),
+      reinterpret_cast<void*>(&world_size),
+      reinterpret_cast<void*>(&elem_size),
+      reinterpret_cast<void*>(&max_send_bytes)};
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
       kernel,
       blocks_x,
@@ -146,7 +212,7 @@ void launchAlltoallvKernel(
       1,
       0,
       stream,
-      args_kernel,
+      args_kernel.data(),
       nullptr));
 }
 
@@ -182,7 +248,7 @@ void launchMulticastKernel(
   static CUfunction kernel = nullptr;
 
   if (module == nullptr) {
-    nvrtcProgram prog;
+    nvrtcProgram prog = nullptr;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
         &prog,
         nvfuser_resources::multicast_cu,
@@ -195,7 +261,7 @@ void launchMulticastKernel(
     int minor = 0;
     int device = 0;
     NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
-    cudaDeviceProp prop;
+    cudaDeviceProp prop{};
     NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
     major = prop.major;
     minor = prop.minor;
@@ -228,14 +294,14 @@ void launchMulticastKernel(
     }
 
     if (res != NVRTC_SUCCESS) {
-      size_t logSize;
+      size_t logSize = 0;
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
       std::vector<char> log(logSize);
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
       NVF_ERROR(false, "Multicast kernel compilation failed:\n", log.data());
     }
 
-    size_t ptxSize;
+    size_t ptxSize = 0;
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
     std::vector<char> ptx(ptxSize);
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
@@ -244,34 +310,37 @@ void launchMulticastKernel(
     CUresult load_result = cuModuleLoadData(&module, ptx.data());
 
     if (load_result != CUDA_SUCCESS) {
-      // Fallback to extensive logging only on failure
       constexpr size_t kLogSize = 8192;
-      char error_log[kLogSize];
-      char info_log[kLogSize];
-      CUjit_option options[] = {
+      std::array<char, kLogSize> error_log{};
+      std::array<char, kLogSize> info_log{};
+      size_t error_log_size_bytes = kLogSize;
+      size_t info_log_size_bytes = kLogSize;
+      unsigned int jit_log_verbose = 1u;
+      std::array<CUjit_option, 5> options = {
           CU_JIT_ERROR_LOG_BUFFER,
           CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_INFO_LOG_BUFFER,
           CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
           CU_JIT_LOG_VERBOSE};
-      void* option_values[] = {
-          (void*)error_log,
-          (void*)kLogSize,
-          (void*)info_log,
-          (void*)kLogSize,
-          (void*)1};
+      std::array<void*, 5> option_values = {
+          error_log.data(),
+          reinterpret_cast<void*>(&error_log_size_bytes),
+          info_log.data(),
+          reinterpret_cast<void*>(&info_log_size_bytes),
+          reinterpret_cast<void*>(&jit_log_verbose)};
 
       // Reload to capture logs
-      cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
+      cuModuleLoadDataEx(
+          &module, ptx.data(), 5, options.data(), option_values.data());
 
       NVF_ERROR(
           false,
           "Multicast kernel module load failed with error: ",
           load_result,
           "\nInfo Log:\n",
-          info_log,
+          info_log.data(),
           "\nError Log:\n",
-          error_log);
+          error_log.data());
     }
 
     NVFUSER_CUDA_SAFE_CALL(
@@ -294,14 +363,14 @@ void launchMulticastKernel(
   int threads = 128;
   int blocks = 1;
 
-  int device;
+  int device = 0;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
-  int num_sms;
+  int num_sms = 0;
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, device));
 
   // Maximize occupancy
-  int max_blocks_per_sm;
+  int max_blocks_per_sm = 0;
   NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
       &max_blocks_per_sm, kernel, threads, 0));
 
@@ -318,22 +387,108 @@ void launchMulticastKernel(
   }
   const auto& args = getEnableOptionArguments(EnableOption::MulticastProtocol);
   if (args.size() >= 2) {
-    try {
-      threads = std::stoi(args[1]);
-    } catch (...) {
-    }
+    threads = parseIntOption(args[1], threads);
   }
   if (args.size() >= 3) {
-    try {
-      blocks = std::stoi(args[2]);
-    } catch (...) {
-    }
+    blocks = parseIntOption(args[2], blocks);
   }
 
-  void* args_kernel[] = {&dst, &src, &size};
+  void* dst_arg = dst;
+  void* src_arg = nullptr;
+  copyPointerRepresentation(src_arg, src);
+  size_t size_arg = size;
+  std::array<void*, 3> args_kernel = {
+      reinterpret_cast<void*>(&dst_arg),
+      reinterpret_cast<void*>(&src_arg),
+      reinterpret_cast<void*>(&size_arg)};
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-      kernel, blocks, 1, 1, threads, 1, 1, 0, stream, args_kernel, nullptr));
+      kernel,
+      blocks,
+      1,
+      1,
+      threads,
+      1,
+      1,
+      0,
+      stream,
+      args_kernel.data(),
+      nullptr));
 }
+
+} // anonymous namespace
+
+void launchTmaCopy(void* dst, const void* src, size_t size, CUstream stream) {
+  static CUmodule module = nullptr;
+  static CUfunction kernel = nullptr;
+
+  if (module == nullptr) {
+    nvrtcProgram prog = nullptr;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
+        &prog,
+        nvfuser_resources::tma_copy_cu,
+        "tma_copy.cu",
+        0,
+        nullptr,
+        nullptr));
+
+    int device = 0;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
+    cudaDeviceProp prop{};
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
+
+    NVF_CHECK(
+        prop.major >= 9,
+        "TMA transport requires Compute Capability >= 9.0 (Hopper+). "
+        "Current device ",
+        device,
+        " is Compute Capability ",
+        prop.major,
+        ".",
+        prop.minor);
+
+    std::string arch_arg = "--gpu-architecture=compute_" +
+        std::to_string(prop.major) + std::to_string(prop.minor);
+    std::vector<const char*> opts = {arch_arg.c_str(), "--std=c++17"};
+
+    nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    if (res != NVRTC_SUCCESS) {
+      size_t logSize = 0;
+      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
+      std::vector<char> log(logSize);
+      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
+      NVF_ERROR(false, "TMA kernel compilation failed:\n", log.data());
+    }
+
+    size_t ptxSize = 0;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
+    std::vector<char> ptx(ptxSize);
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
+
+    NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, ptx.data()));
+    NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&kernel, module, "tma_copy_1d"));
+  }
+
+  NVF_CHECK(
+      size % 16 == 0, "TMA requires size (", size, ") to be a multiple of 16");
+
+  constexpr int kDefaultSmem = 48 * 1024;
+  constexpr int kMbarrierBytes = 8;
+  constexpr int kMaxChunk = ((kDefaultSmem - kMbarrierBytes) / 16) * 16;
+
+  int total_bytes = static_cast<int>(size);
+  int max_chunk = kMaxChunk;
+  unsigned int num_blocks =
+      static_cast<unsigned int>((size + kMaxChunk - 1) / kMaxChunk);
+  int smem_size = kMaxChunk + static_cast<int>(sizeof(uint64_t));
+
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,bugprone-multi-level-implicit-pointer-conversion)
+  void* args[] = {&dst, &src, &total_bytes, &max_chunk};
+  NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
+      kernel, num_blocks, 1, 1, 32, 1, 1, smem_size, stream, args, nullptr));
+}
+
+namespace {
 
 // We choose  duplicate the state of the semaphore on both the local and peer
 // devices to avoid cuStreamWaitValue32 to poll on a remote buffer and pollutes
@@ -343,7 +498,7 @@ void WriteValue32ToLocalAndPeer(
     CUstream stream,
     const P2pIpcHandle& ipc_handles,
     IpcSemaphore value) {
-  CUstreamBatchMemOpParams ops[2] = {};
+  std::array<CUstreamBatchMemOpParams, 2> ops{};
 
   ops[0].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
   ops[0].writeValue.address =
@@ -357,7 +512,7 @@ void WriteValue32ToLocalAndPeer(
   ops[1].writeValue.value = static_cast<cuuint32_t>(value);
   ops[1].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
 
-  NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, 2, ops, 0));
+  NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(stream, 2, ops.data(), 0));
 }
 
 void postBroadcastWithCudaBackend(
@@ -383,8 +538,9 @@ void postBroadcastWithCudaBackend(
     std::vector<CUstreamBatchMemOpParams> ops(world_size - 1);
     int op_idx = 0;
     for (int64_t rank = 0; rank < world_size; ++rank) {
-      if (rank == root)
+      if (rank == root) {
         continue;
+      }
       ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
       ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
           multicast_handle->semaphoreUnicastPtr(rank));
@@ -431,7 +587,8 @@ void postBroadcastWithCudaBackend(
         attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
       }
       NVF_CHECK(
-          stream != 0, "cudaMemcpyBatchAsync does not support default stream");
+          stream != nullptr,
+          "cudaMemcpyBatchAsync does not support default stream");
 #if CUDA_VERSION >= 13000
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
           dsts.data(),
@@ -469,8 +626,9 @@ void postBroadcastWithCudaBackend(
     std::vector<CUstreamBatchMemOpParams> write_idle_ops(world_size - 1);
     op_idx = 0;
     for (int64_t rank = 0; rank < world_size; ++rank) {
-      if (rank == root)
+      if (rank == root) {
         continue;
+      }
       write_idle_ops[op_idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
       write_idle_ops[op_idx].writeValue.address = reinterpret_cast<CUdeviceptr>(
           multicast_handle->semaphoreUnicastPtr(rank));
@@ -517,8 +675,9 @@ void postAllgatherWithCudaBackend(
   std::vector<CUstreamBatchMemOpParams> write_ready_ops(world_size - 1);
   int write_op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    if (rank == my_device_index)
+    if (rank == my_device_index) {
       continue;
+    }
     write_ready_ops[write_op_idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
     write_ready_ops[write_op_idx].writeValue.address =
         reinterpret_cast<CUdeviceptr>(
@@ -537,8 +696,9 @@ void postAllgatherWithCudaBackend(
   std::vector<CUstreamBatchMemOpParams> wait_ready_ops(world_size - 1);
   int wait_op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    if (rank == my_device_index)
+    if (rank == my_device_index) {
       continue;
+    }
     wait_ready_ops[wait_op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
     wait_ready_ops[wait_op_idx].waitValue.address =
         reinterpret_cast<CUdeviceptr>(
@@ -588,7 +748,8 @@ void postAllgatherWithCudaBackend(
       attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
     }
     NVF_CHECK(
-        stream != 0, "cudaMemcpyBatchAsync does not support default stream");
+        stream != nullptr,
+        "cudaMemcpyBatchAsync does not support default stream");
 #if CUDA_VERSION >= 13000
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
         dsts.data(),
@@ -649,8 +810,9 @@ void waitAllgatherWithCudaBackend(
   std::vector<CUstreamBatchMemOpParams> wait_complete_ops(world_size - 1);
   int op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    if (rank == my_device_index)
+    if (rank == my_device_index) {
       continue;
+    }
     wait_complete_ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
     wait_complete_ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
         allgather_handle->semaphoreUnicastPtr(rank, my_device_index));
@@ -663,7 +825,394 @@ void waitAllgatherWithCudaBackend(
       cuStreamBatchMemOp(stream, world_size - 1, wait_complete_ops.data(), 0));
 }
 
+void postAllreduceWithCudaBackend(
+    Communication* communication,
+    at::Tensor input,
+    at::Tensor output,
+    SymmetricMemoryForAllreduce* reduce_handle,
+    CUstream stream) {
+  MulticastProtocol protocol = getMulticastProtocol();
+  NVF_CHECK(
+      protocol == MulticastProtocol::Multimem,
+      "Allreduce with CUDA backend requires MulticastProtocol multimem (NVLink "
+      "SHARP).");
+  NVF_CHECK(
+      communication->reduceOp() == c10d::ReduceOp::RedOpType::SUM,
+      "Only SUM reduction is supported for multimem reduce; got ",
+      communication->reduceOp());
+  NVF_CHECK(
+      input.scalar_type() == at::kFloat && output.scalar_type() == at::kFloat,
+      "Only float32 is supported for multimem reduce.");
+
+  const size_t size = reduce_handle->sizeBytes();
+  NVF_CHECK(
+      size % 16 == 0,
+      "Reduce size must be a multiple of 16 bytes for multimem ld_reduce. "
+      "size=",
+      size);
+
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  const int64_t world_size = communicator.size();
+
+  // Copy input to symmetric buffer (each rank's slot)
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+      reduce_handle->inputBuffer().data_ptr(),
+      input.data_ptr(),
+      size,
+      cudaMemcpyDeviceToDevice,
+      stream));
+
+  // Step 1: Each rank signals ready (same as Allgather)
+  std::vector<CUstreamBatchMemOpParams> write_ready_ops(world_size - 1);
+  int write_op_idx = 0;
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank == my_device_index) {
+      continue;
+    }
+    write_ready_ops[write_op_idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    write_ready_ops[write_op_idx].writeValue.address =
+        reinterpret_cast<CUdeviceptr>(
+            reduce_handle->semaphoreUnicastPtr(rank, my_device_index));
+    write_ready_ops[write_op_idx].writeValue.value =
+        static_cast<cuuint32_t>(IpcSemaphore::kInProgress);
+    write_ready_ops[write_op_idx].writeValue.flags =
+        CU_STREAM_WRITE_VALUE_DEFAULT;
+    write_op_idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size - 1, write_ready_ops.data(), 0));
+
+  // Step 2: Wait for all peers ready (same as Allgather)
+  std::vector<CUstreamBatchMemOpParams> wait_ready_ops(world_size - 1);
+  int wait_op_idx = 0;
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank == my_device_index) {
+      continue;
+    }
+    wait_ready_ops[wait_op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+    wait_ready_ops[wait_op_idx].waitValue.address =
+        reinterpret_cast<CUdeviceptr>(
+            reduce_handle->semaphoreUnicastPtr(my_device_index, rank));
+    wait_ready_ops[wait_op_idx].waitValue.value =
+        static_cast<cuuint32_t>(IpcSemaphore::kInProgress);
+    wait_ready_ops[wait_op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+    wait_op_idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size - 1, wait_ready_ops.data(), 0));
+
+  // Step 3: All ranks run ld_reduce (multimem) instead of Allgather copy
+  launchMulticastReduceKernel(
+      reduce_handle->multicastPtr(), output.data_ptr(), size, stream);
+
+  // Step 4: Signal completion to all peers (same as Allgather)
+  std::vector<CUstreamBatchMemOpParams> write_complete_ops(world_size);
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    write_complete_ops[rank].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    write_complete_ops[rank].writeValue.address = reinterpret_cast<CUdeviceptr>(
+        reduce_handle->semaphoreUnicastPtr(my_device_index, rank));
+    write_complete_ops[rank].writeValue.value =
+        static_cast<cuuint32_t>(IpcSemaphore::kIdle);
+    write_complete_ops[rank].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size, write_complete_ops.data(), 0));
+}
+
+void waitAllreduceWithCudaBackend(
+    Communication* communication,
+    SymmetricMemoryForAllreduce* reduce_handle,
+    CUstream stream) {
+  (void)communication;
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  const int64_t world_size = communicator.size();
+
+  // Same pattern as waitAllgatherWithCudaBackend
+  std::vector<CUstreamBatchMemOpParams> wait_complete_ops(world_size - 1);
+  int op_idx = 0;
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    if (rank == my_device_index) {
+      continue;
+    }
+    wait_complete_ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+    wait_complete_ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
+        reduce_handle->semaphoreUnicastPtr(rank, my_device_index));
+    wait_complete_ops[op_idx].waitValue.value =
+        static_cast<cuuint32_t>(IpcSemaphore::kIdle);
+    wait_complete_ops[op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+    op_idx++;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size - 1, wait_complete_ops.data(), 0));
+}
+
+void postReduceWithCudaBackend(
+    Communication* communication,
+    at::Tensor input,
+    at::Tensor output,
+    SymmetricMemoryForReduce* reduce_handle,
+    CUstream stream,
+    int64_t root) {
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+
+  MulticastProtocol protocol = getMulticastProtocol();
+  NVF_CHECK(
+      protocol == MulticastProtocol::Multimem,
+      "Reduce with CUDA backend requires MulticastProtocol multimem (NVLink "
+      "SHARP).");
+  NVF_CHECK(
+      communication->reduceOp() == c10d::ReduceOp::RedOpType::SUM,
+      "Only SUM reduction is supported for multimem reduce; got ",
+      communication->reduceOp());
+  NVF_CHECK(
+      input.scalar_type() == at::kFloat &&
+          (!output.defined() || output.scalar_type() == at::kFloat),
+      "Only float32 is supported for multimem reduce.");
+
+  const size_t size = reduce_handle->sizeBytes();
+  NVF_CHECK(
+      size % 16 == 0,
+      "Reduce size must be a multiple of 16 bytes for multimem ld_reduce. "
+      "size=",
+      size);
+
+  // Copy input to symmetric buffer
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+      reduce_handle->inputBuffer().data_ptr(),
+      input.data_ptr(),
+      size,
+      cudaMemcpyDeviceToDevice,
+      stream));
+
+  const int64_t world_size = communicator.size();
+  // All ranks signal ready by writing kInProgress to their own semaphore
+  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+      stream,
+      reinterpret_cast<CUdeviceptr>(
+          reduce_handle->semaphoreUnicastPtr(my_device_index)),
+      static_cast<cuuint32_t>(IpcSemaphore::kInProgress),
+      CU_STREAM_WRITE_VALUE_DEFAULT));
+
+  if (my_device_index == root) {
+    // Root waits for all non-root ranks to signal ready before launching kernel
+    std::vector<CUstreamBatchMemOpParams> ops(world_size - 1);
+    int op_idx = 0;
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      if (rank == root) {
+        continue;
+      }
+      ops[op_idx].operation = CU_STREAM_MEM_OP_WAIT_VALUE_32;
+      ops[op_idx].waitValue.address = reinterpret_cast<CUdeviceptr>(
+          reduce_handle->semaphoreUnicastPtr(rank));
+      ops[op_idx].waitValue.value =
+          static_cast<cuuint32_t>(IpcSemaphore::kInProgress);
+      ops[op_idx].waitValue.flags = CU_STREAM_WAIT_VALUE_EQ;
+      op_idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, world_size - 1, ops.data(), 0));
+
+    // Root launches the ld_reduce kernel
+    void* dst = output.defined() ? output.data_ptr()
+                                 : reduce_handle->inputBuffer().data_ptr();
+    launchMulticastReduceKernel(
+        reduce_handle->multicastPtr(), dst, size, stream);
+
+    // Root signals completion by writing kIdle to all non-root semaphores
+    std::vector<CUstreamBatchMemOpParams> write_complete_ops(world_size - 1);
+    int write_op_idx = 0;
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      if (rank == root) {
+        continue;
+      }
+      write_complete_ops[write_op_idx].operation =
+          CU_STREAM_MEM_OP_WRITE_VALUE_32;
+      write_complete_ops[write_op_idx].writeValue.address =
+          reinterpret_cast<CUdeviceptr>(
+              reduce_handle->semaphoreUnicastPtr(rank));
+      write_complete_ops[write_op_idx].writeValue.value =
+          static_cast<cuuint32_t>(IpcSemaphore::kIdle);
+      write_complete_ops[write_op_idx].writeValue.flags =
+          CU_STREAM_WRITE_VALUE_DEFAULT;
+      write_op_idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(cuStreamBatchMemOp(
+        stream, world_size - 1, write_complete_ops.data(), 0));
+  }
+}
+
+void waitReduceWithCudaBackend(
+    Communication* communication,
+    SymmetricMemoryForReduce* reduce_handle,
+    CUstream stream,
+    int64_t root) {
+  (void)communication;
+  Communicator& communicator = Communicator::getInstance();
+  const int64_t my_device_index = communicator.deviceId();
+  if (my_device_index != root) {
+    NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
+        stream,
+        reinterpret_cast<CUdeviceptr>(
+            reduce_handle->semaphoreUnicastPtr(my_device_index)),
+        static_cast<cuuint32_t>(IpcSemaphore::kIdle),
+        CU_STREAM_WAIT_VALUE_EQ));
+  }
+}
+
 } // anonymous namespace
+
+void launchMulticastReduceKernel(
+    const void* mc_src,
+    void* dst,
+    size_t size,
+    CUstream stream) {
+  static CUmodule module = nullptr;
+  static CUfunction kernel = nullptr;
+
+  if (module == nullptr) {
+    nvrtcProgram prog = nullptr;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
+        &prog,
+        nvfuser_resources::multicast_reduce_cu,
+        "multicast_reduce.cu",
+        0,
+        nullptr,
+        nullptr));
+
+    int major = 0;
+    int minor = 0;
+    int device = 0;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
+    cudaDeviceProp prop{};
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
+    major = prop.major;
+    minor = prop.minor;
+
+    NVF_CHECK(
+        major >= 9,
+        "Reduce kernel using multimem ld_reduce requires Compute "
+        "Capability >= 9.0 (Hopper+). Current device ",
+        device,
+        " is Compute Capability ",
+        major,
+        ".",
+        minor);
+
+    std::string arch_arg = "--gpu-architecture=compute_" +
+        std::to_string(major) + std::to_string(minor);
+    std::vector<const char*> opts = {arch_arg.c_str(), "--std=c++17"};
+    if (major >= 9) {
+      opts.push_back("--ptx-isa-version=8.0");
+    }
+
+    nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    if (res != NVRTC_SUCCESS && major >= 9) {
+      opts.pop_back();
+      res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    }
+    if (res != NVRTC_SUCCESS) {
+      size_t logSize = 0;
+      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
+      std::vector<char> log(logSize);
+      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
+      NVF_ERROR(
+          false, "Multicast reduce kernel compilation failed:\n", log.data());
+    }
+
+    size_t ptxSize = 0;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
+    std::vector<char> ptx(ptxSize);
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
+
+    CUresult load_result = cuModuleLoadData(&module, ptx.data());
+    if (load_result != CUDA_SUCCESS) {
+      constexpr size_t kLogSize = 8192;
+      std::array<char, kLogSize> error_log{};
+      std::array<char, kLogSize> info_log{};
+      size_t error_log_size_bytes = kLogSize;
+      size_t info_log_size_bytes = kLogSize;
+      unsigned int jit_log_verbose = 1u;
+      std::array<CUjit_option, 5> options = {
+          CU_JIT_ERROR_LOG_BUFFER,
+          CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
+          CU_JIT_INFO_LOG_BUFFER,
+          CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
+          CU_JIT_LOG_VERBOSE};
+      std::array<void*, 5> option_values = {
+          error_log.data(),
+          reinterpret_cast<void*>(&error_log_size_bytes),
+          info_log.data(),
+          reinterpret_cast<void*>(&info_log_size_bytes),
+          reinterpret_cast<void*>(&jit_log_verbose)};
+      cuModuleLoadDataEx(
+          &module, ptx.data(), 5, options.data(), option_values.data());
+      NVF_ERROR(
+          false,
+          "Multicast reduce kernel module load failed with error: ",
+          load_result,
+          "\nInfo Log:\n",
+          info_log.data(),
+          "\nError Log:\n",
+          error_log.data());
+    }
+
+    NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
+        &kernel, module, "multimem_ld_reduce_sum_f32_kernel"));
+  }
+
+  NVF_CHECK(
+      (uintptr_t)mc_src % 16 == 0,
+      "Reduce mc_src must be 16-byte aligned. ptr=",
+      mc_src);
+  NVF_CHECK(
+      (uintptr_t)dst % 16 == 0,
+      "Reduce dst must be 16-byte aligned. ptr=",
+      dst);
+  NVF_CHECK(
+      size % 16 == 0, "Reduce size must be a multiple of 16. size=", size);
+
+  int threads = 128;
+  int blocks = 1;
+  int device = 0;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
+  int num_sms = 0;
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, device));
+  int max_blocks_per_sm = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      &max_blocks_per_sm, kernel, threads, 0));
+  blocks = num_sms * max_blocks_per_sm;
+  size_t vec_size = 16;
+  size_t total_work_units = (size + vec_size - 1) / vec_size;
+  size_t max_needed_blocks = (total_work_units + threads - 1) / threads;
+  if ((size_t)blocks > max_needed_blocks) {
+    blocks = std::max(1, (int)max_needed_blocks);
+  }
+
+  const void* mc_src_arg = mc_src;
+  void* dst_arg = dst;
+  size_t size_arg = size;
+  std::array<void*, 3> args_kernel = {
+      reinterpret_cast<void*>(&mc_src_arg),
+      reinterpret_cast<void*>(&dst_arg),
+      reinterpret_cast<void*>(&size_arg)};
+  NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
+      kernel,
+      blocks,
+      1,
+      1,
+      threads,
+      1,
+      1,
+      0,
+      stream,
+      args_kernel.data(),
+      nullptr));
+}
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
   P2pProtocol protocol = getP2pProtocol();
@@ -676,12 +1225,17 @@ void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
           (cuuint32_t)(IpcSemaphore::kInProgress),
           CU_STREAM_WAIT_VALUE_EQ));
       // Get the data from the sender
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-          ipc_handles.local().ptr(),
-          ipc_handles.peer().ptr(),
-          count,
-          cudaMemcpyDeviceToDevice,
-          stream));
+      if (getP2pTransport() == P2pTransport::Tma) {
+        launchTmaCopy(
+            ipc_handles.local().ptr(), ipc_handles.peer().ptr(), count, stream);
+      } else {
+        NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+            ipc_handles.local().ptr(),
+            ipc_handles.peer().ptr(),
+            count,
+            cudaMemcpyDeviceToDevice,
+            stream));
+      }
       // Signals completion
       WriteValue32ToLocalAndPeer(stream, ipc_handles, IpcSemaphore::kIdle);
       break;
@@ -729,12 +1283,17 @@ void sendPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
           (cuuint32_t)(IpcSemaphore::kInProgress),
           CU_STREAM_WAIT_VALUE_EQ));
       // Put the data to the receiver
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-          ipc_handles.peer().ptr(),
-          ipc_handles.local().ptr(),
-          count,
-          cudaMemcpyDeviceToDevice,
-          stream));
+      if (getP2pTransport() == P2pTransport::Tma) {
+        launchTmaCopy(
+            ipc_handles.peer().ptr(), ipc_handles.local().ptr(), count, stream);
+      } else {
+        NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+            ipc_handles.peer().ptr(),
+            ipc_handles.local().ptr(),
+            count,
+            cudaMemcpyDeviceToDevice,
+            stream));
+      }
       WriteValue32ToLocalAndPeer(stream, ipc_handles, IpcSemaphore::kIdle);
       break;
     }
@@ -763,6 +1322,7 @@ void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
 void postWithCudaBackend(
     Communication* communication,
     at::Tensor input,
+    at::Tensor output,
     SymmetricMemoryHandle* symmetric_memory_handle,
     CUstream stream,
     int64_t root) {
@@ -795,6 +1355,22 @@ void postWithCudaBackend(
       NVF_ERROR(allgather_handle != nullptr, "Invalid allgather handle");
       postAllgatherWithCudaBackend(
           communication, input, allgather_handle, stream);
+      break;
+    }
+    case CommunicationType::Allreduce: {
+      auto* reduce_handle =
+          dynamic_cast<SymmetricMemoryForAllreduce*>(symmetric_memory_handle);
+      NVF_ERROR(reduce_handle != nullptr, "Invalid allreduce handle");
+      postAllreduceWithCudaBackend(
+          communication, input, output, reduce_handle, stream);
+      break;
+    }
+    case CommunicationType::Reduce: {
+      auto* reduce_handle =
+          dynamic_cast<SymmetricMemoryForReduce*>(symmetric_memory_handle);
+      NVF_ERROR(reduce_handle != nullptr, "Invalid reduce handle");
+      postReduceWithCudaBackend(
+          communication, input, output, reduce_handle, stream, root);
       break;
     }
     default:
@@ -838,6 +1414,20 @@ void waitWithCudaBackend(
           dynamic_cast<SymMemForAllgather*>(symmetric_memory_handle);
       NVF_ERROR(allgather_handle != nullptr, "Invalid allgather handle");
       waitAllgatherWithCudaBackend(communication, allgather_handle, stream);
+      break;
+    }
+    case CommunicationType::Reduce: {
+      auto* reduce_handle =
+          dynamic_cast<SymmetricMemoryForReduce*>(symmetric_memory_handle);
+      NVF_ERROR(reduce_handle != nullptr, "Invalid reduce handle");
+      waitReduceWithCudaBackend(communication, reduce_handle, stream, root);
+      break;
+    }
+    case CommunicationType::Allreduce: {
+      auto* allreduce_handle =
+          dynamic_cast<SymmetricMemoryForAllreduce*>(symmetric_memory_handle);
+      NVF_ERROR(allreduce_handle != nullptr, "Invalid allreduce handle");
+      waitAllreduceWithCudaBackend(communication, allreduce_handle, stream);
       break;
     }
     default:
@@ -970,25 +1560,10 @@ void alltoallvWithCudaBackend(
     const at::Tensor& send,
     const at::Tensor& recv,
     const AlltoallvMetadata& metadata,
-    const std::vector<void*>& recv_ptrs,
+    const at::Tensor& recv_ptrs_gpu,
     CUstream stream) {
   NVF_CHECK(send.is_cuda(), "alltoallv send must be CUDA.");
   NVF_CHECK(recv.is_cuda(), "alltoallv recv must be CUDA.");
-  NVF_CHECK(
-      (int64_t)recv_ptrs.size() == metadata.world_size,
-      "recv_ptrs size must match world size.");
-
-  auto cpu_options = at::TensorOptions().dtype(at::kLong).device(at::kCPU);
-  auto recv_ptrs_cpu = at::empty({metadata.world_size}, cpu_options);
-  auto* ptrs = recv_ptrs_cpu.data_ptr<int64_t>();
-  for (int64_t rank = 0; rank < metadata.world_size; ++rank) {
-    ptrs[rank] =
-        static_cast<int64_t>(reinterpret_cast<uintptr_t>(recv_ptrs[rank]));
-  }
-  auto recv_ptrs_cuda = recv_ptrs_cpu.to(send.device());
-
-  const int64_t elem_stride =
-      metadata.max_send_total > 0 ? send.numel() / metadata.max_send_total : 1;
   NVF_CHECK(
       metadata.max_send_total == 0 ||
           send.numel() % metadata.max_send_total == 0,
@@ -996,6 +1571,9 @@ void alltoallvWithCudaBackend(
   NVF_CHECK(
       metadata.max_recv == 0 || recv.numel() % metadata.max_recv == 0,
       "alltoallv recv numel must be divisible by max_recv.");
+
+  const int64_t elem_stride =
+      metadata.max_send_total > 0 ? send.numel() / metadata.max_send_total : 1;
 
   auto send_offsets = metadata.send_offsets;
   auto send_counts = metadata.send_counts;
@@ -1010,7 +1588,7 @@ void alltoallvWithCudaBackend(
 
   launchAlltoallvKernel(
       send.data_ptr(),
-      reinterpret_cast<const uint64_t*>(recv_ptrs_cuda.data_ptr<int64_t>()),
+      reinterpret_cast<const uint64_t*>(recv_ptrs_gpu.data_ptr<int64_t>()),
       send_offsets.data_ptr<int64_t>(),
       send_counts.data_ptr<int64_t>(),
       recv_offsets.data_ptr<int64_t>(),

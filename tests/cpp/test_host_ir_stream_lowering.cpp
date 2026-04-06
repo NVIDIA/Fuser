@@ -265,21 +265,6 @@ TEST_F(HirLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_F(HirLowerStreamTest, ReductionUnsupported) {
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard fg(hic.get());
-  TensorView* tv0 = makeContigTensor(2);
-  TensorView* tv1 = sum(tv0, {0});
-  hic->addInput(tv0);
-  hic->addOutput(tv1);
-  hic->pushBackTopLevelExprs(tv1->definition());
-  tv0->setMemoryType(MemoryType::Global);
-  tv1->setMemoryType(MemoryType::Global);
-  tv1->axis(0)->parallelize(ParallelType::Stream);
-
-  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
-}
-
 TEST_F(HirLowerStreamTest, Reduction) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
@@ -436,24 +421,6 @@ TEST_F(HirLowerStreamTest, Matmul_N) {
   auto expected_output = at::matmul(a_aten, b_aten);
   EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
-}
-
-TEST_F(HirLowerStreamTest, Matmul_K) {
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard fg(hic.get());
-  TensorView* a = makeContigTensor(2);
-  TensorView* b = makeContigTensor(2);
-  TensorView* c = matmul(a, b);
-  hic->addInput(a);
-  hic->addInput(b);
-  hic->addOutput(c);
-  hic->pushBackTopLevelExprs(c->definition());
-  a->setMemoryType(MemoryType::Global);
-  b->setMemoryType(MemoryType::Global);
-  c->setMemoryType(MemoryType::Global);
-  c->axis(-1)->parallelize(ParallelType::Stream);
-
-  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
 }
 
 // We don's support PostOnStream because it does not support well pre-allocated
@@ -721,19 +688,6 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_F(MultiDeviceExecutorLowerStreamTest, ReductionUnsupported) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  TensorView* tv0 = makeContigTensor(2);
-  TensorView* tv1 = sum(tv0, {0});
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-  tv1->axis(0)->parallelize(ParallelType::Stream);
-
-  EXPECT_ANY_THROW(
-      MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
-}
-
 TEST_F(MultiDeviceExecutorLowerStreamTest, Reduction) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -876,21 +830,6 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
   auto expected_output = at::matmul(a_aten, b_aten);
   EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << " Expected: " << expected_output;
-}
-
-TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_K) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  TensorView* a = makeContigTensor(2);
-  TensorView* b = makeContigTensor(2);
-  TensorView* c = matmul(a, b);
-  fusion->addInput(a);
-  fusion->addInput(b);
-  fusion->addOutput(c);
-  c->axis(-1)->parallelize(ParallelType::Stream);
-
-  EXPECT_ANY_THROW(
-      MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
 
 // We only support Stream parallel type on ops that support pre-allocated
