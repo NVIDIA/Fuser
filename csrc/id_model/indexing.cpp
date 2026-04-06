@@ -79,12 +79,13 @@ void TensorIndexer::buildLoopIndexMap() {
       loop_index_map_[loop_group] = loop_index;
     }
 
-    if (!tv_output->getAlternateLoopDomain().has_value()) {
+    const auto& alternate_loop_domain_opt = tv_output->getAlternateLoopDomain();
+    if (!alternate_loop_domain_opt.has_value()) {
       continue;
     }
 
     const std::vector<IterDomain*>& alternate_loop_domain =
-        tv_output->getAlternateLoopDomain().value();
+        alternate_loop_domain_opt.value();
     const std::vector<IterDomain*>& loop_domain = tv_output->getLoopDomain();
     // NOTE For scheduling ldmatrix and stmatrix, the assumption is the original
     // and alternate loop domains have the same number of iterDomains. This
@@ -176,8 +177,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     const std::vector<kir::ForLoop*>& for_loops,
     bool use_magic_zero) const {
   auto info = computeIndex(expr, index_ids, for_loops);
-  const auto& replacement_map = getIndexReplacementMap(
-      expr, as_consumer, info.loop_ids, for_loops, info.index_map);
+  const auto& replacement_map =
+      getIndexReplacementMap(expr, as_consumer, info.loop_ids, for_loops);
 
   // Note that IDs of index_ids may be mapped as the traversal graph
   // is the AlmostExact graph.
@@ -340,7 +341,11 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   IndexingInfo info{
-      loop_ids, index_ids, traversal_path, index_map, loop_group_dependencies};
+      .loop_ids = loop_ids,
+      .index_ids = index_ids,
+      .traversal_path = traversal_path,
+      .index_map = index_map,
+      .loop_group_dependencies = loop_group_dependencies};
   return info;
 }
 
@@ -348,8 +353,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const Expr* expr,
     bool as_consumer,
     const std::vector<IterDomain*>& loop_domains,
-    const std::vector<kir::ForLoop*>& for_loops,
-    const std::unordered_map<ValGroup, Val*>& index_map) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
@@ -912,8 +916,7 @@ std::vector<kir::ForLoop*> TensorIndexer::getUsedForLoopsOf(
   std::vector<kir::ForLoop*> dep_loops;
   for (auto [i, for_loop] : enumerate(for_loops)) {
     auto initial_loop_index = loop_indices.at(i);
-    if (std::find(dep_vals.begin(), dep_vals.end(), initial_loop_index) !=
-        dep_vals.end()) {
+    if (std::ranges::find(dep_vals, initial_loop_index) != dep_vals.end()) {
       dep_loops.push_back(for_loop);
     }
   }
@@ -1000,8 +1003,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     index_info.index_map[traversalGraph().toGroup(indexed_id)] = index;
   }
   const auto& index_map = index_info.index_map;
-  auto replacement_map = getIndexReplacementMap(
-      expr, as_consumer, index_info.loop_ids, for_loops, index_map);
+  auto replacement_map =
+      getIndexReplacementMap(expr, as_consumer, index_info.loop_ids, for_loops);
 
   // War for MmaOp. The allocation domain may involve parallelized
   // IDs, either directly or by traversal. Ideally, we should set the
@@ -1026,9 +1029,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     contig_alloc_groups = contig_alloc_strides.first;
     contig_strides = contig_alloc_strides.second;
   } else {
-    std::transform(
-        alloc_info.ids.begin(),
-        alloc_info.ids.end(),
+    std::ranges::transform(
+        alloc_info.ids,
         std::back_inserter(contig_alloc_groups),
         [&](IterDomain* allocation_domain) {
           return traversalGraph().toGroup(allocation_domain);
