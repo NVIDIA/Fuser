@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <device_lower/analysis/fusion_info.h>
-#include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <id_model/indexing.h>
 #include <id_model/utils.h>

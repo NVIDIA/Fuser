@@ -16,8 +16,6 @@
 
 namespace nvfuser {
 
-struct IndexFromIdGraph;
-
 //! Insert magic zero definition at the begining of the kernel. Insert magic
 //! zero update after every (outer most) loop nest with a compile time extent.
 //!
@@ -48,39 +46,5 @@ bool needsMagicZero(
     kir::ForLoop* loop,
     IterDomain* reference_domain = nullptr,
     Val* ind = nullptr);
-
-struct IndexMagicZeroInfo {
-  //! Index that may be updated with magic zero
-  Val* index = nullptr;
-  //! Loop index that is protected by magic zero. nullptr if no loop
-  //! is protected
-  Val* original_loop_index = nullptr;
-  //! Protected loop index. nullptr if no loop is protected
-  Val* protected_loop_index = nullptr;
-  //! Protected loop. nullptr if no loop is protected
-  IterDomain* loop_id = nullptr;
-};
-
-//! Protect an index val of an IterDomain with magic zero
-//!
-//! This should be only used for predicate indexing.
-//!
-//! No protection is done if none of the loops is determined to require
-//! protection by needsMagicZero.
-IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
-    Val* index,
-    const IndexFromIdGraph& id_graph,
-    const std::vector<kir::ForLoop*>& loops);
-
-//! Protect an index val of a tensor with magic zero
-//!
-//! This should be only used for non-predicate indexing.
-//!
-//! No protection is done if none of the loops is determined to require
-//! protection by needsMagicZero.
-void protectNonPredicateIndexWithMagicZero(
-    const std::vector<kir::ForLoop*>& loops,
-    const std::vector<IterDomain*>& loop_domains,
-    std::unordered_map<IterDomain*, Val*>& concrete_loop_idx_map);
 
 } // namespace nvfuser
