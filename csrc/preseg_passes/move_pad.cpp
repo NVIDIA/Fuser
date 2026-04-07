@@ -5,17 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/move_pad.h>
+#include "preseg_passes/move_pad.h"
 
-#include <expr_simplifier.h>
-#include <fusion.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ir/internal_base_nodes.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-#include <transform_replay.h>
+#include <ranges>
+
+#include "expr_simplifier.h"
+#include "fusion.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ir/internal_base_nodes.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {
 
@@ -39,7 +40,7 @@ bool isSimplePadOp(PadOp* pad) {
     return true;
   }
   std::vector<Val*> pad_widths = pad->getPadWidths();
-  return std::all_of(pad_widths.begin(), pad_widths.end(), [](Val* pad_val) {
+  return std::ranges::all_of(pad_widths, [](Val* pad_val) {
     return simplifyExpr(SimplifyingIrBuilder::geExpr(
                             pad_val, pad_val->fusion()->zeroVal()))
         ->isTrue();
@@ -98,8 +99,8 @@ bool hasBroadcastOnAny(
       return false;
     }
   }
-  return std::any_of(axes.begin(), axes.end(), [&tvs](int64_t i) {
-    return std::any_of(tvs.begin(), tvs.end(), [i](TensorView* tv) {
+  return std::ranges::any_of(axes, [&tvs](int64_t i) {
+    return std::ranges::any_of(tvs, [i](TensorView* tv) {
       return tv->getLogicalDomain()[i]->isBroadcast();
     });
   });
@@ -113,14 +114,11 @@ bool hasBroadcastOnAny(
 Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
   // replay `CatOp` with series of BinaryOp instead, since we might have
   // pushed `PadOp` out and breaking the codegen if `CatOp` remains.
-  DataType data_type = inputs[0]->getDataType().value();
+  DataType data_type = inputs[0]->getDataType();
   NVF_ERROR(
-      std::all_of(
-          inputs.begin(),
-          inputs.end(),
-          [&data_type](Val* val) {
-            return val->getDataType().value() == data_type;
-          }),
+      std::ranges::all_of(
+          inputs,
+          [&data_type](Val* val) { return val->getDataType() == data_type; }),
       "all inputs to cat should be of the same datatype");
   NVF_ERROR(!inputs.empty(), "replace cat op expects to have non-empty inputs");
 
@@ -129,7 +127,7 @@ Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
   Val* (*binary_op)(Val*, Val*) =
       isBooleanType(data_type) ? logical_or_resolved : add_resolved;
   Val* res = inputs[0];
-  for (auto i : c10::irange(1, inputs.size())) {
+  for (auto i : arange(1, inputs.size())) {
     res = binary_op(res, inputs[i]);
   }
   // restore data type if it's promoted by BinaryOp.
@@ -184,7 +182,9 @@ bool zeroIsFixedPoint(UnaryOpType t) {
 bool zeroIsIdentity(BinaryOpType t) {
   switch (t) {
     case BinaryOpType::Add:
+    case BinaryOpType::FMax:
     case BinaryOpType::Max:
+    case BinaryOpType::FMin:
     case BinaryOpType::Min:
     case BinaryOpType::Mul:
     case BinaryOpType::Sub:
@@ -217,7 +217,6 @@ TensorView* replayConcretePad(
     const std::vector<std::vector<Val*>>& vec_pad_widths,
     std::vector<IterDomain*> ref_iter_type) {
   auto* pad_tv = pad_val->as<TensorView>();
-  NVF_ERROR(pad_tv->getDataType().has_value(), "pad source dtype is missing");
   const std::vector<IterDomain*> inp_dom =
       TensorDomain::noReductions(pad_tv->getLogicalDomain());
   const auto rank = inp_dom.size();
@@ -226,9 +225,8 @@ TensorView* replayConcretePad(
       rank == ref_iter_type.size(),
       "ref_iter_type does not have compatible size regarding pad_tv");
   NVF_ERROR(
-      std::all_of(
-          vec_pad_widths.begin(),
-          vec_pad_widths.end(),
+      std::ranges::all_of(
+          vec_pad_widths,
           [&rank](const std::vector<Val*>& pad_widths) {
             return pad_widths.size() == 2 * rank;
           }),
@@ -242,9 +240,9 @@ TensorView* replayConcretePad(
     merged_pad_widths = vec_pad_widths.at(0);
   } else {
     merged_pad_widths.reserve(rank * 2);
-    for (const auto i : c10::irange(2 * rank)) {
+    for (const auto i : arange(2 * rank)) {
       Val* merged_pad_width = nullptr;
-      for (const auto idx : c10::irange(vec_pad_widths.size())) {
+      for (const auto idx : arange(vec_pad_widths.size())) {
         // skipping zero pad;
         Val* pad_width = vec_pad_widths[idx].at(i);
         if (pad_width->isZeroInt()) {
@@ -263,7 +261,7 @@ TensorView* replayConcretePad(
   // construct TensorDomain for output TV.
   std::vector<IterDomain*> merged_root_ids;
   std::vector<IterDomain*> merged_logical_ids;
-  for (const auto i : c10::irange(rank)) {
+  for (const auto i : arange(rank)) {
     Val* left_pad = merged_pad_widths.at(i * 2);
     Val* right_pad = merged_pad_widths.at(i * 2 + 1);
     IterDomain* inp_id = inp_dom.at(i);
@@ -291,13 +289,12 @@ TensorView* replayConcretePad(
           merged_logical_ids,
           merged_logical_ids,
           TensorDomain::getContiguityFilledWith(merged_logical_ids, true)),
-      pad_tv->getDataType().value());
+      pad_tv->getDataType());
   IrBuilder::create<PadOp>(
       new_out,
       pad_tv,
       merged_pad_widths,
-      SimplifyingIrBuilder::maybeCastExpr(
-          pad_tv->getDataType().value(), pad_value));
+      SimplifyingIrBuilder::maybeCastExpr(pad_tv->getDataType(), pad_value));
   return new_out;
 }
 
@@ -347,7 +344,7 @@ std::vector<Val*> maybeMovePadBeforeDefinition(
             {pad->getPadWidths()},
             TensorDomain::noReductions(
                 pad->out()->as<TensorView>()->getLogicalDomain()));
-        PadOp* new_pad_op = new_pad_in->definition()->as<PadOp>();
+        auto* new_pad_op = new_pad_in->definition()->as<PadOp>();
         stack.push_back(new_pad_op);
         simple_pad_set.insert(new_pad_op);
         return new_pad_in;
@@ -385,11 +382,7 @@ void propagatePads(Fusion* fusion) {
   stack.reserve(filtered_pads.size());
 
   // NOTE: we only consider simple padop as propagation stack.
-  std::copy_if(
-      filtered_pads.begin(),
-      filtered_pads.end(),
-      std::back_inserter(stack),
-      isSimplePadOp);
+  std::ranges::copy_if(filtered_pads, std::back_inserter(stack), isSimplePadOp);
 
   // NOTE: this is a WAR. We use a set of `simple_pad_set` to track all mergable
   // PadOps, since we cannot always prove them to be a simple op even when they
@@ -456,8 +449,8 @@ void propagatePads(Fusion* fusion) {
         continue;
       }
       // update new outputs.
-      new_out = ops::newValLike(
-          outputs_of_moved_pad[0], uop->out()->getDataType().value());
+      new_out =
+          ops::newValLike(outputs_of_moved_pad[0], uop->out()->getDataType());
       IrBuilder::create<UnaryOp>(
           uop->getUnaryOpType(), new_out, outputs_of_moved_pad[0]);
     } else if (auto* bop = dynamic_cast<BinaryOp*>(def_of_pad_in)) {

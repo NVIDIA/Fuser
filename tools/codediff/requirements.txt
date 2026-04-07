@@ -1,2 +1,3 @@
+cxxfilt
 dataclasses-json
 jinja2

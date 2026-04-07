@@ -6,26 +6,20 @@
  */
 // clang-format on
 #pragma once
-#include <device_lower/lower2device.h>
-#include <exceptions.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/cloner.h>
-#include <ir/printer.h>
-#include <runtime/allocations.h>
-#include <runtime/compiled_kernel.h>
-#include <runtime/executor_abstract.h>
-#include <runtime/executor_params.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/scheduler_types.h>
-#include <serde/fusion_cache_generated.h>
-#include <utils.h>
-#include <atomic>
-
-#include <c10/core/DeviceType.h>
-
 #include <functional>
+
+#include "base.h"
+#include "exceptions.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/cloner.h"
+#include "runtime/allocations.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor_abstract.h"
+#include "runtime/executor_params.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/scheduler_types.h"
 
 namespace nvfuser {
 
@@ -46,7 +40,7 @@ class ExprEvalExecutor : public ExecutorAbstract {
   bool isCompiled() const override;
 
   NVF_API KernelArgumentHolder
-  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
+  run(const KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
 
   const std::unique_ptr<Fusion>& fusion() {
     return fusion_;
@@ -86,6 +80,8 @@ struct KernelExecutorEntry {
   std::vector<void*> arg_ptrs;
 };
 
+class GpuLower;
+
 class KernelExecutor : public ExecutorAbstract {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
@@ -107,7 +103,7 @@ class KernelExecutor : public ExecutorAbstract {
       const KernelArgumentHolder& args = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      SchedulerType sceduler_type = SchedulerType::None);
+      SchedulerType scheduler_type = SchedulerType::None);
 
   NVF_API KernelArgumentHolder
   run(KernelArgumentHolder args,
@@ -152,7 +148,8 @@ class KernelExecutor : public ExecutorAbstract {
   float getKernelOccupancy() const {
     NVF_ERROR(
         kernel_occupancy_ > 0,
-        "Occupancy unknown, should run with dump occupancy or perf_debug_verbose");
+        "Occupancy unknown, should run with dump occupancy or "
+        "perf_debug_verbose");
     return kernel_occupancy_;
   }
 
@@ -162,7 +159,7 @@ class KernelExecutor : public ExecutorAbstract {
 
   //! Returns the launch parameters from the last kernel execution
   LaunchParams lastLaunchParams() const {
-    return launch_params_;
+    return last_launch_params_;
   }
 
   static void setGlobalFusionCount(int64_t new_fusion_count) {
@@ -173,29 +170,20 @@ class KernelExecutor : public ExecutorAbstract {
     return CompiledKernel::getGlobalFusionCount();
   }
 
+  int64_t groupId() const {
+    return group_id_;
+  }
+
   void setGroupId(int64_t gid) {
     group_id_ = gid;
   }
 
-  //! Serialize Fusion Executor using flatbuffers
-  flatbuffers::Offset<serde::KernelExecutor> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Fusion Executor using flatbuffers
-  void deserialize(
-      const serde::KernelExecutor* buffer,
-      Fusion* fusion,
-      int8_t device_index,
-      CompileParams compile_params,
-      SchedulerType scheduler_type,
-      int64_t fusion_id,
-      int64_t concrete_id,
-      int64_t runtime_id,
-      int64_t group_id);
-
   const std::unique_ptr<CompiledKernel>& compiledKernel() const {
     return compiled_kernel_;
   }
+
+  //! Get the static shared memory size of the current compiled kernel
+  int64_t getStaticSmemSize();
 
  private:
   LaunchParams computeLaunchParams(
@@ -236,39 +224,8 @@ class KernelExecutor : public ExecutorAbstract {
       KernelExecutorEntry& entry,
       const KernelArgumentHolder& args) const;
 
-  //! Serialize CompiledKernel using flatbuffers
-  flatbuffers::Offset<serde::CudaKernel> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const executor_utils::CudaExecutable* kernel) const;
-
-  // KernelExecutorEntry is an internal POD struct for the KernelExecutor class.
-  // We define KernelExecutorEntry's serialize and deserialize as private
-  // methods in KernelExecutor.
-  flatbuffers::Offset<serde::KernelExecutorEntry> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const KernelExecutorEntry& data) const;
-
-  //! Deserialize KernelExecutorEntry using flatbuffers
-  KernelExecutorEntry deserialize(const serde::KernelExecutorEntry* buffer);
-
-  // GlobalBufferInfo is an internal POD struct for the KernelExecutor class.
-  // We define GlobalBufferInfo's serialize and deserialize as private methods
-  // in KernelExecutor.
-  flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const GlobalBufferInfo& data,
-      int64_t tv_position,
-      bool is_fusion_output,
-      bool is_fusion_input) const;
-
-  //! Deserialize GlobalBufferInfo using flatbuffers
-  GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
-
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
-
-  //! Get the static shared memory size of the current compiled kernel
-  int64_t getStaticSmemSize();
 
   //! Check if the shared memory size can be expandable to accommodate
   //! the given dynamic size. The total shared memory size consumed
@@ -331,7 +288,7 @@ class KernelExecutor : public ExecutorAbstract {
   float kernel_occupancy_ = -1.0f;
 
   // Profiling support: the last launch param used
-  LaunchParams launch_params_;
+  LaunchParams last_launch_params_;
 
   // Lowering hooks that are called after the GpuLower instance is created
   // before running lowering passes.

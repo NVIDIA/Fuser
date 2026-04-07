@@ -7,7 +7,7 @@
 // clang-format on
 #include <instrumentation.h>
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 #ifdef _WIN32
 #include <c10/util/win32-headers.h>
@@ -66,7 +66,8 @@ void Trace::logEvent(char ph, const char* name, char sep) {
 
   fprintf(
       log_file_,
-      "{ \"name\": \"%s\", \"ph\": \"%c\", \"pid\": %u, \"tid\": %u, \"ts\": %.0f }%c\n",
+      "{ \"name\": \"%s\", \"ph\": \"%c\", \"pid\": %u, \"tid\": %u, \"ts\": "
+      "%.0f }%c\n",
       name,
       ph,
       pid,

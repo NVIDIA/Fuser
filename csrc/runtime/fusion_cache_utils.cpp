@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <runtime/fusion_cache_utils.h>
-
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <polymorphic_value.h>
-#include <runtime/executor_kernel_arg.h>
+#include "runtime/fusion_cache_utils.h"
 
 #include <unordered_set>
+
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "polymorphic_value.h"
+#include "runtime/executor_kernel_arg.h"
 
 namespace nvfuser {
 
@@ -23,7 +23,7 @@ namespace {
 template <typename T>
 void encodeBuffer(T value, std::string& buffer) {
   const char* v = reinterpret_cast<char*>(&value);
-  for (const auto i : c10::irange(sizeof(T))) {
+  for (const auto i : arange(sizeof(T))) {
     (void)i; // Suppress unused variable warning
     buffer.push_back(*(v++));
   }
@@ -71,10 +71,11 @@ void ArgumentManager::updateWithSegmentOutputs(
     const KernelArgumentHolder& group_runtime_outputs,
     const int64_t group_id) {
   // Insert graph segment output to tensor map
-  NVF_ERROR(
-      group_outputs.size() == group_runtime_outputs.size(),
+  NVF_ERROR_EQ(
+      std::ssize(group_outputs),
+      group_runtime_outputs.size(),
       "Output size does not match.");
-  for (const size_t group_out_i : c10::irange(group_outputs.size())) {
+  for (const size_t group_out_i : arange(group_outputs.size())) {
     tensor_map_.emplace(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
   }
@@ -94,13 +95,13 @@ void ArgumentManager::mapFusionInputsToArgs(
   int extent_index = 0;
   auto original_args_size = args.size();
   // Bind args in the tensor_map
-  for (const auto i : c10::irange(original_args_size)) {
+  for (const auto i : arange(original_args_size)) {
     tensor_map_.emplace(fusion_inputs[i], args[i]);
     // Bind tensorview inputs values in case some segmented group
     //  needs it down the road.
     if (args[i].is<at::Tensor>()) {
       auto rank = args[i].as<at::Tensor>().dim();
-      for (const auto dim : c10::irange(rank)) {
+      for (const auto dim : arange(rank)) {
         tensor_map_.emplace(
             group_extent_binding_order[extent_index++],
             args[i].as<at::Tensor>().size(dim));
@@ -119,7 +120,7 @@ void ArgumentManager::setLastUsedSegmentID(
     // start from the 2nd group, since the input of the first group is always
     // the global input and its outputs are always used by at least one of the
     // following groups
-    for (auto run_order_id : c10::irange(1l, num_groups)) {
+    for (auto run_order_id : arange(1l, num_groups)) {
       auto group_to_run = group_run_order.at(run_order_id);
       // set/update life of vals in inputs of this group
       for (auto val : group_to_run->inputs()) {
@@ -149,126 +150,6 @@ void ArgumentManager::setLastUsedSegmentID(
   }
 }
 
-void prepareRuntimeOrder(
-    SegmentedFusion* segmented_fusion,
-    RuntimeWorkSpace& runtime_workspace) {
-  // Setup group run order:
-  std::unordered_set<Val*> available_input;
-
-  // setup the order tensor dimensions are bound
-  for (const size_t i : c10::irange(segmented_fusion->inputs().size())) {
-    auto input_val = segmented_fusion->inputs()[i];
-    available_input.insert(input_val);
-
-    if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
-      auto logical_dom =
-          TensorDomain::noReductions(input_tv->getLogicalDomain());
-      for (const size_t dim : c10::irange(logical_dom.size())) {
-        const auto extent = logical_dom[dim]->getMaybeExpandedExtent();
-        available_input.insert(extent);
-        runtime_workspace.group_extent_binding_order.push_back(extent);
-      }
-    }
-  }
-
-  // Keep track of groups that has run
-  std::vector<bool> group_ran(segmented_fusion->groups().size(), false);
-
-  while (!std::all_of(
-      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
-    bool one_ran = false;
-
-    // Find the first segment with all inputs available to run
-    for (const size_t group_i :
-         c10::irange(segmented_fusion->groups().size())) {
-      auto& group = segmented_fusion->groups()[group_i];
-      if (group_ran[group_i]) {
-        continue;
-      }
-      const auto& group_inputs = group->inputs();
-      bool ready_to_run = std::all_of(
-          group_inputs.begin(),
-          group_inputs.end(),
-          [&available_input](Val* val) { return available_input.count(val); });
-
-      if (ready_to_run) {
-        runtime_workspace.group_run_order.push_back(group);
-        const auto& group_outputs = group->outputs();
-
-        // Insert graph segment output to tensor map
-        for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-          available_input.insert(group_outputs[group_out_i]);
-        }
-        group_ran[group_i] = true;
-        one_ran = true;
-      }
-    }
-    NVF_ERROR(
-        one_ran,
-        "Couldn't run all groups, something must have gone wrong in segmentation.");
-  }
-}
-
-flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
-    flatbuffers::FlatBufferBuilder& builder) const {
-  // See definitions in serde/fusion_cache.fbs for table
-  // InputsIdLookup and struct EncodingEntry
-
-  using fb_string = flatbuffers::Offset<flatbuffers::String>;
-
-  // For serialization, we require a consistent ordering for the
-  // encoding_lookup_ map.
-  std::unordered_map<std::string, size_t> str_key_ordering;
-
-  // 1. Serialize used_entry_ list
-  std::vector<fb_string> lru_cache_fb;
-  for (const auto& str : used_entry_) {
-    lru_cache_fb.push_back(builder.CreateString(str));
-    str_key_ordering.emplace(str, str_key_ordering.size());
-  }
-
-  // 2. Serialize encoding_lookup_ map
-  std::vector<fb_string> encoding_lookup_keys_fb;
-  std::vector<serde::EncodingEntry> encoding_lookup_values_fb;
-  for (auto&& [key, value] : encoding_lookup_) {
-    encoding_lookup_keys_fb.push_back(builder.CreateString(key));
-    encoding_lookup_values_fb.emplace_back(value.id, str_key_ordering.at(key));
-  }
-
-  return serde::CreateInputsIdLookupDirect(
-      builder,
-      max_cache_size_,
-      current_id_,
-      &lru_cache_fb,
-      &encoding_lookup_keys_fb,
-      &encoding_lookup_values_fb);
-}
-
-void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
-  // See definitions in serde/fusion_cache.fbs for tables
-  // InputsIdLookup and EncodingEntry
-  NVF_ERROR(buffer != nullptr, "serde::InputsIdLookup is nullptr.");
-  using list_iter = std::list<std::string>::iterator;
-  std::vector<list_iter> used_entry_iterators;
-
-  max_cache_size_ = buffer->max_cache_size();
-  current_id_ = buffer->current_id();
-  for (auto fb_str : *buffer->lru_cache()) {
-    used_entry_.emplace_back(fb_str->str());
-    used_entry_iterators.emplace_back(std::prev(used_entry_.end()));
-  }
-
-  for (auto idx : c10::irange(buffer->encoding_lookup_keys()->size())) {
-    auto fb_encoding_lookup_str = buffer->encoding_lookup_keys()->Get(idx);
-    auto fb_encoding_entry = buffer->encoding_lookup_values()->Get(idx);
-
-    EncodingEntry entry{
-        fb_encoding_entry->id(),
-        used_entry_iterators.at(fb_encoding_entry->lru_iter())};
-    encoding_lookup_.emplace(fb_encoding_lookup_str->str(), entry);
-  }
-}
-
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const KernelArgumentHolder& args,
     const std::unordered_set<size_t>& scalar_inputs_to_record) {
@@ -279,7 +160,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   encoding_.clear();
   encodeBuffer(args.getDeviceIndex(), encoding_);
 
-  for (const auto i : c10::irange(args.size())) {
+  for (const auto i : arange(args.size())) {
     const auto& arg = args[i];
     if (arg.is<at::Tensor>()) {
       const auto& input_tensor = arg.as<at::Tensor>();
@@ -296,7 +177,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
       }
       encoding_.push_back('a');
       encodeBuffer(
-          SchedulerRuntimeInfo::computeAlignmentSize(
+          SchedulerRuntimeInfo::computeAlignmentSizeBit(
               (size_t)input_tensor.data_ptr()),
           encoding_);
     } else {

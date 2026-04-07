@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
+#include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
@@ -57,24 +58,70 @@ class FusionInspector : private IterVisitor {
   }
 
  private:
-  FusionInspector(Fusion* fusion) {
+  FusionInspector(Fusion* fusion)
+      : has_warp_specialization_(checkWarpSpecialization(fusion)) {
     traverse(fusion);
+    if (cluster_reduction_count_ > 0) {
+      GpuLower::current()->setClusterReductionCount(cluster_reduction_count_);
+    }
+  }
+
+  static bool checkWarpSpecialization(Fusion* fusion) {
+    auto all_tvs = fusion->allTvs();
+    return std::any_of(all_tvs.begin(), all_tvs.end(), [](TensorView* tv) {
+      return tv->isCircularBuffered() &&
+          std::holds_alternative<WarpSpecialized>(
+                 tv->circularBufferOptions().type);
+    });
   }
 
   using IterVisitor::handle;
 
   void handle(ReductionOp* rop) final {
-    // If it's a grid reduction, keep track of tensors that depend on
-    // this reduction.
-    // Only consider when out is on register as that is assumed in the
-    // fused reduction kernel.
+    // If it's a grid reduction or has grouped Id, keep track of tensors that
+    // depend on this reduction. Only consider when out is on register as that
+    // is assumed in the fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
+    // Check if this reduction can use staticWarpAllReduceTIDX optimization.
+    // Ensure there is only one reduction domain and it is parallelized with
+    // TIDx. Warp specialization ensures that TIDx is padded to a multiple of
+    // warp size.
+    auto is_static_warp_reduction = [](TensorView* out,
+                                       bool has_warp_specialization) {
+      if (!has_warp_specialization) {
+        return false;
+      }
+
+      int reduction_count = 0;
+      bool has_valid_tidx_reduction = false;
+      for (auto ld : out->getLoopDomain()) {
+        if (ld->isReduction()) {
+          reduction_count++;
+          if (ld->getParallelType() == ParallelType::TIDx) {
+            has_valid_tidx_reduction = true;
+          }
+        }
+      }
+
+      return reduction_count == 1 && has_valid_tidx_reduction;
+    };
+    bool is_cluster_reduction = out->domain()->hasClusterReduction();
     if (out->getMemoryType() == MemoryType::Local &&
-        out->domain()->hasGridReduction()) {
+        (is_static_warp_reduction(out, has_warp_specialization_) ||
+         out->domain()->hasGridReduction() || is_cluster_reduction ||
+         std::any_of(
+             out->getLoopDomain().begin(),
+             out->getLoopDomain().end(),
+             [](IterDomain* id) {
+               return id->getParallelType() == ParallelType::Group;
+             }))) {
       reduction_dep_[out].insert(rop);
     }
-  }
 
+    if (is_cluster_reduction) {
+      cluster_reduction_count_++;
+    }
+  }
   void handle(WelfordOp* wop) final {
     // If it's a grid welford, keep track of tensors that depend on
     // this reduction.
@@ -181,14 +228,16 @@ class FusionInspector : private IterVisitor {
     return parallel_reduction_axes;
   }
 
-  // Requires reduction parallel dimensions to exactly match parallel broadcast
-  // dimensions
+  // Requires reduction parallel dimensions to exactly match parallel
+  // broadcast dimensions
   bool isBroadcastFuseable(
       TensorView* broadcast_out,
       const ParallelTypeBitmap& parallel_reduction_axes) {
     const auto broadcast_parallel_types =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(
-            broadcast_out);
+        GpuLower::current()
+            ->info()
+            .threadPredicateMap()
+            .getParallelBroadcastDomains(broadcast_out);
 
     // If no parallel broadcast, nothing to fuse
     if (broadcast_parallel_types.none()) {
@@ -221,15 +270,21 @@ class FusionInspector : private IterVisitor {
   //! Keep track of ReductionOp/WelfordOp expressions that are
   //! (indirectly) input to a tensor
   std::unordered_map<TensorView*, std::unordered_set<Expr*>> reduction_dep_;
+  //! Whether this fusion has warp specialization enabled
+  const bool has_warp_specialization_;
+  //! Track number of cluster reductions, used for mbarrier allocation
+  //! as for each cluster reduction, we need to allocate a mbarrier
+  int64_t cluster_reduction_count_ = 0;
 };
 
 //! Transform a fusion to use the fused reduction kernel.
 class FusionTransformer {
  public:
-  static void run(
+  static FusedReductionInfo run(
       Fusion* fusion,
       const std::vector<FusedReductionBroadcastInfo>& fusion_list) {
     FusionTransformer transformer(fusion, fusion_list);
+    return transformer.info_;
   }
 
  private:
@@ -244,18 +299,13 @@ class FusionTransformer {
     for (const auto& info : fusion_list_) {
       transform(info);
     }
-    // If the thread predicate map is modified, rebuild the
-    // map. build() only updates mappings that need to be updated.
-    if (thread_pred_map_modified_) {
-      GpuLower::current()->threadPredMap().build(fusion_);
-    }
   }
 
   void transform(const FusedReductionBroadcastInfo& info) {
     NVF_ERROR(
         info.reductions().size() == 1, "Horizontal fusion not supported yet");
 
-    for (const auto i : c10::irange(info.reductions().size())) {
+    for (const auto i : arange(info.reductions().size())) {
       const auto expr = info.reductions().at(i);
       const auto with_broadcast = info.withBroadcast().at(i);
       Expr* fused_expr = nullptr;
@@ -324,9 +374,7 @@ class FusionTransformer {
              ir_utils::filterByType<TensorView>(fused_expr->outputs())) {
           for (auto id : reduction_out->getLoopDomain()) {
             if (id->isReduction()) {
-              GpuLower::current()->fusedReductionInfo().markAsAllreduce(id);
-              GpuLower::current()->threadPredMap().markAsUpdated(reduction_out);
-              thread_pred_map_modified_ = true;
+              info_.markAsAllreduce(id);
             }
           }
         }
@@ -337,14 +385,14 @@ class FusionTransformer {
  private:
   Fusion* fusion_ = nullptr;
   const std::vector<FusedReductionBroadcastInfo>& fusion_list_;
-  bool thread_pred_map_modified_ = false;
+  FusedReductionInfo info_;
 };
 
 } // namespace
 
-void fuseReductionsAndBroadcasts(Fusion* fusion) {
+FusedReductionInfo fuseReductionsAndBroadcasts(Fusion* fusion) {
   auto fusion_list = FusionInspector::run(fusion);
-  FusionTransformer::run(fusion, fusion_list);
+  return FusionTransformer::run(fusion, fusion_list);
 }
 
 void FusedReductionInfo::markAsAllreduce(IterDomain* id) {

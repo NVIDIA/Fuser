@@ -6,13 +6,14 @@
  */
 // clang-format on
 
-#include <fusion.h>
-#include <ir/base_nodes.h>
-#include <ir/internal_nodes.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/debug_utils.h>
+#include "scheduler/cache_policy_refiner.h"
+
+#include "fusion.h"
+#include "ir/base_nodes.h"
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "scheduler/debug_utils.h"
 
 namespace nvfuser {
 
@@ -53,7 +54,7 @@ bool isLoadGlobalToLocal(const Expr* expr) {
   if (!expr->isA<LoadStoreOp>()) {
     return false;
   }
-  const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+  const auto* ldst = expr->as<LoadStoreOp>();
 
   if (ldst->opType() != LoadStoreOpType::Set) {
     return false;
@@ -93,7 +94,7 @@ const Expr* findExpand(const LoadStoreOp* ldst) {
       if (!def_out->isA<TensorView>()) {
         continue;
       }
-      const TensorView* def_out_tv = def_out->as<TensorView>();
+      const auto* def_out_tv = def_out->as<TensorView>();
 
       for (const Expr* use : def_out->uses()) {
         if (use->isA<ExpandOp>()) {

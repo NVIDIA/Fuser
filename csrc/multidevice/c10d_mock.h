@@ -5,6 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
+// This file provides a mock implementation of c10d that builds but doesn't
+// function.
+//
+// nvFuser is sometimes built on a pytorch without c10d. When that
+// happens, c10d isn't linked, NVFUSER_DISTRIBUTED is undefined and the
+// multi-GPU component of nvFuser is expected to be disabled.
+//
+// Instead of adding `#ifdef NVFUSER_DISTRIBUTED` in too many places, this file
+// provides a buildable mock implementation of c10d to keep nvFuser code less
+// divergent. This implementation won't run because tests and user code are
+// guarded by Communicator::is_available.
+
 #pragma once
 
 #include <ATen/core/TensorBody.h>
@@ -69,6 +82,8 @@ struct ReduceOptions {
 struct BarrierOptions {
   std::vector<int64_t> device_ids;
 };
+
+struct AllToAllOptions {};
 
 class Backend : public torch::CustomClassHolder {
  public:
@@ -161,6 +176,15 @@ class Backend : public torch::CustomClassHolder {
     return c10::make_intrusive<Work>();
   }
 
+  c10::intrusive_ptr<Work> alltoall_base(
+      at::Tensor& outputTensor,
+      at::Tensor& inputTensor,
+      std::vector<int64_t>& outputSplitSizes,
+      std::vector<int64_t>& inputSplitSizes,
+      const AllToAllOptions& opts = AllToAllOptions()) {
+    return c10::make_intrusive<Work>();
+  }
+
   int getSize() const {
     return 0;
   }
@@ -170,6 +194,21 @@ struct TCPStoreOptions {
   static constexpr uint16_t kDefaultPort = 0;
 };
 
-class TCPStore : public torch::CustomClassHolder {};
+class TCPStore : public torch::CustomClassHolder {
+ public:
+  std::vector<uint8_t> get(const std::string&) {
+    return {};
+  }
+
+  void set(const std::string&, const std::vector<uint8_t>&) {}
+
+  bool check(const std::vector<std::string>&) {
+    return false;
+  }
+
+  bool deleteKey(const std::string&) {
+    return false;
+  }
+};
 
 } // namespace c10d

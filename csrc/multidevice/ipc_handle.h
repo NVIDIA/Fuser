@@ -1,0 +1,460 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#pragma once
+
+#include <cstdint>
+
+#include <ATen/core/TensorBody.h>
+#include <cuda.h>
+#include <cuda_runtime.h>
+
+#include "expr_evaluator.h"
+#include "host_ir/ir.h"
+#include "multidevice/symmetric_tensor.h"
+#include "multidevice/utils.h"
+
+namespace nvfuser {
+
+namespace hir {
+class SymmetricContiguousView;
+} // namespace hir
+
+// Semaphore values for P2P communication synchronization. Values are stored in
+// int tensors and cast to cuuint32_t for stream ops; keep 4-byte backing.
+// NOLINTNEXTLINE(performance-enum-size)
+enum class IpcSemaphore : cuuint32_t { kIdle, kInProgress };
+
+// Basic IPC handle for legacy P2P communication using cudaIpc* APIs
+// This class is kept for backward compatibility with non-VMM setups
+// TODO: Remove this class in the future and use SymmetricTensor instead
+class IpcHandle {
+ public:
+  NVF_API IpcHandle(at::Tensor tensor);
+  NVF_API ~IpcHandle();
+
+  // Constructor for importing a remote IPC handle
+  NVF_API IpcHandle(std::vector<uint8_t> data);
+
+  void* ptr() const {
+    return ptr_;
+  }
+
+  auto semaphore() const {
+    return semaphore_;
+  }
+
+ private:
+  void* ptr_;
+  // cudaIpcMemHandle always points to base address of the allocated buffer
+  // Therefore we need to store the offset separately
+  void* base_address_ = nullptr;
+  int64_t offset_from_base_address_ = 0;
+  cudaIpcMemHandle_t ipc_handle_ = {};
+  cudaIpcMemHandle_t semaphore_ipc_handle_ = {};
+  IpcSemaphore* semaphore_ = nullptr;
+  int64_t rank_;
+  // Keep a reference to prevent buffer from being freed
+  at::Tensor tensor_;
+};
+
+// Wraps two IpcHandles involved in a P2P communication
+class P2pIpcHandle {
+ public:
+  P2pIpcHandle(
+      std::unique_ptr<IpcHandle> local,
+      std::unique_ptr<IpcHandle> peer)
+      : local_(std::move(local)), peer_(std::move(peer)) {}
+
+  const auto& local() const {
+    return *local_;
+  }
+
+  const auto& peer() const {
+    return *peer_;
+  }
+
+ private:
+  std::unique_ptr<IpcHandle> local_;
+  std::unique_ptr<IpcHandle> peer_;
+};
+
+// Helper structs for tensor hashing and equality
+struct TensorHash {
+  std::size_t operator()(const at::Tensor& tensor) const {
+    auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
+    auto offset = tensor.storage_offset();
+    auto element_size = tensor.element_size();
+    auto numel = tensor.numel();
+    return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
+        std::hash<int64_t>()(element_size) ^ std::hash<int64_t>()(numel);
+  }
+};
+
+struct TensorEqual {
+  bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
+    return lhs.equal(rhs);
+  }
+};
+
+// Manages and caches IpcHandles for P2P communications
+// Caching is based on (peer, tensor) runtime values and P2PCommunication*
+// pointer
+class IpcHandleCache {
+ public:
+  explicit IpcHandleCache(const ExpressionEvaluator* expr_evaluator)
+      : expr_evaluator_(expr_evaluator) {}
+  ~IpcHandleCache() = default;
+
+  // Create IpcHandles, import and export them, and populate the cache
+  // Must be called before calling get(). Handles are exchanged in batch
+  // to improve performance and avoid deadlocks when import/export orders differ
+  void exchangeHandles(const std::vector<P2PCommunication*>& communications);
+
+  // Retrieves a cached item (throws if not present)
+  const P2pIpcHandle& get(P2PCommunication* communication) const {
+    auto it = find(communication);
+    NVF_ERROR(
+        it != nullptr,
+        "No remote buffer found for ",
+        communication->toString());
+    return *it;
+  }
+
+ private:
+  struct KeyType {
+    int64_t peer;
+    at::Tensor buffer;
+    P2PCommunication* comm;
+
+    bool operator==(const KeyType& other) const {
+      return peer == other.peer && TensorEqual{}(buffer, other.buffer) &&
+          comm == other.comm;
+    }
+
+    struct Hash {
+      std::size_t operator()(const KeyType& key) const {
+        return (std::hash<int64_t>()(key.peer)) ^ (TensorHash{}(key.buffer)) ^
+            (std::hash<P2PCommunication*>()(key.comm));
+      }
+    };
+  };
+
+  void insert(P2PCommunication* comm, std::unique_ptr<P2pIpcHandle> handle) {
+    handles_[getKey(comm)] = std::move(handle);
+  }
+
+  P2pIpcHandle* find(P2PCommunication* comm) const {
+    auto it = handles_.find(getKey(comm));
+    if (it == handles_.end()) {
+      return nullptr;
+    }
+    return it->second.get();
+  }
+
+  KeyType getKey(P2PCommunication* comm) const {
+    auto peer = expr_evaluator_->evaluate(comm->peer()).as<int64_t>();
+    auto buffer = expr_evaluator_->evaluate(comm->buffer()).as<at::Tensor>();
+    return KeyType{.peer = peer, .buffer = buffer, .comm = comm};
+  }
+
+  std::string getTcpStoreKey(P2PCommunication* communication, int64_t rank)
+      const;
+
+  const ExpressionEvaluator* expr_evaluator_;
+  std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyType::Hash>
+      handles_;
+};
+
+// Base class for symmetric memory handles used in collective communications
+// Backed by a SymmetricTensor object
+// Symmetric memory handles enable efficient multi-device operations using
+// CUDA VMM and NVLS multicast primitives
+class SymmetricMemoryHandle {
+ public:
+  virtual ~SymmetricMemoryHandle() = default;
+};
+
+// SymmetricMemoryHandle for broadcast operations using NVLS multicast
+// Provides efficient one-to-many communication with hardware acceleration
+class SymMemForBroadcast : public SymmetricMemoryHandle {
+ public:
+  SymMemForBroadcast(
+      Communication* communication,
+      int64_t root,
+      at::Tensor buffer);
+
+  // Constructor for creating multiple broadcasts (e.g., for allgather)
+  SymMemForBroadcast(
+      at::Tensor buffer,
+      int64_t root,
+      const std::string& name_suffix);
+
+  ~SymMemForBroadcast() override = default;
+
+  void* bufferMulticastPtr() const;
+
+  void* bufferUnicastPtr(int64_t rank) const;
+
+  void* semaphoreMulticastPtr() const;
+
+  void* semaphoreUnicastPtr(int64_t rank) const;
+
+ private:
+  // Buffer symmetric tensor with multicast support
+  std::unique_ptr<SymmetricTensor> buffer_sym_tensor_;
+  // Semaphore symmetric tensor with multicast support
+  std::unique_ptr<SymmetricTensor> semaphore_sym_tensor_;
+};
+
+// SymmetricMemoryHandle for allreduce using NVLink SHARP (multimem ld_reduce).
+// All ranks bind their input to the multicast object; ld_reduce from the
+// multicast VA returns the reduction across ranks.
+class SymmetricMemoryForAllreduce : public SymmetricMemoryHandle {
+ public:
+  SymmetricMemoryForAllreduce(
+      Communication* communication,
+      at::Tensor output_buffer);
+
+  ~SymmetricMemoryForAllreduce() override = default;
+
+  // Local buffer for this rank's input (copy input here before reduce)
+  at::Tensor inputBuffer() const;
+
+  // Multicast VA for ld_reduce kernel (same on all ranks)
+  void* multicastPtr() const;
+
+  // Per-rank semaphore slots (same layout as SymMemForAllgather)
+  void* semaphoreUnicastPtr(int64_t root_rank, int64_t rank) const;
+
+  size_t sizeBytes() const {
+    return size_bytes_;
+  }
+
+ private:
+  size_t size_bytes_ = 0;
+  std::unique_ptr<SymmetricTensor> input_sym_tensor_;
+  std::unique_ptr<SymmetricTensor> semaphores_sym_tensor_;
+};
+
+// SymmetricMemoryHandle for reduce (root receives result) using NVLink SHARP
+// (multimem ld_reduce). Same setup as Allreduce but used for Reduce collective.
+// root is the rank that exports the multicast handle (same as reduce root).
+class SymmetricMemoryForReduce : public SymmetricMemoryHandle {
+ public:
+  SymmetricMemoryForReduce(
+      Communication* communication,
+      int64_t root,
+      at::Tensor output_buffer);
+
+  ~SymmetricMemoryForReduce() override = default;
+
+  at::Tensor inputBuffer() const;
+  void* multicastPtr() const;
+
+  void* semaphoreUnicastPtr(int64_t rank) const;
+
+  size_t sizeBytes() const {
+    return size_bytes_;
+  }
+
+ private:
+  size_t size_bytes_ = 0;
+  std::unique_ptr<SymmetricTensor> input_sym_tensor_;
+  std::unique_ptr<SymmetricTensor> semaphore_sym_tensor_;
+};
+
+// SymmetricMemoryHandle for allgather operations using NVLS multicast
+// Allgather is implemented as world_size broadcasts, each rank acting as root
+// once
+class SymMemForAllgather : public SymmetricMemoryHandle {
+ public:
+  SymMemForAllgather(Communication* communication, at::Tensor buffer);
+
+  ~SymMemForAllgather() override = default;
+
+  // Accessors for a specific root rank's handles
+  void* bufferMulticastPtr(int64_t root_rank) const;
+
+  void* bufferUnicastPtr(int64_t root_rank, int64_t rank) const;
+
+  void* semaphoreMulticastPtr(int64_t root_rank) const;
+
+  void* semaphoreUnicastPtr(int64_t root_rank, int64_t rank) const;
+
+ private:
+  int64_t slice_size_bytes_ = 0;
+  std::unique_ptr<SymmetricTensor> full_buffer_sym_tensor_;
+  std::unique_ptr<SymmetricTensor> semaphores_sym_tensor_;
+};
+
+// SymmetricMemoryHandle for SymmetricContiguousView
+// Creates a contiguous view across all ranks from a sharded symmetric tensor
+class SymMemForContiguousView : public SymmetricMemoryHandle {
+ public:
+  SymMemForContiguousView(
+      at::Tensor buffer,
+      hir::SymmetricContiguousView* expr);
+
+  ~SymMemForContiguousView() override = default;
+
+  // Returns the local contiguous view on the sharded tensor
+  at::Tensor tensor() const {
+    return tensor_;
+  }
+
+ private:
+  std::unique_ptr<SymmetricTensor> sym_tensor_;
+  at::Tensor tensor_;
+};
+
+// Combined symmetric memory state for alltoallv: holds both the sync
+// state (counts exchange + completion semaphores) and any number of
+// named recv buffers with their cached remote P2P pointers.
+//
+// One instance per alltoallv context (e.g. "moe_dispatch", "moe_combine").
+// The first call triggers a rendezvous (SymmetricTensor allocation +
+// setupRemoteHandles); steady-state calls are pure cache hits.
+class SymMemForAlltoallv : public SymmetricMemoryHandle {
+ public:
+  SymMemForAlltoallv(at::Device device, const std::string& tag);
+
+  ~SymMemForAlltoallv() override = default;
+
+  // Counts buffer: [W] int64 per rank — holds send_counts for the
+  // alltoallv metadata exchange (one int64 per peer).
+  const at::Tensor& syncBuffer() const {
+    return sync_buf_;
+  }
+  CUdeviceptr syncRemotePtr(int64_t rank) const {
+    return sync_ptrs_[rank];
+  }
+
+  // Semaphore buffer: [2*W] int32 per rank — holds per-pair semaphores
+  // for the counts exchange and completion barrier.
+  //   [0 .. W-1]   counts_sem[peer]
+  //   [W .. 2W-1]  done_sem[peer]
+  //
+  // Per-pair protocol matching the allgather pattern in cuda_p2p.cpp.
+  // Each slot is written by exactly one rank per phase (signal by the
+  // peer, reset by the owner). Uses 32-bit stream memory operations
+  // (CU_STREAM_MEM_OP_{WRITE,WAIT}_VALUE_32). Graph-capturable and
+  // correct for any number of ranks and unlimited replays.
+
+  int64_t worldSize() const {
+    return world_size_;
+  }
+  int64_t myRank() const {
+    return my_rank_;
+  }
+
+  // Counts exchange (split: caller reads data between wait and reset).
+  void signalCountsReady(CUstream stream);
+  void waitCountsReady(CUstream stream);
+  void resetCountsSem(CUstream stream);
+
+  // Completion barrier (signal + wait + reset in one call).
+  void doneBarrier(CUstream stream);
+
+  // --- Named recv buffers ---
+  struct RecvHandle {
+    at::Tensor buffer;
+    at::Tensor remote_ptrs; // CUDA [W] int64
+  };
+
+  //! Get or create a named recv buffer. If the cached buffer's first
+  //! dimension is already >= first_dim, returns the existing one.
+  //! Otherwise allocates + setupRemoteHandles (rendezvous).
+  const RecvHandle& recv(
+      const std::string& name,
+      int64_t first_dim,
+      at::IntArrayRef extra_sizes,
+      at::ScalarType dtype,
+      at::Device device);
+
+ private:
+  CUdeviceptr countsSemAddr(int64_t rank, int64_t slot) const {
+    return sem_ptrs_[rank] + slot * sizeof(int32_t);
+  }
+  CUdeviceptr doneSemAddr(int64_t rank, int64_t slot) const {
+    return sem_ptrs_[rank] + (world_size_ + slot) * sizeof(int32_t);
+  }
+
+  void batchSignal(
+      CUstream stream,
+      cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+  void batchWait(
+      CUstream stream,
+      cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+  void batchReset(
+      CUstream stream,
+      cuuint32_t value,
+      CUdeviceptr (SymMemForAlltoallv::*addr)(int64_t, int64_t) const);
+
+  // Counts (int64 [W])
+  at::Tensor sync_buf_;
+  std::unique_ptr<SymmetricTensor> sync_sym_;
+  std::vector<CUdeviceptr> sync_ptrs_;
+
+  // Semaphores (int32 [2*W])
+  at::Tensor sem_buf_;
+  std::unique_ptr<SymmetricTensor> sem_sym_;
+  std::vector<CUdeviceptr> sem_ptrs_;
+
+  int64_t world_size_;
+  int64_t my_rank_;
+  std::string tag_;
+
+  // Recv buffers
+  struct RecvEntry {
+    std::unique_ptr<SymmetricTensor> sym;
+    RecvHandle handle;
+    int64_t cached_first_dim = 0;
+  };
+  std::unordered_map<std::string, RecvEntry> recv_entries_;
+};
+
+// Cache for symmetric memory handles keyed by (buffer tensor, expr)
+// Avoids recreating expensive VMM mappings and multicast handles
+class SymmetricMemoryHandleCache {
+ public:
+  SymmetricMemoryHandleCache() = default;
+  ~SymmetricMemoryHandleCache() = default;
+
+  struct KeyType {
+    at::Tensor buffer;
+    Expr* expr;
+    int64_t root;
+
+    bool operator==(const KeyType& other) const {
+      return TensorEqual{}(buffer, other.buffer) && expr == other.expr &&
+          root == other.root;
+    }
+
+    struct Hash {
+      std::size_t operator()(const KeyType& key) const {
+        return (TensorHash{}(key.buffer)) ^ (std::hash<Expr*>()(key.expr)) ^
+            (std::hash<int64_t>()(key.root));
+      }
+    };
+  };
+
+  // Get or create a symmetric memory handle for the given key
+  // Creates the handle on first access and caches it for future use
+  SymmetricMemoryHandle* get(KeyType key);
+
+ private:
+  std::unordered_map<
+      KeyType,
+      std::unique_ptr<SymmetricMemoryHandle>,
+      KeyType::Hash>
+      handles_;
+};
+
+} // namespace nvfuser

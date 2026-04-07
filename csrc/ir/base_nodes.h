@@ -7,22 +7,20 @@
 // clang-format on
 #pragma once
 
-#include <c10/core/ScalarType.h>
-#include <exceptions.h>
-
-#include <ir/builder_passkey.h>
-#include <polymorphic_value.h>
-#include <type.h>
-#include <utils.h>
-#include <visibility.h>
-
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <limits>
-#include <memory>
-#include <stdexcept>
 #include <unordered_map>
 #include <vector>
+
+#include <c10/core/ScalarType.h>
+
+#include "base.h"
+#include "exceptions.h"
+#include "ir/builder_passkey.h"
+#include "polymorphic_value.h"
+#include "type.h"
+#include "visibility.h"
 
 // TODO: Add more types (int32, int64)
 // TODO: sameAs should have better logic to check against any type and return
@@ -94,8 +92,7 @@ class ExprPasskey {
 //! Basically beinng able to succienctly traverse down the inhereitance stack of
 //! a Statment at runtime. This is currently implemented in dispatch.h
 class NVF_API Statement : public NonCopyable, public PolymorphicBase {
-  friend void swap(Fusion&, Fusion&) noexcept;
-  friend void swap(IrContainer& a, IrContainer& b) noexcept;
+  friend class Fusion;
 
  public:
   Statement() = delete;
@@ -115,9 +112,6 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
 
   // Accessor functions to types. Vals always have a DataType, Exprs never do
   virtual std::optional<ValType> getValType() const {
-    return std::nullopt;
-  }
-  virtual std::optional<DataType> getDataType() const {
     return std::nullopt;
   }
 
@@ -142,7 +136,7 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   kir::Kernel* kernel() const;
 
   // Return the container this statement belongs to
-  IrContainer* container() const {
+  Fusion* container() const {
     return ir_container_;
   }
 
@@ -176,6 +170,8 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
 
   virtual Statement* clone(IrCloner* ir_cloner) const;
 
+  virtual size_t hash() const;
+
  protected:
   Statement(IrBuilderPasskey);
 
@@ -183,7 +179,7 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   StmtNameType name_ = kInvalidStmName;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
-  IrContainer* ir_container_ = nullptr;
+  Fusion* ir_container_ = nullptr;
 };
 
 inline std::string toString(Statement* stmt) {
@@ -216,7 +212,6 @@ inline std::string toString(Statement* stmt) {
 //!        Scalar::Scalar(const Val* src, IrCloner* ir_cloner)
 //! 2) dispatch.h/.cpp must be updated to include dispatch of the new Val
 //! 3) Default mutator function should be added to mutator.cpp
-//! 4a) Printing functions should be added to ir/iostream.h/.cpp
 //! 4b) Graphviz generation must be added to ir/graphviz.h/.cpp
 //! 5) An enum value must be added to ValType in type.h
 //! 6) A string entry must be added in val_type_string_map
@@ -241,6 +236,11 @@ class NVF_API Val : public Statement {
           " for value ",
           PolymorphicValue_functions::toString(value_));
     }
+    NVF_ERROR(
+        !isPackedType(dtype_),
+        "Packed type ",
+        dtype_,
+        " must be unpacked when defining fusion");
   }
   explicit Val(IrBuilderPasskey passkey, DataType dtype)
       : Val(passkey, ValType::Others, std::move(dtype)) {}
@@ -265,6 +265,8 @@ class NVF_API Val : public Statement {
         vtype_(src->vtype_),
         dtype_(src->dtype_),
         value_(src->value_) {}
+
+  size_t hash() const final;
 
   std::string toString(int indent_size = 0) const override;
 
@@ -304,8 +306,9 @@ class NVF_API Val : public Statement {
     return !value_.hasValue();
   }
 
-  // Throws if no DataType is found. Vals must have a DataType
-  std::optional<DataType> getDataType() const override;
+  // Returns this Val's data type. Unlike `dtype()`, it throws if dtype is Null
+  // (ill-formed Val).
+  DataType getDataType() const;
 
   bool isScalar() const {
     return vtype_ == ValType::Others || vtype_ == ValType::NamedScalar;
@@ -355,6 +358,11 @@ class NVF_API Val : public Statement {
     return definition_;
   }
 
+  // Add given dependency as an input to this Val's definition. It is for
+  // inserting schedule operations like programmatic dependent launch into a
+  // math-only fusion definition.
+  void addDependency(Val* dependency);
+
   // Determine if value definition matches given expression type
   template <typename T>
   inline bool isDefinitionType() const;
@@ -378,6 +386,12 @@ class NVF_API Val : public Statement {
         getDataType() == other->as<Val>()->getDataType();
   }
 
+  // sameDefinition determines if a two values will create the same fusion
+  // definition.
+  virtual bool sameDefinition(const Val* other_val) const;
+
+  // sameAs determines if a Statement generates the exact same outputs as this
+  // Val.
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
@@ -430,6 +444,11 @@ class NVF_API Val : public Statement {
   bool removeUse(Expr*);
 
  private:
+  // The maybeSameVal helper function checks if the other Val has the same
+  // definition, ValType, and DType. If it returns false, then other_val cannot
+  // match with this val.
+  bool maybeSameVal(const Val* other_val) const;
+
   // There's only one instance where dtype can change, and that's through
   // resolving the index data type from nvfuser to either Int or Int32 for
   // welford operations.
@@ -453,7 +472,7 @@ class NVF_API Val : public Statement {
 };
 
 using newObjectFuncType = Expr*(
-    IrContainer*,
+    Fusion*,
     std::vector<Val*>,
     std::vector<Val*>,
     std::vector<Statement*>);
@@ -491,7 +510,6 @@ using newObjectFuncType = Expr*(
 //!      - Implementation of bool sameAs(...)
 //!  2) dispatch.h/.cpp must be updated to include dispatch of the new Expr
 //!  3) Default mutator function should be added to mutator.h/.cpp
-//!  4) Printing functions should be added to ir/iostream.h/.cpp
 //!  5) Lower case convenience functions should be added to arith.h/.cpp (If
 //!     user facing)
 //!  7) A string entry must be added in expr_type_string_map
@@ -515,11 +533,22 @@ class NVF_API Expr : public Statement {
   // Note that unlike IrCloner, this function only do a shallow copy
   Expr* shallowCopy() const;
 
+  size_t hash() const final;
+
   // Check that if this and other are the same operator. This main difference
   // from sameAs is that sameOp does not check the inputs.
   virtual bool sameOp(const Expr* other) const;
 
+  // Check that if this and other have same definition. This main difference
+  // from sameAs is that sameDefinition checks the inputs with sameDefinition
+  // instead of sameAs.
+  virtual bool sameDefinition(const Expr* other) const;
+
   bool sameAs(const Statement* other) const override;
+
+  virtual bool isDeterministic() const {
+    return true;
+  }
 
   virtual std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
@@ -555,6 +584,13 @@ class NVF_API Expr : public Statement {
 
   auto output(size_t index) const {
     return outputs_.at(index);
+  }
+
+  // TODO: Add Fusion passkey
+  // Allow scheduling to modify inputs
+  void addInput(Val* input) {
+    NVF_ERROR(input != nullptr);
+    inputs_.push_back(input);
   }
 
   auto attribute(size_t index) const {
@@ -609,12 +645,7 @@ class NVF_API Expr : public Statement {
   void setWritePredicate(kir::Predicate* write_predicate);
 
   // TODO: Add Fusion passkey
-  void addInput(Val* input) {
-    NVF_ERROR(input != nullptr);
-    inputs_.push_back(input);
-  }
-
-  // TODO: Add Fusion passkey
+  // Allow scheduling to modify outputs
   void addOutput(Val* output) {
     NVF_ERROR(output != nullptr);
     outputs_.push_back(output);
@@ -664,7 +695,7 @@ bool Val::isDefinitionType() const {
 #define NVFUSER_DECLARE_CLONE_AND_CREATE                        \
   virtual Statement* clone(IrCloner* ir_cloner) const override; \
   static Expr* newObject(                                       \
-      IrContainer* container,                                   \
+      Fusion* container,                                        \
       std::vector<Val*> inputs,                                 \
       std::vector<Val*> outputs,                                \
       std::vector<Statement*> attributes);                      \
@@ -677,12 +708,15 @@ bool Val::isDefinitionType() const {
     return IrBuilder::clone(this, ir_cloner);              \
   }                                                        \
   Expr* ClassName::newObject(                              \
-      IrContainer* container,                              \
+      Fusion* container,                                   \
       std::vector<Val*> inputs,                            \
       std::vector<Val*> outputs,                           \
       std::vector<Statement*> attributes) {                \
     return IrBuilder::createInContainer<ClassName>(        \
         container, inputs, outputs, attributes);           \
   }
+
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement& stmt);
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);
 
 } // namespace nvfuser

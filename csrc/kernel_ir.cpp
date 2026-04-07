@@ -16,14 +16,13 @@
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
+#include <kernel_ir_dispatch.h>
 #include <type.h>
 
 #include <cctype>
-#include <iostream>
 #include <regex>
 
-namespace nvfuser {
-namespace kir {
+namespace nvfuser::kir {
 
 namespace {
 
@@ -31,7 +30,321 @@ inline const char* boolLiteral(bool value) {
   return value ? "true" : "false";
 }
 
+inline const char* optionalBoolLiteral(std::optional<bool> optional_value) {
+  if (!optional_value.has_value()) {
+    return "std::nullopt";
+  }
+  return boolLiteral(optional_value.value());
+}
+
 } // namespace
+
+ForLoop::ForLoop(
+    IrBuilderPasskey passkey,
+    IterDomain* iter_domain,
+    Val* index,
+    Val* start,
+    Val* stop,
+    Val* step,
+    bool vectorize,
+    Val* vectorize_shift,
+    bool unroll_required,
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>() ||
+          passkey.ir_container_->isA<hir::HostIrContainer>(),
+      "IR type only valid for Kernel or Host container.");
+  NVF_ERROR(isIntegralType(index->dtype()));
+  addInput(index);
+  addInput(iter_domain);
+  if (start == nullptr) {
+    if (iter_domain->isThread() || iter_domain->isStream()) {
+      start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
+    }
+  }
+  if (step == nullptr) {
+    if (iter_domain->isThread()) {
+      step = NamedScalar::getParallelDim(iter_domain->getParallelType());
+    } else if (iter_domain->isStream()) {
+      // `streamIdx` is a fixed kernel input (like `threadIdx`) that doesn't
+      // vary during execution of the kernel. Therefore, we emit a "trivial"
+      // for-loop of the form:
+      // ```
+      // for (nvfuser_index_t i0 = streamIdx; i0 < n_streams; i0 += n_streams)
+      // ```
+      step = iter_domain->extent();
+    } else {
+      step = FusionGuard::getCurFusion()->oneVal();
+    }
+  }
+  NVF_ERROR(
+      index->dtype() == DataType::Index, "Loop index must be an index type.");
+  NVF_ERROR(
+      start == nullptr || start->dtype() == DataType::Index,
+      "Loop start must be an index type.");
+  NVF_ERROR(
+      step->dtype() == DataType::Index, "Loop step must be an index type.");
+  NVF_ERROR(
+      stop == nullptr || stop->dtype() == DataType::Index,
+      "Loop stop must be an index type.");
+  addAttribute(start);
+  addAttribute(stop);
+  addAttribute(step);
+  addDataAttribute(vectorize);
+  addAttribute(vectorize_shift);
+  addDataAttribute(unroll_required);
+  addDataAttribute(circular_buffer_loop_stage);
+  addDataAttribute(circular_buffer_loop_stage_depth);
+  addDataAttribute(Scope(this));
+}
+
+ForLoop::ForLoop(
+    IrBuilderPasskey passkey,
+    IterDomain* iter_domain,
+    Val* index,
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
+    : ForLoop(
+          passkey,
+          iter_domain,
+          index,
+          nullptr,
+          nullptr,
+          nullptr,
+          !iter_domain->isBroadcast() &&
+              isParallelTypeVectorize(iter_domain->getParallelType()),
+          nullptr,
+          false,
+          circular_buffer_loop_stage,
+          circular_buffer_loop_stage_depth) {}
+
+ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
+    : ForLoop(
+          passkey,
+          iter_domain,
+          GpuLower::current()->getLoopIndexVariable(iter_domain),
+          CircularBufferLoopStage::NotApplicable,
+          0) {}
+
+ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
+    : ForLoop(
+          passkey,
+          other->iter_domain(),
+          other->index(),
+          other->start(),
+          other->stop(),
+          other->step(),
+          other->vectorize(),
+          other->vectorize_shift(),
+          other->isUnrollRequired(),
+          other->circularBufferLoopStage(),
+          other->circularBufferLoopStageDepth()) {}
+
+std::string ForLoop::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "FOR " << index()->toString() << " in "
+                          << iter_domain()->toString() << ":\n"
+                          << body().toString(indent_size + 1);
+  return ss.str();
+}
+
+std::string ForLoop::toInlineString(int /*indent_size*/) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+bool ForLoop::isUnrollable() const {
+  return start()->isConstScalar() && stop()->isConstScalar() &&
+      !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
+      !iter_domain()->isStream() && !iter_domain()->isBroadcast() &&
+      !vectorize();
+}
+
+bool ForLoop::isUnrolled() const {
+  if (isUnrollRequired() && !isUnrollable()) {
+    if (!isTrivial()) {
+      TORCH_WARN(
+          "Unroll required but not possible. Register allocation disabled.\n"
+          "Loop index: ",
+          index()->toString(),
+          "\nLoop:\n",
+          toString());
+    }
+    return false;
+  }
+
+  if (start()->isZeroInt() && stop()->isOneInt()) {
+    return false;
+  }
+
+  if (isUnrollRequired()) {
+    return true;
+  }
+
+  if (!isUnrollable()) {
+    return false;
+  }
+
+  if (iter_domain()->getParallelType() == ParallelType::Unswitch) {
+    return false;
+  }
+
+  if (hasRuntimeReductionFunctions()) {
+    return false;
+  }
+
+  return true;
+}
+
+Val* ForLoop::start() const {
+  if (attributeVal(0) != nullptr) {
+    return attributeVal(0);
+  } else {
+    NVF_ERROR(iter_domain() != nullptr);
+    return iter_domain()->start();
+  }
+}
+
+Val* ForLoop::stop() const {
+  if (attributeVal(1) != nullptr) {
+    return attributeVal(1);
+  } else {
+    NVF_ERROR(iter_domain() != nullptr);
+    return iter_domain()->extent();
+  }
+}
+
+Val* ForLoop::step() const {
+  NVF_ERROR(attributeVal(2) != nullptr);
+  return attributeVal(2);
+}
+
+Val* ForLoop::simplifiedStop() const {
+  if (simplified_stop_ == nullptr) {
+    simplified_stop_ = GpuLower::hasCurrent()
+        ? GpuLower::current()->commonScalarMap().hoistScalar(stop(), {})
+        : stop();
+  }
+  return simplified_stop_;
+}
+
+bool ForLoop::isTrivial() const {
+  if (vectorize() || iter_domain()->isBroadcast() ||
+      iter_domain()->isStride() || iter_domain()->isMma() ||
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim() ||
+      iter_domain()->isStream() || isGroup()) {
+    return true;
+  }
+
+  if (index()->isConstScalar() || index()->definition() != nullptr) {
+    return true;
+  }
+
+  if (stop() == iter_domain()->extent() && iter_domain()->isThread()) {
+    return true;
+  }
+
+  if (start()->isZeroInt() && simplifiedStop()->isOneInt() &&
+      step()->isOneInt()) {
+    return true;
+  }
+
+  if (start()->definition() != nullptr &&
+      start()->definition()->isA<BinaryOp>() &&
+      start()->definition()->as<BinaryOp>()->getBinaryOpType() ==
+          BinaryOpType::Sub &&
+      start()->definition()->as<BinaryOp>()->lhs() == stop() &&
+      start()->definition()->as<BinaryOp>()->rhs()->isOneInt()) {
+    return true;
+  }
+
+  if (start()->isConstScalar() && simplifiedStop()->isConstScalar() &&
+      start()->evaluate().as<int64_t>() + 1 ==
+          simplifiedStop()->evaluate().as<int64_t>() &&
+      step()->isOneInt()) {
+    return true;
+  }
+
+  return false;
+}
+
+namespace {
+
+class ExprFinder : kir::ConstIrVisitor {
+ public:
+  static bool exists(
+      const Expr* expr,
+      const std::unordered_set<std::type_index>& expr_types) {
+    ExprFinder finder(expr_types);
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  ExprFinder(const std::unordered_set<std::type_index>& expr_types)
+      : expr_types_(expr_types) {}
+
+  using kir::ConstIrVisitor::handle;
+
+  void dispatch(const Expr* expr) final {
+    if (expr_types_.find(typeid(*expr)) != expr_types_.end()) {
+      is_found_ = true;
+      return;
+    }
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  const std::unordered_set<std::type_index>&
+      expr_types_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  bool is_found_ = false;
+};
+
+} // namespace
+
+bool ForLoop::isGroup() const {
+  return iter_domain()->getParallelType() == ParallelType::Group;
+}
+
+namespace {
+
+class RuntimeReductionFinder : kir::ConstIrVisitor {
+ public:
+  static bool exists(const Expr* expr) {
+    NVF_CHECK(expr->container()->isA<kir::Kernel>());
+    RuntimeReductionFinder finder;
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  using kir::ConstIrVisitor::handle;
+
+  void dispatch(const Expr* expr) final {
+    if (expr->isA<ReductionOp>() || expr->isA<WelfordOp>() ||
+        expr->isA<kir::GridReduction>() ||
+        expr->isA<kir::GroupedGridReduction>() ||
+        expr->isA<kir::GridWelford>() || expr->isA<kir::GroupedGridWelford>() ||
+        expr->isA<GroupedReductionOp>()) {
+      is_found_ = true;
+      return;
+    }
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  bool is_found_ = false;
+};
+
+} // namespace
+
+bool ForLoop::hasRuntimeReductionFunctions() const {
+  return RuntimeReductionFinder::exists(this);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
 
 Predicate::Predicate(
     IrBuilderPasskey passkey,
@@ -49,6 +362,23 @@ Predicate::Predicate(
   NVF_ERROR(ptype != PredicateType::Unswitch && ptype != PredicateType::Manual);
 }
 
+Predicate::Predicate(
+    IrBuilderPasskey passkey,
+    PredicateType ptype,
+    const Expr* tma_1d_load_expr,
+    std::vector<ForLoop*> tma_1d_load_loops)
+    : Val(passkey, ValType::Predicate, DataType::Bool),
+      ptype_(ptype),
+      expr_(tma_1d_load_expr),
+      tma_1d_load_loops_(std::move(tma_1d_load_loops)) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  NVF_ERROR(ptype == PredicateType::OneDimTmaLoadExpectArrive);
+  NVF_ERROR(!tma_1d_load_loops_.empty());
+}
+
 Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Unswitch),
@@ -61,9 +391,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
 }
 
 Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
-    : Val(passkey, ValType::Predicate, DataType::Bool),
-      ptype_(PredicateType::Manual),
-      value_(value) {
+    : Val(passkey, ValType::Predicate, DataType::Bool), value_(value) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
@@ -91,14 +419,15 @@ TensorIndex::TensorIndex(
     DataType dtype)
     : Val(passkey,
           ValType::TensorIndex,
-          dtype != DataType::Null ? dtype : view->getDataType().value()),
+          dtype != DataType::Null ? dtype : view->getDataType()),
       view_(view),
       index_(index) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  auto uint16x2 = ArrayType{std::make_shared<DataType>(DataType::UInt16), 2};
+  auto uint16x2 = ArrayType{
+      .type = std::make_shared<DataType>(DataType::UInt16), .size = 2};
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
           isStructType(index->dtype()) ||
@@ -157,9 +486,10 @@ Allocate::Allocate(
         buffer->isA<TensorView>());
   } else {
     NVF_ERROR(buffer->isA<TensorView>());
-    NVF_ERROR(buffer->as<TensorView>()->getMemoryType() == memory_type);
+    NVF_ERROR_EQ(buffer->as<TensorView>()->getMemoryType(), memory_type);
     const auto domain = buffer->as<TensorView>()->domain();
-    for (auto axis : TensorDomain::noReductions(domain->maybeAllocation())) {
+    for (IterDomain* axis :
+         domain->maybeAllocation() | TensorDomain::kNoReductions) {
       shape.push_back(axis->extent());
     }
   }
@@ -218,8 +548,7 @@ Allocate::Allocate(
 std::string Allocate::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << buffer()->toString();
-  ss << " = ALLOCATE("
-     << "buffer=" << buffer()->toString() << ", "
+  ss << " = ALLOCATE(" << "buffer=" << buffer()->toString() << ", "
      << "mem_type=" << memoryType() << ", "
      << "size=" << size()->toInlineString() << ", "
      << "zero_init=" << boolLiteral(zeroInit()) << ", "
@@ -286,7 +615,7 @@ const char* getPTXConstraints(Val* value) {
   if (std::holds_alternative<ArrayType>(dt.type)) {
     dt = *std::get<ArrayType>(dt.type).type;
   }
-  auto size = dataTypeSize(dt);
+  auto size = dataTypeSizeByte(dt);
   switch (size) {
     case 2:
       return "h";
@@ -311,7 +640,7 @@ const char* getPTXConstraints(Val* value) {
 
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  for (auto i : c10::irange((int64_t)(outputs().size()))) {
+  for (auto i : arange((int64_t)(outputs().size()))) {
     std::string prefix;
     if (options().readable_outputs.count(i) > 0) {
       prefix = "+";
@@ -326,7 +655,7 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
 }
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+  for (int64_t i : arange((int64_t)inputs().size())) {
     auto in = input(i);
     const char* constraint = nullptr;
     if (options().immediate_inputs.count(i) > 0) {
@@ -358,7 +687,7 @@ std::string Asm::parameters() const {
     } else if (std::holds_alternative<ArrayType>(dtype.type)) {
       auto type = std::get<ArrayType>(dtype.type);
       ss << "{";
-      for (auto i : c10::irange(type.size)) {
+      for (auto i : arange(type.size)) {
         if (i > 0) {
           ss << ", ";
         }
@@ -415,21 +744,25 @@ std::string Asm::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Asm op can not be printed inline");
 }
 
-const std::string Asm::utility() const {
+std::string Asm::utility() const {
   static const std::unordered_map<std::string, std::string> ptx_to_utility{
-      {"tcgen05.wait::ld.sync.aligned", "tmem::waitLoad"},
-      {"tcgen05.wait::st.sync.aligned", "tmem::waitStore"},
-      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "tmem::load"},
-      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "tmem::store"},
+      {"tcgen05.wait::ld.sync.aligned", "tcgen05::waitLoad"},
+      {"tcgen05.wait::st.sync.aligned", "tcgen05::waitStore"},
       {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
-       "tmem::alloc"},
+       "tcgen05::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-       "tmem::relinquishAllocPermit"},
-      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tmem::dealloc"},
+       "tcgen05::relinquishAllocPermit"},
+      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tcgen05::dealloc"},
+      {"tcgen05.mma.cta_group::1.kind::f16", "tcgen05::mma_f16"},
+      {"tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
+       "tcgen05::commit"},
       {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
       {"wgmma.wait_group.sync.aligned", "wgmma::wait"},
+      {"ldmatrix.sync.aligned.x1.m8n8.shared.b16", "ldmatrix1"},
+      {"ldmatrix.sync.aligned.x2.m8n8.shared.b16", "ldmatrix2"},
+      {"ldmatrix.sync.aligned.x4.m8n8.shared.b16", "ldmatrix4"},
       {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
       {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
       {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"},
@@ -442,6 +775,27 @@ const std::string Asm::utility() const {
   if (it != ptx_to_utility.end()) {
     return it->second;
   }
+
+  // Match patterns like tcgen05.{ld,st}.sync.aligned.32x32b.x1.b32
+  {
+    std::regex ld_pattern(R"(tcgen05\.ld\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
+    std::smatch match;
+    if (std::regex_match(code, match, ld_pattern)) {
+      std::string result = "tcgen05::load";
+      result.append(match[1]);
+      return result;
+    }
+  }
+  {
+    std::regex st_pattern(R"(tcgen05\.st\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
+    std::smatch match;
+    if (std::regex_match(code, match, st_pattern)) {
+      std::string result = "tcgen05::store";
+      result.append(match[1]);
+      return result;
+    }
+  }
+
   // Match wgmma. Example:
   // instruction: wgmma.mma_async.sync.aligned.m64n256k16.f32.f16.f16
   // utility: wgmmaM64N256K16Half
@@ -466,6 +820,32 @@ const std::string Asm::utility() const {
     }
   }
   return "";
+}
+
+std::string Asm::signature() const {
+  std::string utility = this->utility();
+  if (utility.empty()) {
+    return "";
+  }
+  std::stringstream ss;
+  ss << "void " << utility << "(";
+  bool first = true;
+  for (auto operand : outputs()) {
+    if (!first) {
+      ss << ", ";
+    }
+    ss << operand->dtype() << "&";
+    first = false;
+  }
+  for (auto operand : inputs()) {
+    if (!first) {
+      ss << ", ";
+    }
+    ss << operand->dtype();
+    first = false;
+  }
+  ss << ")";
+  return ss.str();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
@@ -499,18 +879,26 @@ std::string AllocTMem::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(AllocTMem)
 
-BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
+BlockSync::BlockSync(
+    IrBuilderPasskey passkey,
+    bool war_sync,
+    std::optional<bool> optional_compute_or_load_sync)
+    : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(war_sync);
+  addDataAttribute(optional_compute_or_load_sync);
 }
 
 std::string BlockSync::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "BLOCKSYNC(war_hazard="
-                          << boolLiteral(isWarHazardSync()) << ")\n";
+                          << boolLiteral(isWarHazardSync())
+                          << ", optional_compute_or_load_sync="
+                          << optionalBoolLiteral(warpSpecializedState())
+                          << ")\n";
   return ss.str();
 }
 
@@ -519,6 +907,25 @@ std::string BlockSync::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSync)
+
+ClusterSync::ClusterSync(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string ClusterSync::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "CLUSTERSYNC()\n";
+  return ss.str();
+}
+
+std::string ClusterSync::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ClusterSync)
 
 GridSync::GridSync(
     IrBuilderPasskey passkey,
@@ -605,6 +1012,25 @@ std::string SetMaxNReg::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
+
+Continue::Continue(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string Continue::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "continue\n";
+  return ss.str();
+}
+
+std::string Continue::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Continue can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Continue)
 
 Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -998,8 +1424,10 @@ GridReduction::GridReduction(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == num_reduction_op_attr,
-      "The num_reduction_op_attr does not match the number of attributes ReductionOp has."
-      "If you changed ReductionOp, please change num_reduction_op_attr accordingly.");
+      "The num_reduction_op_attr does not match the number of attributes "
+      "ReductionOp has."
+      "If you changed ReductionOp, please change num_reduction_op_attr "
+      "accordingly.");
   addAttribute(reduction_buffer);
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
@@ -1016,10 +1444,14 @@ std::string GridReduction::toString(int indent_size) const {
                           << ", initial value = " << init()->toString()
                           << ",\n";
   ++indent_size;
-  indent(ss, indent_size) << "reduction buffer = "
-                          << reduction_buffer()->buffer()->toString() << ",\n";
-  indent(ss, indent_size) << "sync buffer = "
-                          << sync_buffer()->buffer()->toString() << ",\n";
+  // Serial reduction does not have these buffers
+  if (!isSerial()) {
+    indent(ss, indent_size)
+        << "reduction buffer = " << reduction_buffer()->buffer()->toString()
+        << ",\n";
+    indent(ss, indent_size)
+        << "sync buffer = " << sync_buffer()->buffer()->toString() << ",\n";
+  }
   indent(ss, indent_size) << "read predicate = ";
   if (predicate() != nullptr) {
     ss << predicate()->toString();
@@ -1079,8 +1511,10 @@ GroupedGridReduction::GroupedGridReduction(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == numGroupedReductionOpAttr(),
-      "The numGroupedReductionOpAttr() does not match the number of attributes GroupedReductionOp has."
-      "If you changed GroupedReductionOp, please change numGroupedReductionOpAttr() accordingly.");
+      "The numGroupedReductionOpAttr() does not match the number of attributes "
+      "GroupedReductionOp has."
+      "If you changed GroupedReductionOp, please change "
+      "numGroupedReductionOpAttr() accordingly.");
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
@@ -1095,7 +1529,7 @@ std::string GroupedGridReduction::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedGridReduction(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size)
         << output(i)->toString() << " = reduction( " << input(i)->toString()
         << ", op = " << getReductionOpType(i)
@@ -1282,8 +1716,10 @@ GroupedGridWelford::GroupedGridWelford(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == numGroupedWelfordOpAttr(),
-      "The numGroupedWelfordOpAttr() does not match the number of attributes GroupedWelfordOp has."
-      "If you changed GroupedReductionOp, please change numGroupedWelfordOpAttr() accordingly.");
+      "The numGroupedWelfordOpAttr() does not match the number of attributes "
+      "GroupedWelfordOp has."
+      "If you changed GroupedReductionOp, please change "
+      "numGroupedWelfordOpAttr() accordingly.");
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
@@ -1291,7 +1727,7 @@ GroupedGridWelford::GroupedGridWelford(
   addDataAttribute(ParallelTypeBitmap{});
   NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[1].size());
   NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[2].size());
-  for (auto i : c10::irange(reduction_buffers[0].size())) {
+  for (auto i : arange(reduction_buffers[0].size())) {
     addAttribute(reduction_buffers[0].at(i));
     addAttribute(reduction_buffers[1].at(i));
     addAttribute(reduction_buffers[2].at(i));
@@ -1305,15 +1741,13 @@ int64_t GroupedGridWelford::getSmemBufferSize(
     int64_t bdimy,
     int64_t bdimz) const {
   auto out_tv = ir_utils::getTvOutput(this);
-  auto kernel = dynamic_cast<kir::Kernel*>(container());
-  NVF_ERROR(kernel != nullptr);
+  auto kernel = container()->as<kir::Kernel>();
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {
-    return bdimx * bdimy * bdimz * dataTypeSize(out_tv->getDataType().value()) *
-        2 +
+    return bdimx * bdimy * bdimz * dataTypeSizeByte(out_tv->getDataType()) * 2 +
         bdimx * bdimy * bdimz *
-        dataTypeSize(DataType::Index, kernel->indexType());
+        dataTypeSizeByte(DataType::Index, kernel->indexType());
   }
 
   // In the outer-reduction version, the size is blockDim.x * NumberOfWarps *
@@ -1333,10 +1767,10 @@ int64_t GroupedGridWelford::getSmemBufferSize(
   int64_t num_warps = bdimx * bdimy / 32;
   NVF_ERROR((bdimx * bdimy) % 32 == 0);
 
-  int64_t buf_size_for_avg_var = bdimx * num_warps * group_count *
-      dataTypeSize(out_tv->getDataType().value());
+  int64_t buf_size_for_avg_var =
+      bdimx * num_warps * group_count * dataTypeSizeByte(out_tv->getDataType());
   int64_t buf_size_for_N =
-      num_warps * dataTypeSize(DataType::Index, kernel->indexType());
+      num_warps * dataTypeSizeByte(DataType::Index, kernel->indexType());
 
   return buf_size_for_avg_var * 2 + buf_size_for_N;
 }
@@ -1345,7 +1779,7 @@ std::string GroupedGridWelford::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedGridWelford(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size) << outAvg(i)->toString() << " (Avg),\n";
     indent(ss, indent_size) << outVar(i)->toString() << " (Var),\n";
     indent(ss, indent_size) << outN(i)->toString() << " (Count)\n";
@@ -1535,22 +1969,23 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
   NVF_CHECK(std::holds_alternative<ArrayType>(global_dim->dtype().type));
   size_t tensor_rank = std::get<ArrayType>(global_dim->dtype().type).size;
   ArrayType expect_global_dim_type{
-      std::make_shared<DataType>(DataType::Index), tensor_rank};
+      .type = std::make_shared<DataType>(DataType::Index), .size = tensor_rank};
   NVF_CHECK(global_dim->dtype() == expect_global_dim_type);
   addInput(global_dim);
 
   ArrayType expect_global_strides_type{
-      std::make_shared<DataType>(DataType::Index), tensor_rank - 1};
+      .type = std::make_shared<DataType>(DataType::Index),
+      .size = tensor_rank - 1};
   NVF_CHECK(global_strides->dtype() == expect_global_strides_type);
   addInput(global_strides);
 
   ArrayType expect_box_dim_type{
-      std::make_shared<DataType>(DataType::Index), tensor_rank};
+      .type = std::make_shared<DataType>(DataType::Index), .size = tensor_rank};
   NVF_CHECK(box_dim->dtype() == expect_box_dim_type);
   addInput(box_dim);
 
   ArrayType expect_element_strides_type{
-      std::make_shared<DataType>(DataType::Index), tensor_rank};
+      .type = std::make_shared<DataType>(DataType::Index), .size = tensor_rank};
   NVF_CHECK(element_strides->dtype() == expect_element_strides_type);
   addInput(element_strides);
 
@@ -1637,7 +2072,7 @@ std::string RNGOp::toString(int indent_size) const {
   std::stringstream ss;
   ss << output(0)->toString() << " = " << getRNGOpType() << "("
      << input(0)->toString();
-  for (auto inp_i : c10::irange(1, inputs().size())) {
+  for (auto inp_i : arange(1, inputs().size())) {
     ss << ", " << input(inp_i)->toString();
   }
   ss << ")\n";
@@ -1647,7 +2082,7 @@ std::string RNGOp::toString(int indent_size) const {
 std::string RNGOp::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << getRNGOpType() << "(" << input(0)->toString();
-  for (auto inp_i : c10::irange(1, inputs().size())) {
+  for (auto inp_i : arange(1, inputs().size())) {
     ss << ", " << input(inp_i)->toString();
   }
   ss << ")";
@@ -1656,5 +2091,79 @@ std::string RNGOp::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
 
-} // namespace kir
-} // namespace nvfuser
+ClusterReductionOp::ClusterReductionOp(
+    IrBuilderPasskey passkey,
+    Val* output,
+    Val* input,
+    BinaryOpType reduction_op_type,
+    Val* init,
+    Val* mbarrier,
+    bool is_all_reduce)
+    : ReductionOp(
+          passkey,
+          reduction_op_type,
+          init,
+          output,
+          input,
+          is_all_reduce) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addInput(mbarrier);
+}
+
+std::string ClusterReductionOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size);
+  ss << out()->toString() << " = cluster_reduction(" << in()->toString() << ", "
+     << init()->toString() << ", " << getReductionOpType() << ", "
+     << "mbarrier=" << mbarrier()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string ClusterReductionOp::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "cluster_reduction(" << in()->toString() << ", " << init()->toString()
+     << ", " << getReductionOpType() << ", "
+     << "mbarrier=" << mbarrier()->toString() << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ClusterReductionOp)
+
+GroupedLoadStoreOp::GroupedLoadStoreOp(
+    IrBuilderPasskey passkey,
+    TensorIndex* out,
+    Val* in,
+    int64_t group_size)
+    : Expr(passkey) {
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  NVF_ERROR(
+      in->isScalar(), "Expected to have a scalar input: ", in->toString());
+  addOutput(out);
+  addInput(in);
+  addDataAttribute(group_size);
+}
+
+std::string GroupedLoadStoreOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1)
+      << " = " << in()->toString() << ", group size: " << groupSize() << "\n";
+  return ss.str();
+}
+
+std::string GroupedLoadStoreOp::toInlineString(int indent_size) const {
+  NVF_THROW("Inline printing not supported");
+}
+
+int64_t GroupedLoadStoreOp::groupSize() const {
+  return attribute<int64_t>(0);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedLoadStoreOp)
+
+} // namespace nvfuser::kir

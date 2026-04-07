@@ -7,11 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <visibility.h>
+#include <functional>
 
-#include <ir/interface_nodes.h>
-#include <type.h>
+#include "exceptions.h"
+#include "ir/interface_nodes.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "type.h"
+#include "visibility.h"
 
 //
 // The operations defined in this header is intended as user facing functions.
@@ -40,6 +42,11 @@ NVF_API TensorView* reshape(
 //! symbolic, which are then concretized at run time with actual
 //! fusion inputs.
 NVF_API TensorView* reshape(TensorView* x, const std::vector<Val*>& new_sizes);
+
+// Reshape by manually specify domain transformation
+NVF_API TensorView* reshape(
+    TensorView* x,
+    std::function<void(AbstractTensor&)> transform);
 
 NVF_API TensorView* flatten(
     TensorView* x,
@@ -188,5 +195,26 @@ NVF_API TensorView* expand_as(TensorView* inp, TensorView* other);
 NVF_API TensorView* repeat(
     TensorView* inp,
     const std::vector<int64_t>& repeat_times);
+
+//! Create a nested tensor view from a data tensor and extents.
+//!
+//! The function partitions the specified dimension of the data tensor into
+//! a component dimension and a ragged dimension based on the provided extents.
+//!
+//! \param data Input tensor to be converted to nested representation
+//! \param extents Extents tensor defining the size of each component
+//!        Shape: [num_components], values: [extent0, extent1, ..., extent(n-1)]
+//! \param ragged_dim Dimension to partition into nested structure
+//! \return TensorView with a RaggedIterDomain at the specified dimension
+//!
+//! Example:
+//!   data shape: [10, ...]
+//!   extents: [3, 5, 2]
+//!   ragged_dim: 0
+//!   Result: nested tensor with 3 components. [3, [3, 5, 2], ...]
+NVF_API TensorView* asNested(
+    TensorView* data,
+    TensorView* extents,
+    int64_t ragged_dim);
 
 } // namespace nvfuser

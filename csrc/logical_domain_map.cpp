@@ -6,11 +6,12 @@
  */
 // clang-format on
 #include <debug.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <ops/utils.h>
+
+#include <ranges>
 
 #include <sstream>
 
@@ -74,32 +75,108 @@ PairwiseLogicalDomainMap::PairwiseLogicalDomainMap(
 
 namespace {
 
-// Returns a producer ID that is indirectly accessed. A bool is also
-// returned indicating there's a corresponding consumer ID. For
-// example, select doesn't have a consumer ID, whereas index_select
-// does.
-std::pair<IterDomain*, bool> getIndexedDomainInfo(
+// Returns producer IDs that don't map identically to consumer. A bool is
+// returned indicating whether corresponding consumer IDs exists. For example,
+// select doesn't have a consumer ID, whereas index_select does.
+std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     const TensorView* producer_tv,
-    const TensorView* consumer_tv) {
-  IterDomain* indexed_id = nullptr;
+    const TensorView* consumer_tv,
+    bool map_different_extents) {
+  std::unordered_set<IterDomain*> non_mapping_ids;
   bool has_consumer_id = false;
-  if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
-    indexed_id = sop->getIndexedID();
+  if (auto* sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
+    non_mapping_ids.insert(sop->getIndexedID());
     has_consumer_id = false;
   } else if (
-      auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
+      auto* sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
     if (producer_tv == sop->lookupTv()) {
-      indexed_id = sop->getIndexedID();
+      non_mapping_ids.insert(sop->getIndexedID());
       has_consumer_id = true;
     }
-  } else if (auto gop = dynamic_cast<GatherOp*>(consumer_tv->definition())) {
+  } else if (auto* gop = dynamic_cast<GatherOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
     if (producer_tv == gop->lookupTv()) {
-      indexed_id = gop->getIndexedID();
+      non_mapping_ids.insert(gop->getIndexedID());
+      has_consumer_id = true;
+    }
+  } else if (
+      auto* iaop =
+          dynamic_cast<IndexPutAccumulateOp*>(consumer_tv->definition())) {
+    // see [ Note -- IndexPutAccumulateOp semantics ]
+    if (producer_tv == iaop->indexTv()) {
+      // Indexing ID of index tv do not map to output.
+      non_mapping_ids.insert(iaop->getIndexingID());
+      has_consumer_id = true;
+    } else if (producer_tv == iaop->valueTv()) {
+      // indexing ID of value tv do not map to output.
+      non_mapping_ids.insert(iaop->getIndexingIDOfValue());
+      has_consumer_id = true;
+    }
+  } else if (
+      auto* preprocess_op = dynamic_cast<PreprocessGroupedMatmulInputSf*>(
+          consumer_tv->definition())) {
+    if (producer_tv != preprocess_op->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      non_mapping_ids.insert(producer_logical.begin(), producer_logical.end());
+      // we are not mapping anything, `has_consumer_id` doesn't matter.
+      has_consumer_id = false;
+    }
+  } else if (auto sop = dynamic_cast<ScatterOp*>(consumer_tv->definition())) {
+    if (producer_tv != sop->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      for (const auto& [i, p_id] : enumerate(producer_logical)) {
+        if ((int64_t)i == sop->dim() || !sop->exactSizes()) {
+          non_mapping_ids.insert(p_id);
+        }
+      }
+      has_consumer_id = true;
+    }
+  } else if (dynamic_cast<BlockQuantizationOp*>(consumer_tv->definition())) {
+    // We don't map the inner-most dimension of the block scaling factors
+    // as it's extent is reduced by a factor of the block size
+    // for example [i0, i1] => [i0, i1/16] where 16 is the block size.
+    // Make sure the producer isn't the global scale.
+    Val* block_scales =
+        consumer_tv->definition()->as<BlockQuantizationOp>()->blockScales();
+    Val* global_scale =
+        consumer_tv->definition()->as<BlockQuantizationOp>()->globalScale();
+
+    if (consumer_tv == block_scales && producer_tv != global_scale) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      auto last_logical_dim = producer_logical.size() - 1;
+      non_mapping_ids.insert(producer_logical.at(last_logical_dim));
+      // We are mapping everything but the last ID.
+      has_consumer_id = true;
+    }
+  } else if (
+      auto grouped_bqop = dynamic_cast<GroupedBlockQuantizationOp*>(
+          consumer_tv->definition())) {
+    if (producer_tv != grouped_bqop->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      non_mapping_ids.insert(producer_logical.begin(), producer_logical.end());
+      // we are not mapping anything, `has_consumer_id` doesn't matter.
+      has_consumer_id = false;
+    } else if (consumer_tv == grouped_bqop->blockScales()) {
+      // We don't map the inner-most dimension of the block scaling factors
+      // as it's extent is reduced by a factor of the block size
+      // for example [i0, i1] => [i0, i1/16] where 16 is the block size.
+      // Make sure the producer isn't the global scale.
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      auto last_logical_dim = producer_logical.size() - 1;
+      non_mapping_ids.insert(producer_logical.at(last_logical_dim));
+      // We are mapping everything but the last ID.
       has_consumer_id = true;
     }
   }
 
-  return std::make_pair(indexed_id, has_consumer_id);
+  return std::make_pair(non_mapping_ids, has_consumer_id);
 }
 
 } // namespace
@@ -110,18 +187,18 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     const std::unordered_set<IterDomain*>& dims_to_map,
     bool producer_to_consumer) const {
   std::vector<bool> broadcast_flags;
-  if (BroadcastOp* bop =
-          dynamic_cast<BroadcastOp*>(consumer_tv_->definition())) {
+  if (auto* bop = dynamic_cast<BroadcastOp*>(consumer_tv_->definition())) {
     broadcast_flags = bop->getBroadcastDimFlags();
   }
 
   std::vector<bool> squeeze_flags;
-  if (SqueezeOp* sop = dynamic_cast<SqueezeOp*>(consumer_tv_->definition())) {
+  if (auto* sop = dynamic_cast<SqueezeOp*>(consumer_tv_->definition())) {
     squeeze_flags = sop->getSqueezeDimFlags();
   }
 
-  auto [indexed_producer_id, has_consumer_of_indexed_id] =
-      getIndexedDomainInfo(producer_tv_, consumer_tv_);
+  auto [non_mapping_producer_id, has_consumer_of_indexed_id] =
+      getNonMappingDomainInfo(
+          producer_tv_, consumer_tv_, map_different_extents_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_logical = TensorDomain::noReductions(producer->logical());
@@ -174,7 +251,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids,
                                std::vector<IterDomain*> consumer_ids) {
     NVF_ERROR(producer_ids.size() == consumer_ids.size());
-    for (auto idx : c10::irange(consumer_ids.size())) {
+    for (auto idx : arange(consumer_ids.size())) {
       IterDomain* producer_id = producer_ids.at(idx);
       IterDomain* consumer_id = consumer_ids.at(idx);
       if (producer_id == nullptr) {
@@ -184,28 +261,10 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
   };
 
-  if (auto* mma = dynamic_cast<MmaOp*>(consumer_tv_->definition())) {
-    // producer_tv_ is either A or B
-    const MmaOp::AxesData& operand_axes = producer_tv_ == mma->inA()
-        ? mma->axisMapping().a_axes
-        : mma->axisMapping().b_axes;
-    NVF_ERROR(operand_axes.size() == consumer_root.size());
-    for (size_t idx : c10::irange(operand_axes.size())) {
-      int64_t operand_pos = operand_axes[idx];
-      if (operand_pos == -1) {
-        continue;
-      }
-      IterDomain* operand_id = producer_logical.at((size_t)operand_pos);
-      IterDomain* out_id = consumer_root.at(idx);
-      updatePairwiseLogicalDomainMap(operand_id, out_id);
-    }
-    return dom_map;
-  }
-
   // For MatmulOp, use the corresponding mapped input iterdomains.
-  if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
+  if (auto* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
-    int64_t input_position = producer_tv_->sameAs(op->inA()) ? 0 : 1;
+    int64_t input_position = producer_tv_ == op->inA() ? 0 : 1;
     auto out_size = consumer_root.size();
 
     // For MatmulOp, the input iterdomains at a given index do not necessarily
@@ -214,7 +273,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // which can be used to create a pairwise map between input-output. For eg:
     // 1. `[M, K] x [K, N] -> [M, N]`: For input A, there is no mapping between
     // input and output for index=2
-    // 2. `B, M, K] x [K, N] -> [B, M, N]`: For  input B, the second iterdomain
+    // 2. `[B, M, K] x [K, N] -> [B, M, N]`: For input B, the second iterdomain
     // maps to the third output iterdomain.
     const std::vector<IterDomain*>& aligned_producer_ids =
         ops::mapMatmulOpIterDomains(producer_logical, input_position, out_size);
@@ -222,27 +281,95 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
-  if (LinearOp* op = dynamic_cast<LinearOp*>(consumer_tv_->definition())) {
+  // For ScaledMatmulOp, use the corresponding mapped input iterdomains.
+  if (auto* op = dynamic_cast<ScaledMmaOp*>(consumer_tv_->definition())) {
+    if (consumer_tv_ == op->out()) {
+      if (producer_tv_ == op->matrix1() || producer_tv_ == op->matrix2()) {
+        auto out_size = consumer_root.size();
+        // Check if the producer is lhs/rhs input
+        int64_t input_position = (producer_tv_ == op->matrix1()) ? 0 : 1;
+        // For MatmulOp, the input iterdomains at a given index do not
+        // necessarily map to the output iterdomain at that index
+        // `mapMatmulOpIterDomains` outputs a vector of the input iterdomains
+        // aligned to the output domain which can be used to create a pairwise
+        // map between input-output. For eg:
+        // 1. `[M, K] x [K, N] -> [M, N]`: For input A, there is no mapping
+        // between input and output for index=2
+        // 2. `[B, M, K] x [K, N] -> [B, M, N]`: For input B, the second
+        // iterdomain maps to the third output iterdomain.
+        const std::vector<IterDomain*>& aligned_producer_ids =
+            ops::mapMatmulOpIterDomains(
+                producer_logical, input_position, out_size);
+        pairwiseMapAllIds(aligned_producer_ids, consumer_root);
+
+        return dom_map;
+      }
+      // note op->beta() should map as a pointwise
+      if (producer_tv_ != op->beta()) {
+        return dom_map;
+      }
+    } else {
+      // TODO: map output block scale as well
+      return dom_map;
+    }
+  }
+
+  // For CutlassNvfp4GroupedMmaOp, use the corresponding mapped input
+  // iterdomains. Note that we are only mapping input matrices to output
+  if (CutlassNvfp4GroupedMmaOp* op =
+          dynamic_cast<CutlassNvfp4GroupedMmaOp*>(consumer_tv_->definition())) {
+    int64_t ndims_out = std::ssize(consumer_root);
+    // [rk] is the reduction axis for the matmul operation, it only exists if k
+    // is not broadcast.
+    bool has_rk = consumer_root.back()->isReduction();
+    int64_t out_non_rk_last_idx = has_rk ? ndims_out - 2 : ndims_out - 1;
+
+    int64_t last_producer_idx = std::ssize(producer_logical) - 1;
+    if (producer_tv_ == op->matrix1()) {
+      // mapping m dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx - 1),
+          consumer_root.at(out_non_rk_last_idx - 1));
+      // mapping rk/k dimension;
+      if (has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx), consumer_root.back());
+      }
+    } else if (producer_tv_ == op->matrix2()) {
+      // mapping n dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx),
+          consumer_root.at(out_non_rk_last_idx));
+      // mapping rk/k dimension;
+      if (has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx - 1), consumer_root.back());
+      }
+    }
+    return dom_map;
+  }
+
+  if (auto* op = dynamic_cast<LinearOp*>(consumer_tv_->definition())) {
     auto out_size = consumer_root.size();
 
     // Check if the producer is A, B or bias.
     int64_t input_position = -1;
-    if (producer->sameAs(op->inA()->as<TensorView>()->domain())) {
+    if (producer == op->inA()->domain()) {
       input_position = 0;
-    } else if (producer->sameAs(op->inB()->as<TensorView>()->domain())) {
+    } else if (producer == op->inB()->domain()) {
       input_position = 1;
-    } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())) {
+    } else if (producer == op->bias()->domain()) {
       input_position = 2;
     } else {
       NVF_THROW("Producer did not match any LinearOp input.")
     }
 
-    bool k_bcast = op->inA()->as<TensorView>()->axis(-1)->isBroadcast();
     // LinearOp:
     // inputs (0) = {*, in_features}
     // weight (1) = {out_features, in_features} / {in_features}
     // bias (2) = {out_features} / {}
     // output = {*, out_features} / {*}
+    const bool k_bcast = op->inA()->getLogicalDomain().back()->isBroadcast();
 
     const std::vector<IterDomain*>& aligned_producer_ids =
         ops::mapLinearOpIterDomains(
@@ -251,42 +378,51 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
-  if (SdpaFwdOp* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())) {
-    // Note: Explicit handling of DIDx(D) until
-    // https://github.com/NVIDIA/Fuser/issues/2563 is resolved. Producers:
-    //   query = [DIDx(D)?, N, H, L, E]
-    //   key = [DIDx(D)?, N, H, S, E]
-    //   value = [DIDx(D)?, N, H, S, Ev]
+  if (auto* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())) {
+    // Producers:
+    //   query = [N*, L, E]
+    //   key = [N*, S, E]
+    //   value = [N*, S, Ev]
+    //
     // Consumers:
-    //   output = [DIDx(D)?, N, H, L, Ev]
-    //   logsumexp = [DIDx(D)?, N, H, L]
-    // Note: S, E are not mapped together in the producers and do not have any
+    //   output = [N*, L, Ev]
+    //   logsumexp = [N*, L]
+    //   philox_seed = []
+    //   philox_offset = []
+    //
+    // N* are the dimensions that are treated batch, e.g., the actual batch
+    // dimension, the DIDx dimension for DID logical split, the head dimension
+    // and/or the extra sequence dimension in [Triangle
+    // Attention](https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention).
+    //
+    // S, E are not mapped together in the producers and do not have any
     // mapping to the consumer.
-    if (consumer_tv_->sameAs(op->philox_seed())) {
+    if (consumer_tv_ == op->philox_seed() ||
+        consumer_tv_ == op->philox_offset()) {
       return dom_map;
     }
-    size_t num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
-    // Map N, H from any input (query/key/value)
-    for (auto idx : c10::irange(consumer_root.size())) {
-      if (idx < (2 + num_device_dim)) {
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
+
+    const auto num_batch_dims =
+        std::ssize(op->attn_out()->getLogicalDomain()) - 2;
+    for (auto [i, id_pair] : enumerate(zip(producer_logical, consumer_root))) {
+      auto index = static_cast<int64_t>(i);
+      auto [producer_id, consumer_id] = id_pair;
+      if (index < num_batch_dims) {
+        updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
       // Map L, E from query and value respectively
-      if (idx == (2 + num_device_dim) && producer_tv_->sameAs(op->query())) {
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
+      if (index == num_batch_dims && producer_tv_ == op->query()) {
+        updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
       // Map Ev from value to output
-      if (idx == (3 + num_device_dim) && producer_tv_->sameAs(op->value())) {
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
+      if (index == num_batch_dims + 1 && producer_tv_ == op->value()) {
+        updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
     }
     return dom_map;
   }
 
-  if (SdpaBwdOp* op = dynamic_cast<SdpaBwdOp*>(consumer_tv_->definition())) {
+  if (auto* op = dynamic_cast<SdpaBwdOp*>(consumer_tv_->definition())) {
     // Producers:
     //   grad_attn = [DIDx(D)? N, H, L, Ev]
     //   query = [DIDx(D)? N, H, L, E]
@@ -299,24 +435,24 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //   grad_key = [DID(D)? N, H, S, E]
     //   grad_value = [DID(D)? N, H, S, Ev]
 
-    if (producer_tv_->sameAs(op->philox_seed())) {
+    if (producer_tv_ == op->philox_seed()) {
       return dom_map;
     }
 
     bool producer_has_s =
-        producer_tv_->sameAs(op->key()) || producer_tv_->sameAs(op->value());
-    bool consumer_has_s = consumer_tv_->sameAs(op->grad_key()) ||
-        consumer_tv_->sameAs(op->grad_value());
+        producer_tv_ == op->key() || producer_tv_ == op->value();
+    bool consumer_has_s =
+        consumer_tv_ == op->grad_key() || consumer_tv_ == op->grad_value();
 
     bool producer_has_e =
-        producer_tv_->sameAs(op->query()) || producer_tv_->sameAs(op->key());
-    bool consumer_has_e = consumer_tv_->sameAs(op->grad_query()) ||
-        consumer_tv_->sameAs(op->grad_key());
+        producer_tv_ == op->query() || producer_tv_ == op->key();
+    bool consumer_has_e =
+        consumer_tv_ == op->grad_query() || consumer_tv_ == op->grad_key();
 
     size_t num_device_dim =
         !producer_logical.empty() && producer_logical.at(0)->isDeviceDim() ? 1
                                                                            : 0;
-    for (auto idx : c10::irange(producer_logical.size())) {
+    for (auto idx : arange(producer_logical.size())) {
       // Map N, H from all producers to consumers
       // producer/consumer[2] = L/S
       // producer/consumer[3] = E/Ev
@@ -330,23 +466,96 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
-  if (EmbeddingFwdOp* op =
-          dynamic_cast<EmbeddingFwdOp*>(consumer_tv_->definition())) {
+  if (auto* op = dynamic_cast<EmbeddingFwdOp*>(consumer_tv_->definition())) {
     // Producers:
     //   input = [*]
     //   weight = [V, embedding_dim]
     // Consumers:
     //   output = [*, embedding_dim]
     auto ndims_out = consumer_root.size();
-    if (producer_tv_->sameAs(op->in())) {
-      for (auto idx : c10::irange(ndims_out - 1)) {
+    if (producer_tv_ == op->in()) {
+      for (auto idx : arange(ndims_out - 1)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
     }
-    if (producer_tv_->sameAs(op->weight())) {
+    if (producer_tv_ == op->weight()) {
       updatePairwiseLogicalDomainMap(
           producer_logical.back(), consumer_root.back());
+    }
+    return dom_map;
+  }
+
+  // TODO: refactor to use getNonMappingDomainInfo instead.
+  if (auto* op = dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
+    bool has_g =
+        std::ranges::distance(consumer_root | TensorDomain::kNoReductions) == 3;
+    int64_t ndims_out = std::ssize(consumer_root);
+    // [rk] is the reduction axis for the matmul operation, it only exists if k
+    // is not broadcast.
+    bool has_rk = consumer_root.back()->isReduction();
+    int64_t out_non_rk_last_idx = has_rk ? ndims_out - 2 : ndims_out - 1;
+
+    int64_t last_producer_idx = std::ssize(producer_logical) - 1;
+    if (producer_tv_ == op->matrix1()) {
+      // mapping m dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx - 1),
+          consumer_root.at(out_non_rk_last_idx - 1));
+      // mapping rk/k dimension;
+      if (has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx), consumer_root.back());
+      }
+    } else if (producer_tv_ == op->matrix2()) {
+      // mapping n dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx),
+          consumer_root.at(out_non_rk_last_idx));
+      // mapping rk/k dimension;
+      if (has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx - 1), consumer_root.back());
+      }
+    } else if (producer_tv_ == op->offsets()) {
+      // mapping g dimension;
+      if (has_g) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
+      }
+    } else if (producer_tv_ == op->scale1()) {
+      // mapping m dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx), consumer_root.at(0));
+      // mapping g dimension;
+      if (has_g) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
+      }
+      // Note: since scale factor k' doesn't have to have the same extent as k,
+      // we only map it to rk/k dimension if map_different_extents_ is true.
+      if (map_different_extents_ && has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx), consumer_root.back());
+      }
+    } else if (producer_tv_ == op->scale2()) {
+      // mapping n dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx),
+          consumer_root.at(out_non_rk_last_idx));
+      if (has_g) {
+        // mapping g dimension;
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
+      }
+      // Note: since scale factor k' doesn't have to have the same extent as k,
+      // we only map it to rk/k dimension if map_different_extents_ is true.
+      if (map_different_extents_ && has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx - 1), consumer_root.back());
+      }
+    } else {
+      NVF_THROW("Producer did not match any GroupedMmaOp input.");
     }
     return dom_map;
   }
@@ -357,13 +566,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     IterDomain* consumer_id = consumer_root.at(itc);
 
     // Conditions to check:
-    // 1. Indirectly accessed IDs (e.g., select)
+    // 1. Non mapping IDs (e.g., select)
     // 2. IDs that may have different extents (e.g., non indexed
     //  domains of torchGather)
     // 3. Squeeze and unsqueeze
 
-    // Condition 1: when the producer ID is the dim of a select-like op
-    if (producer_id == indexed_producer_id) {
+    // Condition 1: when the producer ID is the dim of a select-like op, or when
+    // it doesn't map to the output IDs, like indexing IDs of indexPutAccumulate
+    if (non_mapping_producer_id.count(producer_id) != 0) {
       // If there's no corresponding consumer, skip the indexed producer
       if (!has_consumer_of_indexed_id) {
         itp++;
@@ -380,7 +590,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // Condition 2: Different extents
     if (auto gop = dynamic_cast<GatherOp*>(consumer_tv_->definition());
         gop != nullptr && !gop->exactSizes() &&
-        producer_tv_ == gop->lookupTv() && producer_id != indexed_producer_id &&
+        producer_tv_ == gop->lookupTv() &&
+        non_mapping_producer_id.count(producer_id) == 0 &&
         !map_different_extents_) {
       itp++;
       itc++;
@@ -593,7 +804,7 @@ void UnmappableReductionDomains::handleReductionOutput(TensorView* out_tv) {
 
 void UnmappableReductionDomains::handle(ReductionOp* op) {
   // Builds a map from reduction domains to consumer domains.
-  TensorView* out_tv = op->out()->as<TensorView>();
+  auto* out_tv = op->out()->as<TensorView>();
   handleReductionOutput(out_tv);
 }
 
@@ -606,7 +817,7 @@ void UnmappableReductionDomains::handle(GroupedReductionOp* op) {
 
 void UnmappableReductionDomains::handle(MmaOp* mma) {
   // Builds a map from reduction domains to consumer domains.
-  TensorView* out_tv = mma->out()->as<TensorView>();
+  auto* out_tv = mma->out()->as<TensorView>();
   handleReductionOutput(out_tv);
 }
 
@@ -1095,7 +1306,7 @@ bool ComputeAtLogicalDomainMapBuilder::isInvalid(
   // Next, check if any pair is invalid to map.
   const auto num_keys = domains.size();
   const std::vector<DomainKey> domains_vec({domains.begin(), domains.end()});
-  for (const auto i : c10::irange(num_keys)) {
+  for (const auto i : arange(num_keys)) {
     const auto& key_i = domains_vec[i];
     // If no invalid keys found for key_i, it can be skipped.
     const auto invalid_key_map_it = invalid_key_map.find(key_i);
@@ -1108,7 +1319,7 @@ bool ComputeAtLogicalDomainMapBuilder::isInvalid(
 
     // If any other key in domains is identified mappable with any of
     // the keys in this set, the mapping with key_i is invalid.
-    for (const auto j : c10::irange(i + 1, num_keys)) {
+    for (const auto j : arange(i + 1, num_keys)) {
       const auto& key_j = domains_vec[j];
       if (std::any_of(
               invalid_keys_for_i.begin(),
@@ -1193,7 +1404,9 @@ void ComputeAtLogicalDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
   if (expr->outputs().size() > 1) {
     NVF_ERROR(
         expr->isA<WelfordOp>() || expr->isA<GroupedReductionOp>() ||
-            expr->isA<GroupedWelfordOp>(),
+            expr->isA<GroupedWelfordOp>() || expr->isA<TopKOp>() ||
+            expr->isA<BlockQuantizationOp>() ||
+            expr->isA<GroupedBlockQuantizationOp>(),
         "Unknown multi-output Expr type ",
         expr->getOpString(),
         " is found");
@@ -1313,11 +1526,11 @@ void ComputeAtLogicalDomainMapBuilder::handle(SqueezeOp* op) {
 }
 
 void ComputeAtLogicalDomainMapBuilder::handle(ViewAsScalar* op) {
-  const TensorView* out_tv = op->output(0)->as<TensorView>();
+  const auto* out_tv = op->output(0)->as<TensorView>();
   const TensorDomain* out_td = out_tv->domain();
   const auto& out_root = out_td->maybeRoot();
 
-  const TensorView* in_tv = op->input(0)->as<TensorView>();
+  const auto* in_tv = op->input(0)->as<TensorView>();
   const TensorDomain* in_td = in_tv->domain();
 
   std::vector<IterDomain*> in_logical =
@@ -1381,8 +1594,7 @@ void ComputeAtLogicalDomainMapBuilder::handle(RNGOp* rop) {
 
 void ComputeAtLogicalDomainMapBuilder::handle(TensorView* tv) {
   const TensorDomain* td = tv->domain();
-  const auto logical = TensorDomain::noReductions(td->logical());
-  for (auto id : logical) {
+  for (IterDomain* id : td->logical() | TensorDomain::kNoReductions) {
     if (id->isBroadcast()) {
       initializeBcastMap(tv, id);
     }
@@ -1393,7 +1605,7 @@ void ComputeAtLogicalDomainMapBuilder::handle(TensorView* tv) {
   // each of the logical axes to the dependent root axes.
   if (td->hasViewLikeRFactor()) {
     std::unordered_set<Val*> root_set({td->root().begin(), td->root().end()});
-    for (auto logical_id : logical) {
+    for (IterDomain* logical_id : td->logical() | TensorDomain::kNoReductions) {
       if (!logical_id->isRFactorProduct()) {
         continue;
       }

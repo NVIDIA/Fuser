@@ -7,13 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <mma_type.h>
-#include <scheduler/matmul_heuristic.h>
-#include <scheduler/matmul_heuristic_plugin_api.h>
-#include <scheduler/mma_utils.h>
-
 #include <memory>
 #include <optional>
+
+#include "mma_type.h"
+#include "scheduler/matmul_heuristic.h"
+#include "scheduler/matmul_heuristic_plugin_api.h"
+#include "scheduler/mma_utils.h"
 
 namespace nvfuser {
 

@@ -5,20 +5,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <fusion_profiler.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <runtime/executor_utils.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/tools/inlining.h>
-#include <sys_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "fusion_profiler.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "runtime/executor_utils.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/tools/inlining.h"
+#include "sys_utils.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -208,18 +208,18 @@ TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
 
   try {
     FusionProfiler::stop();
-    FAIL()
-        << "Expected FusionProfiler::stop to assert because state is not Running! "
-        << FusionProfiler::state();
+    FAIL() << "Expected FusionProfiler::stop to assert because state is not "
+              "Running! "
+           << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
   }
 
   try {
     FusionProfiler::profile();
-    FAIL()
-        << "Expected FusionProfiler::profile to assert because state is not Processed! "
-        << FusionProfiler::state();
+    FAIL() << "Expected FusionProfiler::profile to assert because state is not "
+              "Processed! "
+           << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
   }
@@ -231,9 +231,18 @@ TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
 
   try {
     FusionProfiler::profile();
-    FAIL()
-        << "Expected FusionProfiler::profile to assert because state is not Processed! "
-        << FusionProfiler::state();
+    FAIL() << "Expected FusionProfiler::profile to assert because state is not "
+              "Processed! "
+           << FusionProfiler::state();
+  } catch (const std::exception& e) {
+    SUCCEED();
+  }
+
+  try {
+    FusionProfiler::start();
+    FAIL() << "Expected FusionProfiler::start to assert because state should "
+              "not be Running! "
+           << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
   }

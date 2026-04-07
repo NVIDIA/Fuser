@@ -5,15 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <torch/torch.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <torch/torch.h>
-
-#include <kernel_db/kernel_db.h>
-#include <kernel_db/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "kernel_db/kernel_db.h"
+#include "kernel_db/utils.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 // RUN CMD: bin/test_jit --gtest_filter="NVFuserTest*KernelDb_Query*"
 
@@ -68,7 +68,8 @@ TEST_F(NVFuserTest, KernelDb_Query_CUDA) {
     std::string code;
     ASSERT_TRUE(copy_from_text_file(code_path, code));
     const std::string compiler_args(
-        "--std=c++14 --gpu-architecture=sm_80 -default-device --fmad=true -DNDEBUG --ptxas-options --maxrregcount=255");
+        "--std=c++14 --gpu-architecture=sm_80 -default-device --fmad=true "
+        "-DNDEBUG --ptxas-options --maxrregcount=255");
     std::string dummy_name;
     std::vector<char> dummy_cubin(0);
 

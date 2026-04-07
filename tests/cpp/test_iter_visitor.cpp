@@ -8,10 +8,10 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <iter_visitor.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
+#include "fusion.h"
+#include "iter_visitor.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 

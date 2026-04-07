@@ -72,17 +72,7 @@ IterDomainGraph::IterDomainGraph(Fusion* fusion, bool allow_self_mapping) {
 //!   few build out steps.
 void mapMaybeSwizzleOp(
     DisjointSets<IterDomain*>& disjoint_sets,
-    IterDomain* id) {
-  if (auto swizzle_2d = dynamic_cast<Swizzle2D*>(id->definition())) {
-    // Map each input to its corresponding output on the given
-    // disjoint set if this is a loop swizzle. Loop swizzles don't impact
-    // indexing, only iteration order.
-    if (swizzle_2d->swizzleMode() == SwizzleMode::Loop) {
-      disjoint_sets.mapEntries(swizzle_2d->inX(), swizzle_2d->outX());
-      disjoint_sets.mapEntries(swizzle_2d->inY(), swizzle_2d->outY());
-    }
-  }
-}
+    IterDomain* id) {}
 
 bool IterDomainGraph::exprsMap(
     Expr* first,
@@ -99,7 +89,8 @@ bool IterDomainGraph::exprsMap(
 
   NVF_ERROR(
       first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>(),
-      "Merge, split and resize are the only expressions supported through root to logical operations in compute at map, but found:\n",
+      "Merge, split and resize are the only expressions supported through root "
+      "to logical operations in compute at map, but found:\n",
       first->toString());
 
   auto first_ids = ir_utils::filterByType<IterDomain>(
@@ -212,11 +203,12 @@ void IterDomainGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
                         .vector();
   NVF_ERROR(
       first_ids.size() == second_ids.size(),
-      "This should be unreachable, if transformation expressions match, their number of inputs and outputs should as well.\n However found:\n",
+      "This should be unreachable, if transformation expressions match, their "
+      "number of inputs and outputs should as well.\n However found:\n",
       first->toString(),
       "\nand\n",
       second->toString());
-  for (auto out_i : c10::irange(first_ids.size())) {
+  for (auto out_i : arange(first_ids.size())) {
     exact_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
     permissive_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
     permissive_resize_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
@@ -389,11 +381,12 @@ void IterDomainGraph::build(Fusion* fusion) {
               c_tv->getMaybeRootDomain().size() ==
                   first_output_tv->getMaybeRootDomain().size(),
               "Multiple outputs with mismatched dimensions is not supported. ",
-              "Only supported case is welford op where all outputs tvs have identical domains.");
+              "Only supported case is welford op where all outputs tvs have "
+              "identical domains.");
           // p->f, c->c
           std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
           for (const auto i :
-               c10::irange(first_output_tv->getMaybeRootDomain().size())) {
+               arange(first_output_tv->getMaybeRootDomain().size())) {
             c2f_root_map.insert(std::make_pair(
                 c_tv->getMaybeRootDomain()[i],
                 first_output_tv->getMaybeRootDomain()[i]));
@@ -443,12 +436,9 @@ void IterDomainGraph::build(Fusion* fusion) {
         // Look for matching ID transformations in producer and consumer, replay
         // producer as consumer. We use the symmetric API of BestEffortReplay so
         // that both broadcast and squeeze are handled correctly.
-        //
-        // Note on the boolean flags: swizzles are skipped in both
-        // producer and consumer but resizes are not.
         const auto permissive_disjoint_sets =
             BestEffortReplay::replayPasC(
-                p_tv, c_tv, -1, pairwise_map, true, true, false)
+                p_tv, c_tv, -1, pairwise_map, /*skip_resize=*/false)
                 .getIterDomainEquivalence();
 
         // Permissive-Resize map allows mappings of resize inputs and
@@ -457,14 +447,11 @@ void IterDomainGraph::build(Fusion* fusion) {
         //
         // TODO: clean this up. Maybe this can be just the PERMISSIVE
         // map? Revisit after the ID map refactor.
-        //
-        // Note on the boolean flags: swizzles and resizes are skipped
-        // in the permissive-resize map
         const auto pairwise_resize_map =
             PairwiseLogicalDomainMap(p_tv, c_tv).mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
-                p_tv, c_tv, -1, pairwise_resize_map, true, true, true)
+                p_tv, c_tv, -1, pairwise_resize_map, /*skip_resize=*/true)
                 .getIterDomainEquivalence();
 
         // For exact mapings do not map any broadcast dimensions to
@@ -504,7 +491,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
         for (auto& dset : permissive_disjoint_sets.disjointSets()) {
           auto& vec = dset->vector();
-          for (auto i : c10::irange(vec.size())) {
+          for (auto i : arange(vec.size())) {
             auto id1 = vec[i];
             permissive_nodes_.mapEntries(id1, vec[0]);
 
@@ -513,7 +500,7 @@ void IterDomainGraph::build(Fusion* fusion) {
             //  or p_id is swizzle output.
             mapMaybeSwizzleOp(permissive_nodes_, id1);
 
-            for (auto j : c10::irange(i + 1, vec.size())) {
+            for (auto j : arange(i + 1, vec.size())) {
               auto id2 = vec[j];
               if (p_ids.count(id1) && c_ids.count(id2)) {
                 if (idIsAComputeAtLeafDomain(id1, p_tv, c_tv) &&
@@ -538,11 +525,11 @@ void IterDomainGraph::build(Fusion* fusion) {
         // permissive-resize mappings.
         for (auto& dset : permissive_resize_disjoint_sets.disjointSets()) {
           auto& vec = dset->vector();
-          for (auto i : c10::irange(vec.size())) {
+          for (auto i : arange(vec.size())) {
             auto id1 = vec[i];
             permissive_resize_nodes_.mapEntries(id1, vec[0]);
             mapMaybeSwizzleOp(permissive_resize_nodes_, id1);
-            for (auto j : c10::irange(i + 1, vec.size())) {
+            for (auto j : arange(i + 1, vec.size())) {
               auto id2 = vec[j];
               if (p_ids.count(id1) && c_ids.count(id2)) {
                 consumers_.at(id1).pushBack(id2);
@@ -622,11 +609,13 @@ void IterDomainGraph::build(Fusion* fusion) {
               expr->isA<Swizzle>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
-          "\nto be an expression defined in an root to logical transformation.");
+          "\nto be an expression defined in an root to logical "
+          "transformation.");
       for (auto logical_inp_id : logical_inp_ids) {
         NVF_ERROR(
             logical_id_uses.find(logical_inp_id) == logical_id_uses.end(),
-            "Was expecting iter domains to only have one active transformation but found id ",
+            "Was expecting iter domains to only have one active transformation "
+            "but found id ",
             logical_inp_id->toString(),
             " used in\n",
             logical_id_uses.at(logical_inp_id),
@@ -651,7 +640,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   for (auto prop_forward : {true, false}) {
     std::unordered_set<Expr*> visited_exprs;
 
-    for (auto logical_id_i : c10::irange(logical_id_order.size())) {
+    for (auto logical_id_i : arange(logical_id_order.size())) {
       auto first_logical_id = prop_forward
           ? logical_id_order[logical_id_i]
           : logical_id_order[logical_id_order.size() - 1 - logical_id_i];
@@ -721,6 +710,39 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
+  // Adds more mappings from IdModel if available
+  auto expand_by_id_model = [](DisjointSets<IterDomain*>& nodes,
+                               IdMappingMode mode) {
+    if (!GpuLower::hasCurrent() || !GpuLower::current()->info().hasIdModel()) {
+      return;
+    }
+
+    const ValGraph& graph = GpuLower::current()->info().idModel().idGraph(mode);
+    for (const auto& vg : graph.disjointValSets().disjointSets()) {
+      IterDomain* first_id = nullptr;
+      for (const auto& val : *vg) {
+        auto id = val->as<IterDomain>();
+        if (!nodes.mappingExists(id)) {
+          continue;
+        }
+        if (first_id == nullptr) {
+          first_id = id;
+        } else if (!nodes.strictAreMapped(first_id, id)) {
+          nodes.mapEntries(first_id, id);
+        }
+      }
+    }
+  };
+
+  // Expand the exact sets with the IdModel exact graph so that
+  // the legacy and new indexers would produce less mismatching
+  // results.
+  expand_by_id_model(exact_nodes_, IdMappingMode::EXACT);
+  // Expand the permissive sets with the IdModel exact graph. The
+  // permissive IdModel graph may be used instead, but the exact graph
+  // seems sufficient to fill the gap with IdModel
+  expand_by_id_model(permissive_nodes_, IdMappingMode::EXACT);
+
   innermost_nodes_ = permissive_resize_nodes_;
   // Build almost exact map by forwarding through broadcast axes
   almost_exact_nodes_ = exact_nodes_;
@@ -734,6 +756,15 @@ void IterDomainGraph::build(Fusion* fusion) {
     if (!visited.emplace(def).second) {
       continue;
     }
+
+    // If there's an input that is not included in the map, this expr
+    // should not be considered
+    if (std::ranges::any_of(def->inputs(), [&](Val* inp) {
+          return !allIds().has(inp->as<IterDomain>());
+        })) {
+      continue;
+    }
+
     if (auto merge = dynamic_cast<Merge*>(def)) {
       if (merge->inner()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->outer(), merge->out());
@@ -763,6 +794,8 @@ void IterDomainGraph::build(Fusion* fusion) {
       }
     }
   }
+
+  expand_by_id_model(almost_exact_nodes_, IdMappingMode::ALMOSTEXACT);
 
   self_mapping_info_ = findFirstSelfMapping(fusion, *this);
 }
@@ -801,7 +834,7 @@ void ComputeAtMap::build(Fusion* fusion) {
   buildUniqueExactExprMaps();
 }
 
-void ComputeAtMap::validateAndPropagatePType() {
+void ComputeAtMap::validateAndPropagatePType() const {
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType common_ptype = ParallelType::Serial;
     for (auto id : loop_disjoint_set->vector()) {
@@ -823,7 +856,62 @@ void ComputeAtMap::validateAndPropagatePType() {
   }
 }
 
+namespace {
+
+// For a given AsyncWarp, for all TensorViews, map all sibling iterDomains to
+// the left of stage_slice_position together.
+std::vector<ValGroup> getSiblingIds(const AsyncWarp& async_warp) {
+  std::vector<ValGroup> ids;
+
+  for (int64_t idx : arange(async_warp.stage_slice_position)) {
+    ValGroup vg =
+        std::make_shared<nvfuser::VectorOfUniqueEntries<nvfuser::Val*>>();
+
+    for (TensorView* tv : async_warp.tvs) {
+      vg->pushBack(tv->axis(idx));
+    }
+
+    ids.push_back(vg);
+  }
+  return ids;
+}
+
+// For a set of expressions, get sibling iterDomain mapping for first AsyncWarp
+std::vector<ValGroup> getAsyncWarpSiblingIds(const std::vector<Expr*>& exprs) {
+  std::vector<AsyncWarp> async_warps = createAsyncWarps(exprs);
+
+  // short-circuit: no async operations detected.
+  if (async_warps.size() == 0) {
+    return {};
+  }
+  NVF_ERROR(
+      async_warps.size() == 1, "Multi-role specialization is not supported");
+
+  const AsyncWarp& async_warp = async_warps.front();
+
+  // short-circuit: no sibling relationships to map.
+  if (async_warp.tvs.size() == 1) {
+    return {};
+  }
+
+  // short-circuit: stage_slice_position is not used.
+  if (async_warp.stage_slice_position == -1) {
+    return {};
+  }
+
+  return getSiblingIds(async_warp);
+}
+
+} // namespace
+
 void ComputeAtMap::allocateIndexVariables() {
+  // Get the sibling iterDomain mapping for AsyncWarp
+  std::vector<ValGroup> async_warp_sibling_ids =
+      getAsyncWarpSiblingIds(fusion_->exprs());
+  // Map sibling ValGroups to the same index variable.
+  std::vector<Val*> async_warp_sibling_id_index_variable(
+      async_warp_sibling_ids.size(), nullptr);
+
   // Run through all disjoint sets registered in loop map,
   //  all lowered ForLoop will correspond to one of the disjoint sets
   //  and we only need one index variable for each set.
@@ -831,7 +919,7 @@ void ComputeAtMap::allocateIndexVariables() {
     ParallelType ptype = ParallelType::Serial;
 
     // We don't allocate any index variable for domains which
-    // are parallelized accross devices
+    // are parallelized across devices
     if (auto result = std::find_if(
             loop_disjoint_set->vector().begin(),
             loop_disjoint_set->vector().end(),
@@ -849,7 +937,7 @@ void ComputeAtMap::allocateIndexVariables() {
     if (auto result = std::find_if(
             loop_disjoint_set->vector().begin(),
             loop_disjoint_set->vector().end(),
-            [](IterDomain* id) { return id->isThread(); });
+            [](IterDomain* id) { return id->isThread() || id->isStream(); });
         result != loop_disjoint_set->vector().end()) {
       ptype = (*result)->getParallelType();
       loop_index_variable_map_[loop_disjoint_set.get()] =
@@ -875,17 +963,37 @@ void ComputeAtMap::allocateIndexVariables() {
 
     auto concrete_loop_id = concrete_loop_id_it->second;
 
+    // Determine if concrete_loop_id is a AsyncWarp iterDomain
+    auto async_warp_sibling_ids_iter = std::find_if(
+        async_warp_sibling_ids.begin(),
+        async_warp_sibling_ids.end(),
+        [&](ValGroup vg) { return vg->has(concrete_loop_id); });
+
     // Need to allocate circular buffered loop differently.
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             concrete_loop_id)) {
       // Allocate index variable for each stage of the circular buffered loop.
       circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
           std::make_unique<CircularBufferIndices>();
-      for (auto i : c10::irange(
-               static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
+      for (auto i :
+           arange(static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
         auto stage = static_cast<CircularBufferLoopStage>(i);
         circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()]
             ->emplace(stage, IrBuilder::create<Val>(DataType::Index));
+      }
+    } else if (async_warp_sibling_ids_iter != async_warp_sibling_ids.end()) {
+      int64_t index = std::distance(
+          async_warp_sibling_ids.begin(), async_warp_sibling_ids_iter);
+      if (async_warp_sibling_id_index_variable.at(index) == nullptr) {
+        // Allocate index variable for sibling iterDomains upon first encounter.
+        loop_index_variable_map_[loop_disjoint_set.get()] =
+            IrBuilder::create<Val>(DataType::Index);
+        async_warp_sibling_id_index_variable.at(index) =
+            loop_index_variable_map_.at(loop_disjoint_set.get());
+      } else {
+        // Afterwards, reuse index variable for sibling iterDomains
+        loop_index_variable_map_[loop_disjoint_set.get()] =
+            async_warp_sibling_id_index_variable.at(index);
       }
     } else {
       // Everything now should be serial concrete loops,
@@ -1238,15 +1346,6 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     return false;
   }
 
-  if (expr_1->isA<Swizzle2D>()) {
-    auto swizzle_1 = expr_1->as<Swizzle2D>();
-    auto swizzle_2 = expr_2->as<Swizzle2D>();
-    if (swizzle_1->swizzleType() != swizzle_2->swizzleType() ||
-        swizzle_1->swizzleMode() != swizzle_2->swizzleMode()) {
-      return false;
-    }
-  }
-
   if (expr_1->isA<Swizzle>()) {
     auto swizzle_1 = expr_1->as<Swizzle>();
     auto swizzle_2 = expr_2->as<Swizzle>();
@@ -1260,7 +1359,7 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
           expr_1->outputs().size() == expr_2->outputs().size(),
       "Expr traversal doesn't support variable number of inputs and outputs.");
 
-  for (auto input_i : c10::irange(expr_1->inputs().size())) {
+  for (auto input_i : arange(expr_1->inputs().size())) {
     if (expr_1->inputs()[input_i]->isA<IterDomain>() &&
         !areMapped(
             expr_1->inputs()[input_i]->as<IterDomain>(),
@@ -1271,7 +1370,7 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     }
   }
 
-  for (auto output_i : c10::irange(expr_1->outputs().size())) {
+  for (auto output_i : arange(expr_1->outputs().size())) {
     if (expr_1->outputs()[output_i]->isA<IterDomain>() &&
         !areMapped(
             expr_1->outputs()[output_i]->as<IterDomain>(),
@@ -1311,18 +1410,8 @@ void ComputeAtMap::buildUniqueExactExprMaps() {
           // Definition to this exact map, shouldn't be marked as a definition
           // to traverse on the exact map.
 
-          // This is a WAR for FusionSimpleSwizzle2_CUDA wher there is a pattern
-          // like:
-          //
-          // tv0[32, 32]
-          // tv0->swizzle(Swizzle2DType::ZShape, 0, 1);
-          //
-          // each root domain is exact mapped with the outputs of the swizzle.
-          // So the pre and post swizzle ID is in an exact set, but that exact
-          // set also has the swizzle as a definition that leads to itself.
-          //
-          // TODO: Try to formalize this better in the exact ID traversal. Right
-          // now its just interfering with concrete ID detection.
+          // This was originally a WAR for Swizzle2D. Unclear if this
+          // branch is still necessary. See PR #5899 for the legacy code.
           continue;
         }
         bool match = false;
@@ -1514,7 +1603,8 @@ const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>& ComputeAtMap::
   NVF_ERROR(
       idExistsInMap(id),
       id->toString(),
-      " has not been processed in this Compute At Map, yet the disjoint set for it was requested.");
+      " has not been processed in this Compute At Map, yet the disjoint set "
+      "for it was requested.");
   return getIdSets(mode).disjointSetMap().at(id);
 }
 
@@ -1563,7 +1653,8 @@ ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_logical) {
     auto defs_it = unique_exact_definitions_.find(currently_visiting);
     NVF_ERROR(
         defs_it != unique_exact_definitions_.end(),
-        "unique_exact_definitions_ wasn't correctly generated, missing the disjoint set:\n",
+        "unique_exact_definitions_ wasn't correctly generated, missing the "
+        "disjoint set:\n",
         currently_visiting->toString());
 
     // If there's no definition, we've found an input.
@@ -1626,7 +1717,8 @@ ComputeAtMap::getAllDisjointSetProducers(
     auto defs_it = unique_exact_definitions_.find(currently_visiting);
     NVF_ERROR(
         defs_it != unique_exact_definitions_.end(),
-        "unique_exact_definitions_ wasn't correctly generated, missing the disjoint set:\n",
+        "unique_exact_definitions_ wasn't correctly generated, missing the "
+        "disjoint set:\n",
         currently_visiting->toString());
 
     // Traverse producers of current disjoint set and collect unique exact
@@ -1674,7 +1766,8 @@ ComputeAtMap::getAllDisjointSetConsumers(
     auto uses_it = unique_exact_uses_.find(currently_visiting);
     NVF_ERROR(
         uses_it != unique_exact_uses_.end(),
-        "unique_exact_uses_ wasn't correctly generated, missing the disjoint set:\n",
+        "unique_exact_uses_ wasn't correctly generated, missing the disjoint "
+        "set:\n",
         currently_visiting->toString());
 
     // Traverse consumers of current disjoint set and collect unique exact

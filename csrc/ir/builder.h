@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <fusion_guard.h>
-#include <ir/builder_passkey.h>
-#include <ir/container.h>
-#include <utils.h>
-#include <visibility.h>
+#include "base.h"
+#include "exceptions.h"
+#include "fusion_guard.h"
+#include "ir/builder_passkey.h"
+#include "ir/container.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -39,16 +39,11 @@ class IrBuilder {
   }
 
   //! Allocate a new IR node, forwarding the arguments to the appropriate
-  //! constructor and registering with the container
+  //! constructor and registering with the container.
+  //! Implementation provided at the end of fusion.h after Fusion is fully
+  //! defined.
   template <class T, class... Args>
-  static T* createInContainer(IrContainer* container, Args&&... args) {
-    NVF_ERROR(container != nullptr, "Need an active container to build IR.");
-    T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
-
-    container->registerStmt(IrBuilderPasskey(container), node);
-
-    return node;
-  }
+  static T* createInContainer(Fusion* container, Args&&... args);
 
   //! Clone an IR node, forwarding the arguments to the IrCloner constructor.
   //! Register clones with IrCloner's target container.
@@ -60,6 +55,7 @@ class IrBuilder {
   NVF_API static Val* negExpr(Val* val);
   NVF_API static Val* logicalNotExpr(Val* val);
   static Val* bitwiseNotExpr(Val* val);
+  NVF_API static Val* bitCeilExpr(Val* val);
   NVF_API static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
   static Val* maybeCastExpr(DataType dtype, Val* val);
@@ -123,7 +119,8 @@ class IrBuilder {
     } else {
       static_assert(
           is_std_vector_v<T>,
-          "Argument for function array must be vector of value or nested vector");
+          "Argument for function array must be vector of value or nested "
+          "vector");
       std::vector<Val*> array_members;
       std::transform(
           members.begin(),
@@ -172,6 +169,7 @@ class IrBuilder {
 class SimplifyingIrBuilder : public IrBuilder {
  public:
   static Val* negExpr(Val* val);
+  static Val* absExpr(Val* val);
   static Val* logicalNotExpr(Val* val);
   static Val* bitwiseNotExpr(Val* val);
   static Val* maybeCastExpr(DataType dtype, Val* val);

@@ -7,22 +7,19 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-
-#include <fusion.h>
-#include <ir/builder_passkey.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/internal_nodes.h>
-#include <mma_type.h>
-#include <multidevice/device_mesh.h>
-#include <type.h>
-#include <visibility.h>
-
-#include <torch/csrc/jit/ir/ir.h>
-
 #include <complex>
 #include <limits>
 #include <sstream>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/builder_passkey.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/internal_nodes.h"
+#include "mma_type.h"
+#include "multidevice/device_mesh.h"
+#include "type.h"
+#include "visibility.h"
 
 //! Nodes in here are intended to be "user facing" users in this sense being
 //! those that want to be able to generate CUDA code.
@@ -36,7 +33,6 @@
 
 namespace nvfuser {
 
-class WelfordResult;
 class ViewTransform;
 
 class IrCloner;
@@ -192,7 +188,7 @@ class TVDomainGuard;
 //   if (threadIdx.y == blockDim.y - 1) {
 //     // If we use warp specialization on TIDy, then the blockDim.y of the
 //     // kernel will be (whatever_value_inferred_from_schedule + 1), and the
-//     // last threadIdx.y will be used as load warp
+//     // last threadIdx.y will be used as async warp
 //     for i in range(data.size):
 //       wait buffer[i % stage] to be empty
 //       load data[i] to buffer[i % stage]
@@ -230,7 +226,20 @@ struct WarpSpecialized {
   ParallelType on = ParallelType::Serial;
   // The number of registers for load and compute warps respectively.
   std::optional<std::pair<int64_t, int64_t>> num_registers = std::nullopt;
+  // The iterDomain position to define the shape of the circular buffer stage.
+  std::optional<int64_t> stage_slice_position = std::nullopt;
 
+  explicit WarpSpecialized(
+      ParallelType on,
+      std::pair<int64_t, int64_t> num_registers,
+      int64_t stage_slice_position)
+      : on(on),
+        num_registers(num_registers),
+        stage_slice_position(stage_slice_position) {
+    validateRegisterSharing();
+  }
+  explicit WarpSpecialized(ParallelType on, int64_t stage_slice_position)
+      : on(on), stage_slice_position(stage_slice_position) {}
   explicit WarpSpecialized(
       ParallelType on,
       std::pair<int64_t, int64_t> num_registers)
@@ -256,12 +265,13 @@ struct WarpSpecialized {
     validate_num_registers(num_registers.value().second);
     NVF_ERROR(
         num_registers.value().first <= num_registers.value().second,
-        "The number of registers for load warp group must be <= to the number",
+        "The number of registers for async warp group must be <= to the number",
         " of registers for the compute warp groups.");
   }
 
   bool operator==(const WarpSpecialized& other) const {
-    return on == other.on && num_registers == other.num_registers;
+    return on == other.on && num_registers == other.num_registers &&
+        stage_slice_position == other.stage_slice_position;
   }
 };
 
@@ -290,7 +300,14 @@ inline std::ostream& operator<<(
     s << "RegisterSharing_" << decrease_num_reg << "_" << increase_num_reg;
     num_registers = s.str();
   }
-  return os << "WarpSpecializedOn" << parallel_type_str << num_registers;
+  std::string slice_position = "StageSlicePosition_None";
+  if (warp_specialized.stage_slice_position.has_value()) {
+    std::stringstream s;
+    s << "StageSlicePosition_" << warp_specialized.stage_slice_position.value();
+    slice_position = s.str();
+  }
+  return os << "WarpSpecializedOn" << parallel_type_str << num_registers
+            << slice_position;
 }
 
 using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
@@ -372,6 +389,8 @@ class NVF_API TensorView : public Val {
 
   NVFUSER_DECLARE_CLONE
 
+  bool sameDefinition(const Val* other) const override;
+
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
@@ -405,6 +424,10 @@ class NVF_API TensorView : public Val {
 
   bool hasGridReduction() const {
     return domain()->hasGridReduction();
+  }
+
+  bool hasClusterReduction() const {
+    return domain()->hasClusterReduction();
   }
 
   bool hasBroadcast() const {
@@ -453,6 +476,11 @@ class NVF_API TensorView : public Val {
     return domain()->loop();
   };
 
+  const std::optional<std::vector<IterDomain*>>& getAlternateLoopDomain()
+      const {
+    return domain()->alternateLoop();
+  };
+
   const std::vector<IterDomain*>& getInitialLoopDomain() const {
     return domain()->initialLoop();
   };
@@ -465,6 +493,10 @@ class NVF_API TensorView : public Val {
 
   void setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
     domain()->setLoopDomain(std::move(new_loop_domain));
+  }
+
+  void setAlternateLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+    domain()->setAlternateLoopDomain(std::move(new_loop_domain));
   }
 
   void setAllocationDomain(
@@ -587,6 +619,14 @@ class NVF_API TensorView : public Val {
     return merge(axis, axis + 1);
   }
 
+  // Partition "axis" into component and ragged dimensions based on extents
+  // The extents tensor directly specifies the size of each component:
+  //   Shape: [num_components], values: [extent0, extent1, ..., extent(n-1)]
+  // Returns this TensorView with the axis replaced by component and ragged dims
+  // e.g. partition(0, extents) on tv[id{N}] results in:
+  //   tv[id{num_components}, ragged_id{extents}]
+  TensorView* partition(int64_t axis, TensorView* extents);
+
   // Flatten the axis from `from` to `to` into a single axis.
   // Both `from` and `to` are inclusive.
   TensorView* flatten(int64_t from = 0, int64_t to = -1);
@@ -605,11 +645,12 @@ class NVF_API TensorView : public Val {
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
   TensorView* swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
-  TensorView* swizzle(
-      Swizzle2DType swizzle_type,
-      int64_t x,
-      int64_t y,
-      SwizzleMode swizzle_mode = SwizzleMode::Data);
+
+  //! Swizzle1D is currently only used and handled in HostIr
+  //! It computes the `in` id to the swizzle as a function of the device id
+  //! (corresponding to the parallel type) and `out` id. See
+  //! `HostIrEvaluator::handle(ShardByStream)` for usage.
+  TensorView* swizzle1d(int64_t x, ParallelType pt);
 
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of
@@ -719,23 +760,10 @@ class NVF_API TensorView : public Val {
   //!  using TMA.
   void applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle);
 
-  //! Returns if this tensor view has swizzle operator on its tensor domain.
-  //!  This is the temporary flag for indicating that the new swizzle
-  //!  implementation is used and will be removed in follow ups.
-  bool hasSwizzleOp() const {
-    return has_swizzle_op_;
-  }
-
-  //! A temporary helper function for the transition from Swizzle2D to Swizzle
-  void setHasSwizzleOp() {
-    has_swizzle_op_ = true;
-  }
-
   friend TransformPropagator;
   friend MostInlinedTransformPropagator;
   friend TransformReplay;
   friend OptOutMutator;
-  friend class InlineBatchingGuard;
   friend class ir_utils::TVDomainGuard;
 
   // Inline the computation of this tensor into its consumer at the given
@@ -806,6 +834,10 @@ class NVF_API TensorView : public Val {
   // example, grouping multiple reductions.
   void updateMaxProducerPosition(MaxPosCalculator* calc = nullptr);
 
+  // Initialize compute and prodocuer positions. Fusion can result in
+  // an inconsistent state. Use with extreme care.
+  void clearComputePosition();
+
   // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only
   // implicit transpose is being tested. This function can be dangerous: it
@@ -867,7 +899,7 @@ class NVF_API TensorView : public Val {
   }
 
   //! A helper function to maintain the consistency of schedules of
-  //! multiple outputs wheen doing rfactor on multi-output reduction ops.
+  //! multiple outputs when doing rfactor on multi-output reduction ops.
   TensorView* multiOutputRFactorHelper(
       TensorView* tv,
       const std::vector<int64_t>& axes);
@@ -890,11 +922,6 @@ class NVF_API TensorView : public Val {
   // copying of the data, so we want to pass the data value as a standard
   // kernel argument value.
   bool cpu_scalar_ = false;
-
-  //! Indicates if this tensor view has swizzle operator on its tensor domain.
-  //!  This is the temporary flag for indicating that the new swizzle
-  //!  implementation is used and will be removed in follow ups.
-  bool has_swizzle_op_ = false;
 
   //! Direct consumer tensors that this tensor is computed with
   std::vector<TensorView*> compute_with_consumers_;

@@ -5,18 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <type.h>
+#include "ops/indexing.h"
 
 #include <c10/util/BFloat16.h>
 #include <c10/util/Half.h>
-#include <c10/util/irange.h>
+
+#include "expr_simplifier.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -24,11 +24,17 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
   auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_CHECK(!dom.empty(), "select can not be applied to 0d tensor.");
 
+  NVF_CHECK(
+      !tv->domain()->hasRaggedIterDomain(),
+      "Select operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      tv->toString());
+
   std::vector<IterDomain*> new_root;
   new_root.reserve(dom.size() - 1);
   dim = wrapDim(dim, (int64_t)dom.size());
 
-  for (auto i : c10::irange((int64_t)dom.size())) {
+  for (auto i : arange((int64_t)dom.size())) {
     if (i != dim) {
       new_root.emplace_back(dom[i]->cloneWithoutRFactor());
     }
@@ -36,7 +42,7 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
 
   auto td = IrBuilder::create<TensorDomain>(
       new_root, TensorDomain::getContiguityFilledWith(new_root, true));
-  auto out = IrBuilder::create<TensorView>(td, *tv->getDataType());
+  auto out = IrBuilder::create<TensorView>(td, tv->getDataType());
   IrBuilder::create<SelectOp>(out, tv, dim, index);
   return out;
 }
@@ -46,7 +52,21 @@ TensorView* indexSelect(
     TensorView* lookup_tv,
     int64_t dim,
     TensorView* index_tv) {
-  DataType dtype = lookup_tv->getDataType().value();
+  NVF_CHECK(
+      !lookup_tv->domain()->hasRaggedIterDomain(),
+      "IndexSelect operation is not supported for tensors with "
+      "RaggedIterDomain. "
+      "Input tensor (lookup_tv): ",
+      lookup_tv->toString());
+
+  NVF_CHECK(
+      !index_tv->domain()->hasRaggedIterDomain(),
+      "IndexSelect operation is not supported for tensors with "
+      "RaggedIterDomain. "
+      "Index tensor (index_tv): ",
+      index_tv->toString());
+
+  DataType dtype = lookup_tv->getDataType();
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
@@ -79,7 +99,7 @@ TensorView* indexSelect(
   // create logical domain for output tensorview.
   std::vector<IterDomain*> new_logical;
   new_logical.reserve(n_dims);
-  for (auto i : c10::irange(n_dims)) {
+  for (auto i : arange(n_dims)) {
     if (i != dim) {
       new_logical.emplace_back(lookup_domain.at(i)->cloneWithoutRFactor());
     } else {
@@ -100,15 +120,57 @@ TensorView* indexSelect(
   return out;
 }
 
+// This is a restricted version of PyTorch's Tensor.index_put(indices,
+// values, accumulate=true). We only support a 1-D index tensor at
+// this moment. The 1-D index tensor is assumed to index dimension
+// 0. The shape of the value tensor must be
+// [index_tv->axis(0)->extent(), acc_tv->axis(1)->extent(),
+// acc_tv->axis(2)->extent(), ...].
+TensorView* indexPutAccumulate(
+    TensorView* acc_tv,
+    TensorView* index_tv,
+    TensorView* value_tv) {
+  DataType dtype = acc_tv->getDataType();
+  NVF_CHECK(
+      dtype != DataType::Null, "Invalid datatype provided for new value.");
+
+  std::vector<IterDomain*> acc_domain =
+      TensorDomain::noReductions(acc_tv->getLogicalDomain());
+  std::vector<IterDomain*> index_domain =
+      TensorDomain::noReductions(index_tv->getLogicalDomain());
+  std::vector<IterDomain*> value_domain =
+      TensorDomain::noReductions(value_tv->getLogicalDomain());
+
+  NVF_CHECK(acc_domain.size() == value_domain.size());
+  NVF_CHECK(index_domain.size() == 1);
+
+  auto* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
+  IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, index_tv, value_tv);
+  return out;
+}
+
 // torch.gather
 TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Gather operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor (inp): ",
+      inp->toString());
+
+  NVF_CHECK(
+      !index->domain()->hasRaggedIterDomain(),
+      "Gather operation is not supported for tensors with RaggedIterDomain. "
+      "Index tensor (index): ",
+      index->toString());
+
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
   auto idx_domain = TensorDomain::noReductions(index->getLogicalDomain());
   NVF_CHECK(
       !inp_domain.empty(), "torch.gather can not be applied to 0d tensor.");
   NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
-      "the input and index tensor must have the same dimensions for torch.gather");
+      "the input and index tensor must have the same dimensions for "
+      "torch.gather");
   dim = wrapDim(dim, (int64_t)idx_domain.size());
 
   std::vector<IterDomain*> out_domain;
@@ -120,33 +182,73 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
+      inp->getDataType());
 
   IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, false);
   return out_tensor->as<TensorView>();
 }
 
-// torch.scatter torch.scatter_add
-TensorView* scatterOp(
-    ScatterOpType type,
+TensorView* scatter(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    TensorView* src) {
+    Val* src,
+    std::optional<BinaryOpType> accumulate_op) {
+  NVF_CHECK(
+      !self->domain()->hasRaggedIterDomain(),
+      "Scatter operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor (self): ",
+      self->toString());
+
+  NVF_CHECK(
+      !index->domain()->hasRaggedIterDomain(),
+      "Scatter operation is not supported for tensors with RaggedIterDomain. "
+      "Index tensor (index): ",
+      index->toString());
+
+  if (src->isA<TensorView>()) {
+    NVF_CHECK(
+        !src->as<TensorView>()->domain()->hasRaggedIterDomain(),
+        "Scatter operation is not supported for tensors with RaggedIterDomain. "
+        "Source tensor (src): ",
+        src->toString());
+  }
+
   auto self_dom = TensorDomain::noReductions(self->getLogicalDomain());
   auto idx_dom = TensorDomain::noReductions(index->getLogicalDomain());
-  auto src_dom = TensorDomain::noReductions(src->getLogicalDomain());
 
   NVF_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
   NVF_CHECK(
-      self_dom.size() == idx_dom.size() && self_dom.size() == src_dom.size(),
-      "self, index and src tensor should all have the same number of dimensions in scatter like ops.");
+      self_dom.size() == idx_dom.size() &&
+          (!src->isA<TensorView>() ||
+           self_dom.size() ==
+               TensorDomain::noReductions(
+                   src->as<TensorView>()->getLogicalDomain())
+                   .size()),
+      "self, index and src tensor should all have the same number of "
+      "dimensions in scatter like ops.");
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
+  bool is_exact = true;
+  for (const auto i : arange(std::ssize(self_dom))) {
+    if (i == dim) {
+      continue;
+    }
+    Val* self_id_size = self_dom.at(i)->getMaybeExpandedExtent();
+    Val* idx_id_size = idx_dom.at(i)->getMaybeExpandedExtent();
+    auto same_size =
+        simplifyExpr(SimplifyingIrBuilder::eqExpr(self_id_size, idx_id_size));
+    if (same_size->isTrue()) {
+      continue;
+    }
+    is_exact = false;
+    break;
+  }
+
   // The shape of output tensor is same as self tensor.
-  std::vector<IterDomain*> out_domain;
-  for (const auto i : c10::irange(self_dom.size())) {
-    out_domain.push_back(
+  std::vector<IterDomain*> out_logical;
+  for (const auto i : arange(self_dom.size())) {
+    out_logical.push_back(
         IterDomainBuilder(self_dom[i])
             .iter_type(
                 self_dom[i]->getIterType() == IterType::Iteration
@@ -155,21 +257,44 @@ TensorView* scatterOp(
             .build());
   }
 
+  // Create the loop domain based on the logical domain of the index
+  // tensor. For non-scatter axes, reuse the logical IDs if exact.
+  std::vector<IterDomain*> out_loop;
+  out_loop.reserve(idx_dom.size());
+  for (const auto& [i, idx_id] : enumerate(idx_dom)) {
+    if ((int64_t)i == dim || !is_exact) {
+      out_loop.push_back(IterDomainBuilder(idx_id).build());
+    } else {
+      out_loop.push_back(out_logical.at(i));
+    }
+  }
+
+  // Create the output tensor. The validation of the loop domain needs
+  // to be skipped as it is not guaranteed to be equivalent to the
+  // logical domain.
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      self->getDataType().value());
+          /*logical_domain=*/out_logical,
+          /*loop_domain=*/out_loop,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_logical, true),
+          /*skip_loop_validation=*/true),
+      self->getDataType());
 
-  IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
+  if (accumulate_op.has_value()) {
+    NVF_ERROR(
+        accumulate_op.value() == BinaryOpType::Add ||
+            accumulate_op.value() == BinaryOpType::Mul ||
+            accumulate_op.value() == BinaryOpType::Max ||
+            accumulate_op.value() == BinaryOpType::Min,
+        "Unsupported accumulation op: ",
+        accumulate_op.value());
+  }
+
+  IrBuilder::create<ScatterOp>(
+      out_tensor, self, dim, index, src, is_exact, accumulate_op);
+
   return out_tensor->as<TensorView>();
-}
-
-TensorView* scatter(
-    TensorView* self,
-    int64_t dim,
-    TensorView* index,
-    TensorView* src) {
-  return scatterOp(ScatterOpType::Set, self, dim, index, src);
 }
 
 TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
@@ -180,13 +305,14 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
       !inp_domain.empty(), "take_along_axis can not be applied to 0d tensor.");
   NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
-      "The input and index tensor must have the same dimensions for take_along_axis");
+      "The input and index tensor must have the same dimensions for "
+      "take_along_axis");
 
   dim = wrapDim(dim, (int64_t)idx_domain.size());
 
   std::vector<IterDomain*> out_domain(idx_domain.size());
 
-  for (const auto i : c10::irange(idx_domain.size())) {
+  for (const auto i : arange(idx_domain.size())) {
     auto inp_id = inp_domain.at(i);
     auto idx_id = idx_domain.at(i);
 
@@ -229,11 +355,129 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
+      inp->getDataType());
 
   IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, true);
 
   return out_tensor->as<TensorView>();
+}
+
+std::vector<IterDomain*> layoutAllocationDomain(
+    std::vector<IterDomain*> logical_dom,
+    Val* num_groups,
+    BlockScalingFactorLayout layout) {
+  NVF_ERROR_EQ(logical_dom.size(), 2);
+
+  // Create the allocation domain of output.
+  std::vector<IterDomain*> alloc_dom;
+  alloc_dom.reserve(logical_dom.size());
+
+  // only Block128x4 is supported at this point.
+  NVF_CHECK_EQ(layout, BlockScalingFactorLayout::Block128x4);
+  constexpr int col_multiple = 4;
+  constexpr int row_multiple = 128;
+
+  auto* one_val = num_groups->fusion()->oneVal(DataType::Index);
+
+  // Note: output allocation domain handles potential padding required for the
+  // layout. Since the actual padding size is data-dependent, we allocate for
+  // the maximum padding (reflected on logical/allocation domain).
+
+  // NOTE: We could use resize operations for the padding logic, I think this
+  // might simplify predication. Not doing that for now for simpler
+  // implementation. We'll re-evaluate when we add scheduler support.
+
+  // pad row size: num_groups * (row_multiple - 1) + row_size
+  auto pad_to_max_extent = [&](IterDomain* id, int multiple) -> IterDomain* {
+    auto* maximum_pad_value_per_group =
+        IrBuilder::create<Val>(multiple - 1, DataType::Index);
+
+    // NOTE: we do not use `resize` to represent the padding.
+    //
+    // resize sounds good in theory, because transformation can propagate across
+    // it. In reality, we do not have a protocol to index this operation via the
+    // logical to allocation domain transform. I question how much a resize op
+    // provides in functionality. More importantly, using resize hits asserts in
+    // vectorization analysis (validateDeviceSplit ATM), which doesn't look easy
+    // to handle for me.
+    Val* padded_ext = SimplifyingIrBuilder::addExpr(
+        id->extent(),
+        SimplifyingIrBuilder::mulExpr(num_groups, maximum_pad_value_per_group));
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  alloc_dom.push_back(pad_to_max_extent(logical_dom[0], row_multiple));
+
+  // pad col size: (col_size + col_multiple - 1) / col_multiple * col_multiple
+  auto pad_to_multiple = [&](IterDomain* id, int multiple) -> IterDomain* {
+    Val* ext = id->extent();
+    auto* multiple_val = IrBuilder::create<Val>(multiple, DataType::Index);
+    // Just as the comment above, we do NOT use resize op.
+    Val* padded_ext = SimplifyingIrBuilder::mulExpr(
+        SimplifyingIrBuilder::divExpr(
+            SimplifyingIrBuilder::subExpr(
+                SimplifyingIrBuilder::addExpr(ext, multiple_val), one_val),
+            multiple_val),
+        multiple_val);
+    return IterDomainBuilder(id).extent(padded_ext).build();
+  };
+  alloc_dom.push_back(pad_to_multiple(logical_dom[1], col_multiple));
+
+  return alloc_dom;
+}
+
+TensorView* preprocessGroupedMatmulInputSf(
+    TensorView* input,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
+    BlockScalingFactorLayout layout) {
+  // only support input matrix;
+  auto input_logical_dom =
+      TensorDomain::noReductions(input->getLogicalDomain());
+  NVF_ERROR_EQ(input_logical_dom.size(), 2);
+
+  // This is used for both root and loop domain on output
+  // maps directly to input's logical domain.
+  std::vector<IterDomain*> out_logical_dom;
+  out_logical_dom.reserve(input_logical_dom.size());
+  std::ranges::transform(
+      input_logical_dom,
+      std::back_inserter(out_logical_dom),
+      [](IterDomain* id) { return IterDomainBuilder(id).build(); });
+
+  std::vector<IterDomain*> offset_logical_dom =
+      TensorDomain::noReductions(input_offsets->getLogicalDomain());
+  Val* num_groups = offset_logical_dom[0]->extent();
+
+  // Create the allocation domain of output.
+  std::vector<IterDomain*> out_alloc_dom =
+      layoutAllocationDomain(out_logical_dom, num_groups, layout);
+
+  // TODO: try if revert to vanilla TensorDomain constructor and call set
+  // allocation domain later Create the output tensor with logical domain
+  // matching inputs
+  TensorView* out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          /*root_domain=*/std::vector<IterDomain*>(),
+          /*logical_domain=*/out_logical_dom,
+          /*allocation=*/out_alloc_dom,
+          /*loop_domain=*/out_logical_dom,
+          /*alternate_loop_domain=*/std::nullopt,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_alloc_dom, true),
+          /*additional_ids=*/std::vector<IterDomain*>(),
+          /*skip_checks=*/true),
+      input->getDataType());
+
+  IrBuilder::create<PreprocessGroupedMatmulInputSf>(
+      out_tv,
+      input,
+      input_offsets,
+      output_offsets,
+      layout,
+      input_logical_dom[1]->getMaybeExpandedExtent(),
+      num_groups);
+
+  return out_tv;
 }
 
 } // namespace nvfuser

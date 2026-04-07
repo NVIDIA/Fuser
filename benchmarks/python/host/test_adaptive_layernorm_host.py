@@ -2,7 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
+from nvfuser_direct import FusionDefinition, DataType
 from ..core import run_benchmark
 import torch
 

@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/translate_repeat_to_expand.h>
-
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
+#include "preseg_passes/translate_repeat_to_expand.h"
 
 #include <unordered_map>
 #include <vector>
+
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
 
 namespace nvfuser::preseg_passes {
 
@@ -59,7 +59,7 @@ class RepeatToExpandTranslator {
       // Not supported if there are multiple expanded logical IDs
       IterDomain* out_padded_root_id = nullptr;
       bool multiple_resizes_found = false;
-      for (const auto i : c10::irange(pad_out->getLogicalDomain().size())) {
+      for (const auto i : arange(pad_out->getLogicalDomain().size())) {
         auto out_logical_id = pad_out->getLogicalDomain().at(i);
         auto resize = dynamic_cast<Resize*>(out_logical_id->definition());
         if (resize == nullptr) {

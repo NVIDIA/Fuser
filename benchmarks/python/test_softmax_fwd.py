@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -24,24 +24,17 @@ def softmax_fwd_fusion(
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
     T2 = fd.ops.max(T0, dims=[reduction_axis], keepdim=False, dtype=DataType.Null)
 
-    if reduction_axis:
-        V6 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
-    else:
-        V6 = fd.define_vector([1, T0.size(1)], dtype=DataType.Int)
-    bcast_dim = 1 - reduction_axis
+    bcast_dims = [False, False]
+    bcast_dims[reduction_axis] = True
 
-    T7 = fd.ops.broadcast_in_dim(T2, shape=V6, broadcast_dims=[bcast_dim])
-
-    V11 = T0.shape()
-    T12 = fd.ops.broadcast_in_dim(T7, shape=V11, broadcast_dims=[0, 1])
-    T13 = fd.ops.sub(T0, T12)
+    T7 = fd.ops.broadcast(T2, is_broadcast_dim=bcast_dims)
+    T13 = fd.ops.sub(T0, T7)
     T14 = fd.ops.exp(T13)
     T15 = fd.ops.sum(T14, dims=[reduction_axis], keepdim=False, dtype=DataType.Null)
 
-    T20 = fd.ops.broadcast_in_dim(T15, shape=V6, broadcast_dims=[bcast_dim])
-    T25 = fd.ops.broadcast_in_dim(T20, shape=V11, broadcast_dims=[0, 1])
+    T20 = fd.ops.broadcast(T15, is_broadcast_dim=bcast_dims)
 
-    T26 = fd.ops.reciprocal(T25)
+    T26 = fd.ops.reciprocal(T20)
     T27 = fd.ops.mul(T14, T26)
 
     if dtype in PROMOTE_DTYPES:
@@ -56,7 +49,13 @@ def softmax_fwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
+@pytest.mark.parametrize(
+    "reduction_axis",
+    [
+        pytest.param(0, marks=pytest.mark.outer_persistent),
+        pytest.param(1, marks=pytest.mark.inner_persistent),
+    ],
+)
 def test_softmax_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -81,7 +80,13 @@ def test_softmax_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
+@pytest.mark.parametrize(
+    "reduction_axis",
+    [
+        pytest.param(0, marks=pytest.mark.outer_persistent),
+        pytest.param(1, marks=pytest.mark.inner_persistent),
+    ],
+)
 def test_softmax_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -91,7 +96,7 @@ def test_softmax_fwd_baseline_benchmark(
 ):
     if executor == "torchcompile":
         clear_dynamo_cache()
-    inputs = torch.randn(size, device="cuda", dtype=dtype)
+    inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
 
     benchmark_fn = with_executor(executor, softmax)
     run_benchmark(

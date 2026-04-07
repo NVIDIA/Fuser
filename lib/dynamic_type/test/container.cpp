@@ -16,6 +16,11 @@
 
 #include "utils.h"
 
+template <typename T, typename IndexT>
+concept HasIndex = requires(T t, IndexT idx) {
+  t[idx];
+};
+
 TEST_F(DynamicTypeTest, FromContainerToContainer) {
   using IntOrVec = DynamicType<Containers<std::vector>, int>;
   using Vec = DynamicType<Containers<std::vector>>;
@@ -30,22 +35,24 @@ TEST_F(DynamicTypeTest, FromContainerToContainer) {
                 IntOrVec,
                 std::vector<std::vector<std::vector<std::vector<int>>>>>);
 
-  static_assert(opcheck<IntOrVec>.canCastTo(opcheck<std::vector<double>>));
+  static_assert(requires(IntOrVec iov) { (std::vector<double>)(iov); });
   static_assert(
-      opcheck<IntOrVec>.canCastTo(opcheck<std::vector<std::vector<double>>>));
-  static_assert(opcheck<IntOrVec>.canCastTo(
-      opcheck<std::vector<std::vector<std::vector<double>>>>));
-  static_assert(opcheck<IntOrVec>.canCastTo(
-      opcheck<std::vector<std::vector<std::vector<std::vector<double>>>>>));
+      requires(IntOrVec iov) { (std::vector<std::vector<double>>)(iov); });
+  static_assert(requires(IntOrVec iov) {
+    (std::vector<std::vector<std::vector<double>>>)(iov);
+  });
+  static_assert(requires(IntOrVec iov) {
+    (std::vector<std::vector<std::vector<std::vector<double>>>>)(iov);
+  });
 
-  static_assert(opcheck<IntOrVec>[opcheck<IntOrVec>]);
-  static_assert(!opcheck<Vec>[opcheck<Vec>]);
-  static_assert(opcheck<const IntOrVec>[opcheck<IntOrVec>]);
-  static_assert(!opcheck<const Vec>[opcheck<Vec>]);
-  static_assert(opcheck<IntOrVec>[opcheck<const IntOrVec>]);
-  static_assert(!opcheck<Vec>[opcheck<const Vec>]);
-  static_assert(opcheck<const IntOrVec>[opcheck<const IntOrVec>]);
-  static_assert(!opcheck<const Vec>[opcheck<const Vec>]);
+  static_assert(requires(IntOrVec a, IntOrVec idx) { a[idx]; });
+  static_assert(!HasIndex<Vec, Vec>);
+  static_assert(requires(const IntOrVec a, IntOrVec idx) { a[idx]; });
+  static_assert(!HasIndex<const Vec, Vec>);
+  static_assert(requires(IntOrVec a, const IntOrVec idx) { a[idx]; });
+  static_assert(!HasIndex<Vec, const Vec>);
+  static_assert(requires(const IntOrVec a, const IntOrVec idx) { a[idx]; });
+  static_assert(!HasIndex<const Vec, const Vec>);
 
   IntOrVec zero = 0;
   IntOrVec one = 1;

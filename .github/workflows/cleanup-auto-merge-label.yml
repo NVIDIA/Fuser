@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Remove enable-auto-merge label when PR is closed/merged
+name: Cleanup auto-merge label
+on:
+  pull_request:
+    types:
+      - closed
+
+jobs:
+  cleanup-label:
+    name: Remove auto-merge label on PR close
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+
+    # Only run when a PR with the enable-auto-merge label is closed
+    if: contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')
+
+    steps:
+      - name: Remove enable-auto-merge label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr_number = context.payload.pull_request.number;
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr_number,
+                name: 'enable-auto-merge',
+              });
+              core.info(`Removed enable-auto-merge label from PR #${pr_number}`);
+            } catch (error) {
+              // Label might have been removed already, log but don't fail
+              core.info(`Could not remove label: ${error.message}`);
+            }

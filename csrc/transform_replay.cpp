@@ -7,6 +7,8 @@
 // clang-format on
 #include <transform_replay.h>
 
+#include <ranges>
+
 #include <compute_at_map.h>
 #include <debug.h>
 #include <disjoint_set.h>
@@ -14,7 +16,6 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/arith.h>
@@ -39,18 +40,21 @@ class ReplaySelf : public ReplayTransformations {
 
     // Grab our mapping of that ID to the one we're replaying
     auto it = id_map_.find(id_in);
-
-    // Make sure it exists in the map
-    NVF_ERROR(
-        it != id_map_.end(),
-        "Transform traversal failed, dependencies not met.");
+    if (it == id_map_.end()) {
+      if (!error_on_failure_) {
+        return;
+      }
+      // Make sure it exists in the map
+      NVF_THROW("Transform traversal failed, dependencies not met.");
+    }
     // Grab the ID we're going to replay on
     auto mapped = it->second;
 
     // This ID should be a loop ID (meaning it has no uses we generated)
     NVF_ERROR(
         loop_ids_.find(mapped) != loop_ids_.end(),
-        "Transform traversal failed, modified a node but it was not a loop node.");
+        "Transform traversal failed, modified a node but it was not a loop "
+        "node.");
 
     NVF_ERROR(s->outer()->isRFactorProduct() == s->inner()->isRFactorProduct());
 
@@ -85,11 +89,12 @@ class ReplaySelf : public ReplayTransformations {
 
     auto it_outer = id_map_.find(id_outer);
     auto it_inner = id_map_.find(id_inner);
-
-    NVF_ERROR(
-        it_outer != id_map_.end() && it_inner != id_map_.end(),
-        "Transform traversal failed, dependencies not met.");
-
+    if (it_outer == id_map_.end() || it_inner == id_map_.end()) {
+      if (!error_on_failure_) {
+        return;
+      }
+      NVF_THROW("Transform traversal failed, dependencies not met.");
+    }
     auto id_outer_mapped = it_outer->second;
     auto id_inner_mapped = it_inner->second;
 
@@ -118,23 +123,47 @@ class ReplaySelf : public ReplayTransformations {
     NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
   }
 
-  void handle(Swizzle2D* swizzle) override {
-    NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
+  void handle(Swizzle1D* swizzle1d) override {
+    auto id_in = swizzle1d->in();
+    auto it = id_map_.find(id_in);
+    if (it == id_map_.end()) {
+      if (!error_on_failure_) {
+        return;
+      }
+      NVF_THROW("Transform traversal failed, dependencies not met.");
+    }
+    auto mapped = it->second;
+
+    NVF_ERROR(
+        loop_ids_.find(mapped) != loop_ids_.end(),
+        "Transform traversal failed, modified a node but it was not a loop "
+        "node.");
+
+    auto replayed_id = IterDomain::swizzle1d(mapped, swizzle1d->parallelType());
+
+    loop_ids_.erase(mapped);
+
+    loop_ids_[replayed_id] = newCounter();
+
+    id_map_[swizzle1d->out()] = replayed_id;
   }
 
   void handle(Resize* resize) override {
     auto id_in = resize->in();
 
     auto it = id_map_.find(id_in);
-    NVF_ERROR(
-        it != id_map_.end(),
-        "Transform traversal failed, dependencies not met.");
-
+    if (it == id_map_.end()) {
+      if (!error_on_failure_) {
+        return;
+      }
+      NVF_THROW("Transform traversal failed, dependencies not met.");
+    }
     auto mapped = it->second;
 
     NVF_ERROR(
         loop_ids_.find(mapped) != loop_ids_.end(),
-        "Transform traversal failed, modified a node but it was not a loop node.");
+        "Transform traversal failed, modified a node but it was not a loop "
+        "node.");
 
     // When the original output is an rfactor, make the replayed
     // output domain also an rfactor
@@ -155,9 +184,9 @@ class ReplaySelf : public ReplayTransformations {
 
  public:
   ReplaySelf(
-      const std::vector<IterDomain*>& _target_domain,
-      IterDomainMap _id_map)
-      : ReplayTransformations(_target_domain, std::move(_id_map)) {
+      const std::vector<IterDomain*>& target_domain,
+      IterDomainMap id_map)
+      : ReplayTransformations(target_domain, std::move(id_map)) {
     setErrorOnFailure(false);
   }
 };
@@ -243,116 +272,125 @@ void TransformReplay::selfReplay(
     TensorDomain* new_self) {
   FUSER_PERF_SCOPE("TransformReplay::selfReplay");
 
-  // NOTE: We could also have reduction IDs involved in transformation that
-  // leads to allocation domain, so technically we should have included
-  // reduction IDs in the replay as well. The reason that we skipped them here
-  // is because this function is used by `RemoveBcastSqueeze`, where we could
-  // have mismatch reduction IDs on the logical between `self` and
-  // `new_self`.
-  auto new_self_logical = TensorDomain::noReductions(new_self->logical());
-  auto self_logical = TensorDomain::noReductions(self->logical());
+  std::vector<IterDomain*> logical = self->logical();
+  std::vector<IterDomain*> new_logical = new_self->logical();
 
-  NVF_ERROR(
-      new_self_logical.size() == self_logical.size(),
-      "Invalid number of IterDomains provided: ",
-      new_self_logical.size(),
-      " vs ",
-      self_logical.size());
+  // For convenience, automatically remove extra reduction dimensions.
+  bool ignore_reductions = logical.size() != new_logical.size();
+  if (logical.size() > new_logical.size()) {
+    logical = TensorDomain::noReductions(logical);
+  } else if (logical.size() < new_logical.size()) {
+    new_logical = TensorDomain::noReductions(new_logical);
+  }
+  NVF_ERROR_EQ(logical.size(), new_logical.size());
 
-  // Map for replay
   IterDomainMap axis_map;
-  for (auto&& [id, new_id] : zip(self_logical, new_self_logical)) {
-    // Note: we don't want to check for equal `isRFactorProduct`, since we
-    // could replay Allocation of the output of a reduction to a later
-    // consumer tensor, which would not have the rfactor flag on.
+  for (auto&& [id, new_id] : zip(logical, new_logical)) {
+    // We don't check for equal `isRFactorProduct`, since we could replay
+    // Allocation of the output of a reduction to a later consumer tensor, which
+    // would not have the rfactor flag on.
     //
-    // Note: this function can be used prior to concretization, where we might
-    // have unresolved symbolic ID, where the broadcast flag might mismatch.
-    // We skip the check if either id or new_id is symbolic and expect a
-    // correct user program.
+    // This function can be used prior to concretization, where we might have a
+    // concrete ID map a symbolic ID. Otherwise, the IterTypes must be the
+    // same.
+    auto iter_types_match = [](IterType lhs, IterType rhs) -> bool {
+      if (lhs == rhs) {
+        return true;
+      }
+      return lhs == IterType::Symbolic || rhs == IterType::Symbolic;
+    };
     NVF_ERROR(
-        new_id->isSymbolic() || id->isSymbolic() ||
-            new_id->isBroadcast() == id->isBroadcast(),
+        iter_types_match(id->getIterType(), new_id->getIterType()),
         "Axes ",
         id,
         " and ",
         new_id,
         " do not match for self replay.");
     axis_map[id] = new_id;
+
+    // Logical domain may have device or stream parallel types which should be
+    // replayed.
+    new_id->parallelize(id->getParallelType());
   }
 
-  if (self->hasAllocation()) {
-    // Replay producer dimensions.
-    const std::vector<IterDomain*>& self_allocation = self->maybeAllocation();
-    const std::vector<std::optional<bool>>& self_contiguity =
-        self->contiguity();
-    const std::vector<IterDomain*>& self_allocation_no_reduction =
-        TensorDomain::noReductions(self_allocation);
+  // We create one ReplaySelf instance to replay loop and allocation. This way,
+  // loop and allocation share the same transforms if they are split the same
+  // way.
+  //
+  // We use `loop` as the target domain because loop post-dominates
+  // allocation.
+  const std::vector<IterDomain*>& loop = self->loop();
+  ReplaySelf replay(loop, axis_map);
 
-    // we replay only non-reduction IDs. The reason is that, we might have
-    // non-mapping reduction IDs between self and new_self. This is used in
-    // `RemoveBcastSqueeze`.
-    ReplaySelf replay(self_allocation_no_reduction, axis_map);
-    std::vector<IterDomain*> new_alloc_domain;
-    std::vector<std::optional<bool>> new_contiguity;
-    new_alloc_domain.reserve(self_allocation.size());
-    new_contiguity.reserve(self_allocation.size());
-
-    // Push back the reduction IDs that are not mapped
-    for (auto id : new_self->logical()) {
-      if (id->isReduction()) {
-        new_alloc_domain.push_back(id);
-        // NOLINTNEXTLINE(modernize-use-emplace)
-        new_contiguity.push_back(std::nullopt);
+  // Replay loop.
+  if (loop != self->logical()) {
+    std::vector<IterDomain*> new_loop;
+    if (ignore_reductions) {
+      for (auto* id : new_self->logical()) {
+        if (id->isReduction()) {
+          new_loop.push_back(id);
+        }
       }
     }
 
-    // Pushing the mapped IDs and corresponding contiguity flags
-    for (size_t i : c10::irange(self_allocation.size())) {
-      IterDomain* id = self_allocation[i];
-      if (id->isReduction()) {
+    for (IterDomain* loop_id : loop) {
+      if (ignore_reductions && loop_id->isReduction()) {
         continue;
       }
-      auto it = replay.getReplay().find(id);
+      auto it = replay.getReplay().find(loop_id);
       NVF_ERROR(
-          it != replay.getReplay().end(), "failed to replay IterDomain: ", id);
-      // The possibility of a mismatch is when one of the IDs are symbolic. We
-      // need to ensure that new_contiguity is consistent with new_alloc_domain,
-      // otherwise the later setAllocationDomain would fail checks.
-      if (it->second->isBroadcast() == self_contiguity[i].has_value()) {
-        // whether we resolve to true or false shouldn't matter since it's going
-        // to be concretized as a broadcast dimension
-        new_contiguity.push_back(
-            it->second->isBroadcast() ? std::nullopt
-                                      : std::make_optional(true));
-      } else {
-        new_contiguity.push_back(self_contiguity[i]);
-      }
-      it->second->parallelize(id->getParallelType());
-      new_alloc_domain.push_back(it->second);
-    }
-
-    new_self->setAllocationDomain(new_alloc_domain, new_contiguity);
-  }
-
-  if (self->loop() != self->logical()) {
-    std::vector<IterDomain*> new_loop;
-    ReplaySelf replay(self->loop(), axis_map);
-    for (auto id : new_self->logical()) {
-      if (id->isReduction()) {
-        new_loop.push_back(id);
-      }
-    }
-
-    for (IterDomain* id : self->loop()) {
-      auto it = replay.getReplay().find(id);
-      NVF_ERROR(
-          it != replay.getReplay().end(), "failed to replay IterDomain: ", id);
-      it->second->parallelize(id->getParallelType());
+          it != replay.getReplay().end(),
+          "failed to replay IterDomain: ",
+          loop_id);
+      it->second->parallelize(loop_id->getParallelType());
       new_loop.push_back(it->second);
     }
 
     new_self->setLoopDomain(new_loop);
+  }
+
+  // Replay allocation.
+  if (self->hasAllocation()) {
+    const std::vector<IterDomain*>& allocation = self->allocation();
+    const std::vector<std::optional<bool>>& contiguities = self->contiguity();
+    NVF_ERROR_EQ(allocation.size(), contiguities.size());
+
+    std::vector<IterDomain*> new_allocation;
+    std::vector<std::optional<bool>> new_contiguities;
+    new_allocation.reserve(allocation.size());
+    new_contiguities.reserve(contiguities.size());
+
+    // Push back the reduction IDs that are not mapped
+    if (ignore_reductions) {
+      for (auto* id : new_self->logical()) {
+        if (id->isReduction()) {
+          new_allocation.push_back(id);
+          new_contiguities.emplace_back();
+        }
+      }
+    }
+
+    // Pushing the mapped IDs and corresponding contiguity flags
+    for (auto&& [alloc_id, contiguity] : zip(allocation, contiguities)) {
+      if (ignore_reductions && alloc_id->isReduction()) {
+        continue;
+      }
+      auto it = replay.getReplay().find(alloc_id);
+      NVF_ERROR(
+          it != replay.getReplay().end(),
+          "failed to replay IterDomain: ",
+          alloc_id);
+      NVF_ERROR_EQ(
+          (it->second->isBroadcast() || it->second->isReduction()),
+          !contiguity.has_value(),
+          "Contiguity should be nullopt iff broadcast or reduction, true/false "
+          "otherwise.");
+      new_contiguities.push_back(contiguity);
+      it->second->parallelize(alloc_id->getParallelType());
+      new_allocation.push_back(it->second);
+    }
+
+    new_self->setAllocationDomain(new_allocation, new_contiguities);
   }
 }
 
@@ -382,9 +420,8 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
 
   std::unordered_set<IterDomain*> all_unmapped_ids;
-  std::transform(
-      all_unmapped_vals.begin(),
-      all_unmapped_vals.end(),
+  std::ranges::transform(
+      all_unmapped_vals,
       std::inserter(all_unmapped_ids, all_unmapped_ids.end()),
       [](Val* val) { return val->as<IterDomain>(); });
   return all_unmapped_ids;
@@ -429,9 +466,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
       consumer,
       consumer_pos,
       logical_map,
-      opt.skip_target_swizzle,
-      !opt.replay_swizzle,
-      !opt.replay_resize);
+      /*skip_resize=*/!opt.replay_resize);
 
   // Make a new map based on all the loop ids resulting from best effort replay
   IterDomainMap forwarded_replay_map;
@@ -526,10 +561,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   for (auto producer_logical_id : producer_logical) {
     if (all_processed_ids.find(producer_logical_id) ==
             all_processed_ids.end() &&
-        std::find(
-            dims_mapped2target.begin(),
-            dims_mapped2target.end(),
-            producer_logical_id) == dims_mapped2target.end()) {
+        std::ranges::find(dims_mapped2target, producer_logical_id) ==
+            dims_mapped2target.end()) {
       producer_self_replay_map[producer_logical_id] = producer_logical_id;
     }
   }
@@ -562,8 +595,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
    *
    */
 
-  std::vector<IterDomain*> new_IDs;
-  std::unordered_set<IterDomain*> used_IDs;
+  std::vector<IterDomain*> new_loop;
+  std::unordered_set<IterDomain*> used_loop;
   // Add axes in (1)
   for (auto c_id : target_consumer_ids) {
     auto it = replay_PasC.getReplay().find(c_id);
@@ -575,11 +608,11 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
           ", requested in replay.");
       continue;
     }
-    new_IDs.push_back(it->second);
-    used_IDs.emplace(it->second);
+    new_loop.push_back(it->second);
+    used_loop.emplace(it->second);
   }
 
-  int64_t producer_pos = (int64_t)new_IDs.size();
+  int64_t producer_pos = std::ssize(new_loop);
 
   // Add axes in (2)
   for (auto c_id : consumer->getLoopDomain()) {
@@ -592,9 +625,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
           producer_replayed_loop.getUnorderedLeafIDs().end()) {
         continue;
       }
-      if (used_IDs.find(id) == used_IDs.end()) {
-        new_IDs.push_back(id);
-        used_IDs.emplace(id);
+      if (used_loop.find(id) == used_loop.end()) {
+        new_loop.push_back(id);
+        used_loop.emplace(id);
       }
     }
   }
@@ -603,30 +636,31 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   for (auto id : producer->getLoopDomain()) {
     if (producer_replayed_loop.getUnorderedLeafIDs().find(id) !=
         producer_replayed_loop.getUnorderedLeafIDs().end()) {
-      if (used_IDs.find(id) == used_IDs.end()) {
-        new_IDs.push_back(id);
-        used_IDs.emplace(id);
+      if (used_loop.find(id) == used_loop.end()) {
+        new_loop.push_back(id);
+        used_loop.emplace(id);
       }
     }
   }
 
   // Add axes in (4)
   for (auto id : producer_replayed_loop.getLeafIDs()) {
-    if (used_IDs.find(id) == used_IDs.end()) {
-      new_IDs.push_back(id);
+    if (used_loop.find(id) == used_loop.end()) {
+      new_loop.push_back(id);
     }
   }
 
   NVF_ERROR(
       !opt.replay_allocation,
-      "replayAllocation is not implemented yet for TransformReplay::replayPasC");
+      "replayAllocation is not implemented yet for "
+      "TransformReplay::replayPasC");
 
   TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       producer->container(),
       producer->getRootDomain(),
       producer->getLogicalDomain(),
       producer->getAllocationDomain(),
-      new_IDs,
+      new_loop,
       producer->domain()->contiguity());
   return {replayed, producer_pos};
 }
@@ -667,9 +701,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       producer,
       producer_pos,
       logical_map,
-      opt.skip_target_swizzle,
-      !opt.replay_swizzle,
-      !opt.replay_resize);
+      /*skip_resize=*/!opt.replay_resize);
 
   // Track dangling loop ids which can be produced in
   // BestEffortReplay::replayCasP these don't have any equivalent in producer
@@ -754,14 +786,11 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   // Any root domain that was not used to generate computeIDs we can also put in
   // the map to forward their transformations.
   for (auto consumer_root_id : consumer_root) {
-    if (std::find(
-            processed_roots.begin(), processed_roots.end(), consumer_root_id) ==
+    if (std::ranges::find(processed_roots, consumer_root_id) ==
             processed_roots.end() &&
         // Don't re-add roots that may have directly mapped in the replay
-        std::find(
-            dims_mapped2target.begin(),
-            dims_mapped2target.end(),
-            consumer_root_id) == dims_mapped2target.end()) {
+        std::ranges::find(dims_mapped2target, consumer_root_id) ==
+            dims_mapped2target.end()) {
       consumer_self_replay_map[consumer_root_id] = consumer_root_id;
     }
   }
@@ -795,8 +824,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
    * TODO: Should (2) and (3) be swapped?
    */
 
-  std::vector<IterDomain*> new_IDs;
-  std::unordered_set<IterDomain*> used_IDs;
+  std::vector<IterDomain*> new_loop;
+  std::unordered_set<IterDomain*> used_loop;
   // Add axes in (1)
   for (auto p_id : target_producer_ids) {
     auto it = replay_CasP.getReplay().find(p_id);
@@ -808,14 +837,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
           ", requested in replay.");
       continue;
     }
-    new_IDs.push_back(it->second);
-    used_IDs.emplace(it->second);
+    new_loop.push_back(it->second);
+    used_loop.emplace(it->second);
   }
 
   // pay attention to consumer pos, it should be the actual replayed axis,
   // otherwise further replay may lead to error where the mapped ID is missing.
   // see https://github.com/NVIDIA/Fuser/issues/2593
-  int64_t consumer_pos = (int64_t)new_IDs.size();
+  int64_t consumer_pos = std::ssize(new_loop);
 
   // Add axes in (2)
   for (auto p_id : producer->getLoopDomain()) {
@@ -828,9 +857,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
           consumer_replayed_loop.getUnorderedLeafIDs().end()) {
         continue;
       }
-      if (used_IDs.find(id) == used_IDs.end()) {
-        new_IDs.push_back(id);
-        used_IDs.emplace(id);
+      if (used_loop.find(id) == used_loop.end()) {
+        new_loop.push_back(id);
+        used_loop.emplace(id);
       }
     }
   }
@@ -839,28 +868,37 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   for (auto id : consumer->getLoopDomain()) {
     if (consumer_replayed_loop.getUnorderedLeafIDs().find(id) !=
         consumer_replayed_loop.getUnorderedLeafIDs().end()) {
-      if (used_IDs.find(id) == used_IDs.end()) {
-        new_IDs.push_back(id);
-        used_IDs.emplace(id);
+      if (used_loop.find(id) == used_loop.end()) {
+        new_loop.push_back(id);
+        used_loop.emplace(id);
       }
     }
   }
 
   // Add axes in (4)
   for (auto id : consumer_replayed_loop.getLeafIDs()) {
-    if (used_IDs.find(id) == used_IDs.end()) {
-      new_IDs.push_back(id);
+    if (used_loop.find(id) == used_loop.end()) {
+      new_loop.push_back(id);
     }
   }
 
   if (!opt.replay_allocation) {
+    // TODO: refactor to TensorDomainBuilder and clean up similar pattern. See:
+    // https://github.com/NVIDIA/Fuser/issues/5383 Duplicate TensorDomain to
+    // avoid validation run on existing TensorDomain.
     TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
         consumer->container(),
         consumer->getRootDomain(),
         consumer->getLogicalDomain(),
         consumer->getAllocationDomain(),
-        new_IDs,
-        consumer->domain()->contiguity());
+        consumer->getLoopDomain(),
+        /*alternate_loop_domain=*/std::nullopt,
+        consumer->domain()->contiguity(),
+        /*additiona_ids=*/std::vector<IterDomain*>(),
+        /*skip_validation=*/true);
+
+    // update loop domain, this ensures we run validation on new_loop.
+    replayed->setLoopDomain(new_loop);
 
     return {replayed, consumer_pos};
   }
@@ -869,19 +907,20 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       consumer->definition()->isA<LoadStoreOp>() && !consumer->hasRoot(),
       "TransformReplay::replayCasP currently replays allocation only for Set. "
       "Other ops (e.g. `consumer = broadcast(producer)`) can break. "
-      "See https://github.com/NVIDIA/Fuser/pull/1291#discussion_r1391999007 for details.");
+      "See https://github.com/NVIDIA/Fuser/pull/1291#discussion_r1391999007 "
+      "for details.");
 
   TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       consumer->container(),
       consumer->getRootDomain(),
       consumer->getLogicalDomain(),
       /*allocation=*/std::vector<IterDomain*>{},
-      /*loop=*/new_IDs,
+      /*loop=*/new_loop,
       consumer->domain()->contiguity());
 
   if (producer->hasAllocation()) {
     auto replay_CasP = BestEffortReplay(
-        new_IDs,
+        new_loop,
         producer->getLoopDomain(),
         logical_map.mapProducerToConsumer(producer->domain(), replayed));
     const auto& p2c_map = replay_CasP.getReplay();
@@ -892,7 +931,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     std::vector<std::optional<bool>> new_contiguity;
     new_contiguity.reserve(producer_rank);
 
-    for (auto i : c10::irange(producer_rank)) {
+    for (auto i : arange(producer_rank)) {
       IterDomain* alloc_id = producer->getAllocationDomain()[i];
       // We won't find reduction IterDomains in the map. See
       // AllocationDomainTest.CacheBefore.
@@ -951,7 +990,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
   IterDomainMap c2p_logical_map = pairwise_map.mapConsumerToProducer();
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->getLoopDomain();
+  const auto& consumer_domain = consumer->getLoopDomain();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : c2p_logical_map) {
@@ -965,14 +1004,14 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
       unskippable_consumer_ids_vec.begin(), unskippable_consumer_ids_vec.end());
 
   // IterDomains in `producer` root also in `consumer` root
-  const auto producer_domain = producer->getLoopDomain();
+  const auto& producer_domain = producer->getLoopDomain();
 
   auto it_consumer = consumer_domain.begin();
   auto it_producer = producer_domain.begin();
 
   auto disjoint_sets =
       BestEffortReplay::replayPasC(
-          producer, consumer, -1, pairwise_map, true, true, skip_resize)
+          producer, consumer, -1, pairwise_map, /*skip_resize=*/skip_resize)
           .getIterDomainEquivalence();
 
   int64_t mismatched_consumer_pos = 0;
@@ -1023,14 +1062,14 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
   IterDomainMap p2c_logical_map = pairwise_map.mapProducerToConsumer();
 
   // IterDomains in `producer` root that are not reduction
-  const auto producer_domain = producer->getLoopDomain();
+  const auto& producer_domain = producer->getLoopDomain();
   auto unskippable_producer_ids_vec =
       TensorDomain::noReductions(producer_domain);
   std::unordered_set<IterDomain*> unskippable_producer_ids(
       unskippable_producer_ids_vec.begin(), unskippable_producer_ids_vec.end());
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->getLoopDomain();
+  const auto& consumer_domain = consumer->getLoopDomain();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : p2c_logical_map) {
@@ -1048,7 +1087,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
 
   auto disjoint_sets =
       BestEffortReplay::replayPasC(
-          producer, consumer, -1, pairwise_map, true, true, skip_resize)
+          producer, consumer, -1, pairwise_map, /*skip_resize=*/skip_resize)
           .getIterDomainEquivalence();
 
   int64_t mismatched_producer_pos = 0;
@@ -1095,18 +1134,17 @@ bool TransformReplay::fullSelfMatching(
     const TensorView* replay,
     const TensorView* target) {
   auto replay_root = replay->getMaybeRootDomain();
-  auto replay_dom = replay->getLoopDomain();
+  const auto& replay_dom = replay->getLoopDomain();
   auto target_root = target->getMaybeRootDomain();
-  auto target_dom = target->getLoopDomain();
+  const auto& target_dom = target->getLoopDomain();
   std::unordered_map<IterDomain*, IterDomain*> target2replay_map;
   if (replay_root.size() != target_root.size()) {
     return false;
   }
   target2replay_map.reserve(replay_root.size());
-  std::transform(
-      target_root.begin(),
-      target_root.end(),
-      replay_root.begin(),
+  std::ranges::transform(
+      target_root,
+      replay_root,
       std::inserter(target2replay_map, target2replay_map.begin()),
       [](auto a, auto b) { return std::make_pair(a, b); });
   BestEffortReplay replay_(replay_dom, target_dom, target2replay_map);
@@ -1151,9 +1189,9 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "TransformPropagator::propagateC2P" << std::endl;
-    debug() << "  from: " << from << " @ " << pos << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "TransformPropagator::propagateC2P\n";
+    debug() << "  from: " << from << " @ " << pos << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(
@@ -1164,14 +1202,15 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
         to,
         " to ",
         replay.first,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay.first);
     new_pos = replay.second;
     if (debug_print) {
-      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
+      debug() << "  replayed: " << to << " @ " << new_pos << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped. result position: " << new_pos << std::endl;
+    debug() << "  replay skipped. result position: " << new_pos << '\n';
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1183,9 +1222,9 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "TransformPropagator::propagateP2C" << std::endl;
-    debug() << "  from: " << from << " @ " << pos << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "TransformPropagator::propagateP2C\n";
+    debug() << "  from: " << from << " @ " << pos << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(
@@ -1196,14 +1235,15 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
         to,
         " to ",
         replay.first,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay.first);
     new_pos = replay.second;
     if (debug_print) {
-      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
+      debug() << "  replayed: " << to << " @ " << new_pos << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped. result position: " << new_pos << std::endl;
+    debug() << "  replay skipped. result position: " << new_pos << '\n';
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1213,9 +1253,9 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
   // See note [Using multiple TransformPropagators]
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "TransformPropagator::propagateSibling" << std::endl;
-    debug() << "  from: " << from << " @ " << pos << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "TransformPropagator::propagateSibling\n";
+    debug() << "  from: " << from << " @ " << pos << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
@@ -1225,13 +1265,14 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
         to,
         " to ",
         replay,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay);
     if (debug_print) {
-      debug() << "  replayed: " << to << " @ " << pos << std::endl;
+      debug() << "  replayed: " << to << " @ " << pos << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped. result position: " << pos << std::endl;
+    debug() << "  replay skipped. result position: " << pos << '\n';
   }
   replayed_pos_[to] = pos;
 }
@@ -1249,9 +1290,9 @@ void MostInlinedTransformPropagator::propagateC2P(
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "MostInlinedTransformPropagator::propagateC2P" << std::endl;
-    debug() << "  from: " << from << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "MostInlinedTransformPropagator::propagateC2P\n";
+    debug() << "  from: " << from << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(
@@ -1262,13 +1303,14 @@ void MostInlinedTransformPropagator::propagateC2P(
         to,
         " to ",
         replay.first,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay.first);
     if (debug_print) {
-      debug() << "  replayed: " << to << std::endl;
+      debug() << "  replayed: " << to << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped" << std::endl;
+    debug() << "  replay skipped\n";
   }
 }
 
@@ -1281,9 +1323,9 @@ void MostInlinedTransformPropagator::propagateP2C(
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "MostInlinedTransformPropagator::propagateP2C" << std::endl;
-    debug() << "  from: " << from << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "MostInlinedTransformPropagator::propagateP2C\n";
+    debug() << "  from: " << from << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(
@@ -1294,13 +1336,14 @@ void MostInlinedTransformPropagator::propagateP2C(
         to,
         " to ",
         replay.first,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay.first);
     if (debug_print) {
-      debug() << "  replayed: " << to << std::endl;
+      debug() << "  replayed: " << to << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped" << std::endl;
+    debug() << "  replay skipped\n";
   }
 }
 
@@ -1310,9 +1353,9 @@ void MostInlinedTransformPropagator::propagateSibling(
   // See note [Using multiple TransformPropagators]
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    debug() << "MostInlinedTransformPropagator::propagateSibling" << std::endl;
-    debug() << "  from: " << from << std::endl;
-    debug() << "  to: " << to << std::endl;
+    debug() << "MostInlinedTransformPropagator::propagateSibling\n";
+    debug() << "  from: " << from << '\n';
+    debug() << "  to: " << to << '\n';
   }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
@@ -1322,13 +1365,14 @@ void MostInlinedTransformPropagator::propagateSibling(
         to,
         " to ",
         replay,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay);
     if (debug_print) {
-      debug() << "  replayed: " << to << std::endl;
+      debug() << "  replayed: " << to << '\n';
     }
   } else if (debug_print) {
-    debug() << "  replay skipped" << std::endl;
+    debug() << "  replay skipped\n";
   }
 }
 
@@ -1350,7 +1394,7 @@ TensorDomain* fullReplay(
       old_domain->maybeRoot().size(),
       " vs ",
       new_root.size());
-  for (auto i : c10::irange(new_root.size())) {
+  for (auto i : arange(new_root.size())) {
     old_root_to_new[old_domain->maybeRoot()[i]] = new_root[i];
   }
   NVF_CHECK(
@@ -1419,7 +1463,7 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
     new_out_root.reserve(old_domain->maybeRoot().size());
     int64_t i = 0;
     for (IterDomain* in_logical_id :
-         TensorDomain::noReductions(new_in_tv->getLogicalDomain())) {
+         new_in_tv->getLogicalDomain() | TensorDomain::kNoReductions) {
       // Copy the `rf` flag from `old_domain` and everything else from
       // `in_logical_id`.
       new_out_root.push_back(
@@ -1430,7 +1474,7 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
     }
     TensorDomain* new_domain = fullReplay(old_domain, new_out_root);
     TensorView* new_out_tv =
-        IrBuilder::create<TensorView>(new_domain, *old_out->getDataType());
+        IrBuilder::create<TensorView>(new_domain, old_out->getDataType());
     new_outs.push_back(new_out_tv);
   }
 

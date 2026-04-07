@@ -7,8 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <fusion.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "scheduler/matmul_heuristic.h"
 
 namespace nvfuser {
 
@@ -50,5 +51,6 @@ bool NVF_API isCpAsyncOperandLoadSupported(
 //      [... I0, B, I1] -> [... B, I0, I1]
 //  should probably be only used to order innermost mnk axes.
 void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos = 3);
+
 } // namespace matmul_utils
 } // namespace nvfuser

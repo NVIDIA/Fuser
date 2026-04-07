@@ -5,13 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <runtime/executor_kernel_arg.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/tools/resize_utils.h>
-#include <scheduler/utils.h>
+#include "scheduler/registry_utils.h"
+
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "multidevice/utils.h"
+#include "runtime/executor_kernel_arg.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/tools/resize_utils.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 
@@ -78,7 +80,7 @@ namespace {
 std::deque<std::deque<TensorView*>> tvChains(
     std::deque<std::deque<Val*>> val_chains) {
   std::deque<std::deque<TensorView*>> tv_chains(val_chains.size());
-  for (const auto i : c10::irange(val_chains.size())) {
+  for (const auto i : arange(val_chains.size())) {
     auto tv_iterable = ir_utils::filterByType<TensorView>(val_chains[i]);
     tv_chains[i] =
         std::deque<TensorView*>(tv_iterable.begin(), tv_iterable.end());
@@ -88,13 +90,31 @@ std::deque<std::deque<TensorView*>> tvChains(
 
 bool rejectScheduleFusionInputRequirement(
     Expr* expr,
+    Val* val,
     SchedulerType scheduler_type) {
-  if (!expr->input(0)->isFusionInput()) {
+  if (!val->isFusionInput()) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type,
-        "First input of ",
+        val->toString(),
+        ", input of ",
         expr->getOpString(),
         " must be fusion input.");
+    return true;
+  }
+  return false;
+}
+
+bool rejectScheduleFusionOutputRequirement(
+    Expr* expr,
+    Val* val,
+    SchedulerType scheduler_type) {
+  if (!val->isFusionOutput() || !val->uses().empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type,
+        val->toString(),
+        ", output of ",
+        expr->getOpString(),
+        " must be fusion output without any consumer within the fusion.");
     return true;
   }
   return false;
@@ -178,7 +198,8 @@ bool rejectScheduleForMemoryPromotion(
           isOptionEnabled(EnableOption::MemoryPromotion)) {
         continue;
       }
-      if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
+      if (rejectScheduleFusionInputRequirement(
+              expr, expr->input(0), scheduler_type)) {
         return true;
       }
     }
@@ -192,7 +213,8 @@ bool rejectScheduleForMemoryPromotion(
               return output->isA<TensorView>() &&
                   ir_utils::hasResizedRfactor(output->as<TensorView>());
             })) {
-      if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
+      if (rejectScheduleFusionInputRequirement(
+              expr, expr->input(0), scheduler_type)) {
         return true;
       }
     }
@@ -330,7 +352,8 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
               def_outs.begin(),
               def_outs.end(),
               [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "This function does not support outputs of transformations with mismatching rfactor flags. ",
+          "This function does not support outputs of transformations with "
+          "mismatching rfactor flags. ",
           "If one output is rfactor all should be rfactor.");
 
       // If outputs are rfactor all the inputs should be as well. It doesn't
@@ -342,7 +365,8 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
               def_inps.begin(),
               def_inps.end(),
               [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "Inputs producing an logical domain, should be marked as rfactor but found:\n  ",
+          "Inputs producing an logical domain, should be marked as rfactor but "
+          "found:\n  ",
           rfactor_def->toString());
 
       // Check which definition in the unique exact definition set this
@@ -391,7 +415,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
 
 namespace {
 
-bool isSplitOnly(ViewOp* view_op) {
+bool isSplitOnly(ReshapeOp* view_op) {
   for (auto expr : StmtSort::getExprsTo(
            {view_op->out()->getLogicalDomain().begin(),
             view_op->out()->getLogicalDomain().end()})) {
@@ -411,8 +435,8 @@ bool reductionInterferingView(
     const ComputeAtMap& ca_map,
     TensorView* reduction_reference) {
   // If reshape transform only has split, it shouldn't influence reduction.
-  const auto& view_ops = ir_utils::getViewOps(fusion);
-  if (std::all_of(view_ops.begin(), view_ops.end(), [](ViewOp* view) {
+  const auto& view_ops = ir_utils::getReshapeOps(fusion);
+  if (std::all_of(view_ops.begin(), view_ops.end(), [](ReshapeOp* view) {
         return isSplitOnly(view);
       })) {
     return false;
@@ -441,14 +465,14 @@ bool reductionInterferingView(
   std::vector<std::vector<IterDomain*>> groups;
 
   // Do this three times as we could have a 3D scheduler at maximum
-  for (auto dimension : c10::irange(3)) {
+  for (auto dimension : arange(3)) {
     // Tracker for this group
     std::vector<IterDomain*> current_dims;
 
     // Tracker of what we've already processed to remove from dims
     std::unordered_set<IterDomain*> processed;
 
-    for (auto i : c10::irange(dims.size())) {
+    for (auto i : arange(dims.size())) {
       auto dim_i = dims.size() - i - 1;
       if (dims[dim_i]->isReduction() != dims[dims.size() - 1]->isReduction()) {
         if (dimension == 0) {
@@ -490,7 +514,8 @@ bool reductionInterferingView(
           id);
       NVF_ERROR(
           find_it != reduction_reference->getLogicalDomain().end(),
-          "Issue with view analysis on reduction like schedule, with reference: ",
+          "Issue with view analysis on reduction like schedule, with "
+          "reference: ",
           reduction_reference->toString());
       auto logical_pos = std::distance(
           reduction_reference->getLogicalDomain().begin(), find_it);
@@ -510,7 +535,7 @@ bool reductionInterferingView(
   // since it should be relatively small int vectors of a small total nDims,
   // not too worried about it now.
 
-  for (auto first_dim_i : c10::irange(disjoint_groups.size())) {
+  for (auto first_dim_i : arange(disjoint_groups.size())) {
     for (auto second_dim_i = first_dim_i + 1;
          second_dim_i < disjoint_groups.size();
          ++second_dim_i) {
@@ -817,6 +842,26 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
   return false;
 }
 
+// Returns true if the output of the block quantization op
+// is not the fusion/segment output.
+bool hasNonTerminalBlockQuantizeOp(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (auto bqop = dynamic_cast<BlockQuantizationOp*>(expr)) {
+      auto block_scales = bqop->blockScales()->as<TensorView>();
+      if (!block_scales->isFusionOutput()) {
+        return true;
+      }
+    } else if (
+        auto grouped_bqop = dynamic_cast<GroupedBlockQuantizationOp*>(expr)) {
+      auto block_scales = grouped_bqop->blockScales()->as<TensorView>();
+      if (!block_scales->isFusionOutput()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Checks if any broadcasts are resolved after a reduction, this shouldn't be
 // accepted in the single reduction or multi-reduction scheduler
 bool SchedulerTopologyChecker::hasPostReductionBCast(Fusion* fusion) {
@@ -1021,6 +1066,238 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
 
     if (has_resize && has_index_op) {
       return true;
+    }
+  }
+
+  return false;
+}
+
+bool SchedulerTopologyChecker::rejectScheduleFusionGlobalBufferRequirement(
+    Fusion* fusion,
+    SchedulerType scheduler_type) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<PreprocessGroupedMatmulInputSf>()) {
+      // The runtime function of layout_op needs:
+      //   1. Write output directly to global memory
+      //   2. Read two offset inputs directly from global memory
+      auto layout_op = expr->as<PreprocessGroupedMatmulInputSf>();
+      if (rejectScheduleFusionOutputRequirement(
+              layout_op, layout_op->out(), scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              layout_op, layout_op->inputOffsets(), scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              layout_op, layout_op->outputOffsets(), scheduler_type)) {
+        return true;
+      }
+    } else if (expr->isA<GroupedBlockQuantizationOp>()) {
+      // The runtime function of GroupedBlockQuantizationOp needs:
+      //   1. Write scale output directly to global memory
+      //   2. Read two offset inputs directly from global memory
+      auto grouped_bop = expr->as<GroupedBlockQuantizationOp>();
+      if (rejectScheduleFusionOutputRequirement(
+              grouped_bop, grouped_bop->blockScales(), scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              grouped_bop, grouped_bop->inputOffsets(), scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              grouped_bop, grouped_bop->outputOffsets(), scheduler_type)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+namespace {
+
+// Return true when there's a producer-consumer relationship among a
+// given list of vals
+bool hasProducerConsumerRelationship(const std::vector<Val*>& vals) {
+  std::unordered_set<Val*> val_set(vals.begin(), vals.end());
+  std::unordered_set<Val*> visited;
+  std::deque<Val*> stack;
+  for (Val* v : vals) {
+    // The stack does not contain `vals` directly, but their
+    // producers. If we ever encounter a member of val_set, we
+    // return true
+    const std::vector<Val*> producers = ir_utils::producerValsOf(v);
+    stack.insert(stack.end(), producers.begin(), producers.end());
+  }
+
+  while (!stack.empty()) {
+    Val* current = stack.back();
+    stack.pop_back();
+    if (visited.count(current)) {
+      continue;
+    }
+
+    if (val_set.count(current)) {
+      return true;
+    }
+
+    const std::vector<Val*> producers = ir_utils::producerValsOf(current);
+    stack.insert(stack.end(), producers.begin(), producers.end());
+    visited.insert(current);
+  }
+
+  return false;
+}
+
+} // namespace
+
+bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
+  // Do some quick filtering before creating an Exact graph
+  auto reshape_ops = ir_utils::getOpsOfType<ReshapeOp>(fusion);
+
+  // At least there must be multiple reshape ops
+  if (reshape_ops.size() < 2) {
+    return false;
+  }
+
+  // There must be a depedent reshape pair
+  std::vector<Val*> reshape_outputs;
+  reshape_outputs.reserve(reshape_ops.size());
+  std::ranges::transform(
+      reshape_ops, std::back_inserter(reshape_outputs), [](ReshapeOp* reshape) {
+        return reshape->out();
+      });
+  if (!hasProducerConsumerRelationship(reshape_outputs)) {
+    return false;
+  }
+
+  // TODO: Reuse IdModel when possible
+  IdModel id_model(fusion);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  std::unordered_map<
+      TensorView*,
+      std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>>
+      reshape_ids;
+
+  auto getReshapeIds = [&reshape_ids](ReshapeOp* reshape) {
+    auto reshape_out_tv = reshape->out();
+    auto it = reshape_ids.find(reshape_out_tv);
+    if (it == reshape_ids.end()) {
+      it = reshape_ids
+               .emplace(
+                   reshape->out(),
+                   ir_utils::getReshapeInputAndOutputIds(reshape_out_tv))
+               .first;
+    }
+    return it->second;
+  };
+
+  for (const auto i : arange(std::ssize(reshape_ops) - 1)) {
+    auto reshape_i = reshape_ops.at(i);
+    const ValGroups inp_groups_i =
+        exact_graph.toGroups(getReshapeIds(reshape_i).first);
+
+    for (const auto j : arange(i + 1, std::ssize(reshape_ops))) {
+      auto reshape_j = reshape_ops.at(j);
+      const ValGroups out_groups_j =
+          exact_graph.toGroups(getReshapeIds(reshape_j).second);
+
+      if (inp_groups_i.hasIntersect(out_groups_j)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// Detects incompatible reshape patterns using PERMISSIVE_RESIZE graph.
+// Returns true if IDs are mapped together (same ValGroup) but have
+// different transformations (different ExprGroups). This indicates the reshape
+// operations cannot be replayed and the fusion must be segmented.
+// See test IncompatibleReshapesDifferentDisjointSetsMultiSteps
+// It has:  slice(tv[36], 0, 24)->tv[24]->reshape([2,3,4]) and
+//          slice(tv[36], 12, 36)->tv[24]->reshape([2,2,6])
+// Both slices produce tv[24] which map together, but reshape differently.
+bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
+  // TODO: Reuse IdModel when possible
+  IdModel id_model(fusion);
+  const auto& permissive_resize_graph = buildPermissiveResizeGraph(
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
+  for (const ValGroup& val_group :
+       permissive_resize_graph.disjointValSets().disjointSets()) {
+    // Check for consistency if there are at least 2 IDs
+    if (val_group->size() < 2) {
+      continue;
+    }
+
+    // Quick return if there is no or less than 2 use groups.
+    if (!permissive_resize_graph.hasUses(val_group)) {
+      continue;
+    }
+    const auto& use_groups = permissive_resize_graph.getUses(val_group);
+    if (use_groups.size() < 2) {
+      continue;
+    }
+
+    // Check if there are multiple use groups after filtering out resize-only
+    // and device-split-only groups. Multiple groups indicate incompatible
+    // reshapes.
+    bool found_use_group = false;
+    for (const auto& use_group : use_groups) {
+      // skip resize as they are not propagated during replay.
+      if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+            return expr->isA<Resize>();
+          })) {
+        continue;
+      }
+      // Device splits can be safely ignored because their transformations were
+      // already validated and propagated during the pre-segmentation pass.
+      // At this point, all existing reshape transformations are guaranteed to
+      // be compatible with device splits.
+
+      // clang-format off
+      // Take MultiDeviceTest.MultipleCompatibleReshapes for example:
+      // T0 has a device split of 2:
+      // T0_g___bfloat[ideviceIdx.x34{2}, bS0{1}, iS1{2048}, iS35{48}]
+      //  logical domain : (bS0{1}, iS1{2048}, iS2{96})
+      //   Outer split: iS2{96} by factor 2 -> ideviceIdx.x34{2}, iS35{48}
+      //  loop domain : (ideviceIdx.x34{2}, bS0{1}, iS1{2048}, iS35{48})
+      // T2 has a reshape split of 24:
+      // T2_l_float[ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf]
+      //  root domain : (bS6{1}, iS7{2048}, iS9{96}rf)
+      //   Outer split: iS9{96}rf by factor 24 -> iS10{24}rf, iS11{4}rf
+      //  logical domain : (bS6{1}, iS7{2048}, iS10{24}rf, iS11{4}rf)
+      // In propagate_shardings pass, the device split is replayed to T2:
+      // T2_l_float[ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf]
+      //  root domain : (bS6{1}, iS7{2048}, iS9{96}rf)
+      //   Outer split: iS9{96}rf by factor 24 -> iS10{24}rf, iS11{4}rf
+      //  logical domain : (bS6{1}, iS7{2048}, iS10{24}rf, iS11{4}rf)
+      //   Outer split: iS10{24}rf by factor 2 -> ideviceIdx.x38{2}, iS39{12}
+      //  loop domain : (ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf)
+      // T2 now contains both device split and reshape split, and they are
+      // compatible. Otherwise, error will be raised in propagate_shardings pass.
+      // Now, we need to check if all the reshapes are compatible with each other.
+      // clang-format on
+
+      // We can only skip the group if all uses are device splits, to avoid
+      // skipping reshape splits.
+      // clang-format off
+      // Take MultiDeviceTest.MultipleIncompatibleReshapes for example:
+      // val_group: { iS15{96}rf; iS9{96}rf; iS5{96}; iS2{96} }
+      // is mapped to two use groups:
+      // group-1: { Outer split: iS15{96}rf by factor 4 -> iS16{4}rf, iS17{24}rf }
+      // group-2: { Outer split: iS9{96}rf by factor 2 -> iS10{2}rf, iS11{48}rf,
+      //           Outer split: iS5{96} by factor 2 -> ideviceIdx.x36{2}, iS37{48},
+      //           Outer split: iS2{96} by factor 2 -> ideviceIdx.x34{2}, iS35{48} }
+      // we can't skip group-2 since it contains a reshape split. This reshape split
+      // is incompatible with that in group-1
+      // clang-format on
+      if (std::all_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+            return isValidDeviceSplit(expr);
+          })) {
+        continue;
+      }
+      // use_groups are guaranteed to contain only unique entries, so if we
+      // find a second use group, it must be different from the first.
+      if (found_use_group) {
+        return true;
+      }
+      found_use_group = true;
     }
   }
 

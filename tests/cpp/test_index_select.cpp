@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "exceptions.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -71,13 +71,7 @@ void checkIndexSelectVectorization(
 
 } // namespace
 
-class IndexSelectTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-    NVFuserTest::SetUp();
-  }
-};
+using IndexSelectTest = NVFuserTest;
 
 TEST_F(IndexSelectTest, Simple1) {
   for (int i = 0; i < 5; ++i) {
@@ -666,7 +660,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensorCase0) {
   // output tv [ 1025, 1024 ]
   // output tv and lookup tv share the innermost dimension 1024. We'll have
   // vectorized store and load on lookup tv
-  checkIndexSelectVectorization(executor_cache, 2, true, false);
+  checkIndexSelectVectorization(executor_cache, 4, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -814,7 +808,7 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase0) {
   // output tv [ 768,  256, 4 ] (stride [ 1024, 1, 256 ])
   // output tv doesn't share the innermost dimension with inputs. We'll have
   // vectorized store only
-  checkIndexSelectVectorization(executor_cache, 2, false, false);
+  checkIndexSelectVectorization(executor_cache, 4, false, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -853,7 +847,7 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase1) {
   // output tv [ 768,  256, 4 ] (stride [ 1024, 1, 256 ])
   // output tv and lookup tv share the innermost dimension 1024. We'll have
   // vectorized store and load on lookup tv
-  checkIndexSelectVectorization(executor_cache, 2, true, false);
+  checkIndexSelectVectorization(executor_cache, 4, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 

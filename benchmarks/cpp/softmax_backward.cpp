@@ -87,7 +87,7 @@ static void NvFuserScheduler_Softmax_BWD(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (3 * input.numel() * int64_t(dataTypeSize(dtype))));
+      (3 * input.numel() * dataTypeSizeByte(dtype)));
 }
 
 //------------------------------------------------------------------------------
@@ -128,7 +128,7 @@ static void Baseline_Softmax_BWD(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (3 * input.numel() * int64_t(dataTypeSize(dtype))));
+      (3 * input.numel() * dataTypeSizeByte(dtype)));
 }
 
 static void Baseline_Softmax_BWD_Outer_fp32(benchmark::State& benchmark_state) {

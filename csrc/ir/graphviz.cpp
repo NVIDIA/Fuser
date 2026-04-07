@@ -5,16 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/graphviz.h>
-
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <type.h>
+#include "ir/graphviz.h"
 
 #include <fstream>
 #include <sstream>
+
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -65,6 +65,14 @@ class IrNodeLabel final : private OptInConstDispatch {
       label_ << IrNodeLabel::gen(id->start()) << " : ";
     }
     label_ << IrNodeLabel::gen(id->extent());
+    label_ << ")";
+  }
+
+  void handle(const RaggedIterDomain* id) override {
+    label_ << "Ragged" << id->getIterType();
+    label_ << id->getParallelType();
+    label_ << "(extents=";
+    label_ << IrNodeLabel::gen(id->extents());
     label_ << ")";
   }
 
@@ -354,6 +362,14 @@ void IrGraphGenerator::handle(const IterDomain* id) {
   }
 
   addArc(id->extent(), id, "[color=gray]");
+}
+
+void IrGraphGenerator::handle(const RaggedIterDomain* id) {
+  graph_def_ << "    " << getid(id) << " [label=\"" << IrNodeLabel::gen(id)
+             << "\", shape=cds, color=orange, fontsize=10];\n";
+
+  // Add arc from extents tensor to the ragged dimension
+  addArc(id->extents(), id, "[color=orange]");
 }
 
 void IrGraphGenerator::handle(const Val* s) {

@@ -12,6 +12,8 @@
 #include <compute_at_map.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/fused_reduction.h>
+#include <device_lower/analysis/fusion_info.h>
+#include <device_lower/analysis/non_divisible_split.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/tensor_memory.h>
@@ -32,7 +34,6 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
-#include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
 #include <runtime/executor_params.h>
@@ -41,7 +42,6 @@
 
 #include <functional>
 #include <memory>
-#include <ostream>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -83,6 +83,10 @@ class GpuLower : public NonCopyable {
     return cparams_.index_type.value();
   }
 
+  const CompileParams& compileParams() const {
+    return cparams_;
+  }
+
   const auto& minDeviceVersion() const {
     return min_device_version_;
   }
@@ -91,37 +95,12 @@ class GpuLower : public NonCopyable {
     return min_device_version_reason_;
   }
 
-  std::shared_ptr<const ConcretizedBroadcastDomains>
-  concretizedBroadcastDomains() {
-    return concretized_broadcast_domains_;
+  const FusionInfo& info() const {
+    return info_;
   }
 
-  const ThreadPredicateMap& threadPredMap() const {
-    return thread_pred_map_;
-  }
-
-  // Returns non-const reference. Necessary to reset a predicate flag
-  // when a broadcast expression is fused into a reduction.
-  ThreadPredicateMap& threadPredMap() {
-    return thread_pred_map_;
-  }
-
-  std::shared_ptr<const ComputeAtMap> caMap() const {
-    return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
-  }
-
-  bool hasIdModel() const {
-    return id_model_.get() != nullptr;
-  }
-
-  IdModel& idModel() {
-    NVF_ERROR(id_model_.get());
-    return *id_model_;
-  }
-
-  const IdModel& idModel() const {
-    NVF_ERROR(id_model_.get());
-    return *id_model_;
+  FusionInfo& info() {
+    return info_;
   }
 
   bool isTensorIndexerEnabled() const {
@@ -136,14 +115,6 @@ class GpuLower : public NonCopyable {
   const TensorIndexer& tensorIndexer() const {
     NVF_ERROR(tensor_indexer_.get());
     return *tensor_indexer_;
-  }
-
-  const ParallelDimensionMap& parallelDimensionMap() const {
-    return parallel_dimension_map_;
-  }
-
-  ParallelDimensionMap& parallelDimensionMap() {
-    return parallel_dimension_map_;
   }
 
   PredicateElimination& predicateElimination() {
@@ -171,16 +142,17 @@ class GpuLower : public NonCopyable {
 
   const AllocationDomainInfo& getAllocationInfo(TensorView* tv) const;
 
-  const WarpPaddedParallelInfo& getWarpPaddedParallelInfo() const {
-    return warp_pad_info_;
+  const NonDivisibleSplitInfo& nonDivisibleSplitInfo() const {
+    NVF_ERROR(
+        non_divisible_split_info_, "NonDivisibleSplitInfo is not created");
+    return *non_divisible_split_info_;
   }
 
-  auto& nonDivisibleSplitInfo() {
-    return non_divisible_split_info_;
-  }
-
-  const auto& nonDivisibleSplitInfo() const {
-    return non_divisible_split_info_;
+  const NonDivisiblePredicateInfo& nonDivisiblePredicateInfo() const {
+    NVF_ERROR(
+        non_divisible_predicate_info_,
+        "NonDivisiblePredicateInfo is not created");
+    return *non_divisible_predicate_info_;
   }
 
   const auto& divisibleSplitSet() const {
@@ -215,10 +187,6 @@ class GpuLower : public NonCopyable {
     return vectorized_set_info_;
   }
 
-  FusedReductionInfo& fusedReductionInfo() {
-    return fused_reduction_info_;
-  }
-
   std::shared_ptr<const SyncMap> syncMap() const {
     return sync_map_;
   }
@@ -227,12 +195,23 @@ class GpuLower : public NonCopyable {
     return profile_;
   }
 
-  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() {
-    return ldst_mbarrier_map_;
+  std::unordered_map<const Expr*, TensorView*>& mbarrierMap() {
+    return mbarrier_map_;
   }
 
-  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
-    return ldst_mbarrier_map_;
+  const std::unordered_map<const Expr*, TensorView*>& mbarrierMap() const {
+    return mbarrier_map_;
+  }
+
+  // Map from batched (non-circular-buffered) TMA load expressions to their
+  // indexed mbarrier TensorIndex for batched TMA path
+  std::unordered_map<const Expr*, kir::TensorIndex*>& batchedTmaMbarrierMap() {
+    return batched_tma_mbarrier_map_;
+  }
+
+  const std::unordered_map<const Expr*, kir::TensorIndex*>&
+  batchedTmaMbarrierMap() const {
+    return batched_tma_mbarrier_map_;
   }
 
   bool isNvFuserZeroEnabled() {
@@ -334,6 +313,26 @@ class GpuLower : public NonCopyable {
     return id_model_options_;
   }
 
+  //! Get the cluster reduction count if set
+  int64_t clusterReductionCount() const {
+    return cluster_reduction_count_;
+  }
+
+  //! Set the cluster reduction count
+  void setClusterReductionCount(int64_t count) {
+    cluster_reduction_count_ = count;
+  }
+
+  //! Get the cluster reduction mbarrier tensor
+  TensorView* clusterReductionMBarrier() const {
+    return cluster_reduction_mbarrier_tensor_;
+  }
+
+  //! Set the cluster reduction mbarrier tensor
+  void setClusterReductionMBarrier(TensorView* mbarrier) {
+    cluster_reduction_mbarrier_tensor_ = mbarrier;
+  }
+
   //! Define an alias for consumer as producer.
   //!
   //! If producer is already aliased, we chase the alias. If there are tensors
@@ -377,11 +376,6 @@ class GpuLower : public NonCopyable {
  private:
   void analysis(Fusion* fusion);
 
-  // Goes through the parallelized iterdomains of the used TVs and find
-  //  the parallel dimensions that need to be padded to a multiples of
-  //  warp size.
-  void collectPaddedParallelDims();
-
   bool resolveComputeWith(Fusion* fusion);
 
  private:
@@ -396,27 +390,22 @@ class GpuLower : public NonCopyable {
   // would be safer to wrap all of these in unique pointers and remove the build
   // interface and default constructor. That way they couldn't be accessed
   // without being initialized.
+  // TODO: Consolidates the below states into FusionInfo
+  FusionInfo info_;
   std::pair<int64_t, int64_t> min_device_version_;
   std::string min_device_version_reason_;
-  std::shared_ptr<const ConcretizedBroadcastDomains>
-      concretized_broadcast_domains_;
-  ThreadPredicateMap thread_pred_map_;
   std::unique_ptr<PredicateElimination> pred_elimination_;
-  std::shared_ptr<ComputeAtMap> compute_at_map_;
   LocalAllocationInfoMap local_allocation_info_map_;
   std::unordered_map<TensorView*, AllocationDomainInfo> allocation_info_;
-  WarpPaddedParallelInfo warp_pad_info_;
-  ParallelDimensionMap parallel_dimension_map_;
-  NonDivisibleSplitInfo non_divisible_split_info_;
+  std::unique_ptr<NonDivisibleSplitInfo> non_divisible_split_info_;
+  std::unique_ptr<NonDivisiblePredicateInfo> non_divisible_predicate_info_;
   CircularBufferInfo circular_buffer_info_;
   TmaCircularBufferInfo tma_circular_buffer_info_;
   CommonScalarMap common_scalar_map_;
-  FusedReductionInfo fused_reduction_info_;
   std::shared_ptr<const SyncMap> sync_map_;
   kir::KernelPerformanceProfile profile_;
   std::unordered_set<Split*> divisible_splits_;
   CompileParams cparams_;
-  std::unique_ptr<IdModel> id_model_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
   std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
   std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
@@ -432,8 +421,11 @@ class GpuLower : public NonCopyable {
   // precomputed values
   std::vector<Val*> all_known_vals_;
 
-  // Keep track of the mbarrier used for each load/store operation
-  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+  // Keep track of the mbarrier used for each load/store and blackwell utcmma
+  std::unordered_map<const Expr*, TensorView*> mbarrier_map_;
+
+  // Keep track of indexed mbarriers for batched non-circular-buffered TMA loads
+  std::unordered_map<const Expr*, kir::TensorIndex*> batched_tma_mbarrier_map_;
 
   // Information about tensor memory usage
   TensorMemoryInfo tmem_info_;
@@ -453,6 +445,18 @@ class GpuLower : public NonCopyable {
 
   // A temporary option set to selectively enable IdModel usage
   IdModelOptions id_model_options_;
+
+  // Cluster reduction count for barrier insertion
+  int64_t cluster_reduction_count_ = -1;
+
+  // The shared cluster reduction mbarrier tensor allocated during allocation
+  // pass
+  TensorView* cluster_reduction_mbarrier_tensor_ = nullptr;
 };
+
+#define NVFUSER_LOWER_VALIDATE(cond, ...) \
+  GpuLower::current()->validate(          \
+      cond,                               \
+      "Validation at " STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__) " ", __VA_ARGS__);
 
 } // namespace nvfuser

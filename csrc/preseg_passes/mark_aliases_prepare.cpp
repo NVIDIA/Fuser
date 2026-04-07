@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <alias_analysis.h>
-#include <debug.h>
-#include <ir/iostream.h> // for operator<<(ostream&, TensorView*)
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <options.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <transform_replay.h>
+#include "preseg_passes/mark_aliases_prepare.h"
+
+#include "alias_analysis.h"
+#include "debug.h"
+#include "ir/utils.h"
+#include "ops/alias.h"
+#include "options.h"
+#include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {
 
@@ -102,13 +102,17 @@ void insertSegmentSetAfter(
   TensorView* copy = segment_set(use_of);
   // Inherit the allocation domain from `use_of`. This is important to pass
   // AliasTest.Bookend_SegmentSetPreservesAllocation.
-  TensorDomain* replayed_domain =
-      TransformReplay::replayCasP(
-          copy, use_of, -1, TransformReplayOptions().replayAllocation())
-          .first;
-  if (replayed_domain->hasAllocation()) {
+  // TODO: Replay from scatter output doesn't work as the loop domain
+  // is not mapped to its logical domain. We might want to either extend
+  // selfReplay or create a new API that can propagate the allocation
+  // domain only.
+  if (!use_of->isDefinitionType<ScatterOp>()) {
+    TransformReplay::selfReplay(use_of->domain(), copy->domain());
+  } else if (use_of->hasAllocation()) {
     copy->setAllocationDomain(
-        replayed_domain->allocation(), replayed_domain->contiguity());
+        ir_utils::propagateScatterAllocationDomain(
+            use_of, copy->getLogicalDomain()),
+        true);
   }
   std::for_each(first_user, last_user, [&](const Use& use) {
     ir_utils::replaceValInExprInputs(use.user, use_of, copy);
@@ -121,8 +125,18 @@ void insertSegmentSetAfter(
 } // namespace
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
+  for (TensorView* tv : fusion->allTvs()) {
+    if (tv->hasAllocation()) {
+      // Alternatively, we could hold as a contract that all TVs pre
+      // segmentation are global. If you prefer this, I can try it in a separate
+      // PR. This sounds natural to me because without scheduling every TV is
+      // indeed stored globally.
+      tv->setMemoryType(MemoryType::Global);
+    }
+  }
+
   const AliasAnalysisResult analysis =
-      findAliases(fusion, /*can_override_empty_allocation_domain=*/true);
+      findAliases(fusion, EmptyAllocationAs::kUndetermined);
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Alias analysis result:" << std::endl;
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
@@ -147,12 +161,16 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
       continue;
     }
 
-    const Layout preferred_layout = analysis.preferredLayout(tv);
+    const auto preferred_layout = analysis.preferredLayout(tv);
+    NVF_ERROR(
+        preferred_layout.has_value(),
+        "No preferred layout for an alias TV: ",
+        tv);
     tv->setAllocationDomain(
-        preferred_layout.allocation_domain, preferred_layout.contiguity);
+        preferred_layout->allocation_domain(), preferred_layout->contiguity());
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "Set the layout of " << ir_utils::varName(tv) << " to "
-              << preferred_layout.toString() << std::endl;
+              << preferred_layout->toString() << std::endl;
     }
   }
 
@@ -172,6 +190,20 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   // we want to avoid putting a `segment_set` before M1, a meta op, because
   // that would lead to two kernels. See AliasTest.DoNotOverSegment_* for more
   // examples. This is the reason behind `depended_by_non_aliases`.
+  //
+  // However, this makes the pass not ideal at the following pattern:
+  //
+  //   M0 -> M1 -> N/M
+  //         |
+  //         -> M2
+  //
+  // Ideally, it should put a `segment_set` before N/M, creating one meta-only
+  // segment for M0->M1->M2 and the other for N/M.  See
+  // AliasTest.QKVSplitBackprop. Instead, the current implementation creates one
+  // segment for M0->M1->N/M and the other for M2. So the scheduler (e.g.
+  // pointwise and reduction) that takes M0->M1->N/M has to markAliases (which
+  // leads to complexity) to ensure it doesn't waste any kernel code to compute
+  // M1's output.
   const std::unordered_set<Expr*>& depended_by_non_aliases =
       exprsDependedByNonAliases(analysis, fusion);
   std::vector<Use> uses_to_segment;

@@ -5,16 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/utils.h>
-#include <id_model/utils.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <logical_domain_map.h>
-#include <scheduler/tools/inlining.h>
-#include <transform_iter.h>
-#include <val_graph_visitor.h>
+#include "scheduler/tools/inlining.h"
 
 #include <utility>
+
+#include "id_model/utils.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "logical_domain_map.h"
+#include "transform_iter.h"
 
 namespace nvfuser {
 
@@ -70,24 +69,38 @@ bool MaxPosCalculator::isAllowedID(
     bool allow_reduction,
     bool allow_vectorize,
     bool allow_unmappable) const {
-  bool allowed = true;
+  std::stringstream dump_msg;
+  if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+    dump_msg << "Inlining not allowed: " << id->toString() << " of "
+             << tv->toString();
+  }
 
-  if (!allow_reduction) {
-    allowed = allowed && !id->isReduction();
+  if (!allow_reduction && id->isReduction()) {
+    if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+      debug() << dump_msg.str() << " as it is a reduction ID" << "\n";
+    }
+    return false;
   }
 
   if (uninlinable_ids_.count(id)) {
+    if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+      debug() << dump_msg.str() << " as instructed by the user" << "\n";
+    }
     return false;
   }
 
   if (!allow_vectorize) {
     // Avoid inlining if marked as Vectorize or Group. In the case of
     // BestEffort and MostInlined modes, avoid Unroll as well.
-    bool is_vectorize = isParallelTypeVectorize(id->getParallelType()) ||
+    if (isParallelTypeVectorize(id->getParallelType()) ||
         id->getParallelType() == ParallelType::Group ||
         (best_effort && id->getParallelType() == ParallelType::Unroll) ||
-        id->getParallelType() == ParallelType::Bulk;
-    allowed = allowed && !is_vectorize;
+        id->getParallelType() == ParallelType::Bulk) {
+      if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+        debug() << dump_msg.str() << " as it uses Vectorize/Group/Bulk" << "\n";
+      }
+      return false;
+    }
   }
 
   if (!allow_unmappable) {
@@ -96,18 +109,19 @@ bool MaxPosCalculator::isAllowedID(
         logical_dom.begin(), logical_dom.end());
     auto all_vals =
         getValsBetween<IRBFS>({logical_dom.begin(), logical_dom.end()}, {id});
-    bool is_unmappable = false;
     for (auto val : all_vals) {
       auto id = val->as<IterDomain>();
       if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
-        is_unmappable = true;
-        break;
+        if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+          debug() << dump_msg.str()
+                  << " as it is not mapped in ComputeAtLogicalDomainMap\n";
+        }
+        return false;
       }
     }
-    allowed = allowed && !is_unmappable;
   }
 
-  return allowed;
+  return true;
 }
 
 size_t MaxPosCalculator::getMaxPosSelf(
@@ -177,7 +191,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
         consumer, producer, -1, pairwise_logical_map);
     auto p2c_replay_map = replay_CasP.getReplay();
 
-    for (const auto producer_pos : c10::irange(producer->nDims())) {
+    for (const auto producer_pos : arange(producer->nDims())) {
       // If the producer position is mismatching with the consumer, then we can
       // not inline into this position, otherwise the max producer position of
       // the consumer will become invalid and expression sort will fail.
@@ -195,48 +209,8 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    std::optional<std::unordered_set<ValGroup>> loop_path_groups = std::nullopt;
-    if (consumer->definition()->isA<MmaOp>()) {
-      // We handle MmaOp specially here since it is currently the only operation
-      // for which we generate code (i.e. not SdpaFwdOp or SdpaBwdOp) that has
-      // some output dimensions that do not map to input dimensions. For this
-      // case, we need to identify potential inlined pairs each ID of which is
-      // not mapped at all to the other TensorView (see example below).
-
-      // Get ValGroups in loop domains of producer and consumer that are
-      // connected to _mapped_ IterDomains in the pairwise map.
-      //
-      // Note that for MmaOp, it would be sufficient to traverse from the
-      // producer loop to the consumer loop and identify when _either_ the
-      // consumer or producer ID is not mapped. Here we are instead traversing
-      // from mapped domains to both roots so that we can check that _both_
-      // consumer and producer ID is not mapped. This is slightly safer and this
-      // symmetry might be handy in handling new ops that use this feature in
-      // the future.
-      std::vector<ValGroup> pairwise_mapped_groups;
-      for (auto [c_id, p_id] : PairwiseLogicalDomainMap(producer, consumer)
-                                   .mapConsumerToProducer()) {
-        pairwise_mapped_groups.push_back(inliningGraph().toGroup(c_id));
-      }
-      // We propagate toward the loop groups from both consumer and producer
-      std::vector<ValGroup> all_loop_groups;
-      for (IterDomain* id : producer->getLoopDomain()) {
-        all_loop_groups.push_back(inliningGraph().toGroup(id));
-      }
-      for (IterDomain* id : consumer->getLoopDomain()) {
-        all_loop_groups.push_back(inliningGraph().toGroup(id));
-      }
-      // getValsBetween does not require all target groups to be visited. The
-      // means the result contains the subset of both loop groups that we are
-      // looking for
-      std::vector<ValGroup> group_path = getValsBetween<ValGraphBFS>(
-          pairwise_mapped_groups, all_loop_groups, inliningGraph());
-      loop_path_groups =
-          std::unordered_set<ValGroup>(group_path.begin(), group_path.end());
-    }
-
     auto consumer_it = consumer->getLoopDomain().begin();
-    for (const auto producer_pos : c10::irange(producer->nDims())) {
+    for (const auto producer_pos : arange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
       // When p_id is a reduction, skip and continue to the next
       // position. Since a producer reduction domain is never allowed
@@ -253,54 +227,8 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       }
 
       IterDomain* c_id = *consumer_it;
-
-      // We can inline past positions in which both producer and consumer are
-      // not connected to any mapped logical IterDomain pairs.
-      //
-      // For example, an MmaOp can be constructed as follows:
-      //
-      //  tv0:
-      //    root/logical: [ iS0, iS1 ]
-      //    loop: [ iS0, bS7, iS1 ]
-      //  tv1:
-      //    root/logical: [ iS2, iS3 ]
-      //    loop: [ bS8, iS2, iS3 ]
-      //  tv2:
-      //    root/logical/loop: [ iS4, iS5, rS6 ]
-      //
-      //  iS4 maps to iS0 so when producer==tv0 we can inline past iS0. When
-      //  producer==tv1, iS4 doesn't map to anything in tv1 and bS8 is a loop
-      //  broadcast in that position so we inline past the first ID in that
-      //  case also. Similarly, we inline past iS5, iS2, and bS7.
-      if (loop_path_groups.has_value()) {
-        bool p_id_connected =
-            loop_path_groups->count(inliningGraph().toGroup(p_id));
-        bool c_id_connected =
-            loop_path_groups->count(inliningGraph().toGroup(c_id));
-        NVF_ERROR(
-            p_id_connected ||
-                (consumer->definition()->isA<MmaOp>() && p_id->isBroadcast()),
-            "Expected unmapped producer id to be broadcast domain in MmaOp input but found ",
-            p_id->toString());
-
-        if (!p_id_connected && !c_id_connected) {
-          NVF_ERROR(
-              p_id->isBroadcast(),
-              "Unmapped producer ID must be a broadcast created in scheduling but found ",
-              p_id->toString());
-          ++consumer_it;
-          continue;
-        }
-      }
-
       if (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
-          !isAllowedID(
-              c_id,
-              consumer,
-              best_effort,
-              /*allow_reduction=*/true,
-              /*allow_vectorize=*/false,
-              /*allow_unmappable=*/true)) {
+          !isAllowedID(c_id, consumer, best_effort, true, false, true)) {
         return producer_pos;
       }
 
@@ -315,17 +243,44 @@ size_t MaxPosCalculator::getMaxPosAll(
     TensorView* tv,
     bool best_effort,
     bool check_siblings) {
+  // When check_siblings is not true, it means this function is
+  // recursively called from the below conditional block for sibling
+  // check. Enable debug dump only when it's first called and disable
+  // it when recursibly called.
+  const bool debug_dump =
+      isDebugDumpEnabled(DebugDumpOption::Inlining) && check_siblings;
+  std::stringstream debug_msg;
+
   auto max_pos = getMaxPosSelf(tv, best_effort, false, false, false);
+  if (debug_dump) {
+    debug_msg << "self: " << max_pos;
+  }
+
   for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
-    max_pos = std::min<size_t>(
-        max_pos, getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort));
+    const auto consumer_pos =
+        getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort);
+    if (debug_dump) {
+      debug_msg << ", consumer t" << consumer_tv->name() << " @ "
+                << consumer_pos;
+    }
+    max_pos = std::min<size_t>(max_pos, consumer_pos);
   }
   if (check_siblings) {
     for (auto sibling_tv : ir_utils::siblingTvsOf(tv)) {
-      max_pos = std::min<size_t>(
-          max_pos, getMaxPosAll(sibling_tv, best_effort, false));
+      const auto sibling_pos = getMaxPosAll(sibling_tv, best_effort, false);
+      if (debug_dump) {
+        debug_msg << ", sibling t" << sibling_tv->name() << " @ "
+                  << sibling_pos;
+      }
+      max_pos = std::min<size_t>(max_pos, sibling_pos);
     }
   }
+
+  if (debug_dump) {
+    debug() << "Max inlining position of " << tv->toString() << ": " << max_pos
+            << " (" << debug_msg.str() << ")\n";
+  }
+
   return max_pos;
 }
 
@@ -546,6 +501,12 @@ void inlineSelectedAt(
     if (selected.count(pair.first) > 0) {
       pair.first->inlineAt((int64_t)pair.second, best_effort, &calc);
     }
+  }
+}
+
+void resetInlining(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    tv->clearComputePosition();
   }
 }
 

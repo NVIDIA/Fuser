@@ -8,51 +8,155 @@
 
 A Fusion Code Generator for NVIDIA GPUs (commonly known as "nvFuser")
 
-## Installation
+## PyPI Installation
+**PyPI:** [https://pypi.org/project/nvfuser](https://pypi.org/project/nvfuser)
 
-We publish nightly wheel packages on https://pypi.nvidia.com, while build against stable torch version on https://pypi.org and https://pypi.nvidia.com.
-**Wheels are published for Python version: _3.10_, _3.12_**.
+nvFuser provides pre-built wheels for Python 3.10 and 3.12, available through
+multiple channels depending on your PyTorch version requirements.
 
-built-env | cuda 11.8 | cuda 12.4 | cuda12.6 | cuda 12.8
-:---: | :---: | :---: | :---: | :---: |
-torch 2.6 | nvfuser-cu118-torch26 | nvfuser-cu124-torch26 | nvfuser-cu126-torch26 | N/A |
-torch nightly (pypi.nvidia.com) | nvfuser-cu118 | N/A | nvfuser-cu126 | nvfuser-cu128 |
+### Nightly Builds
 
-Note that nvfuser built against stable torch version isn't compatible with nightly pytorch wheel, so ensure you pick the right version suiting your environment.
+Nightly `nvFuser` wheels are built against `PyTorch:nightly` and published to
+`https://pypi.nvidia.com`:
 
-### nightly nvfuser pip wheel
+```bash
+pip install --pre nvfuser-cuXXY --extra-index-url https://pypi.nvidia.com
+```
+> [!note]
+> nvFuser supports CUDA 12.6+. `cuXXY` denotes the CUDA major `XX` and minor
+> `Y` version.  If you have CUDA 12.8 use `nvfuser-cu128`.
 
-You can instll a nightly nvfuser pip package built against torch nightly code base with `pip install --pre nvfuser-cu121 --extra-index-url https://pypi.nvidia.com`
+To install nvFuser with a compatible PyTorch nightly build:
 
-As we build against nightly torch wheel and there's no compatibility promised on nightly wheels, we have explicitly marked the nightly torch wheel as an optinoal dependency. You can choose to install the torch wheel along with nvfuser package. e.g.
-`pip install --pre "nvfuser-cu121[torch]" --extra-index-url https://pypi.nvidia.com`.
-Note that this may uninstall your local pytorch installation and install the compatible nightly pytorch.
+```bash
+pip install --pre "nvfuser-cu128[torch]" --extra-index-url https://pypi.nvidia.com
+```
 
-### nvfuser pip wheel against pytorch stable release
+> [!warning]
+> Installing with the `[torch]` extra will **replace** your existing PyTorch
+> installation with a compatible nightly build.
 
-nvfuser pip wheel built against stable torch releases is published on both pypi.org and pypi.nvidia.com. Pick the right cuda toolkit version to match your torch installation. e.g. `pip install nvfuser-cu121-torch26`
+### Stable Releases
 
-PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
+Stable wheels are built against PyTorch stable releases and published to both
+`https://pypi.org` and `https://pypi.nvidia.com`. Select the package matching your
+CUDA Toolkit version:
 
-## Developer
+```bash
+pip install nvfuser-cu128-torch29
+```
 
-Docs: https://github.com/NVIDIA/Fuser/wiki
+Releases are published on the 1st and 15th of each month, and when significant
+changes are introduced. For legacy versions, see [PyPI](https://pypi.org/search/?q=nvfuser).
 
-Supported compilers:
+**Recommendation:** Use the latest nvFuser build with the most recent CUDA
+Toolkit and PyTorch versions for optimal performance and features.
 
-**GCC:**
+> [!important]
+> Stable nvFuser release wheels are not guaranteed to be compatible with
+> PyTorch nightly builds. Select the appropriate package for your environment.
 
-We support all "supported releases" of gcc as specified in [the official site](https://gcc.gnu.org/).
-As of 3/2/2025, they are:
+## Building From Source
 
-- gcc 12.4
-- gcc 13.3
-- gcc 14.2
+### Required:
 
-**Clang:**
+- C++20 compliant compiler:
+  - `GCC` >= `13.1` or `Clang` >= `19`
+- `Python` >= `3.10`
+- `CMake` >= `3.18`
+- `Ninja`
+- `CUDA Toolkit` >= `12.6` (recommend `12.8+`)
+- `PyTorch` >= `2.9` (recommend latest `stable`/`nightly` release)
+- `pybind11` >= `3.0`
+- `LLVM` >= `18.1`
 
-- clang 16+
+> [!note]
+>
+> - `PyTorch` **MUST** be built w/ `CUDA` support.
+> - The `PyTorch CUDA version` **MUST** match the `CUDAToolkit version`.
 
-Supported C++ standard:
+### Optional:
 
-- C++20
+- `nvidia-matmul-heuristics` (enhanced matmul scheduling)
+
+### Build Steps
+
+1. Clone the repository and initialize submodules:
+
+```bash
+git clone --recursive https://github.com/NVIDIA/Fuser.git
+cd Fuser
+```
+
+If you already cloned without `--recursive`, initialize submodules:
+
+```bash
+git submodule update --init --recursive
+```
+
+2. Install Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Build and install nvFuser:
+
+```bash
+pip install --no-build-isolation -e python -v
+```
+
+The build system will automatically validate all dependencies and provide
+helpful error messages if anything is missing.
+
+### Build Options
+
+You can customize the build using environment variables:
+
+**Build Configuration:**
+
+- `MAX_JOBS=<n>` - Control compilation parallelism (e.g., `MAX_JOBS=8`)
+- `NVFUSER_BUILD_BUILD_TYPE` - Build in (`Debug`/`RelWithDebInfo`/`Release`)
+  mode.
+- `NVFUSER_BUILD_DIR=<path>` - Custom build directory (default:
+  `./python/build`)
+- `NVFUSER_BUILD_INSTALL_DIR=<path>` - Custom install directory (default:
+  `./nvfuser`)
+
+**Build Targets:**
+
+- `NVFUSER_BUILD_NO_PYTHON=1` - Skip Python bindings.
+- `NVFUSER_BUILD_NO_TEST=1` - Skip C++ tests.
+- `NVFUSER_BUILD_NO_BENCHMARK=1` - Skip benchmarks.
+
+**Advanced Options:**
+
+- `NVFUSER_BUILD_WITH_UCC=1` - Enable UCC support for multi-device operations.
+- `NVFUSER_BUILD_WITHOUT_DISTRIBUTED=1` - Build without multi-device support.
+- `NVFUSER_BUILD_CPP_STANDARD=<n>` - Specify C++ standard (default: 20).
+
+Example with custom options:
+
+```bash
+MAX_JOBS=8 NVFUSER_BUILD_BUILD_TYPE=Debug pip install --no-build-isolation -e python -v
+```
+
+### Verifying the Installation
+
+Test your installation with a simple fusion:
+
+```python
+python -c "import nvfuser; print('nvFuser successfully imported from:', nvfuser.__file__)"
+```
+
+Run the Python test suite:
+
+```bash
+pytest tests/python/
+```
+
+Run C++ tests (if built):
+
+```bash
+./build/bin/test_nvfuser
+```

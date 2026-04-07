@@ -5,19 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <ir/builder.h>
-#include <ir/cloner.h>
-#include <kernel.h>
-#include <C++20/compare>
+#include "ir/builder.h"
 
-#include <ir/all_nodes.h>
-#include <ir/container.h>
-#include <type_promotion.h>
-
-#include <complex>
 #include <cstdint>
+
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/cloner.h"
+#include "ir/container.h"
+#include "ir/utils.h"
+#include "kernel.h"
+#include "type_promotion.h"
 
 namespace nvfuser {
 
@@ -89,6 +88,12 @@ Val* IrBuilder::bitwiseNotExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in bitwiseNotExpr.");
   auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::BitwiseNot, result, val);
+  return result;
+}
+
+Val* IrBuilder::bitCeilExpr(Val* val) {
+  auto result = create<Val>(val->dtype());
+  IrBuilder::create<UnaryOp>(UnaryOpType::BitCeil, result, val);
   return result;
 }
 
@@ -305,6 +310,19 @@ Val* SimplifyingIrBuilder::negExpr(Val* val) {
     return IrBuilder::create<Val>(-val->value(), val->dtype());
   }
   return IrBuilder::negExpr(val);
+}
+
+Val* SimplifyingIrBuilder::absExpr(Val* val) {
+  if (val->isZeroInt()) {
+    return val->container()->zeroVal(val->dtype());
+  } else if (val->isConst()) {
+    auto const_val = val->value();
+    if (const_val < 0) {
+      const_val = -const_val;
+    }
+    return IrBuilder::create<Val>(const_val, val->dtype());
+  }
+  return IrBuilder::absExpr(val);
 }
 
 Val* SimplifyingIrBuilder::logicalNotExpr(Val* val) {

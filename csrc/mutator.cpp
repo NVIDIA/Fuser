@@ -5,13 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-
 #include <vector>
+#include "base.h"
 
 /*
  * Mutators are the mechanism used to modify IR nodes. Since most nodes are
@@ -86,7 +85,8 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
       mutation->toString(),
       " (",
       mutation->toInlineString(),
-      "), which is not allowed as it would result in a recursive definition of ",
+      "), which is not allowed as it would result in a recursive definition "
+      "of ",
       mutation->toString());
 
   mutations_[val] = mutation;
@@ -134,6 +134,31 @@ void OptOutMutator::mutate(IterDomain* id) {
   }
 }
 
+void OptOutMutator::mutate(RaggedIterDomain* id) {
+  // Mutate the extents TensorView
+  auto mutated_extents = maybeMutated(id->extents());
+
+  // Check if anything changed
+  if (mutated_extents->sameAs(id->extents())) {
+    return;
+  }
+
+  // Create a new RaggedIterDomain with mutated extents
+  auto new_id = IrBuilder::createInContainer<RaggedIterDomain>(
+      id->container(),
+      mutated_extents->as<TensorView>(),
+      id->getIterType(),
+      id->getParallelType());
+
+  // Register the mutation
+  registerMutation(id, new_id);
+
+  // Preserve definition if it exists
+  if (Expr* def = id->definition()) {
+    mutateExprOutputsOnly(def);
+  }
+}
+
 void OptOutMutator::mutate(TensorDomain* td) {
   bool mutated = false;
 
@@ -158,18 +183,29 @@ void OptOutMutator::mutate(TensorDomain* td) {
   std::vector<IterDomain*> domain = updateIdVec(td->loop());
   std::vector<IterDomain*> additional_ids = updateIdVec(td->additionalIDs());
 
+  std::optional<std::vector<IterDomain*>> alternate_domain = std::nullopt;
+  if (td->alternateLoop().has_value()) {
+    alternate_domain = updateIdVec(td->alternateLoop().value());
+  }
+
   if (!mutated) {
     return;
   }
 
+  // We skip checks in TensorDomain constructor. This is because mutation could
+  // update TensorView with domain that doesn't matching
+  // root/logical/allocation/loop domain. Any sparse operation, like scatter or
+  // PreprocessGroupedMatmulInputSf in the graph would fail the check.
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
       logical_dom,
       allocation_dom,
       domain,
+      alternate_domain,
       td->contiguity(),
-      additional_ids);
+      additional_ids,
+      true);
   registerMutation(td, mutated_val);
 }
 
@@ -219,19 +255,19 @@ Expr* OptOutMutator::mutateExpr(
   }
 
   bool all_same = true;
-  for (auto i : c10::irange(op->outputs().size())) {
+  for (auto i : arange(op->outputs().size())) {
     if (!all_same) {
       break;
     }
     all_same = all_same && mutated_outputs[i] == op->output(i);
   }
-  for (auto i : c10::irange(op->inputs().size())) {
+  for (auto i : arange(op->inputs().size())) {
     if (!all_same) {
       break;
     }
     all_same = all_same && mutated_inputs[i] == op->input(i);
   }
-  for (auto i : c10::irange(op->attributes().size())) {
+  for (auto i : arange(op->attributes().size())) {
     if (!all_same) {
       break;
     }
@@ -255,7 +291,7 @@ Expr* OptOutMutator::mutateExpr(
   return new_expr;
 }
 
-void OptOutMutator::removeExpr(IrContainer* container, Expr* expr) const {
+void OptOutMutator::removeExpr(Fusion* container, Expr* expr) const {
   container->removeExpr(expr);
 }
 

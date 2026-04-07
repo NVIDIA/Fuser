@@ -5,13 +5,18 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
-#include <cuda_profiler_api.h>
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <host_ir/executor.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/multidevice.h>
+#include <torch/torch.h>
+
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/ops.h"
+#include "host_ir/pass/stream_parallel_type.h"
+#include "ir/all_nodes.h"
+#include "multidevice/symmetric_tensor.h"
+#include "ops/all_ops.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
 
@@ -91,6 +96,11 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto communication_input = tv1->as<TensorView>();
   auto communication_output = tv2->as<TensorView>();
 
+  for (auto tv : {communication_input, communication_output}) {
+    // Allgather requires contiguous input and output tensors
+    tv->setContiguity(true);
+  }
+
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       communication_output,
@@ -128,7 +138,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
@@ -179,8 +189,12 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   auto post_compute =
       IrBuilder::create<PostOnStream>(hu, compute_inputs, compute_outputs);
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
-  TensorView* communication_input = tv1->as<TensorView>();
-  TensorView* communication_output = tv2->as<TensorView>();
+  auto* communication_input = tv1->as<TensorView>();
+  auto* communication_output = tv2->as<TensorView>();
+  for (auto tv : {communication_input, communication_output}) {
+    // Allgather requires contiguous input and output tensors
+    tv->setContiguity(true);
+  }
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       communication_output,
@@ -223,7 +237,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -297,7 +311,7 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
@@ -347,126 +361,216 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
+  EXPECT_TRUE(at::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
-using OverlapDistributedMatmulTest = MultiDeviceTest;
+TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
+  static constexpr int kTensorSize = 4;
+  static constexpr int kNumRepetitions = 10;
 
-TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
-  constexpr int64_t M = 32768;
-  constexpr int64_t K = 32768;
-  constexpr int64_t N = 1024;
-  constexpr int64_t S = 8;
-  const int64_t D = communicator_->size();
-  if (M % (D * S) != 0) {
-    GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
-                 << ", D = " << D << ", S = " << S;
+  if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  const DeviceIdxType my_rank = communicator_->deviceId();
+  const int64_t size = communicator_->size();
+  const DeviceIdxType send_peer = (my_rank + 1) % size;
+  const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
 
-  TensorView* tv0 = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
-  TensorView* tv1 = makeContigTensor(2); //[K, N]
-  TensorView* tv2 = matmul(tv0, tv1); //[S, D, M/(S*D), N]
+  auto container = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(container.get());
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addOutput(tv2);
+  auto* send_tv = makeContigTensor(1, DataType::Int32);
+  auto* recv_tv = makeContigTensor(1, DataType::Int32);
 
-  auto mesh = DeviceMesh::createForNumDevices(D);
-  tv0->setDeviceMesh(mesh);
-  tv1->setDeviceMesh(mesh);
-  tv2->setDeviceMesh(mesh);
+  auto send = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::SEND,
+      send_tv,
+      IrBuilder::create<Val>(send_peer),
+      CommunicatorBackend::kNccl);
+  auto recv = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::RECV,
+      recv_tv,
+      IrBuilder::create<Val>(recv_peer),
+      CommunicatorBackend::kNccl);
+  std::vector<P2PCommunication*> grouped_communications = {send, recv};
 
-  tv0->axis(1)->parallelize(ParallelType::DIDx);
-  tv2->axis(0)->parallelize(ParallelType::Stream);
+  ExpressionEvaluator expr_evaluator;
+  IpcHandleCache ipc_handle_cache(&expr_evaluator);
 
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+  auto options =
+      at::TensorOptions().dtype(at::kInt).device(communicator_->device());
+  auto generate_tensor = [options](int repetition, int rank) {
+    return at::arange(kTensorSize, options) + (repetition + 1) * 10 +
+        100 * rank;
+  };
+  at::Tensor recv_tensor = at::empty({kTensorSize}, options);
+  at::Tensor send_tensor = at::empty({kTensorSize}, options);
 
-  auto tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-  auto t0_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
-  auto t0 = t0_unsharded.slice(
-      1, communicator_->deviceId(), communicator_->deviceId() + 1);
-  auto t1 = at::randn({K, N}, tensor_options);
-  auto t2_ref = at::matmul(t0_unsharded, t1);
+  expr_evaluator.bind(send_tv, send_tensor);
+  expr_evaluator.bind(recv_tv, recv_tensor);
 
-  at::Tensor t2;
+  for (auto repetition : c10::irange(kNumRepetitions)) {
+    // all ranks set `send_tensor`
+    send_tensor.copy_(generate_tensor(repetition, my_rank));
 
-  constexpr int64_t kNumberOfIterations = 2;
-  constexpr int64_t kNumberOfWarmupIterations = 1;
-  for (auto i : c10::irange(kNumberOfIterations)) {
-    if (i == kNumberOfWarmupIterations) {
-      cudaProfilerStart();
-    }
-    t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
+    // Exchange IpcHandle on the first iteration
+    ipc_handle_cache.exchangeHandles(grouped_communications);
+
+    // RDMA put-zcopy
+    const P2pIpcHandle& send_ipc_handles = ipc_handle_cache.get(send);
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        send_ipc_handles.peer().ptr(),
+        send_ipc_handles.local().ptr(),
+        send_tensor.numel() * send_tensor.element_size(),
+        cudaMemcpyDeviceToDevice));
+
+    torch::cuda::synchronize();
+    communicator_->barrier();
+    at::Tensor ref_recv_tensor = generate_tensor(repetition, recv_peer);
+    EXPECT_TRUE(at::allclose(recv_tensor, ref_recv_tensor))
+        << "Rank " << my_rank << " failed at repetition " << repetition
+        << " with recv tensor " << recv_tensor << " and ref_recv_tensor "
+        << ref_recv_tensor;
+    // Prevent recv_peer from writing the next iteration's data before
+    // we finish verifying this iteration's data
+    torch::cuda::synchronize();
+    communicator_->barrier();
   }
-  cudaProfilerStop();
-
-  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
 
-TEST_F(OverlapDistributedMatmulTest, AG_linear) {
-  constexpr int64_t M = 32768;
-  constexpr int64_t K = 32768;
-  constexpr int64_t N = 1024;
-  constexpr int64_t S = 8;
-  const int64_t D = communicator_->size();
-  if (M % (D * S) != 0) {
-    GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
-                 << ", D = " << D << ", S = " << S;
+TEST_F(MultiDeviceHostIrTest, SymmetricContiguousView) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Test requires at least 2 devices";
   }
 
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  const int64_t communicator_size = communicator_->size();
+  const int64_t my_device_index = communicator_->deviceId();
 
-  TensorView* in = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
-  TensorView* weight = makeContigTensor(2); //[N, K]
-  TensorView* bias = makeContigTensor(1); //[N]
-  TensorView* out = linear(in, weight, bias); //[S, D, M/(S*D), N]
+  std::vector<int64_t> unsharded_sizes = {communicator_size, 2097152};
+  std::vector<int64_t> sharded_sizes = {1, unsharded_sizes[1]};
 
-  fusion->addInput(in);
-  fusion->addInput(weight);
-  fusion->addInput(bias);
-  fusion->addOutput(out);
+  // Create a host IR container
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
 
-  auto mesh = DeviceMesh::createForNumDevices(D);
-  in->setDeviceMesh(mesh);
-  weight->setDeviceMesh(mesh);
-  bias->setDeviceMesh(mesh);
-  out->setDeviceMesh(mesh);
+  // Create input and output TensorViews
+  DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_size);
 
-  in->axis(1)->parallelize(ParallelType::DIDx);
-  out->axis(0)->parallelize(ParallelType::Stream);
+  TensorView* input_tv = makeContigConcreteTensor(sharded_sizes);
+  input_tv->setMemoryType(MemoryType::Symmetric);
+  input_tv->setDeviceMesh(mesh);
+  input_tv->axis(0)->parallelize(ParallelType::DIDx);
 
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+  TensorView* output_tv = makeContigConcreteTensor(unsharded_sizes);
+  output_tv->setMemoryType(MemoryType::Symmetric);
 
-  auto tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-  at::Tensor in_at_unsharded =
-      at::randn({S, D, M / (S * D), K}, tensor_options);
-  at::Tensor in_at = in_at_unsharded.slice(
-      1, communicator_->deviceId(), communicator_->deviceId() + 1);
-  at::Tensor weight_at = at::randn({N, K}, tensor_options);
-  at::Tensor bias_at = at::randn({N}, tensor_options);
-  at::Tensor out_ref = at::linear(in_at_unsharded, weight_at, bias_at);
+  // Create the SymmetricContiguousView operation
+  auto* aliasing_op =
+      IrBuilder::create<SymmetricContiguousView>(output_tv, input_tv);
 
-  at::Tensor out_at;
+  // Set up the host program
+  hic->addInput(input_tv);
+  hic->addOutput(output_tv);
+  hic->pushBackTopLevelExprs(aliasing_op);
 
-  constexpr int64_t kNumberOfIterations = 2;
-  constexpr int64_t kNumberOfWarmupIterations = 1;
-  for (auto i : c10::irange(kNumberOfIterations)) {
-    if (i == kNumberOfWarmupIterations) {
-      cudaProfilerStart();
+  // Execute the host program
+  HostIrEvaluator hie(std::move(hic), communicator_);
+
+  auto options =
+      at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
+  // Allocate input with symmetric memory
+  at::Tensor input_tensor =
+      SymmetricTensor::allocate(sharded_sizes, at::kFloat, options.device());
+
+  // Fill each rank's shard with a unique pattern (rank * 1000 + element_index)
+  input_tensor.copy_(
+      at::arange(unsharded_sizes[1], options) + (my_device_index * 1000));
+
+  // Run the host IR
+  auto outputs = hie.runWithInput({{input_tv, input_tensor}});
+
+  // Verify the output
+  at::Tensor output_tensor = outputs.back().as<at::Tensor>();
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef(unsharded_sizes));
+
+  at::Tensor local_output_tensor = at::empty(unsharded_sizes, options);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      local_output_tensor.data_ptr(),
+      output_tensor.data_ptr(),
+      output_tensor.numel() * output_tensor.element_size(),
+      cudaMemcpyDeviceToDevice));
+
+  at::Tensor ref_output = at::empty(unsharded_sizes, options);
+  for (int64_t rank = 0; rank < communicator_size; ++rank) {
+    ref_output.slice(0, rank, rank + 1)
+        .copy_(at::arange(unsharded_sizes[1], options) + (rank * 1000));
+  }
+
+  EXPECT_TRUE(at::allclose(local_output_tensor, ref_output))
+      << "Output tensor does not match expected values";
+}
+
+TEST_F(MultiDeviceTest, SwizzleWithParallelType) {
+  const int64_t d = communicator_->size();
+  const int64_t my_rank = communicator_->deviceId();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  {
+    TensorView* in_tv = makeContigTensor(2);
+    TensorView* out_tv = set(in_tv);
+    hic->addInput(in_tv);
+    hic->addOutput(out_tv);
+
+    for (auto* tv : {in_tv, out_tv}) {
+      tv->setMemoryType(MemoryType::Global);
+      tv->setDeviceMesh(mesh);
+      tv->outer_split(1, d);
+      tv->axis(1)->parallelize(ParallelType::DIDx);
+      tv->setAllocationDomain(tv->getLoopDomain(), true);
+      tv->outer_split(0, d);
+      tv->swizzle1d(0, ParallelType::DIDx);
+      tv->axis(0)->parallelize(ParallelType::Stream);
     }
-    out_at =
-        executor.runWithInput({in_at, weight_at, bias_at})[0].as<at::Tensor>();
-  }
-  torch::cuda::synchronize();
-  cudaProfilerStop();
 
-  EXPECT_TRUE(torch::allclose(out_ref, out_at, 1e-1, 1e-1));
+    auto* allocate_out = IrBuilder::create<hir::Allocate>(
+        out_tv, MemoryType::Global, /*zero_init=*/true);
+    auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+    auto* for_loop = IrBuilder::create<ForLoop>(
+        stream_index,
+        /*start=*/hic->zeroVal(DataType::Index),
+        /*stop=*/IrBuilder::create<Val>(d - 1, DataType::Index));
+
+    TensorView* in_shard =
+        hir::shardByStream(in_tv, stream_index, out_tv->definition());
+    TensorView* out_shard =
+        hir::shardByStream(out_tv, stream_index, out_tv->definition());
+
+    auto* copy = IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, out_shard, in_shard);
+
+    for_loop->body().pushBack(in_shard->definition());
+    for_loop->body().pushBack(out_shard->definition());
+    for_loop->body().pushBack(copy);
+
+    hic->pushBackTopLevelExprs(allocate_out);
+    hic->pushBackTopLevelExprs(for_loop);
+  }
+
+  HostIrEvaluator hie(std::move(hic));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor unsharded_in = at::randn({d * 3, d * 5}, options);
+  at::Tensor sharded_in = shardTensor1D(unsharded_in, 1, mesh);
+
+  KernelArgumentHolder ins(sharded_in);
+  ins.setCacheId(0);
+  KernelArgumentHolder outs = hie.runWithInputs(ins);
+  at::Tensor out = outs[0].as<at::Tensor>();
+  at::Tensor expected_out = sharded_in;
+  expected_out.chunk(d, 0)[(my_rank + d - 1) % d].zero_();
+  EXPECT_TRUE(at::allclose(out, expected_out)) << out << " vs " << expected_out;
 }
 
 } // namespace hir

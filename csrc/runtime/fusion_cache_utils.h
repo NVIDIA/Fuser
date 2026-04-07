@@ -7,41 +7,26 @@
 // clang-format on
 #pragma once
 
-#include <runtime/executor.h>
-#include <scheduler/heuristic.h>
-#include <serde/fusion_cache_generated.h>
-#include <utils.h>
-
-#include <c10/util/ArrayRef.h>
-
 #include <list>
 #include <mutex>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
-namespace nvfuser {
+#include <c10/util/ArrayRef.h>
 
-class SegmentedGroup;
-class SegmentedFusion;
+#include "base.h"
+#include "fusion_segmenter.h"
+#include "runtime/executor.h"
+#include "scheduler/heuristic.h"
+
+namespace nvfuser {
 
 // Utilities for benchmarking and profiling
 struct ExecutorLog {
   std::unique_ptr<HeuristicParams> params = nullptr;
   ExecutorAbstract* fusion_executor = nullptr;
 };
-
-struct RuntimeWorkSpace {
-  //! Pre-determined order to run the segmented groups
-  std::vector<SegmentedGroup*> group_run_order;
-
-  //! Pre-determined order to bind tensor input meta data
-  std::vector<Val*> group_extent_binding_order;
-};
-
-// Perform a topological sort of different groups composiong the Segmented
-// Fusion
-void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
 
 //! Simple hasher for pair<T, const U*>. There is no default hasher for pairs,
 //! since there are a lot of options how to combine hashes. In a case where one
@@ -120,9 +105,9 @@ class ArgumentManager {
     ss << "ArgumentManager {";
     for (const auto& [key, value] : tensor_map_) {
       ss << "  " << key->toString() << " : "
-         << PolymorphicValue_functions::toString(value) << std::endl;
+         << PolymorphicValue_functions::toString(value) << '\n';
     }
-    ss << "}" << std::endl;
+    ss << "}" << '\n';
     return ss.str();
   }
 
@@ -198,13 +183,6 @@ class InputsIdLookup : public NonCopyable {
   size_t size() const {
     return encoding_lookup_.size();
   }
-
-  //! Serialize InputsIdLookup using flatbuffers
-  flatbuffers::Offset<serde::InputsIdLookup> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize InputsIdLookup using flatbuffers
-  void deserialize(const serde::InputsIdLookup* buffer);
 
  private:
   // string to store encoded input meta information. Reuse the buffer instead of

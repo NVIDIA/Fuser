@@ -5,17 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
-
 // Extract size and strides
-#include <runtime/allocations.h>
-#include <runtime/fusion_executor_cache.h>
+#include "runtime/executor_kernel_arg.h"
 
-#include <instrumentation.h>
-#include <polymorphic_value.h>
-#include <runtime/executor_kernel_arg.h>
-#include <serde/polymorphic_value.h>
-#include <tensor_metadata.h>
+#include "polymorphic_value.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tensor_metadata.h"
 
 namespace nvfuser {
 
@@ -23,7 +18,7 @@ namespace {
 
 PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
   KernelIndexTypeCompute index_type_helper;
-  for (const auto dim_i : c10::irange(tensor.ndimension())) {
+  for (const auto dim_i : arange(tensor.ndimension())) {
     auto size = tensor.size(dim_i);
     auto stride = tensor.stride(dim_i);
     if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
@@ -41,7 +36,7 @@ void KernelArgumentHolder::push(const std::vector<PolymorphicValue>& args) {
 
 void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
   for (const auto& tensor : tensors) {
-    arguments_.emplace_back(PolymorphicValue(tensor));
+    arguments_.emplace_back(tensor);
   }
 }
 
@@ -60,7 +55,7 @@ void KernelArgumentHolder::push(const std::vector<c10::IValue>& args) {
 }
 
 void KernelArgumentHolder::push(at::Tensor tensor) {
-  arguments_.emplace_back(PolymorphicValue(tensor));
+  arguments_.emplace_back(tensor);
 }
 
 void KernelArgumentHolder::push(PolymorphicValue val) {
@@ -70,16 +65,15 @@ void KernelArgumentHolder::push(PolymorphicValue val) {
 void KernelArgumentHolder::push(std::optional<at::Tensor> tensor) {
   NVF_ERROR(
       tensor.has_value(),
-      "KernelArgumentHolder doesn't support empty optional values, it's expected that when pushed they exist.");
-  arguments_.emplace_back(PolymorphicValue(tensor.value()));
+      "KernelArgumentHolder doesn't support empty optional values, it's "
+      "expected that when pushed they exist.");
+  arguments_.emplace_back(*tensor);
 }
 
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {
-  auto iter = std::remove_if(
-      arguments_.begin(), arguments_.end(), [&](const auto& ref) {
-        return &arg_to_delete == &ref;
-      });
-  arguments_.erase(iter, arguments_.end());
+  auto result = std::ranges::remove_if(
+      arguments_, [&](const auto& ref) { return &arg_to_delete == &ref; });
+  arguments_.erase(result.begin(), result.end());
 }
 
 std::string KernelArgumentHolder::toString() const {
@@ -125,42 +119,6 @@ void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
     device_index_ = index.value();
   } else {
     device_index_ = getCommonDeviceCUDA(*this);
-  }
-}
-
-flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
-    serialize(flatbuffers::FlatBufferBuilder& builder) const {
-  // See table definitions for KernelArgumentHolder and PolymorphicValue
-  // in serde/fusion_cache.fbs
-
-  using fb_poly_value = flatbuffers::Offset<serde::PolymorphicValue>;
-
-  std::vector<fb_poly_value> arguments_fb;
-  arguments_fb.reserve(arguments_.size());
-  for (auto& arg : arguments_) {
-    arguments_fb.push_back(serde::serializePolymorphicValue(builder, arg));
-  }
-
-  return serde::CreateKernelArgumentHolderDirect(
-      builder, &arguments_fb, device_index_, cache_id_.value_or(SIZE_MAX));
-}
-
-void KernelArgumentHolder::deserialize(
-    const serde::KernelArgumentHolder* buffer) {
-  // See table definitions for KernelArgumentHolder and PolymorphicValue
-  // in serde/fusion_cache.fbs
-
-  NVF_ERROR(buffer != nullptr, "serde::KernelArgumentHolder is nullptr.");
-
-  device_index_ = buffer->device_index();
-  cache_id_ = (buffer->cache_id() != SIZE_MAX)
-      ? std::optional<size_t>(buffer->cache_id())
-      : std::nullopt;
-
-  serde::PolymorphicValueFactory poly_value_factory;
-  for (auto fb_poly_value : *buffer->arguments()) {
-    NVF_ERROR(fb_poly_value != nullptr, "serde::PolymorphicValue is nullptr.");
-    push(poly_value_factory.parse(fb_poly_value->data_type(), fb_poly_value));
   }
 }
 
@@ -261,11 +219,16 @@ std::vector<std::byte> polymorphicValueToBytes(
       at::Float8_e5m2 v8 = (at::Float8_e5m2)(float)v;
       return std::vector<std::byte>(
           (std::byte*)&v8, (std::byte*)&v8 + sizeof(at::Float8_e5m2));
+    } else if (dtype == DataType::Float8_e8m0fnu) {
+      at::Float8_e8m0fnu v8 = (at::Float8_e8m0fnu)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v8, (std::byte*)&v8 + sizeof(at::Float8_e8m0fnu));
     } else {
       NVF_THROW(
           "Cannot convert double to ",
           dtype,
-          " type: only half, bfloat16, float and double are supported.");
+          " type: only half, bfloat16, float, double, fp8_e4m3fn, fp8_e5m2, "
+          "fp8_e8m0fnu are supported.");
     }
   } else if (argument.is<std::complex<double>>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(std::complex<double>)");
@@ -288,7 +251,8 @@ std::vector<std::byte> polymorphicValueToBytes(
     std::vector<std::byte> buffer;
     if (argument.as<StructHandle>().is<TensorMetaData>()) {
       NVF_THROW(
-          "Don't send tensor metadata to this function directly, use tensorToBytes.");
+          "Don't send tensor metadata to this function directly, use "
+          "tensorToBytes.");
     } else {
       const auto& dtype_ = std::get<StructType>(dtype.type);
       for (const auto& field : dtype_.fields) {
@@ -314,6 +278,7 @@ std::vector<std::byte> tensorToBytes(
     const std::vector<int64_t>& logical_sizes,
     const std::vector<int64_t>& alloc_strides,
     PrimDataType idx_type,
+    AdjustLastDim adjust_last_dim,
     const std::vector<int64_t>& unsharded_logical_sizes) {
   std::vector<std::byte> bytes;
   NVF_ERROR(
@@ -336,29 +301,87 @@ std::vector<std::byte> tensorToBytes(
         bytes.end(),
         (std::byte*)size_to_use.data(),
         (std::byte*)size_to_use.data() + sizeof(int64_t) * size_to_use.size());
-    bytes.insert(
-        bytes.end(),
-        (std::byte*)alloc_strides.data(),
-        (std::byte*)alloc_strides.data() +
-            sizeof(int64_t) * alloc_strides.size());
+
+    // Adjust the last dimension of the logical domain to support DataType
+    // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+    // in type.h for more details.
+    if (!size_to_use.empty()) {
+      int64_t& last_size = *reinterpret_cast<int64_t*>(
+          bytes.data() + bytes.size() - sizeof(int64_t));
+      last_size = adjust_last_dim.fromATenToNVF(last_size);
+    } else {
+      NVF_ERROR(
+          adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+          "DataType not supported");
+    }
+
+    // Adjust the strides to support DataType that is not supported by PyTorch.
+    // See the comment of getLastDimAdjustment in type.h for more details.
+    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
+      // [Adjust all strides but not the last one]
+      // raw_stride is in the unit of "ATen elements". For the case where
+      // the DataType is not supported by PyTorch, we want to convert the
+      // unit to "NVFuser elements". For example, for fp4 tensor, we use Byte
+      // as the corresponding ATen ScalarType, so the unit of raw_stride is 8
+      // bits, and here we want to convert the unit to 4 bits. This conversion
+      // should happen on all dimensions except the last one. Why is the last
+      // dimension special? The definition of a dimension's "stride" is, if you
+      // increment the index of this dimension by 1, how many units do you need
+      // to skip in memory? For dimensions other than the last one, the meaning
+      // of "unit" has changes, but the definition of "increment by one" remains
+      // the same, so we need to adjust the stride to account for the change of
+      // definition of "unit". For the last dimension, the definition of "unit"
+      // changes the same way as the other dimensions, but besides that, because
+      // we adjusted the logical size of the last dimension, the definition of
+      // "increment by one" also changes. We need to account for both changes,
+      // not just the change of definition of "unit". The effect of the
+      // definition change of "unit" and the definition change of "increment by
+      // one" cancel each other, so we just use the raw_stride as is.
+      int64_t stride = (i == std::ssize(size_to_use) - 1)
+          ? raw_stride
+          : adjust_last_dim.fromATenToNVF(raw_stride);
+      bytes.insert(
+          bytes.end(),
+          (std::byte*)&stride,
+          (std::byte*)&stride + sizeof(int64_t));
+    }
   } else {
     bytes.reserve(
         sizeof(void*) + sizeof(int32_t) * size_to_use.size() +
         sizeof(int32_t) * alloc_strides.size());
     bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
     std::vector<int32_t> logical_size32(size_to_use.begin(), size_to_use.end());
+
+    // Adjust the last dimension of the logical domain to support DataType
+    // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+    // in type.h for more details.
+    if (!logical_size32.empty()) {
+      int32_t& last_size = logical_size32.back();
+      last_size = (int32_t)adjust_last_dim.fromATenToNVF(last_size);
+    } else {
+      NVF_ERROR(
+          adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+          "DataType not supported");
+    }
+
     bytes.insert(
         bytes.end(),
         (std::byte*)logical_size32.data(),
         (std::byte*)logical_size32.data() +
             sizeof(int32_t) * logical_size32.size());
-    std::vector<int32_t> alloc_stride32(
-        alloc_strides.begin(), alloc_strides.end());
-    bytes.insert(
-        bytes.end(),
-        (std::byte*)alloc_stride32.data(),
-        (std::byte*)alloc_stride32.data() +
-            sizeof(int32_t) * alloc_stride32.size());
+
+    // Adjust the strides to support DataType that is not supported by PyTorch.
+    // See the comment of getLastDimAdjustment in type.h for more details.
+    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
+      // See [Adjust all strides but not the last one]
+      auto stride32 = (i == std::ssize(size_to_use) - 1)
+          ? static_cast<int32_t>(raw_stride)
+          : static_cast<int32_t>(adjust_last_dim.fromATenToNVF(raw_stride));
+      bytes.insert(
+          bytes.end(),
+          (std::byte*)&stride32,
+          (std::byte*)&stride32 + sizeof(int32_t));
+    }
   }
   return bytes;
 }
@@ -366,7 +389,7 @@ std::vector<std::byte> tensorToBytes(
 int64_t computeBytes(const KernelArgumentHolder& args) {
   int64_t num_bytes = 0;
   // Figure how many bytes are inputs, outputs, and temporary buffers
-  for (auto i : c10::irange(args.size())) {
+  for (auto i : arange(args.size())) {
     if (args[i].is<at::Tensor>()) {
       auto t = args[i].as<at::Tensor>();
       num_bytes += static_cast<int64_t>(t.storage().nbytes());

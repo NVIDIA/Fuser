@@ -10,6 +10,7 @@
 #include <exceptions.h>
 
 #include <device_lower/analysis/circular_buffer.h>
+#include <device_lower/analysis/padded_parallel_dimensions.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <fusion.h>
@@ -17,9 +18,9 @@
 #include <ir/builder.h>
 #include <parallel_dimension_map.h>
 #include <type.h>
-#include <utils.h>
 #include <vectorization_info.h>
 #include <visibility.h>
+#include "base.h"
 
 #include <memory>
 #include <unordered_map>
@@ -35,7 +36,7 @@ struct KernelSummary {
   //! Count of WAR (write-after-read) hazard barriers
   int64_t war_hazard_syncs_count = 0;
 
-  //! List of global buffers
+  //! List of global buffers (fusion outputs not included)
   std::vector<const kir::Allocate*> global_allocations;
 
   //! List of dynamic shared memory buffers
@@ -46,6 +47,9 @@ struct KernelSummary {
 
   //! Do we have any block reductions?
   bool has_block_reductions = false;
+
+  //! Are all block reduction warp reductions?
+  bool all_block_reductions_are_warp_reduction = true;
 
   //! Number of static grid reductions
   bool has_grid_reductions = false;
@@ -84,11 +88,7 @@ struct KernelSummary {
   //! Largest shared memory buffer base type
   DataType largest_smem_data_type = DataType::Null;
 
-  //! Do we have allocations of dynamic local memory?
-  bool has_dynamic_local_memory_allocations = false;
-
   //! List of dynamic local memory buffers.
-  //! Only used for debugging.
   std::vector<const kir::Allocate*> dynamic_lmem_allocations;
 
   //! Validations needed and information about them. For example, a pair of
@@ -135,6 +135,32 @@ struct KernelSummary {
 
   //! adjusted register usage for tma load and computation warp groups
   std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
+
+  //! has mma op in fusion
+  bool has_mma_op = false;
+
+  //! Do we have any argsort op?
+  bool has_argsort = false;
+
+  //! Do we have any preprocess op?
+  bool has_preprocess_grouped_matmul_input_sf = false;
+
+  bool has_block_quantize_op = false;
+
+  //! Do we have any topk op?
+  bool has_topk = false;
+
+  //! Do we have any scan op?
+  bool has_scan = false;
+
+  //! Do we have any clustered blocks?
+  bool has_cluster_reduction = false;
+
+  //! Do the kernel need streamIdx?
+  bool stream_parallelized = false;
+
+  //! Do we need to enable programmatic dependent launch?
+  bool enable_programmatic_dependent_launch = false;
 };
 
 class KernelPerformanceProfile {
@@ -235,11 +261,11 @@ class NVF_API Kernel final : public Fusion {
   //! Checks if parallel type is padded
   bool isParallelTypePadded(ParallelType ptype) const {
     return ptype == ParallelType::TIDx &&
-        warp_padded_parallel_info_.is_tidx_padded;
+        padded_parallel_dimensions_.is_tidx_padded;
   }
 
-  const WarpPaddedParallelInfo& getWarpPaddedParallelInfo() const {
-    return warp_padded_parallel_info_;
+  const PaddedParallelDimensions& paddedParallelDimensions() const {
+    return padded_parallel_dimensions_;
   }
 
   const KernelPerformanceProfile& profile() const {
@@ -254,9 +280,6 @@ class NVF_API Kernel final : public Fusion {
   }
 
  protected:
-  using IrContainer::registerExpr;
-  using IrContainer::registerVal;
-
   //! Register the Val with this fusion
   void registerVal(Val* val) override;
 
@@ -279,7 +302,7 @@ class NVF_API Kernel final : public Fusion {
   // information is required to resolve DataType::Index
   PrimDataType index_type_ = PrimDataType::Int;
 
-  WarpPaddedParallelInfo warp_padded_parallel_info_;
+  PaddedParallelDimensions padded_parallel_dimensions_;
 
   KernelPerformanceProfile profile_;
 

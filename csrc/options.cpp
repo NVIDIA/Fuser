@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 
@@ -40,7 +40,7 @@ auto parseEnvOptions(
             available_options.end(),
             std::back_inserter(option_values),
             [](const auto& kv) { return kv.first; });
-        std::sort(option_values.begin(), option_values.end());
+        std::ranges::sort(option_values);
         NVF_CHECK(
             false,
             "Parsing ",
@@ -106,6 +106,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"cuda_full", DebugDumpOption::CudaFull},
       {"cuda_kernel", DebugDumpOption::CudaKernel},
       {"cuda_to_file", DebugDumpOption::CudaToFile},
+      {"cutlass_compile", DebugDumpOption::CutlassCompile},
       {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
@@ -120,13 +121,15 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
       {"fusion_ir_preseg", DebugDumpOption::FusionIrPreseg},
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
+      {"host_ir_lowering", DebugDumpOption::HostIrLowering},
       {"host_ir", DebugDumpOption::HostIr},
+      {"host_ir_jit", DebugDumpOption::HostIrJit},
       {"index_type", DebugDumpOption::IndexType},
       {"indexing_verbose", DebugDumpOption::IndexingVerbose},
+      {"inlining", DebugDumpOption::Inlining},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"launch_param", DebugDumpOption::LaunchParam},
-      {"loop_rotation", DebugDumpOption::LoopRotation},
       {"lower_verbose", DebugDumpOption::LowerVerbose},
       {"occupancy", DebugDumpOption::Occupancy},
       {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
@@ -136,15 +139,17 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"ptx", DebugDumpOption::Ptx},
       {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
       {"python_definition", DebugDumpOption::PythonDefinition},
-      {"python_definition_segments", DebugDumpOption::PythonDefinitionSegments},
-      {"python_frontend_debug", DebugDumpOption::PythonFrontendDebug},
       {"sass", DebugDumpOption::Sass},
+      {"sass_to_file", DebugDumpOption::SassToFile},
       {"segmented_fusion", DebugDumpOption::FusionSegments},
       {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
       {"scheduler_params", DebugDumpOption::SchedulerDebug},
+      {"dynamic_shared_memory", DebugDumpOption::DynamicSharedMemory},
       {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
       {"sync_map", DebugDumpOption::SyncMap},
-      {"transform_propagator", DebugDumpOption::TransformPropagator}};
+      {"transform_propagator", DebugDumpOption::TransformPropagator},
+      {"communication", DebugDumpOption::Communication},
+      {"compile_params", DebugDumpOption::CompileParams}};
 
   return parseEnvOptions("DUMP", available_options);
 }
@@ -152,9 +157,9 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
 const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
   static const std::unordered_map<std::string, EnableOption> available_options =
       {
+          {"cutlass_scheduler", EnableOption::CutlassScheduler},
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
-          {"id_model", EnableOption::IdModel},
           {"id_model_extra_validation", EnableOption::IdModelExtraValidation},
           {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
           {"kernel_db", EnableOption::KernelDb},
@@ -166,7 +171,17 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"static_fusion_count", EnableOption::StaticFusionCount},
           {"wait_debugger", EnableOption::WaitDebugger},
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
+          {"tma_pointwise", EnableOption::TmaPointwise},
+          {"tma_inner_persistent", EnableOption::TmaInnerPersistent},
+          {"tma_reduction", EnableOption::TmaReduction},
+          {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
+          {"host_ir_jit", EnableOption::HostIrJit},
+          {"insert_resharding_after", EnableOption::InsertReshardingAfter},
+          {"fast_math", EnableOption::FastMath},
+          {"p2p_protocol", EnableOption::P2pProtocol},
+          {"p2p_transport", EnableOption::P2pTransport},
+          {"multicast_protocol", EnableOption::MulticastProtocol},
       };
   return available_options;
 }
@@ -196,15 +211,15 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"expr_simplify", DisableOption::ExprSimplify},
           {"fallback", DisableOption::Fallback},
           {"fma", DisableOption::Fma},
+          {"greedy_scheduler", DisableOption::GreedyScheduler},
           {"grouped_grid_welford_outer_opt",
            DisableOption::GroupedGridWelfordOuterOpt},
-          {"id_model", DisableOption::IdModel},
           {"index_hoist", DisableOption::IndexHoist},
           {"magic_zero", DisableOption::MagicZero},
           {"matmul_expr_eval", DisableOption::MatmulExprEval},
+          {"nvrtc_caching", DisableOption::NvrtcCaching},
           {"nvtx", DisableOption::Nvtx},
           {"parallel_compile", DisableOption::ParallelCompile},
-          {"parallel_serde", DisableOption::ParallelSerde},
           {"predicate_elimination", DisableOption::PredicateElimination},
           {"python_inline_definitions", DisableOption::PythonInlineDefinitions},
           {"kernel_reuse", DisableOption::KernelReuse},
@@ -213,7 +228,8 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"resize_scheduler", DisableOption::ResizeScheduler},
           {"reuse_mismatched_type_registers",
            DisableOption::ReuseMismatchedTypeRegisters},
-          {"multidevice", DisableOption::Multidevice}};
+          {"multidevice", DisableOption::Multidevice},
+          {"infer_contiguity", DisableOption::InferContiguity}};
   return available_options;
 }
 
@@ -225,7 +241,9 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
   if (options.count(DisableOption::Fma)) {
     TORCH_WARN(
-        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable NVFUSER_DISABLE for optimal performance.");
+        "fmad is disabled for nvrtc, which could negatively affect "
+        "performance. Try removing `fma` from env variable NVFUSER_DISABLE for "
+        "optimal performance.");
   }
 
   return options;
@@ -257,40 +275,32 @@ std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
   return options;
 }
 
-namespace {
-
-// These may need to be thread local, or their modifications may need to
-// be protected by mutual exclusion for thread safety. At this
-// moment, the correctness of modifying option values has to be
-// guaranteed by the modifying code.
-
-DebugDumpOptions active_dump_options;
-
-EnableOptions active_enable_options;
-
-DisableOptions active_disable_options;
-
-ProfilerOptions active_profiler_options;
-
-} // namespace
-
 template <>
 Options<DebugDumpOption>& OptionsGuard<DebugDumpOption>::getCurOptions() {
+  // Note: Make options thread_local.
+  // We want the behavior that new threads would inherit options from the *base*
+  // threads. We need to figure out how to automatically do that before
+  // switching to thread_local. For now we are using mutex to guard option
+  // access, which is necessary to avoid data racing.
+  static DebugDumpOptions active_dump_options;
   return active_dump_options;
 }
 
 template <>
 Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions() {
+  static EnableOptions active_enable_options;
   return active_enable_options;
 }
 
 template <>
 Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions() {
+  static DisableOptions active_disable_options;
   return active_disable_options;
 }
 
 template <>
 Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions() {
+  static ProfilerOptions active_profiler_options;
   return active_profiler_options;
 }
 

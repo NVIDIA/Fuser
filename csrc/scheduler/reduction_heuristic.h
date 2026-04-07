@@ -6,10 +6,10 @@
  */
 // clang-format on
 #pragma once
-
-#include <scheduler/heuristic.h>
-
 #include <sstream>
+
+#include "ir/interface_nodes.h"
+#include "scheduler/heuristic.h"
 
 namespace nvfuser {
 
@@ -36,7 +36,7 @@ class ReductionParams : public HeuristicParams {
 
   // Are we treating the scheduling as 3 dimensional, can be useful for patterns
   // like [reduction, iteration, reduction].
-  bool schedule_3D = false;
+  bool schedule_3d = false;
 
   // For outer reductions we may want to swap the gdimx and gdimy bindings to
   // amortize the cost of the final cleanup in grid reductions.
@@ -48,6 +48,8 @@ class ReductionParams : public HeuristicParams {
   bool cross_block_inner_reduction = false;
   // Reduce across the grid?
   bool cross_grid_inner_reduction = false;
+  // Reduce across the cluster?
+  bool cross_cluster_reduction = false;
   // Unrolling/Vectorization factor for inner reduction dimension
   int64_t unroll_factor_inner_reduction = 1;
 
@@ -56,6 +58,10 @@ class ReductionParams : public HeuristicParams {
 
   // vectorize instead of unroll
   bool vectorize_inner_reduction = false;
+
+  // vectorize casts
+  bool vectorize_casts = true;
+
   // Split grid dim for iteration axis in case it's too large for cuda
   bool split_grid_dim_inner_reduction = false;
   // Pad inner dimension to nearest warp
@@ -136,6 +142,25 @@ class ReductionParams : public HeuristicParams {
   // in outer reduction part of inner-outer persistent scheduler, may further
   // split inner dim by grid
   bool combined_split_grid_inner_dim = false;
+
+  // TMA warp specialized, only used in inner-outer persistent scheduler
+  bool tma_warp_specialized = false;
+
+  // Whether the heuristic is good enough to use warp specialized
+  bool is_good_ws_heuristic = false;
+
+  // Directly load from gmem to regs
+  bool is_non_circular_buffer_gmem_to_regs = true;
+
+  // Further cache TMA loaded buffer to regs
+  bool is_circular_buffer_regs_cached = true;
+
+  // Circular buffer used in tma warp specialized normalization
+  CircularBufferOptions circular_buffer_options;
+
+  // Number of independent warp groups for computation, parallelized by TIDy
+  int64_t computation_warp_groups = 1;
+
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
   // write
@@ -170,11 +195,12 @@ class ReductionParams : public HeuristicParams {
         other->fastest_dim == fastest_dim &&
         other->persistent_kernel == persistent_kernel &&
         other->project_persistent_buffers == project_persistent_buffers &&
-        other->schedule_3D == schedule_3D && other->flip_grid == flip_grid &&
+        other->schedule_3d == schedule_3d && other->flip_grid == flip_grid &&
         other->cross_block_inner_reduction == cross_block_inner_reduction &&
         other->cross_grid_inner_reduction == cross_grid_inner_reduction &&
         other->unroll_factor_inner_reduction == unroll_factor_inner_reduction &&
         other->vectorize_inner_reduction == vectorize_inner_reduction &&
+        other->vectorize_casts == vectorize_casts &&
         other->split_grid_dim_inner_reduction ==
             split_grid_dim_inner_reduction &&
         other->pad_inner_reduction_to_warp == pad_inner_reduction_to_warp &&
@@ -197,12 +223,21 @@ class ReductionParams : public HeuristicParams {
         other->combined_inner_outer == combined_inner_outer &&
         other->tidx_for_outer_reduction == tidx_for_outer_reduction &&
         other->pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
+        other->computation_warp_groups == computation_warp_groups &&
         other->vectorization_factor_outer == vectorization_factor_outer &&
         other->combined_split_grid_inner_dim == combined_split_grid_inner_dim &&
         other->unroll_factor_top_of_vectorization ==
             unroll_factor_top_of_vectorization &&
         other->vectorization_factor_tmp_gmem_write ==
-            vectorization_factor_tmp_gmem_write;
+            vectorization_factor_tmp_gmem_write &&
+        other->tma_warp_specialized == tma_warp_specialized &&
+        other->is_good_ws_heuristic == is_good_ws_heuristic &&
+        other->is_non_circular_buffer_gmem_to_regs ==
+            is_non_circular_buffer_gmem_to_regs &&
+        other->is_circular_buffer_regs_cached ==
+            is_circular_buffer_regs_cached &&
+        other->cross_cluster_reduction == cross_cluster_reduction &&
+        other->circular_buffer_options == circular_buffer_options;
 
     if (other->static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other->lparams.bdimy() == lparams.bdimy();
@@ -223,8 +258,12 @@ class ReductionParams : public HeuristicParams {
     if (batches_per_block_inner_reduction > 1 || persistent_kernel) {
       ss << "Batches per block: " << batches_per_block_inner_reduction << "\n";
     }
-
-    if (schedule_3D) {
+    if (circular_buffer_options.isEnable()) {
+      ss << circular_buffer_options;
+    } else {
+      ss << "Circular buffer: not used\n";
+    }
+    if (schedule_3d) {
       ss << "3D Schedule\n"
          << "Outer Reduction: ";
       if (cross_block_outer_reduction) {
@@ -272,6 +311,9 @@ class ReductionParams : public HeuristicParams {
       ss << "cross block - " << block_dim_inner_reduction << " / ";
       ss << (pad_inner_reduction_to_warp ? " pad to warp / " : "");
     }
+    if (cross_cluster_reduction) {
+      ss << "cross cluster - " << grid_dim_inner_reduction << " / ";
+    }
     if (cross_grid_inner_reduction) {
       ss << "cross grid - " << grid_dim_inner_reduction << " / ";
       ss << (split_grid_dim_inner_reduction ? "split grid dim / " : "");
@@ -306,7 +348,7 @@ class ReductionParams : public HeuristicParams {
     size_t attr_hash = static_cast<size_t>(fastest_dim) << (bits - 1) ^
         static_cast<size_t>(persistent_kernel) << (bits - 2) ^
         static_cast<size_t>(project_persistent_buffers) << (bits - 3) ^
-        static_cast<size_t>(schedule_3D) << (bits - 4) ^
+        static_cast<size_t>(schedule_3d) << (bits - 4) ^
         static_cast<size_t>(flip_grid) << (bits - 5) ^
         static_cast<size_t>(cross_block_inner_reduction) << (bits - 6) ^
         static_cast<size_t>(cross_grid_inner_reduction) << (bits - 7) ^
@@ -327,7 +369,12 @@ class ReductionParams : public HeuristicParams {
         static_cast<size_t>(unroll_factor_outer_reduction) << (bits - 22) ^
         static_cast<size_t>(compute_persistent_buffer_with_first_consumer)
             << (bits - 23) ^
-        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24);
+        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24) ^
+        static_cast<size_t>(tma_warp_specialized) << (bits - 25) ^
+        static_cast<size_t>(is_non_circular_buffer_gmem_to_regs)
+            << (bits - 26) ^
+        static_cast<size_t>(is_circular_buffer_regs_cached) << (bits - 27) ^
+        static_cast<size_t>(cross_cluster_reduction) << (bits - 28);
     return attr_hash;
   }
 

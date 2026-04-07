@@ -7,10 +7,19 @@
 // clang-format on
 #pragma once
 
+#include <any>
+#include <cstdint>
+#include <iosfwd>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+#include "base.h"
+
 #include <ATen/core/ivalue.h>
-#include <exceptions.h>
 
 #include <debug.h>
+#include <exceptions.h>
 #include <fusion_guard.h>
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
@@ -18,12 +27,6 @@
 #include <iter_visitor.h>
 #include <runtime/executor_params.h>
 #include <visibility.h>
-
-#include <any>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 namespace nvfuser {
 
@@ -59,7 +62,6 @@ namespace nvfuser {
 
 class Fusion;
 class TensorView;
-class WelfordResult;
 
 class SegmentCandidateFinder;
 class SegmentedFusion;
@@ -67,16 +69,15 @@ class KernelArgumentHolder;
 
 class DynamicTransformConcretizationInfo;
 
-// Set the enum base to `int` so it can be safely serialized as a part of
-// serde::InputOutputAlias.
-enum class AllocationType : int {
+// Set the enum base to std::uint8_t for compact representation.
+enum class AllocationType : std::uint8_t {
   New, // Allocate a new buffer
   // Reuse the buffer allocated to `aliased_io`. For example, the tensor storing
   // BatchNorm's running mean. The output EMA is updated in place.
   ReuseBuffer,
   // This is used to cheaply compute the output tensor using
   // `ExpressionEvaluator` (instead of a kernel) for:
-  // 1. PointerArithmetics: For example, the output of a ViewOp is merely a
+  // 1. PointerArithmetics: For example, the output of a ReshapeOp is merely a
   // pointer arithmetic of the input.  In this case, aliased_io is a non-null
   // tensor.
   // 2. To evaluate output tensors which are not aliases. For example, default
@@ -84,43 +85,54 @@ enum class AllocationType : int {
   Evaluate,
 };
 
+std::ostream& operator<<(std::ostream& os, AllocationType);
+
+enum class OutputVisibility : std::uint8_t {
+  kHidden,
+  kVisible,
+};
+
+std::ostream& operator<<(std::ostream& os, OutputVisibility);
+
 struct AliasInfo {
   AllocationType type;
   Val* aliased_io;
   // Whether integration should hide the output from users. This is currently
   // only used for ReuseBuffer.
-  bool hide_output;
+  OutputVisibility visibility;
 
   bool operator==(const AliasInfo& other) const {
     return type == other.type && aliased_io == other.aliased_io &&
-        hide_output == other.hide_output;
+        visibility == other.visibility;
   }
 
   bool operator!=(const AliasInfo& other) const {
     return !(*this == other);
   }
+};
 
-  std::string toString() const {
-    std::stringstream ss;
-    ss << "AliasInfo{\n";
-    ss << "  type = ";
-    switch (type) {
-      case AllocationType::Evaluate:
-        ss << "Evaluate";
-        break;
-      case AllocationType::New:
-        ss << "New";
-        break;
-      case AllocationType::ReuseBuffer:
-        ss << "ReuseBuffer";
-        break;
-    }
-    ss << ",\n  aliased_io = "
-       << (aliased_io == nullptr ? "nullptr" : aliased_io->toString()) << ",\n";
-    ss << "  hide_output = " << (hide_output ? "true" : "false") << "\n";
-    ss << "}\n";
-    return ss.str();
+std::ostream& operator<<(std::ostream& os, const AliasInfo&);
+
+class AliasInfoMap {
+ public:
+  void add(Val* out, Val* in, AllocationType type, OutputVisibility visibility);
+
+  const AliasInfo& get(const Val* v) const;
+
+  AliasInfo& mutable_at(const Val* v) {
+    return aliases_.at(v);
   }
+
+  void erase(const Val* v) {
+    aliases_.erase(v);
+  }
+
+  void clear() {
+    aliases_.clear();
+  }
+
+ private:
+  std::unordered_map<const Val*, AliasInfo> aliases_;
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -132,11 +144,36 @@ struct AliasInfo {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class NVF_API Fusion : public IrContainer {
+class NVF_API Fusion : public PolymorphicBase {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
+ protected:
+  // Direct access to underlying container
+  IrContainer* ir_container() {
+    NVF_ERROR(
+        ir_container_.get() != nullptr,
+        "Accessing an uninitialized IrContainer!.")
+    return ir_container_.get();
+  }
+
+  const IrContainer* ir_container() const {
+    NVF_ERROR(
+        ir_container_.get() != nullptr,
+        "Accessing an uninitialized IrContainer!.")
+    return ir_container_.get();
+  }
+
  public:
-  Fusion() = default;
+  // Registration (public API with passkey)
+  virtual void registerStmt(IrBuilderPasskey, Statement* stmt) {
+    if (stmt->isVal()) {
+      registerVal(stmt->asVal());
+    } else {
+      registerExpr(stmt->asExpr());
+    }
+  }
+
+  Fusion();
 
   Fusion(const Fusion& other);
   Fusion(Fusion&& other) noexcept;
@@ -146,17 +183,23 @@ class NVF_API Fusion : public IrContainer {
 
   ~Fusion() override;
 
-  friend void swap(Fusion& a, Fusion& b) noexcept;
+  static void swap(Fusion& a, Fusion& b) noexcept;
 
   void clear() noexcept;
 
+  // Hash the fusion. This is used to identify the fusion in the cache.
+  size_t hash() const;
+
+  // Check if the definition of this fusion is the same as the other fusion.
+  bool sameDefinition(const Fusion& other) const;
+
   //! Break dependency chains associated with Expr, remove references to expr
   //! delete expr
-  void removeExpr(Expr* expr) override;
+  virtual void removeExpr(Expr* expr);
 
   //! Completely remove val from the fusion, break all dependencies associated
   //! with it
-  void removeVal(Val* val) override;
+  virtual void removeVal(Val* val);
 
   //! Register input as an input of the fusion
   void addInput(Val* input);
@@ -224,7 +267,7 @@ class NVF_API Fusion : public IrContainer {
   //! outputs, however, when a multi-output expression exists, and only
   //! some of the outputs are used, the remaining unused outputs are
   //! also included as they must show up in the final code.
-  std::vector<Val*> usedMathVals();
+  std::vector<Val*> usedMathVals() const;
 
   //! Returns all vals that are produced by used math expressions and
   //!  also do not have further consumers.
@@ -270,9 +313,10 @@ class NVF_API Fusion : public IrContainer {
   // those of type `ReuseBuffer` are marked in fusion definitions.
   NVF_API void aliasOutputToInput(Val* output, Val* input, AllocationType type);
 
-  //! Returns the aliased input of a given output along with an `AliasInfo`
-  //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
-  //! aliased.
+  const AliasInfoMap& getOutputAliases() const {
+    return io_alias_;
+  }
+
   const AliasInfo& getOutputAlias(const Val* output) const;
 
   bool isTVUseInfoValid() {
@@ -307,8 +351,6 @@ class NVF_API Fusion : public IrContainer {
   //   T& data = fusion.getManaged<T>(name); // lvalue
   // To check existence:
   //   bool has_data = fusion.hasManaged(name);
-  // Note that special names, such as "loop_rotation", are reserved as lowering
-  // options.
   //
   // The managed data can be any type. To retrieve managed data, you always need
   // to specify the actual type of the data. For the data whose type already
@@ -462,17 +504,118 @@ class NVF_API Fusion : public IrContainer {
 
   void resetExactMappings();
 
+  //===================================================================
+  // IrContainer API Forwarding (Public Methods)
+  //===================================================================
+
+  // Container queries
+  bool inContainer(const Statement* stmt) const {
+    return ir_container()->inContainer(stmt);
+  }
+
+  void assertInContainer(const Statement* stmt, const std::string& msg) const {
+    ir_container()->assertInContainer(stmt, msg);
+  }
+
+  // Collections access (return values in insertion order)
+  const std::deque<Val*> deterministic_vals() const noexcept {
+    return ir_container()->deterministic_vals();
+  }
+
+  const std::deque<Expr*> deterministic_exprs() const noexcept {
+    return ir_container()->deterministic_exprs();
+  }
+
+  const std::unordered_map<Val*, int64_t> deterministic_vals_map()
+      const noexcept {
+    return ir_container()->deterministic_vals_map();
+  }
+
+  const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
+      const noexcept {
+    return ir_container()->deterministic_exprs_map();
+  }
+
+  // Collections access (unordered sets)
+  const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
+    return ir_container()->unordered_exprs();
+  }
+
+  const std::unordered_set<Val*>& vals() const noexcept {
+    return ir_container()->vals();
+  }
+
+  // Count queries
+  int64_t numExprs() const noexcept {
+    return ir_container()->numExprs();
+  }
+
+  int64_t numVals(bool include_shortcuts) const noexcept {
+    return ir_container()->numVals(include_shortcuts);
+  }
+
+  // Shortcut values (frequently used constants)
+  Val* zeroVal() {
+    return ir_container()->zeroVal();
+  }
+
+  Val* oneVal() {
+    return ir_container()->oneVal();
+  }
+
+  Val* falseVal() {
+    return ir_container()->falseVal();
+  }
+
+  Val* trueVal() {
+    return ir_container()->trueVal();
+  }
+
+  NamedScalar* magicZeroVal() {
+    return ir_container()->magicZeroVal();
+  }
+
+  Val* zeroVal(DataType dtype) {
+    return ir_container()->zeroVal(dtype);
+  }
+
+  Val* oneVal(DataType dtype) {
+    return ir_container()->oneVal(dtype);
+  }
+
+  Val* metadataOf(Val* val) {
+    return ir_container()->metadataOf(val);
+  }
+
+  // Axioms (CUDA programming assumptions)
+  const std::vector<Val*>& axioms() {
+    return ir_container()->axioms();
+  }
+
+  void assumePositive(Val* val) {
+    ir_container()->assumePositive(val);
+  }
+
+  void assumeNonNegative(Val* val) {
+    ir_container()->assumeNonNegative(val);
+  }
+
+  // Statement removal
+  void removeStatementsCreatedAfter(
+      int64_t num_exprs_before,
+      int64_t num_vals_before) {
+    ir_container()->removeStatementsCreatedAfter(
+        num_exprs_before, num_vals_before);
+  }
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
   friend class TranslateApplicableWelford;
   friend Val;
 
-  using IrContainer::registerExpr;
-  using IrContainer::registerVal;
-
   //! Register the Val with this fusion
-  void registerVal(Val* val) override;
+  virtual void registerVal(Val* val);
 
   //! Register expr with this fusion.
   //! When we register an expression, we want to update the dependency tracking
@@ -480,7 +623,7 @@ class NVF_API Fusion : public IrContainer {
   //! definitions of outputs and register this Expr as the definition. Otherwise
   //! will update definition if not previously set, but will not remove old
   //! definitions.
-  void registerExpr(Expr* expr) override;
+  virtual void registerExpr(Expr* expr);
 
   //! Clear Expr's from TV uses that are not required to produce outputs from
   //! inputs. Only other place this is used (other than Fusion) is in
@@ -499,8 +642,8 @@ class NVF_API Fusion : public IrContainer {
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
 
-  // io alias pointing from output to input
-  std::unordered_map<const Val*, AliasInfo> io_alias_;
+  // Aliases between fusion inputs and outputs.
+  AliasInfoMap io_alias_;
 
   // Records if the current use data in the IR nodes are valid
   //  the states are either all valid or all invalid
@@ -524,21 +667,18 @@ class NVF_API Fusion : public IrContainer {
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 
   inline static const std::string exact_mappings_key = "exact_mappings";
+  std::unique_ptr<IrContainer> ir_container_;
 };
 
+// Template implementations for Fusion::manage<T>() that use IrCloner
 template <typename T>
 std::any defaultCloneFunction(IrCloner& cloner, std::any data) {
   auto cloned_data = cloner.clone(std::any_cast<T>(data));
-  // Adding a static_assert to improve error message. Without this
-  // static_assert, the following cast will still fail, but the error message
-  // will be unreadable.
   static_assert(
       std::is_convertible_v<decltype(cloned_data), T>,
-      "IrCloner::clone returns a data type that is not compatible with the original managed data type. "
+      "IrCloner::clone returns a data type that is not compatible with the "
+      "original managed data type. "
       "Likely you will need to check IrCloner::clone for your data type.");
-  // Convert the result of the clone back to T before assigning to std::any.
-  // This ensures the type of the std::any does not change over the clone of
-  // fusion.
   return std::any((T)cloned_data);
 }
 
@@ -551,5 +691,45 @@ template <typename T>
 void Fusion::manage(std::string key, T data) {
   return manage(key, std::any(data), defaultCloneFunction<T>);
 }
+
+// Template implementations for IrBuilder that require Fusion to be fully
+// defined
+template <class T, class... Args>
+T* IrBuilder::createInContainer(Fusion* container, Args&&... args) {
+  NVF_ERROR(container != nullptr, "Need an active container to build IR.");
+  T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
+  container->registerStmt(IrBuilderPasskey(container), node);
+  return node;
+}
+
+template <class T>
+T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
+  NVF_ERROR(
+      ir_cloner != nullptr,
+      "Cannot use create when a cloner object is set. Use clone.");
+  NVF_ERROR(
+      ir_cloner->container() != nullptr,
+      "Cloner doesn't have a valid container to store cloned object.");
+
+  T* dest = new T(src, ir_cloner);
+  const auto* src_stmt = dynamic_cast<const Statement*>(src);
+  auto* dest_stmt = dynamic_cast<Statement*>(dest);
+
+  auto dest_container = ir_cloner->container();
+  auto src_container = src_stmt->container();
+
+  dest_container->registerStmt(IrBuilderPasskey(dest_container), dest_stmt);
+
+  if (src_container != dest_container) {
+    dest_stmt->setName(IrBuilderPasskey(dest_container), src_stmt->name());
+  }
+
+  ir_cloner->registerClone(src_stmt, dest_stmt);
+
+  return dest;
+}
+
+NVF_API std::ostream& operator<<(std::ostream& os, const Fusion& f);
+NVF_API std::ostream& operator<<(std::ostream& os, const Fusion* f);
 
 } // namespace nvfuser

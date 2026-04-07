@@ -8,11 +8,12 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <scheduler/pointwise_heuristic.h>
-#include <scheduler/registry.h>
-#include <visibility.h>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "scheduler/pointwise_heuristic.h"
+#include "scheduler/registry.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -164,9 +165,7 @@ class PointWiseScheduler : public SchedulerEntry {
   bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicDataCache* data_cache = nullptr) override {
-    return true;
-  }
+      HeuristicDataCache* data_cache = nullptr) override;
 
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,

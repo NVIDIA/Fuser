@@ -5,14 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <gtest/gtest.h>
-
-#include <expr_simplifier.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
 #include <cctype>
 #include <deque>
 #include <memory>
@@ -22,6 +14,14 @@
 #include <string_view>
 #include <variant>
 #include <vector>
+
+#include <gtest/gtest.h>
+
+#include "exceptions.h"
+#include "expr_simplifier.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 namespace {
@@ -482,7 +482,8 @@ TEST_F(ExprSimplifierTest, StupidSimpleCompiler) {
   EXPECT_EQ(
       "( ( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + 3 ) + 5 ) + i2 ) ) * i0 )"_
           ->toInlineString(),
-      "( ( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + 3 ) + 5 ) + i2 ) ) * i0 )");
+      "( ( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + "
+      "3 ) + 5 ) + i2 ) ) * i0 )");
   EXPECT_EQ(
       "( ( i1 * i2 ) - ( i2 * i1 ) )"_->toInlineString(),
       "( ( i1 * i2 ) - ( i2 * i1 ) )");
@@ -1203,6 +1204,16 @@ TEST_F(ExprSimplifierTest, OrderTransitivity) {
 
   EXPECT_VALUE_TRUE(simplifyExpr("neg( abs( 8 ) ) < i0"_, {}, {"i0 >= 0"_}));
 #undef EXPECT_VALUE_TRUE
+}
+
+// This was not evaluated away because i5 is a loop index variable
+// starting with a non-zero value.
+//
+// ((((i0 * 32) + (((i5 + nvfuser_zero) * 4) + 0)) >= 0)
+TEST_F(ExprSimplifierTest, NonZeroLoopIndexStart) {
+  EXPECT_TRUE(simplifyExpr("( i5 * 4 ) >= 0 "_, {}, {"5 <= i5 && i5 < 8"_})
+                  ->value()
+                  .as<bool>());
 }
 
 } // namespace nvfuser

@@ -19,10 +19,12 @@ using DequeOfExprGroup = std::deque<ExprGroup>;
 } // namespace
 
 ValGraph::ValGraph(const ValGraph& other)
-    : disjoint_vals_(other.disjoint_vals_),
+    : propagate_through_exprs_(other.propagate_through_exprs_),
+      disjoint_vals_(other.disjoint_vals_),
       disjoint_exprs_(other.disjoint_exprs_),
       unique_definitions_(),
-      unique_uses_() {
+      unique_uses_(),
+      unmappable_vals_(other.unmappable_vals_) {
   for (const auto& [orig_val_group, orig_expr_groups] :
        other.unique_definitions_) {
     auto new_val_group = toGroup(orig_val_group->front());
@@ -83,6 +85,14 @@ const ValGroup& ValGraph::toGroup(Val* val) const {
       val->toString(),
       "\n");
   return disjoint_set_it->second;
+}
+
+bool ValGraph::areMapped(Val* val1, Val* val2) const {
+  return toGroup(val1) == toGroup(val2);
+}
+
+bool ValGraph::areMapped(Expr* expr1, Expr* expr2) const {
+  return toGroup(expr1) == toGroup(expr2);
 }
 
 std::vector<ValGroup> ValGraph::outputGroups(const ExprGroup& expr) const {
@@ -259,8 +269,8 @@ std::string ValGraph::toString() const {
   ss << "IdGraph { \n";
   ss << "Disjoint Ids:\n"
      << idGroupsString(*this, 1) << "\n\nDisjoint Expression groups:\n"
-     << exprGroupsString(*this, 1) << std::endl;
-  ss << " } IdGraph\n" << std::endl;
+     << exprGroupsString(*this, 1) << '\n';
+  ss << " } IdGraph\n";
   return ss.str();
 }
 
@@ -353,7 +363,7 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
       first->toString(),
       second->toString());
 
-  for (const auto i : c10::irange(first_vals.size())) {
+  for (const auto i : arange(first_vals.size())) {
     if (!disjointValSets().permissiveAreMapped(
             first_vals.at(i), second_vals.at(i))) {
       return false;
@@ -387,11 +397,12 @@ const ExprGroups& ValGraph::getDefinitions(const ValGroup& val_group) const {
 
 const ExprGroups& ValGraph::getUses(const ValGroup& val_group) const {
   NVF_ERROR(val_group, "Nullptr not allowed");
+
+  static const ExprGroups empty_expr_groups;
   const auto it = unique_uses_.find(val_group);
-  NVF_ERROR(
-      it != unique_uses_.end(),
-      "Use group not found for ",
-      nvfuser::toString(val_group));
+  if (it == unique_uses_.end()) {
+    return empty_expr_groups;
+  }
   return it->second;
 }
 
@@ -551,18 +562,20 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
 
   NVF_ERROR(
       propagate_through_exprs_,
-      "Asked to propagate expression mappings on a graph that has propagate_exprs_ disabled.");
+      "Asked to propagate expression mappings on a graph that has "
+      "propagate_exprs_ disabled.");
 
   const auto& first_ids = forward ? first->outputs() : first->inputs();
   const auto& second_ids = forward ? second->outputs() : second->inputs();
 
   NVF_ERROR(
       first_ids.size() == second_ids.size(),
-      "This should be unreachable, if transformation expressions match, their number of inputs and outputs should as well.\n However found:\n",
+      "This should be unreachable, if transformation expressions match, their "
+      "number of inputs and outputs should as well.\n However found:\n",
       first->toString(),
       "\nand\n",
       second->toString());
-  for (auto out_i : c10::irange(first_ids.size())) {
+  for (auto out_i : arange(first_ids.size())) {
     mapVals(first_ids[out_i], second_ids[out_i]);
   }
 
@@ -578,8 +591,8 @@ void ValGraph::setUnmappable(const std::vector<Val*>& vals) {
   if (vals.size() < 2) {
     return;
   }
-  for (const auto i : c10::irange(vals.size() - 1)) {
-    for (const auto j : c10::irange(i + 1, vals.size())) {
+  for (const auto i : arange(vals.size() - 1)) {
+    for (const auto j : arange(i + 1, vals.size())) {
       setUnmappable(vals.at(i), vals.at(j));
     }
   }

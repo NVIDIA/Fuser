@@ -11,7 +11,6 @@
 #include <device_lower/utils.h>
 #include <index_compute.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
@@ -38,6 +37,11 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     FUSER_PERF_SCOPE(
         "ConditionalFromPredicateModifier::ConditionalFromPredicateModifier");
     traverseAndInsert(exprs);
+    // For each OneDimTmaLoadExpectArrive, expect a corresponding
+    // OneDimTmaWaitParity.
+    NVF_ERROR(
+        !one_dim_tma_predicate_info_.isSet(),
+        "Unpaired OneDimTmaLoadExpectArrive detected.");
   }
 
   using kir::ExprMutator::handle;
@@ -57,29 +61,32 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
           NVF_ERROR(
               ite->thenBody().size() == 1,
-              "Expecting predicated body to only have one vectorized expression.");
-          auto vec_expr = ite->thenBody()[0];
+              "Expecting predicated body to only have one vectorized "
+              "expression.");
+          auto vec_expr = ite->thenBody().front();
           NVF_ERROR(
               vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
                   vec_expr->isA<TernaryOp>() || vec_expr->isA<IndexSelectOp>(),
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
               ir_utils::isTvOp(vec_expr),
-              "Vectorize predicate exprs only supported on tensor view operations.");
+              "Vectorize predicate exprs only supported on tensor view "
+              "operations.");
           if (!vec_expr->inputs()[0]->isConstScalar()) {
             conditional = SimplifyingIrBuilder::logicalAndExpr(
                 conditional,
-                GpuLower::current()->threadPredMap().getPredicate(
+                GpuLower::current()->info().threadPredicateMap().getPredicate(
                     ir_utils::getTvOutput(vec_expr)));
           }
         } else {
           NVF_ERROR(lower_utils::supportInlinePredicate(expr));
-          auto thread_pred = GpuLower::current()->threadPredMap().getPredicate(
-              ir_utils::getTvOutput(expr));
+          auto thread_pred =
+              GpuLower::current()->info().threadPredicateMap().getPredicate(
+                  ir_utils::getTvOutput(expr));
           NVF_ERROR(thread_pred->isConst() && thread_pred->value());
           conditional = SimplifyingIrBuilder::logicalAndExpr(
               conditional,
-              GpuLower::current()->threadPredMap().getPredicate(
+              GpuLower::current()->info().threadPredicateMap().getPredicate(
                   ir_utils::getTvOutput(expr)));
         }
       }
@@ -112,27 +119,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   void handle(kir::IfThenElse* ite) final {
     NVF_ERROR(ite->predicate() != nullptr);
 
-    // Loop rotation transform loops like
-    //  for i ...
-    //    statement1(i)
-    //    statement2(i)
-    //    statement3(i)
-    //    statement4(i)
-    // into
-    //  statement1(0)
-    //  statement2(0)
-    //  for i ...
-    //    statement3(i)
-    //    statement4(i)
-    //    if LoopRotation:
-    //      statement1(i+1)
-    //      statement2(i+1)
-    // So when we see an `if LoopRotation` during visiting, the last loop is
-    // rotated, and we need to use `i+1` instead of `i` as loop index.
-    if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-      rotated_loop_.insert(for_loops_.back());
-    }
-
     // If ite already has Bool conditional, handle internal expressions
     // Otherwise, generate conditional and update predicate
     if (!ite->predicate()->hasValue()) {
@@ -146,10 +132,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       NVF_ERROR(ite->predicate()->value() != nullptr);
     }
     kir::ExprMutator::handle(ite);
-
-    if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-      rotated_loop_.erase(for_loops_.back());
-    }
   }
 
   // Generate conditional according to PredicateType
@@ -161,13 +143,12 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return PredicateCompute::getInlinePredicate(
             pred->expr(),
             for_loops_,
-            rotated_loop_,
             pred->thread_pred(),
             pred->predicate_type());
       }
       case PredicateType::Vectorize: {
-        std::vector<ForLoop*> outer_loops;
-        ForLoop* vectorized_loop = nullptr;
+        std::vector<kir::ForLoop*> outer_loops;
+        kir::ForLoop* vectorized_loop = nullptr;
         for (auto loop : for_loops_) {
           if (loop->iter_domain()->getParallelType() ==
               ParallelType::Vectorize) {
@@ -186,15 +167,29 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       case PredicateType::Manual: {
         return pred->value();
       }
-      case PredicateType::LoopRotation: {
-        // Currently, all existing predicates should be able to cover the
-        // condition of loop_index + step < end, so nothing to do here. In the
-        // future, if we decide that we need to predicate this then we can do it
-        // here.
-        return IrBuilder::create<Val>(true, DataType::Bool);
-      }
       case PredicateType::ElectSync: {
         return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
+      }
+      case PredicateType::OneDimTmaLoadExpectArrive: {
+        NVF_ERROR(
+            !one_dim_tma_predicate_info_.isSet(),
+            "Expect OneDimTmaLoadExpectArrive is NOT set before "
+            "OneDimTmaLoadExpectArrive.");
+        one_dim_tma_predicate_info_ =
+            PredicateCompute::OneDimTmaLoadExpectArrive(pred, for_loops_);
+        return one_dim_tma_predicate_info_.combined_pred_val;
+      }
+      case PredicateType::OneDimTmaWaitParity: {
+        // Ensure OneDimTmaPredicateInfo is set before use and reset it after
+        // use.
+        NVF_ERROR(
+            one_dim_tma_predicate_info_.isSet(),
+            "Expect OneDimTmaLoadExpectArrive to be set before "
+            "OneDimTmaWaitParity.");
+        auto pred_val = PredicateCompute::OneDimTmaWaitParity(
+            pred, for_loops_, one_dim_tma_predicate_info_);
+        one_dim_tma_predicate_info_.reset();
+        return pred_val;
       }
       default:
         break;
@@ -202,8 +197,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     return nullptr;
   }
 
-  // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<ForLoop*> rotated_loop_;
+  // Stores combined predicate value, inline predicate value and circular buffer
+  // loop index for one dim tma load.
+  OneDimTmaPredicateInfo one_dim_tma_predicate_info_;
 };
 
 } // namespace

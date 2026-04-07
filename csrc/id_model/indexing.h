@@ -7,24 +7,24 @@
 // clang-format on
 #pragma once
 
-#include <device_lower/analysis/trivial_broadcast.h>
-#include <device_lower/pass/allocation.h>
-#include <device_lower/utils.h>
-#include <id_model/id_model.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <options.h>
-#include <type.h>
-
-// Just for PredicateInfo. Should be moved to its own header file
-#include <index_compute.h>
-
 #include <unordered_map>
+
+#include "device_lower/analysis/trivial_broadcast.h"
+#include "device_lower/pass/allocation.h"
+#include "device_lower/utils.h"
+#include "id_model/id_model.h"
+// Just for PredicateInfo. Should be moved to its own header file
+#include "index_compute.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "options.h"
+#include "type.h"
 
 namespace nvfuser {
 
 struct IndexingInfo {
-  std::vector<IterDomain*> loop_domains;
+  std::vector<IterDomain*> loop_ids;
+  std::vector<IterDomain*> index_ids;
   // Indexing traversal path from loop domains
   ExprPath<ExprGroup> traversal_path;
   // Index mappings of ID groups along the traversal path
@@ -69,27 +69,67 @@ class TensorIndexer {
   Val* getLinearIndex(
       TensorView* tv,
       const Expr* expr,
-      const std::vector<ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {}) const;
+      const std::vector<kir::ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index = {},
+      bool ld_st_matrix = false) const;
 
   // Get the index of a loop domain.
-  Val* getLoopIndex(IterDomain* loop_id, const std::vector<ForLoop*>& for_loops)
-      const;
+  Val* getLoopIndex(
+      IterDomain* loop_id,
+      const std::vector<kir::ForLoop*>& for_loops) const;
 
   // Get the index of the given ID groups
   std::vector<Val*> getIndexFor(
       const Expr* expr,
       bool as_consumer,
       const std::vector<IterDomain*>& index_ids,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<kir::ForLoop*>& loops,
+      bool use_magic_zero = false) const;
 
   // Get the contig indices of the given ID groups with their strides
   std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
+      TensorView* tv,
       const Expr* expr,
       bool as_consumer,
       const AllocationDomainInfo& alloc_info,
-      const std::vector<ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index) const;
+      const std::vector<kir::ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index,
+      bool ld_st_matrix = false) const;
+
+  // Get a replace map for tensor indexing. Examples include replacing
+  // an index of a vectorized loop with zero.
+  //
+  // This replacement map is used to replace a tensor index after an
+  // index map is generated. Since replacment is only done for loop
+  // domains, this could be done as part of getInitialIndexMap. One
+  // reason that we might want to first generate an index and do some
+  // replacements, rather than using final index vals to build the
+  // index map, is that one index map could be used for multiple
+  // indices. For normal tensor indexing, this may not matter, but for
+  // predicate indexing, it needs to generate both start and stop
+  // predicates, and one index map would be sufficient for both
+  // indices by using different replacement maps.
+  std::unordered_map<Val*, Val*> getIndexReplacementMap(
+      const Expr* expr,
+      bool as_consumer,
+      const std::vector<IterDomain*>& loop_domains,
+      const std::vector<kir::ForLoop*>& for_loops) const;
+
+  // Grab all for-loops whose indices are actually used in the given
+  // index vals. Note that IndexingInfo.loop_group_dependencies can be
+  // used to find loop IDs that are connected to the index IDs, but
+  // that doesn't always mean corresponding loop indices are actually
+  // used in an index Val. For example, unswitch predicates replace loop indices
+  // with (N - 1), where N is the extent of an unswitched ID. This
+  // function only grabs for-loops whose indices are indeed used.
+  std::vector<kir::ForLoop*> getUsedForLoopsOf(
+      const std::vector<Val*>& indices,
+      const std::vector<kir::ForLoop*>& for_loops) const;
+
+  // Add "pragma unroll" to for-loops whose loop indices are used for
+  // the given indexing. This is meant to be used for register tensors.
+  void ensureStaticIndexing(const std::vector<kir::ForLoop*>& loops, Val* index)
+      const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
@@ -116,14 +156,33 @@ class TensorIndexer {
   std::vector<PredicateInfo> getPredicates(
       TensorView* tv,
       const Expr* expr,
-      const std::vector<ForLoop*>& for_loops,
-      ForLoop* unswitched_loop = nullptr) const;
+      const std::vector<kir::ForLoop*>& for_loops,
+      kir::ForLoop* unswitched_loop = nullptr) const;
 
   // Get the indexing traversal path for indexing a given list of IDs
   // for a given expr
   ExprPath<ExprGroup> getIndexingPath(
       const Expr* expr,
-      const std::vector<IterDomain*>& index_ids) const;
+      const std::vector<IterDomain*>& index_ids,
+      bool use_alternate_loop_domain = false) const;
+
+  ExprPath<ExprGroup> getPredicateIndexingPath(TensorView* tv, const Expr* expr)
+      const;
+
+  // Protect the index of the innermost loop with magic zero.
+  //
+  // NOTE: This just follows how the original indexer adds magic zero
+  // to indices.
+  //
+  // TODO: Revisit if this is still necessary.
+  std::vector<Val*> protectIndicesWithMagicZero(
+      const std::vector<Val*>& indices,
+      const std::vector<kir::ForLoop*>& for_loops) const;
+
+  // Check if a given fusion can be indexed with
+  // TensorIndexer. Returns fals if the fusion uses features that have
+  // only been implemented for the old indexer.
+  static bool isSupported(Fusion* fusion);
 
  private:
   // Build a map of loop groups to their index Vals. See the comment
@@ -138,14 +197,15 @@ class TensorIndexer {
   IndexingInfo computeIndex(
       const Expr* expr,
       const std::vector<IterDomain*>& index_ids,
-      const std::vector<ForLoop*>& for_loops) const;
+      const std::vector<kir::ForLoop*>& for_loops,
+      bool use_alternate_loop_domain = false) const;
 
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
   // index map, which is built for the Loop graph.
   std::unordered_map<ValGroup, Val*> getInitialIndexMap(
       const std::vector<IterDomain*>& loop_domains,
-      const std::vector<ForLoop*>& for_loops) const;
+      const std::vector<kir::ForLoop*>& for_loops) const;
 
   // Get the loop domains of a given expr. Currently, they're always
   // the loop domains of a consumer tensor, but in the future this
@@ -162,29 +222,26 @@ class TensorIndexer {
       const AllocationDomainInfo& alloc_info,
       const ExprPath<ExprGroup>& traversal_path) const;
 
-  // Get a replace map for tensor indexing. Examples include replacing
-  // an index of a vectorized loop with zero.
-  //
-  // This replacement map is used to replace a tensor index after an
-  // index map is generated. Since replacment is only done for loop
-  // domains, this could be done as part of getInitialIndexMap. One
-  // reason that we might want to first generate an index and do some
-  // replacements, rather than using final index vals to build the
-  // index map, is that one index map could be used for multiple
-  // indices. For normal tensor indexing, this may not matter, but for
-  // predicate indexing, it needs to generate both start and stop
-  // predicates, and one index map would be sufficient for both
-  // indices by using different replacement maps.
-  std::unordered_map<Val*, Val*> getIndexReplacementMap(
+  // Grab all non-divisible splits whose input IDs need to be
+  // predicated.
+  ValGroups getNonDivisibleIdsToPredicate(
+      TensorView* tv,
+      const IndexingInfo& index_info) const;
+
+  // Augment IndexingInfo with index mappings for non-divisible split
+  // predicates. Non-divisible splits on the normal indexing path
+  // should not need any additional indexing, but those not in the
+  // path need another traversal.
+  void updateIndexInfoForNonDivisibleSplits(
       const Expr* expr,
-      bool as_consumer,
-      const std::vector<IterDomain*>& loop_domains,
-      const std::vector<ForLoop*>& for_loops,
-      const std::unordered_map<ValGroup, Val*>& index_map) const;
+      const std::vector<kir::ForLoop*>& for_loops,
+      const ValGroups& non_divisible_ids,
+      IndexingInfo& index_info) const;
 
  private:
   // Using non-const references of IdModel because traversalGraph() returns a
   // non-const reference
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   IdModel& id_model_;
 
   // Mappings from loop groups to their indices. Serial loops will

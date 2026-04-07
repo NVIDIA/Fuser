@@ -8,16 +8,16 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <id_model/id_model.h>
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-#include <scheduler/tools/inlining.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <type.h>
+#include "fusion.h"
+#include "id_model/id_model.h"
+#include "ir/utils.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "type.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -468,7 +468,7 @@ TEST_F(Tutorial, Reshape) {
     ASSERT_TRUE(tv1->hasRoot());
     ASSERT_EQ(tv1->getLogicalDomain().size(), 1);
     ASSERT_TRUE(tv1->getLogicalDomain().at(0)->definition()->isA<Merge>());
-    Merge* tv1_merge = tv1->getLogicalDomain().at(0)->definition()->as<Merge>();
+    auto* tv1_merge = tv1->getLogicalDomain().at(0)->definition()->as<Merge>();
     ASSERT_EQ(tv1_merge->inner(), tv1->getRootDomain().at(1));
     ASSERT_EQ(tv1_merge->outer(), tv1->getRootDomain().at(0));
   }
@@ -495,7 +495,7 @@ TEST_F(Tutorial, Reshape) {
     // tv1 = unsqueeze(reshape(squeeze(tv0)));
     ASSERT_TRUE(tv1->definition()->isA<BroadcastOp>());
     auto reshape_output = tv1->definition()->input(0)->as<TensorView>();
-    ASSERT_TRUE(reshape_output->definition()->isA<ViewOp>());
+    ASSERT_TRUE(reshape_output->definition()->isA<ReshapeOp>());
     auto squeeze_output =
         reshape_output->definition()->input(0)->as<TensorView>();
     ASSERT_TRUE(squeeze_output->definition()->isA<SqueezeOp>());
@@ -654,20 +654,20 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // As mentioned above, we don't know any relationship between tv0
   // and tv1, so they should not be mapped.
-  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
+  for (const auto i : arange(tv0->getLogicalDomain().size())) {
     ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
         tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i)));
   }
 
   // Thus, the outputs of the reshape ops are not mapped either
-  for (const auto i : c10::irange(tv2->nDims())) {
+  for (const auto i : arange(tv2->nDims())) {
     ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
         tv2->axis(i), tv3->axis(i)));
   }
 
   // Now, suppose we can say the inputs are exactly mapped. We
   // can manually add mappings:
-  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
+  for (const auto i : arange(tv0->getLogicalDomain().size())) {
     exact_graph.mapVals(
         tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i));
   }
@@ -676,7 +676,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
   // intermediate and loop domains.
 
   // Check the root domains.
-  for (const auto i : c10::irange(tv2->getRootDomain().size())) {
+  for (const auto i : arange(tv2->getRootDomain().size())) {
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv2->getRootDomain().at(i), tv3->getRootDomain().at(i)));
   }
@@ -689,7 +689,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // The next operation is split. Its outputs, which are the loop
   // domains, should be mapped too.
-  for (const auto i : c10::irange(tv2->nDims())) {
+  for (const auto i : arange(tv2->nDims())) {
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv2->axis(i), tv3->axis(i)));
   }

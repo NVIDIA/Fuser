@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <val_graph.h>
+#include "val_graph.h"
 
 namespace nvfuser {
 

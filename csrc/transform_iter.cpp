@@ -10,8 +10,6 @@
 #include <logical_domain_map.h>
 #include <transform_iter.h>
 
-#include <c10/util/irange.h>
-
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -20,10 +18,10 @@ namespace nvfuser {
 
 // Transform dispatch
 void ReplayTransformations::dispatch(Expr* e) {
-  auto is_supported_expr =
-      e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
   NVF_ERROR(
-      is_supported_expr, "Invalid expr type found in transform traversal.");
+      (e->isOneOf<Split, Merge, Swizzle, Swizzle1D, Resize>()),
+      "Unsupported expr found in traversal: ",
+      e);
   IterVisitor::dispatch(e);
 }
 
@@ -47,7 +45,8 @@ void ReplayTransformations::handle(Split* s) {
   // Make sure this ID is a loop ID (meaning it has no uses we generated)
   NVF_ERROR(
       loop_ids_.find(mapped) != loop_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a loop node.");
+      "Transform traversal failed, modified a node but it was not a loop "
+      "node.");
 
   // Replay the split onto mapped
   NVF_ERROR(s->outer()->isRFactorProduct() == s->inner()->isRFactorProduct());
@@ -166,7 +165,8 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
   NVF_ERROR(
       loop_ids_.find(mapped_x) != loop_ids_.end() &&
           loop_ids_.find(mapped_y) != loop_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a loop node.");
+      "Transform traversal failed, modified a node but it was not a loop "
+      "node.");
 
   auto outs = std::make_pair(mapped_x, mapped_y);
 
@@ -186,51 +186,11 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
   id_map_[swizzle->outY()] = outs.second;
 }
 
-void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
-  // Grab our input to the split node
-  auto id_in_x = swizzle_2d->inX();
-  auto id_in_y = swizzle_2d->inY();
-
-  // Make sure we have a corresponding entry in our map pointing to the ID we're
-  // going to replay the swizzle on
-  auto it_x = id_map_.find(id_in_x);
-  auto it_y = id_map_.find(id_in_y);
-
-  if (it_x == id_map_.end() || it_y == id_map_.end()) {
-    if (error_on_failure_) {
-      NVF_THROW("Transform traversal failed, dependencies not met.");
-    } else {
-      return;
-    }
-  }
-
-  auto mapped_x = it_x->second;
-  auto mapped_y = it_y->second;
-
-  // Make sure this ID is a loop ID (meaning it has no uses we generated)
-  NVF_ERROR(
-      loop_ids_.find(mapped_x) != loop_ids_.end() &&
-          loop_ids_.find(mapped_y) != loop_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a loop node.");
-
-  auto outs = std::make_pair(mapped_x, mapped_y);
-
-  if (replay_swizzle_) {
-    // Replay the swizzle onto mapped
-    outs = IterDomain::swizzle(swizzle_2d->swizzleType(), mapped_x, mapped_y);
-
-    // Remove mapped from the loop IDs
-    loop_ids_.erase(mapped_x);
-    loop_ids_.erase(mapped_y);
-  }
-
-  // Add outputs to loop IDs
-  loop_ids_[outs.first] = newCounter();
-  loop_ids_[outs.second] = newCounter();
-
-  // Update our ID map to include these outputs
-  id_map_[swizzle_2d->outX()] = outs.first;
-  id_map_[swizzle_2d->outY()] = outs.second;
+void ReplayTransformations::handle(Swizzle1D* swizzle1d) {
+  NVF_THROW(
+      "Swizzle1D replay not supported in ReplayTransformations, use ReplaySelf "
+      "instead: ",
+      swizzle1d->toString());
 }
 
 void ReplayTransformations::handle(Resize* exp) {
@@ -249,7 +209,8 @@ void ReplayTransformations::handle(Resize* exp) {
   // Make sure this ID is a loop ID (meaning it has no uses we generated)
   NVF_ERROR(
       loop_ids_.find(mapped) != loop_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a loop node.");
+      "Transform traversal failed, modified a node but it was not a loop "
+      "node.");
 
   auto out = mapped;
 
@@ -294,7 +255,7 @@ void ReplayTransformations::runReplay() {
           val->getValType().value() == ValType::IterDomain,
           "Expected IterDomain only for Replay Transformations, but found ",
           val);
-      IterDomain* id = val->as<IterDomain>();
+      auto* id = val->as<IterDomain>();
       NVF_ERROR(
           id_map_.find(id) != id_map_.end(),
           "Could not find required input: ",
@@ -356,13 +317,14 @@ void ReplayTransformations::runReplay() {
       [](std::pair<IterDomain*, size_t> entry) { return entry.first; });
 }
 
-#define ERROR_ON_FAILURE(cond)                                                                                          \
-  do {                                                                                                                  \
-    if (error_on_failure_) {                                                                                            \
-      NVF_ERROR(                                                                                                        \
-          (cond),                                                                                                       \
-          "Error during best effort replay, a transformation was called that conflicts with an root-to-logical call."); \
-    }                                                                                                                   \
+#define ERROR_ON_FAILURE(cond)                                                 \
+  do {                                                                         \
+    if (error_on_failure_) {                                                   \
+      NVF_ERROR(                                                               \
+          (cond),                                                              \
+          "Error during best effort replay, a transformation was called that " \
+          "conflicts with an root-to-logical call.");                          \
+    }                                                                          \
   } while (false)
 
 BestEffortReplay::BestEffortReplay(
@@ -371,15 +333,11 @@ BestEffortReplay::BestEffortReplay(
     std::unordered_map<IterDomain*, IterDomain*> target2replay_map,
     std::unordered_map<IterDomain*, IterDomain*> replay_forward_id_map,
     std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map,
-    bool skip_replay_swizzle,
-    bool skip_target_swizzle,
     bool skip_resize,
     bool error_on_failure)
     : target2replay_id_map_(std::move(target2replay_map)),
       replay_forward_id_map_(std::move(replay_forward_id_map)),
       target_forward_id_map_(std::move(target_forward_id_map)),
-      skip_replay_swizzle_(skip_replay_swizzle),
-      skip_target_swizzle_(skip_target_swizzle),
       error_on_failure_(error_on_failure) {
   for (auto entry : target2replay_id_map_) {
     loop_ids_[entry.second] = counter++;
@@ -441,18 +399,13 @@ BestEffortReplay::BestEffortReplay(
     }
   }
 
-  if (skip_target_swizzle_ || skip_replay_swizzle_) {
-    // Progress through all swizzle ops if we are skipping
-    //  swizzles on the mapping.
-    skipSwizzles(target_id2expr_map, replay_id2expr_map);
-  }
-
   if (skip_resize) {
     skipResizes(target_exprs, replay_exprs);
   }
 
   std::string err_str(
-      "Error during replay, a transformation was called that conflicts with an rfactor call.");
+      "Error during replay, a transformation was called that conflicts with an "
+      "rfactor call.");
 
   bool any_target_expr_contains_broadcast_id = false;
 
@@ -504,7 +457,7 @@ BestEffortReplay::BestEffortReplay(
     bool missing_replay_input = false;
 
     // Map target_expr inputs to replay domain directly
-    for (const auto t_i : c10::irange(target_id_inps.size())) {
+    for (const auto t_i : arange(target_id_inps.size())) {
       // There might not be a mapping, that could be okay (depends on rfactor
       // checking).
       auto it = target2replay_id_map_.find(target_id_inps[t_i]);
@@ -623,15 +576,6 @@ BestEffortReplay::BestEffortReplay(
 
     // Need to match swizzle type and parameters if
     //  not skipping swizzles in this mapping pass.
-    if (!(skip_replay_swizzle_ || skip_target_swizzle_) &&
-        replay_expr->isA<Swizzle2D>()) {
-      auto r_swizzle_2d = replay_expr->as<Swizzle2D>();
-      auto t_swizzle_2d = target_expr->as<Swizzle2D>();
-      if (!(r_swizzle_2d->swizzleType() == t_swizzle_2d->swizzleType())) {
-        ERROR_ON_FAILURE(!replay_has_logical_inp);
-        continue;
-      }
-    }
 
     if (replay_expr->isA<Resize>()) {
       auto r_resize = replay_expr->as<Resize>();
@@ -644,7 +588,7 @@ BestEffortReplay::BestEffortReplay(
     }
 
     // Take replay expr inputs out of map:
-    for (const auto t_i : c10::irange(target_id_inps.size())) {
+    for (const auto t_i : arange(target_id_inps.size())) {
       auto t_inp = target_id_inps[t_i];
       auto r_orig_inp = target2replay_id_map_.at(t_inp);
       auto r_maybe_forwarded_inp = replay_inps[t_i];
@@ -661,7 +605,7 @@ BestEffortReplay::BestEffortReplay(
     }
 
     // Add outputs to map.
-    for (const auto i : c10::irange(target_expr->outputs().size())) {
+    for (const auto i : arange(target_expr->outputs().size())) {
       auto t_out = target_expr->output(i);
       auto r_out = replay_expr->output(i);
       if (t_out->getValType() == ValType::IterDomain &&
@@ -670,12 +614,6 @@ BestEffortReplay::BestEffortReplay(
             r_out->as<IterDomain>();
         loop_ids_[r_out->as<IterDomain>()] = counter++;
       }
-    }
-
-    if (skip_target_swizzle_ || skip_replay_swizzle_) {
-      // Progress through all swizzle ops if we are skipping
-      //  swizzles on the mapping.
-      skipSwizzles(target_id2expr_map, replay_id2expr_map);
     }
 
     if (skip_resize) {
@@ -712,7 +650,7 @@ int64_t BestEffortReplay::findFirstMismatchedID(
 
   BestEffortReplay ber(td2->loop(), td1->loop(), id_map);
   for (const auto i :
-       c10::irange((int64_t)std::max(td1->loop().size(), td2->loop().size()))) {
+       arange((int64_t)std::max(td1->loop().size(), td2->loop().size()))) {
     if (ber.getReplay().find(td1->axis(i)) == ber.getReplay().end()) {
       return i;
     }
@@ -773,7 +711,7 @@ ForwardingInfo::ForwardingInfo(
   //
   // Initialize which id's should beforwarded.
   std::unordered_set<IterDomain*> forwarded_ids;
-  for (auto i : c10::irange(active_dim_flags->size())) {
+  for (auto i : arange(active_dim_flags->size())) {
     if (active_dim_flags->at(i)) {
       forwarded_ids.emplace(active_logical_dom.at(i));
     }
@@ -841,57 +779,6 @@ namespace {
 // Trace chain of swizzles until reaching
 //  an IterDomain that's either a loop or
 //  not a producer of any swizzle.
-IterDomain* getSwizzleFinalOutput(
-    IterDomain* id,
-    const std::unordered_map<IterDomain*, Expr*>& id2expr) {
-  // Note: currently not supporting swizzling consumer of another
-  //  swizzle id, so this should terminate in 1 iter, but eventually
-  //  will try to support stacked swizzles so keeping this pass
-  //  generic.
-  while (true) {
-    auto expr_it = id2expr.find(id);
-
-    // This means id is a loop that doesn't
-    //  have any consumers. Stop iteration in this case.
-    if (expr_it == id2expr.end()) {
-      break;
-    }
-
-    if (auto expr = dynamic_cast<Swizzle2D*>(expr_it->second)) {
-      // In the case of 2D swizzle ops, just forward
-      //  inX to outX and inY to outY.
-      if (id == expr->inX()) {
-        id = expr->outX();
-      } else {
-        NVF_ERROR(
-            id == expr->inY(),
-            "unknown input to swizzle op",
-            id->toString(),
-            expr->toString());
-        id = expr->outY();
-      }
-    } else {
-      // Probably unreachable but if the expression
-      //  is unknown type assume it is not a swizzle op.
-      break;
-    }
-  }
-
-  return id;
-}
-
-bool isSwizzleInput(
-    IterDomain* input_id,
-    const std::unordered_map<IterDomain*, Expr*>& id2expr) {
-  auto user_expr_it = id2expr.find(input_id);
-
-  if (user_expr_it == id2expr.end()) {
-    return false;
-  }
-
-  return user_expr_it->second->isA<Swizzle2D>();
-}
-
 } // namespace
 
 void BestEffortReplay::addComplimentLeafIDs(
@@ -960,8 +847,6 @@ BestEffortReplay BestEffortReplay::replayCasP(
     const TensorView* producer,
     int64_t producer_compute_at_axis,
     const LogicalDomainMap& logical_map,
-    bool skip_consumer_swizzle,
-    bool skip_producer_swizzle,
     bool skip_resize) {
   if (producer_compute_at_axis < 0) {
     producer_compute_at_axis += producer->nDims() + 1;
@@ -1009,8 +894,6 @@ BestEffortReplay BestEffortReplay::replayCasP(
       p2c_logical_map,
       forwarding_info.consumer_forwarding_map,
       forwarding_info.producer_forwarding_map,
-      skip_consumer_swizzle,
-      skip_producer_swizzle,
       skip_resize);
 
   consumer_replay.addComplimentLeafIDs(
@@ -1027,8 +910,6 @@ BestEffortReplay BestEffortReplay::replayPasC(
     const TensorView* consumer,
     int64_t consumer_compute_at_axis,
     const LogicalDomainMap& logical_map,
-    bool skip_producer_swizzle,
-    bool skip_consumer_swizzle,
     bool skip_resize) {
   if (consumer_compute_at_axis < 0) {
     consumer_compute_at_axis += consumer->nDims() + 1;
@@ -1068,8 +949,6 @@ BestEffortReplay BestEffortReplay::replayPasC(
       c2p_logical_map,
       forwarding_info.producer_forwarding_map,
       forwarding_info.consumer_forwarding_map,
-      skip_producer_swizzle,
-      skip_consumer_swizzle,
       skip_resize);
 
   producer_replay.addComplimentLeafIDs(
@@ -1079,47 +958,6 @@ BestEffortReplay BestEffortReplay::replayPasC(
   return producer_replay;
 }
 
-void BestEffortReplay::skipSwizzles(
-    const std::unordered_map<IterDomain*, Expr*>& target_id2expr,
-    const std::unordered_map<IterDomain*, Expr*>& replay_id2expr) {
-  // Update target2replay map
-  bool updated = true;
-
-  while (updated) {
-    updated = false;
-    for (auto it : target2replay_id_map_) {
-      if ((isSwizzleInput(it.first, target_id2expr) && skip_target_swizzle_) ||
-          (isSwizzleInput(it.second, replay_id2expr) && skip_replay_swizzle_)) {
-        updated = true;
-
-        auto new_target = skip_target_swizzle_
-            ? getSwizzleFinalOutput(it.first, target_id2expr)
-            : it.first;
-        auto new_replay = skip_replay_swizzle_
-            ? getSwizzleFinalOutput(it.second, replay_id2expr)
-            : it.second;
-
-        // new_target and new_replay will now be the final output
-        //  skipping all swizzles in between. We'd need to
-        //  update the mapping and loop ids to the final outputs.
-        target2replay_id_map_.erase(it.first);
-        NVF_ERROR(
-            target2replay_id_map_.insert(std::make_pair(new_target, new_replay))
-                .second,
-            "Unexpected replay loop");
-        // Progress the loop ids if the replay is updated
-        if (it.second != new_replay &&
-            loop_ids_.find(it.second) != loop_ids_.end()) {
-          loop_ids_.erase(it.second);
-          loop_ids_[new_replay] = counter++;
-        }
-        break;
-      }
-    }
-  }
-}
-
-// Same logic as skipSwizzles
 void BestEffortReplay::skipResizes(
     const std::vector<Expr*>& target_exprs,
     const std::vector<Expr*>& replay_exprs) {

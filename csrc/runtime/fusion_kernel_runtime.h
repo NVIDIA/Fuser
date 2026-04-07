@@ -7,17 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <c10/util/ArrayRef.h>
-
-#include <fusion_segmenter.h>
-#include <host_ir/executor.h>
-#include <polymorphic_value.h>
-#include <runtime/executor.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/fusion_cache_utils.h>
-
 #include <mutex>
 #include <vector>
+
+#include <c10/util/ArrayRef.h>
+
+#include "fusion_segmenter.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/jit.h"
+#include "polymorphic_value.h"
+#include "runtime/executor.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/fusion_cache_utils.h"
 
 namespace nvfuser {
 
@@ -25,9 +26,6 @@ class HeuristicParamsList;
 enum class PrimDataType;
 class Fusion;
 class Val;
-namespace serde {
-struct FusionKernelRuntime;
-}
 
 //! FusionKernelRuntime is the unified interface from fusion graphs into
 //!  caching, compilation into kernels, and kernel launches.
@@ -38,17 +36,11 @@ struct FusionKernelRuntime;
 //!  and one for segmented/multi-kernel fusion.
 //! Conceptually this is a generalization of KernelExecutor that supports both
 //!  single-kernel and multi-kernel caching/compiling/launching
-//!
-//! When serde_buffer argument is a nullptr, we run the
-//! SegmentCandidateFinder::segment pass in the constructor and compile the
-//! fusions. When serde_buffer exists, we deserialize the segmented_fusion_ and
-//! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
-  explicit FusionKernelRuntime(
+  FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      const serde::FusionKernelRuntime* serde_buffer = nullptr,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
@@ -64,28 +56,15 @@ class FusionKernelRuntime {
   //! query if we have already attempted compilation
   bool isCompiled() const;
 
-  //! Serialize Fusion Kernel Runtime using flatbuffers
-  flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Fusion Kernel Runtime using flatbuffers
-  void deserialize(
-      const serde::FusionKernelRuntime* buffer,
-      int8_t device_index);
-
   //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const;
 
   //! Unified interface to run the managed kernels with given input
-  NVF_API KernelArgumentHolder runWithInputs(KernelArgumentHolder& args);
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
-  NVF_API void compileFusionParallel(KernelArgumentHolder args);
-
-  const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
-    return num_live_args_after_segment_runs_;
-  }
+  void compileFusionParallel(KernelArgumentHolder args);
 
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
@@ -116,7 +95,7 @@ class FusionKernelRuntime {
   }
 
   //! Returns the fusion segments if applicable
-  SegmentedFusion* fusionSegments() const;
+  NVF_API SegmentedFusion* fusionSegments() const;
 
   //! Returns the list of heuristics in this runtime
   HeuristicParamsList* schedulerHeuristics() const;
@@ -128,12 +107,11 @@ class FusionKernelRuntime {
   const ExecutorLog& getMostRecentExecutorLog() const;
 
   // Try to compute heuristics based on the SegmentedFusion managed
-  //  in this kernel runtime, and will return a nullopt if either
-  //  any segment cannot be scheduled or the parameters don't match
+  //  in this kernel runtime, and will return nullptr if either
+  //  any segment cannot be scheduled or the parameters don't match.
   //
   // Heuristics must use the index type of forced_index_type if given.
-  NVF_API std::optional<std::unique_ptr<HeuristicParamsList>>
-  getMaybeHeuristicsFor(
+  std::unique_ptr<HeuristicParamsList> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
@@ -143,43 +121,69 @@ class FusionKernelRuntime {
 
   const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
+  //! Get the Host IR Container
+  const hir::HostIrContainer& getHostIrContainer() const {
+    if (isOptionEnabled(EnableOption::HostIrJit)) {
+      NVF_ERROR(hij_ != nullptr, "Host IR JIT is not initialized");
+      return hij_->container();
+    } else {
+      NVF_ERROR(hie_ != nullptr, "Host IR Evaluator is not initialized");
+      return hie_->container();
+    }
+  }
+
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
   //! added back to the arguments, so they can be used as inputs to successive
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
   std::unordered_map<Val*, PolymorphicValue> runSegmentsWithInputs(
-      KernelArgumentHolder& args);
+      const KernelArgumentHolder& args);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
   KernelArgumentHolder runKernelWithInput(
-      KernelArgumentHolder& args,
+      const KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  void compileKernel(
-      const KernelArgumentHolder& args,
-      SegmentedGroup* sg,
-      hir::HostIrContainer* hic);
-
-  std::pair<LaunchParams, CompileParams> getKernelConfig(
-      const KernelArgumentHolder& args,
-      SegmentedGroup* sg);
+  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
-  NVF_API const std::vector<std::unique_ptr<HeuristicParams>>& schedulers()
-      const;
+  const std::vector<std::unique_ptr<HeuristicParams>>& schedulers() const;
+
+  //! Infer the output shape and stride of the fusion as tensors on Meta device
+  //! If the group is scheduled to be evaluated using ExprEval, the output
+  //! tensors are inferred using the ExprEval on meta device. Otherwise, the
+  //! output tensors are inferred assuming they are contiguous.
+  KernelArgumentHolder inferOutputMetaTensor(
+      HeuristicParamsList* heuristics,
+      SegmentedGroup* group_to_run,
+      const KernelArgumentHolder& group_runtime_inputs,
+      PrecomputedValues* evaluator_precomputed_values = nullptr) const;
+
+  // Create KernelArgumentHolders for all of the segments. Sorted in
+  // the run order.
+  std::vector<KernelArgumentHolder> prepareInputs(
+      const KernelArgumentHolder& args) const;
+
+  int64_t numGroups() const {
+    int64_t n_groups = std::ssize(runtime_workspace_.group_run_order);
+    NVF_ERROR_EQ(n_groups, std::ssize(segmented_fusion_->groups()));
+    return n_groups;
+  }
 
  private:
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
-  //! Host IR Evaluator
+  //! Host IR JIT (used when EnableOption::HostIrJit is set)
+  std::unique_ptr<HostIrJit> hij_;
+  //! Host IR Evaluator (used when EnableOption::HostIrJit is not set)
   std::unique_ptr<hir::HostIrEvaluator> hie_;
 
   // A metadata copy of initial arguments used to contruct this
@@ -199,12 +203,6 @@ class FusionKernelRuntime {
 
   //! Pre-allocated runtime workspace to speed up kernel launch preparation.
   RuntimeWorkSpace runtime_workspace_;
-
-  //! store number of arguments in KernelArgumentHolder after each segment
-  //! used to check if arguments are erased if not being used in the following
-  //! segments
-  //! Only used in a single test: test_gpu3::FusionClearGmemBetweenSegments_CUDA
-  std::vector<int64_t> num_live_args_after_segment_runs_;
 
   // States for profiling support
   bool profiling_ = false;

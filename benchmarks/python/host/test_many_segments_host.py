@@ -2,7 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
+from nvfuser_direct import FusionDefinition, DataType, PythonProfiler
 from ..core import run_benchmark
 import torch
 
@@ -60,8 +60,9 @@ def test_many_segment_benchmark(
         fd.validate(input, [eager_output])
 
         # Validate number of segments
-        _ = fd.execute(input, profile=True)
-        num_segments = fd.profile().segments
+        with PythonProfiler() as prof:
+            fd.execute(input)
+        num_segments = prof.profile.segments
         expected_segments = 12
         assert (
             num_segments == expected_segments

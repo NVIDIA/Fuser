@@ -8,16 +8,16 @@
 // This is a refactor of the NVF_ERROR and NVF_CHECK macros
 // from PyTorch for implementing NVFuser specific macros.
 
-#include <c10/util/irange.h>
 #include <cxxabi.h>
 #include <exceptions.h>
 #include <execinfo.h>
 
 #include <cstdlib>
 #include <functional>
-#include <iostream>
 #include <memory>
 #include <optional>
+#include <ostream>
+#include "base.h"
 
 namespace nvfuser {
 
@@ -27,13 +27,6 @@ std::ostream& operator<<(std::ostream& out, const SourceLocation& loc) {
   out << loc.function << " at " << loc.file << ":" << loc.line;
   return out;
 }
-// optional for object types
-template <class T>
-class optional;
-
-// optional for lvalue reference types
-template <class T>
-class optional<T&>;
 
 namespace {
 
@@ -191,7 +184,7 @@ std::string _get_backtrace(
   // Toggles to true after the first skipped python frame.
   bool has_skipped_python_frames = false;
 
-  for (const auto frame_number : c10::irange(callstack.size())) {
+  for (const auto frame_number : arange(callstack.size())) {
     const auto frame = parse_frame_information(symbols[frame_number]);
 
     if (skip_python_frames && frame && is_python_frame(*frame)) {
@@ -270,35 +263,18 @@ void nvfError::add_context(std::string new_msg) {
 void nvfCheckFail(
     const char* func,
     const char* file,
-    uint32_t line,
+    int64_t line,
     const std::string& msg) {
   throw nvfuser::nvfError({func, file, line}, msg);
 }
 
-void nvfCheckFail(
-    const char* func,
-    const char* file,
-    uint32_t line,
-    const char* msg) {
-  throw nvfuser::nvfError({func, file, line}, msg);
-}
-
 void nvfErrorFail(
     const char* func,
     const char* file,
-    uint32_t line,
-    const char* condMsg,
-    const char* userMsg) {
-  nvfCheckFail(func, file, line, nvfuser::to_str(condMsg, userMsg));
-}
-
-void nvfErrorFail(
-    const char* func,
-    const char* file,
-    uint32_t line,
+    int64_t line,
     const char* condMsg,
     const std::string& userMsg) {
-  nvfCheckFail(func, file, line, nvfuser::to_str(condMsg, userMsg));
+  nvfCheckFail(func, file, line, nvfuser::to_str(condMsg, "\n", userMsg));
 }
 
 } // namespace nvfuser

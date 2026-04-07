@@ -5,21 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <ATen/cuda/CUDAGraphsUtils.cuh>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <tests/cpp/rng_helper.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <ATen/cuda/CUDAGeneratorImpl.h>
-#include <ATen/cuda/CUDAGraphsUtils.cuh>
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "tests/cpp/rng_helper.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -66,7 +66,7 @@ at::Tensor generate_normal(int64_t size, at::ScalarType dtype) {
   return generate_random_numbers(size, dtype, RNGTest_t::Normal);
 }
 
-class RNGTest : public NVFuserTest {};
+using RNGTest = NVFuserTest;
 
 TEST_F(RNGTest, ValidateWithCURand) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -268,42 +268,6 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
     NVF_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>())
     NVF_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>())
   }
-}
-
-TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
-  // https://github.com/csarofeen/pytorch/issues/1926
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  TensorView* tv0 = makeConcreteTensor({5, 1});
-  TensorView* tv1 = makeConcreteTensor({5, 5});
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  auto tv2 = rand_like(tv0);
-  auto tv3 = add(tv1, tv2);
-  auto tv4 = add(tv0, tv3);
-  fusion->addOutput(tv4);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::zeros({5, 1}, options);
-  at::Tensor t1 = at::zeros({5, 5}, options);
-
-  TransposeParams tparams;
-  tparams.tile_size1 = 8;
-  tparams.tile_size2 = 4;
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Transpose)
-      ->schedule(fusion, &tparams);
-
-  KernelExecutor ke;
-  ke.compile(fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
-  auto out = cg_outputs[0].as<at::Tensor>();
-
-  NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>());
-  NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>());
-  NVF_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>());
-  NVF_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>());
 }
 
 TEST_F(RNGTest, Uniform) {
@@ -552,6 +516,57 @@ TEST_F(RNGTest, DifferentOffsets) {
     EXPECT_TRUE(r1.unsqueeze(1).ne(r3.unsqueeze(0)).all().item<bool>());
     EXPECT_TRUE(r2.unsqueeze(1).ne(r3.unsqueeze(0)).all().item<bool>());
   }
+}
+
+TEST_F(RNGTest, SameAsRNGOpNonDeterministic) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  Val* dynamic_s_0 = IrBuilder::create<Val>(DataType::Int);
+
+  TensorView* tv0 = rand(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/nullptr,
+      /*philox_offset*/ nullptr);
+
+  TensorView* tv1 = rand(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/nullptr,
+      /*philox_offset*/ nullptr);
+
+  // non-deterministic rng op should still be considered the same, given their
+  // inputs/attributes are the same
+  EXPECT_TRUE(tv0->definition()->sameAs(tv1->definition()));
+  // value output from non-deterministic rng op should be considered different
+  EXPECT_FALSE(tv0->sameAs(tv1));
+}
+
+TEST_F(RNGTest, SameAsRNGOpDeterministic) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  Val* dynamic_s_0 = IrBuilder::create<Val>(DataType::Int);
+  Val* dynamic_s_1 = IrBuilder::create<Val>(DataType::Int);
+  Val* dynamic_s_2 = IrBuilder::create<Val>(DataType::Int);
+
+  TensorView* tv0 = rand(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/dynamic_s_1,
+      /*philox_offset*/ dynamic_s_2);
+
+  TensorView* tv1 = rand(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/dynamic_s_1,
+      /*philox_offset*/ dynamic_s_2);
+
+  EXPECT_TRUE(tv0->definition()->sameAs(tv1->definition()));
+  // deterministic rng op sharing all the same seed would produce the same
+  // output, hence can be used interchangeably.
+  EXPECT_TRUE(tv0->sameAs(tv1));
 }
 
 } // namespace nvfuser

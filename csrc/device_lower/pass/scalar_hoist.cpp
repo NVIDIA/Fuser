@@ -28,9 +28,9 @@ bool shouldHoistToHost(Val* value) {
 }
 
 // Get the position of the innermost non-trivial loop
-int64_t getInnermostNonTrivialLoop(const std::vector<ForLoop*>& loops) {
+int64_t getInnermostNonTrivialLoop(const std::vector<kir::ForLoop*>& loops) {
   int64_t position = -1;
-  for (auto i : c10::irange(loops.size())) {
+  for (auto i : arange(loops.size())) {
     if (!loops.at(i)->isTrivial()) {
       position = (int64_t)i;
     }
@@ -41,7 +41,7 @@ int64_t getInnermostNonTrivialLoop(const std::vector<ForLoop*>& loops) {
 // Find the outer-most loop nest that contains all the dependencies of `value`.
 int64_t findOutermostPosWithSatisfiedDependency(
     Val* value,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   DEBUG_PRINT_SCOPE(value->toInlineString());
   // We don't recursively look into tensor indexing to find its dependency.
   // Instead, we always assume tensor indices to have dependency on all loop
@@ -77,7 +77,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
   // variable or something like named scalar or constant
   if (def == nullptr) {
     // Check if `value` is a loop variable
-    for (auto i : c10::irange(loops.size())) {
+    for (auto i : arange(loops.size())) {
       auto loop = loops.at(i);
       // We skip trivial loop here because it is never materialized, so its loop
       // variable is accessible everywhere. For example, if the trivial loop is
@@ -109,7 +109,9 @@ int64_t findOutermostPosWithSatisfiedDependency(
 }
 
 // Get the key for `common_scalar_map_`
-ForLoop* getLoopAtPos(const std::vector<ForLoop*>& loops, int64_t position) {
+kir::ForLoop* getLoopAtPos(
+    const std::vector<kir::ForLoop*>& loops,
+    int64_t position) {
   // position < 0 refers to the top level exprs (no corresponding loop)
   if (position < 0) {
     return nullptr;
@@ -180,7 +182,7 @@ Val* reuseValsKnownToKernel(Val* value) {
 
 std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
     Val* value,
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     std::vector<Val*>& seen_subexprs,
     int64_t parent_pos,
     bool is_given) {
@@ -256,7 +258,7 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // If any of the inputs is replaced, then create a new expression whose inputs
   // are replaced with hoisted input
   if (changed) {
-    value = IrBuilder::create<Val>(*value->getDataType());
+    value = IrBuilder::create<Val>(value->getDataType());
     NVF_ERROR(def->outputs().size() == 1);
     auto create_fn = def->newObjectFunc();
     create_fn(value->container(), inputs, {value}, def->attributes());
@@ -285,7 +287,7 @@ namespace {
 
 std::list<VarInfo> getVariableInfo(
     Val* value,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   std::list<VarInfo> variables;
   // Loop indices
   for (auto loop : loops) {
@@ -315,31 +317,19 @@ std::list<VarInfo> getVariableInfo(
   return variables;
 }
 
-std::vector<Val*> getAssumptions(const std::vector<ForLoop*>& loops) {
+std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
   std::vector<Val*> assumptions;
   // assumptions from parallel dimension
   for (auto [p, extent] :
-       GpuLower::current()->parallelDimensionMap().getMap()) {
+       GpuLower::current()->info().parallelDimensionMap().getMap()) {
     auto a = IrBuilder::ltExpr(NamedScalar::getParallelIndex(p), extent);
     assumptions.emplace_back(a);
   }
   // assumptions from loop nesting
   for (auto loop : loops) {
     // Trivial loop is not generated, so there is no `if` or `for` in C++ to
-    // guard its scope. So we should not assume index < stop. One real example
-    // for this is loop rotation, where we might have trivial loop
-    //   FOR [index:0, start:0, stop:size]:
-    //     IF index < size:
-    //       ... = T0[index]
-    // The generated code will be
-    //   if (0 < size) {
-    //     ... = T0[0]
-    //   }
-    // We should not assume index smaller than size and simplify the code into
-    //   if (true) {
-    //     ... = T0[0]
-    //   }
-    // because this will break empty tensor support.
+    // guard its scope. So we should not assume index < stop because this will
+    // break empty tensor support.
     if (loop->isTrivial()) {
       continue;
     }
@@ -356,7 +346,8 @@ std::vector<Val*> getAssumptions(const std::vector<ForLoop*>& loops) {
           stop->toInlineString(),
           " is same as start value ",
           start->toInlineString(),
-          ". This could indicate a suboptimal schedule such as circular-buffering a ",
+          ". This could indicate a suboptimal schedule such as "
+          "circular-buffering a ",
           "loop that has only a single iteration.");
     } else {
       assumptions.push_back(IrBuilder::ltExpr(loop->index(), stop));
@@ -369,7 +360,7 @@ std::vector<Val*> getAssumptions(const std::vector<ForLoop*>& loops) {
 
 Val* CommonScalarMap::hoistScalar(
     Val* value,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   value =
       simplifyExpr(value, getVariableInfo(value, loops), getAssumptions(loops));
   std::vector<Val*> seen_subexprs;
@@ -382,7 +373,9 @@ Val* CommonScalarMap::hoistScalar(
       .first;
 }
 
-Val* CommonScalarMap::reuseScalarIfAlreadyComputed(Val* value, ForLoop* loop) {
+Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
+    Val* value,
+    kir::ForLoop* loop) {
   // Find if value is computed on the host.
   if (auto host_val = reuseValsKnownToKernel(value)) {
     return host_val;
@@ -409,7 +402,7 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(Val* value, ForLoop* loop) {
   return nullptr;
 }
 
-std::vector<Val*> CommonScalarMap::getHoistedScalars(ForLoop* loop) const {
+std::vector<Val*> CommonScalarMap::getHoistedScalars(kir::ForLoop* loop) const {
   // In codegen, parallel type group may not be generated as a for loop, so
   // don't allocate in this loop
   if (loop != nullptr && loop->isGroup()) {
@@ -469,7 +462,7 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
                                      // the hoisted value should be inserted
     Val* value) {
   int64_t pos = -1;
-  for (auto i : c10::irange(exprs.size())) {
+  for (auto i : arange(exprs.size())) {
     auto expr = exprs[i];
     NVF_ERROR(expr != nullptr);
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
@@ -516,12 +509,19 @@ class CommonScalarInserter : private kir::ExprMutator {
     mutate();
   }
 
-  void maybeInsertAllocation(ForLoop* loop) {
+  void maybeInsertAllocation(kir::ForLoop* loop) {
     Scope* scope = nullptr;
     if (loop != nullptr) {
       scope = &loop->body();
     }
-    const auto& exprs = (scope == nullptr ? exprs_ : scope->exprs());
+
+    std::vector<Expr*> exprs;
+    if (scope == nullptr) {
+      exprs = exprs_;
+    } else {
+      exprs.assign(scope->exprs().begin(), scope->exprs().end());
+    }
+
     int64_t alloc_point = -1;
     Expr* insert_ref = nullptr;
     for (auto value : common_scalar_map_.getHoistedScalars(loop)) {
@@ -562,13 +562,14 @@ class CommonScalarInserter : private kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(ForLoop* loop) final {
+  void handle(kir::ForLoop* loop) final {
     maybeInsertAllocation(loop);
     kir::ExprMutator::handle(loop);
   }
 
  private:
-  const CommonScalarMap& common_scalar_map_;
+  const CommonScalarMap&
+      common_scalar_map_; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 } // namespace

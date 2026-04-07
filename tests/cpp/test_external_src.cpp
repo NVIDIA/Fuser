@@ -5,21 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <fstream>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <runtime/executor_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <utils.h>
-
-#include <fstream>
+#include "exceptions.h"
+#include "fusion.h"
+#include "runtime/executor_utils.h"
+#include "tests/cpp/utils.h"
+#include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class ExternalSrcExample : public NVFuserTest {};
+using ExternalSrcExample = NVFuserTest;
 
 // This is for internal testing only and is intended to be used as a template to
 // compile and run an external source file. By default, it should just

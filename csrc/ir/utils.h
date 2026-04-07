@@ -7,16 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <disjoint_set.h>
-#include <exceptions.h>
-#include <ir/all_nodes.h>
-#include <type.h>
-#include <visibility.h>
-
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 #include <unordered_map>
 #include <vector>
+
+#include "device_lower/utils.h"
+#include "disjoint_set.h"
+#include "exceptions.h"
+#include "ir/all_nodes.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser::MmaOpUtils {
 
@@ -66,7 +68,10 @@ class FilterIterator {
   using difference_type = std::ptrdiff_t;
   using value_type = FilterType*;
   using pointer = value_type*;
-  using reference = value_type&;
+  // Proxy iterator: operator* returns by value so reference is value_type.
+  using reference = value_type;
+
+  FilterIterator() : current_(), end_() {}
 
   FilterIterator(Iterator begin, Iterator end) : current_(begin), end_(end) {
     advance();
@@ -119,16 +124,21 @@ class FilterIterator {
 // An iterable view to a given container of Val pointers. Only returns
 // Vals of a given Val type.
 // NOTE: Add a non-const iterator if needed.
+// Models std::ranges::input_range so it works with std::ranges::all_of, etc.
 template <typename FilterType, typename InputIt>
-class FilteredView {
+class FilteredView : public std::ranges::view_base {
  public:
   using value_type = FilterType*;
   using const_iterator = FilterIterator<FilterType, InputIt>;
+  using iterator = const_iterator;
+  using sentinel = const_iterator;
 
-  FilteredView(InputIt first, InputIt last) : input_it_(first), last_(last) {}
+  FilteredView() = default;
+
+  FilteredView(InputIt first, InputIt last) : first_(first), last_(last) {}
 
   const_iterator cbegin() const {
-    return const_iterator(input_it_, last_);
+    return const_iterator(first_, last_);
   }
 
   const_iterator begin() const {
@@ -160,8 +170,8 @@ class FilteredView {
   }
 
  private:
-  const InputIt input_it_;
-  const InputIt last_;
+  InputIt first_;
+  InputIt last_;
 };
 
 template <typename FilterType, typename InputIt>
@@ -179,7 +189,7 @@ auto filterByType(const ContainerType& inputs) {
 
 //! Returns a list of new-to-old mappings.
 //!
-//! This funcion canonicalizes the dimensions and validates that multiple old
+//! This function canonicalizes the dimensions and validates that multiple old
 //! dimension are mapped to the same new dimension.
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
@@ -382,7 +392,7 @@ bool isSegmentSet(const Expr* e);
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
-std::vector<ViewOp*> getViewOps(Fusion*);
+std::vector<ReshapeOp*> getReshapeOps(Fusion*);
 
 template <typename T>
 std::string toString(const T& nodes) {
@@ -440,7 +450,7 @@ bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
-bool isGatherLookupTv(const Val* tv);
+bool isAndOnlyIsGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
@@ -575,14 +585,21 @@ inline bool dependenciesSatisfied(
   return true;
 }
 
-//! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
+//! Check if a conditional scope, i.e., kir::ForLoop or IfThenElse, is
 //! guaranteed not to cause thread divergence
 bool isAlignedScopeExpr(const Expr* expr);
 
 //! Get the only producer of a tensor view. If there are multiple producers,
 //! then throw an error.
 inline TensorView* getSoleProducerTv(const TensorView* tv) {
-  auto producers = producerTvsOf(tv);
+  auto all_producers = producerTvsOf(tv);
+  // Filter out schedule operations used for programmatic dependent launch
+  // because they are not traditional producers
+  std::vector<TensorView*> producers;
+  std::ranges::copy_if(
+      all_producers, std::back_inserter(producers), [](TensorView* tv) {
+        return !ir_utils::isScheduleOp(tv);
+      });
   NVF_ERROR(
       producers.size() == 1,
       "Expected only one producer of ",
@@ -661,21 +678,25 @@ template <typename T>
 std::optional<std::vector<int64_t>> computePermutation(
     const std::vector<T>& in,
     const std::vector<T>& out) {
-  if (!std::is_permutation(in.begin(), in.end(), out.begin())) {
+  // Both std::is_permutation and the rest of this function are O(n^2). This is
+  // fine for the current use case of computing the root-to-rfactor
+  // permutation. If needed, this can be improved by requiring T to be hashable
+  // (leading to O(n)) and/or comparable (leading to O(nlogn)).
+  if (!std::is_permutation(in.begin(), in.end(), out.begin(), out.end())) {
     return std::nullopt;
   }
 
   std::vector<int64_t> permutation;
   permutation.reserve(out.size());
-  // O(n^2) is totally fine for the current use case of computing the
-  // root-to-rfactor permutation. If needed, this can be improved by making T
-  // hashable and/or comparable.
   for (const T& out_element : out) {
     permutation.push_back(std::distance(
         in.begin(), std::find(in.begin(), in.end(), out_element)));
   }
   return permutation;
 }
+
+std::vector<int64_t> inversePermutation(
+    const std::vector<int64_t>& permutation);
 
 template <typename T>
 std::vector<T> applyPermutation(
@@ -745,6 +766,13 @@ inline bool isMemorySharedAcross(
   }
 }
 
+inline bool isSizeOneDomain(IterDomain* id) {
+  return id->isBroadcast() || id->extent()->isOneInt();
+}
+
+// True if a given domain of a tensor *may* require allocation
+bool mayRequireAllocation(const TensorView* tv, IterDomain* id);
+
 //! Check if the given tv has a root domain -> loop domain linear
 //! transformation. This is a temporary check used to incrementally enable
 //! IdModel. Eventually, this should be removed.
@@ -777,9 +805,9 @@ bool isRecursivelyDefined(Val* val);
 // instance of Expr is counted as a single operation.
 int64_t getOperationCount(Val* val);
 
-// Create a ForLoop IR node that represents:
+// Create a kir::ForLoop IR node that represents:
 //   for (int i = 0; i < size; i++)
-ForLoop* createRangeLoop(int64_t size);
+kir::ForLoop* createRangeLoop(int64_t size);
 
 // Returns the first output of Expr that is a TensorView
 TensorView* getTvOutput(const Expr*);
@@ -789,13 +817,73 @@ TensorView* getTvInput(const Expr*);
 
 // Generates the allocation domain for the given logical domain based on the
 // stride order.
-std::vector<IterDomain*> strideOrderToAllocation(
+NVF_API std::vector<IterDomain*> strideOrderToAllocation(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<int64_t>& stride_order);
 
-// Returns the number of bytes of data types of the producer and
+// Returns the number of bits of data types of the producer and
 // consumer tensors of a cast unary op
-std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
-    UnaryOp* cast_op);
+std::optional<std::pair<int64_t, int64_t>>
+getPrecisionOfProducerConsumerTensorsBit(UnaryOp* cast_op);
+
+// Get the <size> in the PTX instruction of TMem load/store:
+//   tcgen05.st.sync.aligned.32x32b.x<size>.b32
+// The minimum unit of TMem load/store is 4 bytes, and the .x<size>
+// in the PTX instruction is the number of this unit, not the number of items.
+// For example, tcgen05.st.sync.aligned.32x32b.x4.b32 could mean 1 complex
+// double, 2 doubles, 4 floats, 8 halfs, or 16 bytes.
+int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv);
+
+// Somtimes we want to temporarily view a tensorview with another tensordomain.
+// This isn't a permanent transformation, but in indexing we want to index
+// producers with a consumer set of indices, so we need to view the producer
+// transformed like consumer while we index. This will set the tv with td for
+// the life of this context guard.
+class TVDomainGuard {
+ private:
+  TensorView* tv_;
+  TensorDomain* prev_domain_;
+
+ public:
+  explicit TVDomainGuard(TensorView* tv, TensorDomain* td);
+  TVDomainGuard(const TVDomainGuard&) = delete;
+  NVF_API TVDomainGuard(TVDomainGuard&&) noexcept;
+
+  //! An utility to access the tensordomain before the temporary
+  //!  view. This is used to retrieve information, like swizzle
+  //!  information that can only be reliably kept at the original domain.
+  const TensorDomain* prevDomain() const {
+    return prev_domain_;
+  }
+
+  NVF_API ~TVDomainGuard();
+};
+
+// Given a reshape output TV, return two subsets of the root and
+// logical IDs, respectively. The root ID subset only includes that
+// are used as inputs to the reshape IDs ops, whereas the logical ID
+// subset includes those that are produced by the reshape ID ops.
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
+
+// Get reachable IDs from domain. Note that to reach to an ID through
+// its defining expression, all of the inputs need to be included in
+// the given domain or reachable from the domain.
+std::vector<IterDomain*> getReachableIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& dependencies);
+
+// Replay the logical-allocation transformations of a scatter output
+// tensor to a list of logical iter domains for another tensor.
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* scatter_out,
+    const std::vector<IterDomain*>& to_logical_domain);
+
+bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
+
+// Swizzle the block scales output of the block quantization operation.
+// This applies to block quantization to nvfp4.
+// https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+NVF_API void swizzleBlockScales(TensorView* tv);
 
 } // namespace nvfuser::ir_utils

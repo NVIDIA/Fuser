@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -55,15 +55,14 @@ def rmsnorm_bwd_fusion(
     T33 = fd.ops.reciprocal(T32)
     T34 = fd.ops.mul(T30, T33)
     T35 = fd.ops.sum(T34, dims=[1], keepdim=False, dtype=DataType.Null)
-    V39 = fd.define_vector([T4.size(0), 1], dtype=DataType.Int)
-    T41 = fd.ops.broadcast_in_dim(T35, shape=V39, broadcast_dims=[0])
+    T41 = fd.ops.broadcast_in_dim(T35, shape=[T4.size(0), 1], broadcast_dims=[0])
     T43 = fd.ops.mul(S0, T5)
     T44 = fd.ops.reciprocal(T43)
     T45 = fd.ops.mul(T41, T44)
     S48 = fd.ops.reciprocal(T4.size(1))
     T49 = fd.ops.mul(T45, S48)
     T50 = fd.ops.sum(T49, dims=[1], keepdim=False, dtype=DataType.Null)
-    T54 = fd.ops.broadcast_in_dim(T50, shape=V39, broadcast_dims=[0])
+    T54 = fd.ops.broadcast_in_dim(T50, shape=[T4.size(0), 1], broadcast_dims=[0])
     T58 = fd.ops.broadcast_in_dim(T54, shape=T4.shape(), broadcast_dims=[0, 1])
     T59 = fd.ops.mul(T58, S0)
     T62 = fd.ops.mul(T59, T4)
@@ -90,6 +89,7 @@ def rmsnorm_bwd_iobytes(size: tuple, dtype: torch.dtype):
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.inner_outer_persistent
+@pytest.mark.inner_persistent
 def test_rmsnorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -122,6 +122,8 @@ def test_rmsnorm_bwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_outer_persistent
+@pytest.mark.inner_persistent
 def test_rmsnorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,

@@ -1,0 +1,32 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# nvFuser shell function loader
+#
+# This file should be sourced when you're in an nvFuser directory.
+#
+# Add to ~/.zshrc:
+#   chpwd() { [[ -f .nvfuser-shell ]] && source .nvfuser-shell; }
+#   [[ -f .nvfuser-shell ]] && source .nvfuser-shell
+#
+# Or for bash, add to ~/.bashrc:
+#   _load_nvfuser_shell() { [[ -f .nvfuser-shell ]] && source .nvfuser-shell; }
+#   PROMPT_COMMAND="_load_nvfuser_shell${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+#   _load_nvfuser_shell
+
+# Only load once per shell session
+if [ -z "$_NVFUSER_SHELL_LOADED" ]; then
+    # Since .nvfuser-shell is in the repo root, use the directory we're in
+    _NVFUSER_ROOT="$PWD"
+
+    # Source the shell integration script
+    . "$_NVFUSER_ROOT/tools/env-config/nvfuser-config-shell.sh"
+
+    # Clean up
+    unset _NVFUSER_ROOT
+
+    # Mark as loaded so we don't load again
+    export _NVFUSER_SHELL_LOADED=1
+fi

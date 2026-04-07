@@ -11,11 +11,9 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
 
-#include <c10/util/irange.h>
 #include <algorithm>
 #include <numeric>
 namespace nvfuser {
@@ -25,7 +23,7 @@ namespace {
 Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
-  auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
+  auto pt_dim = GpuLower::current()->info().parallelDimensionMap().get(pt);
 
   // If pt is not used or is proven to be one, no need to predicate.
   if (pt_dim == nullptr || pt_dim->isOneInt()) {
@@ -158,7 +156,7 @@ ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
     unused_types.clear(pt);
   }
 
-  const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
+  const auto& par_dim_map = FusionInfoGuard::current()->parallelDimensionMap();
 
   for (const auto pt : unused_types) {
     // For shared memory tensors, unused BID isn't redundant
@@ -268,19 +266,22 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
       if (id->isThread()) {
         id_ptypes.set(id->getParallelType());
         if (id->isReduction() &&
-            !GpuLower::current()->fusedReductionInfo().isAllreduce(id)) {
+            (!FusionInfoGuard::current()->hasFusedReductionInfo() ||
+             !FusionInfoGuard::current()->fusedReductionInfo().isAllreduce(
+                 id))) {
           id_reductions.set(id->getParallelType());
         }
         if (id->isBroadcast() &&
-            GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-                id)) {
+            FusionInfoGuard::current()
+                ->concretizedBroadcastDomains()
+                .isConcretized(id)) {
           id_bcasts.set(id->getParallelType());
         }
       }
     }
 
     // Validate the combination of ptypes, reductions, bcasts
-    for (const auto i : c10::irange(ParallelTypeBitmap::kNumParallelTypes)) {
+    for (const auto i : arange(ParallelTypeBitmap::kNumParallelTypes)) {
       if (input_reductions[i]) {
         if (id_ptypes[i]) {
           NVF_ERROR(
@@ -289,7 +290,8 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
               expr);
           NVF_CHECK(
               !id_bcasts[i],
-              "Invalid broadcast and reduction combination, tried to parallelize both with the same thread dim: ",
+              "Invalid broadcast and reduction combination, tried to "
+              "parallelize both with the same thread dim: ",
               inp);
         }
       }
@@ -585,7 +587,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   }
 
   void setConcretizedBroadcastLogicalDomain() {
-    std::shared_ptr<const ComputeAtMap> caMap = GpuLower::current()->caMap();
+    const auto& ca_map = FusionInfoGuard::current()->caMap();
     for (auto loop_id : candidate_loop_domains_) {
       auto loop_concrete_id = lower_utils::getConcreteLoopID(loop_id);
       auto concrete_logical_vals = IterVisitor::getInputsTo({loop_concrete_id});
@@ -600,8 +602,8 @@ class ConcretizedBroadcastRedundantWriteRemover {
         auto it = std::find_if(
             concrete_logical_ids.begin(),
             concrete_logical_ids.end(),
-            [&caMap, &rd](auto concrete_logical_id) {
-              return caMap->areMapped(
+            [&ca_map, &rd](auto concrete_logical_id) {
+              return ca_map.areMapped(
                   rd, concrete_logical_id, IdMappingMode::PERMISSIVE);
             });
         if (it == concrete_logical_ids.end()) {
@@ -666,14 +668,22 @@ class ConcretizedBroadcastRedundantWriteRemover {
     return merged_logical_domains_sorted;
   }
 
-  // Get the index of the loop domain if we skip the broadcasted logical domains
+  // Get the index of the loop domain if we skip the broadcasted
+  // logical domains
+  // TODO: The result of this function is not necessary when
+  // ThreadPredicateMap is used only for its analysis result. This
+  // function is used to prepare for predicate generation, e.g.,
+  // ThreadPredicateMap::getPredicate. Consider a different design
+  // so that this preparation is only done when necessary.
   std::vector<Val*> getIndexOfBroadcastLogicalDomains(
       const std::vector<IterDomain*>& merged_logical_domains,
       ParallelType pt) {
     const int64_t ndim = (int64_t)merged_logical_domains.size();
     // get the stride if we index the loop domain using its logical domains
     std::vector<Val*> logical_stride(ndim);
-    logical_stride.at(ndim - 1) = GpuLower::current()->kernel()->oneVal();
+    NVF_ERROR(!merged_logical_domains.empty());
+    logical_stride.at(ndim - 1) =
+        merged_logical_domains.front()->fusion()->oneVal();
     for (int64_t i = ndim - 2; i >= 0; i--) {
       auto pre_crd = merged_logical_domains.at(i + 1);
       Val* pre_extent = pre_crd->isBroadcast()
@@ -720,6 +730,10 @@ void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
   }
 }
 
+ThreadPredicateMap::ThreadPredicateMap(Fusion* fusion) {
+  build(fusion);
+}
+
 void ThreadPredicateMap::build(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::ThreadPredicateMap");
 
@@ -749,15 +763,6 @@ void ThreadPredicateMap::populateRedundantUseMap(Fusion* fusion) {
     it.second.redundant_use_types =
         redundant_use.getRedundantUseBitMap(it.first);
   }
-}
-
-ThreadPredicateMap::const_iterator ThreadPredicateMap::find(
-    const TensorView* tv) const {
-  return thread_predicates_.find(tv);
-}
-
-ThreadPredicateMap::const_iterator ThreadPredicateMap::end() const {
-  return thread_predicates_.end();
 }
 
 const ThreadPredicateMap::PredicateInfo& ThreadPredicateMap::at(
@@ -845,8 +850,9 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
       continue;
     }
 
-    if (!GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-            id)) {
+    if (!FusionInfoGuard::current()
+             ->concretizedBroadcastDomains()
+             .isConcretized(id)) {
       continue;
     }
 

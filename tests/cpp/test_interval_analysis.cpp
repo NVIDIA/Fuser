@@ -5,19 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <gtest/gtest.h>
-
-#include <expr_simplifier.h>
-#include <interval_analysis.h>
-#include <iter_visitor.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
 #include <algorithm>
 #include <exception>
 #include <unordered_map>
+
+#include <gtest/gtest.h>
+
+#include "exceptions.h"
+#include "expr_simplifier.h"
+#include "interval_analysis.h"
+#include "iter_visitor.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -101,7 +101,7 @@ class RangeChecker {
     });
 
     // Iterate over all input combinations
-    for (size_t i : c10::irange(num_combos)) {
+    for (size_t i : arange(num_combos)) {
       ExpressionEvaluator expr_eval;
 
       // All the input combinations are enumerated
@@ -115,7 +115,7 @@ class RangeChecker {
       //  y = (j % (ny*nz)) / nz + min_y
       //  z = j % nz + min_z
       int64_t num_inner_combos = num_combos;
-      for (size_t inp_num : c10::irange(inputs.size())) {
+      for (size_t inp_num : arange(inputs.size())) {
         const BoundedInt& inp_bound = input_bounds_.at(inputs.at(inp_num));
         int64_t next_offset = i % num_inner_combos;
         num_inner_combos /= inp_bound.max - inp_bound.min + 1L;
@@ -328,7 +328,7 @@ TEST_F(IntervalAnalysisTest, SerialLoops) {
   Val* start = kernel.zeroVal();
   auto* id = IterDomainBuilder(start, ext).extent(ext).build();
   Val* index = IrBuilder::create<Val>(DataType::Index);
-  auto* loop = IrBuilder::create<ForLoop>(
+  auto* loop = IrBuilder::create<kir::ForLoop>(
       id,
       index,
       /*circular_buffer_loop_stage=*/CircularBufferLoopStage::NotApplicable,
@@ -336,7 +336,7 @@ TEST_F(IntervalAnalysisTest, SerialLoops) {
   Val* offset = IrBuilder::create<Val>(DataType::Index);
   Val* index_plus_offset = add(index, offset);
   // Compute index + offset inside the "for index in id" loop
-  loop->body().push_back(index_plus_offset->definition());
+  loop->body().pushBack(index_plus_offset->definition());
 
   ExpressionEvaluator expr_eval;
   LaunchParams launch_params;
@@ -364,7 +364,7 @@ TEST_F(IntervalAnalysisTest, ParallelLoops) {
                  .parallel_type(ParallelType::TIDx)
                  .build();
   Val* index = IrBuilder::create<Val>(DataType::Index);
-  auto* loop = IrBuilder::create<ForLoop>(
+  auto* loop = IrBuilder::create<kir::ForLoop>(
       id,
       index,
       /*circular_buffer_loop_stage=*/CircularBufferLoopStage::NotApplicable,
@@ -372,7 +372,7 @@ TEST_F(IntervalAnalysisTest, ParallelLoops) {
   Val* offset = IrBuilder::create<Val>(DataType::Index);
   Val* index_plus_offset = add(index, offset);
   // Compute index + offset inside the "for index in id" loop
-  loop->body().push_back(index_plus_offset->definition());
+  loop->body().pushBack(index_plus_offset->definition());
 
   ExpressionEvaluator expr_eval;
   LaunchParams launch_params;

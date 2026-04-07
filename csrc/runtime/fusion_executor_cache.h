@@ -7,20 +7,19 @@
 // clang-format on
 #pragma once
 
-#include <dynamic_transform.h>
-#include <evaluator_common.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <runtime/fusion_cache_utils.h>
-#include <scheduler/heuristic.h>
-#include <serde/fusion_cache_generated.h>
-
-#include <c10/util/ArrayRef.h>
-
 #include <mutex>
 #include <type_traits>
 #include <unordered_map>
+
+#include <c10/util/ArrayRef.h>
+
+#include "dynamic_transform.h"
+#include "evaluator_common.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "runtime/fusion_cache_utils.h"
+#include "scheduler/heuristic.h"
 
 namespace nvfuser {
 class DynamicTransformConcretizationInfo;
@@ -114,15 +113,17 @@ enum class PrimDataType;
 //! assumed graph partition strategy is independent of input pattern, which we
 //! can revisit once we have more advanced graph segmentation logic Each
 //! FusionExecutorCache corresponds to one graph and one graph segmentation.
-class FusionExecutorCache {
+class NVF_API FusionExecutorCache {
  public:
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes
   //! fusion executor is taking the ownership of `fusion`
-  NVF_API explicit FusionExecutorCache(
+  explicit FusionExecutorCache(
       std::unique_ptr<Fusion> fusion,
       int64_t fusion_id = 0,
       bool auto_schedule = true);
+
+  ~FusionExecutorCache();
 
   //! Execute fusion graph with given inputs, create `KernelExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -132,21 +133,21 @@ class FusionExecutorCache {
   //! what inputs and the fusion look like. This may be useful in some
   //! cases as our analysis of index type may be overly conservative
   //! for intermediate tensors.
-  //! WARING: Correctness is not guaranteed.
+  //! WARNING: Correctness is not guaranteed.
   //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
   //! value.
-  NVF_API KernelArgumentHolder runFusionWithInputs(
+  KernelArgumentHolder runFusionWithInputs(
       KernelArgumentHolder args,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
-  NVF_API bool isCompiled(
-      const KernelArgumentHolder& inputs,
-      int8_t device = 0);
+  bool isCompiled(const KernelArgumentHolder& inputs, int8_t device = 0);
 
+  // Returns the pointer to the original fusion that's passed into the
+  // constructor. Concretization and pre-segmentation optimizations modify
+  // **copies** of this fusion, not this fusion itself.
   Fusion* fusion();
-
   const Fusion* fusion() const;
 
   void printFusion();
@@ -224,13 +225,6 @@ class FusionExecutorCache {
   //! Return the kernel time of the most recent fusion execution. Can
   //! be zero if the measurement is not enabled
   float getMostRecentKernelTimeMs() const;
-
-  //! Serialize Fusion Executor Cache using flatbuffers
-  flatbuffers::Offset<serde::FusionExecutorCache> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Fusion Executor Cache using flatbuffers
-  void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
  private:
   //! Adds cache lookup information to provided argument holder

@@ -14,11 +14,71 @@
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 
+#include <iterator>
+
 #include <unordered_set>
 
 namespace nvfuser {
 
 namespace {
+
+// Determine if any for loop is a AsyncWarp circular buffering stage
+bool isWithinAsyncWarp(const std::vector<kir::ForLoop*> for_loops) {
+  return std::any_of(for_loops.begin(), for_loops.end(), [](kir::ForLoop* fl) {
+    return fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp;
+  });
+}
+
+// Determine if any for loop is a ComputeWarp circular buffering stage
+bool isWithinComputeWarp(const std::vector<kir::ForLoop*> for_loops) {
+  return std::any_of(for_loops.begin(), for_loops.end(), [](kir::ForLoop* fl) {
+    return fl->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp;
+  });
+}
+
+// Return true if any for loop is ComputeWarp.
+// Return false if any for loop is AsyncWarp.
+// Return std:nullopt if none of the for loops are a warp specialized stage.
+std::optional<bool> isOptionalComputeSync(
+    const std::vector<kir::ForLoop*> for_loops) {
+  bool contains_async_warp = isWithinAsyncWarp(for_loops);
+  bool contains_compute_warp = isWithinComputeWarp(for_loops);
+  NVF_ERROR(
+      !contains_async_warp || !contains_compute_warp,
+      "The list of for-loops contains both AsyncWarp and ComputeWarp stages.");
+  if (isWithinAsyncWarp(for_loops)) {
+    return false;
+  } else if (isWithinComputeWarp(for_loops)) {
+    return true;
+  } else {
+    return std::nullopt;
+  }
+}
+
+// Commit a series of operations to an async group.
+// Create wgmma.fence for AsyncOpType::WgMma
+// Otherwise, create fence.proxy.async
+Expr* getAsyncFence(AsyncOpType async_type) {
+  if (async_type == AsyncOpType::WgMma) {
+    return IrBuilder::create<kir::WgMmaFence>();
+  }
+  return IrBuilder::create<kir::FenceAsyncProxy>();
+}
+
+// Commit a series of operations to an async group.
+// Create wgmma.commit_group.sync.aligned for AsyncOpType::WgMma
+// Create cpAsyncBulkCommitGroup for AsyncOpType::CpAsyncBulk
+Expr* getAsyncCommit(AsyncOpType async_type) {
+  return IrBuilder::create<kir::AsyncCommit>(async_type);
+}
+
+// Wait for a number of async groups to finish.
+// Create wgmma.wait_group.sync.aligned for AsyncOpType::WgMma
+// Create cpAsyncBulkWaitGroup for AsyncOpType::CpAsyncBulk
+Expr* getAsyncWait(AsyncOpType async_type, int64_t keep_stages = 0) {
+  return IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
+}
 
 // Tensor memory is similar to shared memory because they are both
 // shared between threads in a block. In that sense, we can consider
@@ -99,7 +159,7 @@ struct WarMemoryInfo {
   bool write_hit = false;
 
   // For loop this TV is compute_at'ed in.
-  ForLoop* ca_loop = nullptr;
+  kir::ForLoop* ca_loop = nullptr;
 };
 
 // To prevent shared memory from being over written before it is read, a
@@ -148,10 +208,9 @@ class WarSyncInserter : private kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        ite->elseBody().empty(),
-        "Pass does not support conditional flow,",
-        " needs to be done before conditional execution is lowered.");
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
     kir::ExprMutator::handle(ite);
   }
 
@@ -178,7 +237,7 @@ class WarSyncInserter : private kir::ExprMutator {
   }
 
   // Checks if fl or loops within it have hit a sync
-  bool syncWithin(ForLoop* fl) {
+  bool syncWithin(kir::ForLoop* fl) {
     // If outer most scope check the first sync_hit_ position
     if (fl == nullptr) {
       return sync_hit_[0];
@@ -191,7 +250,7 @@ class WarSyncInserter : private kir::ExprMutator {
     auto fl_i = std::distance(for_loops_.begin(), fl_it) + 1;
 
     // Start at that index and see if there's syncs within that for loop
-    for (auto i : c10::irange(fl_i, sync_hit_.size())) {
+    for (auto i : arange(fl_i, sync_hit_.size())) {
       if (sync_hit_[i]) {
         return true;
       }
@@ -214,7 +273,7 @@ class WarSyncInserter : private kir::ExprMutator {
     auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     for (auto out_tv : out_tvs) {
       if (!isSharedMemory(out_tv) ||
-          GpuLower::current()->syncMap()->needsRawSync(out_tv).none()) {
+          !GpuLower::current()->syncMap()->needsAnyRawSync(out_tv)) {
         continue;
       }
       auto& entry = getMemInfo(out_tv);
@@ -231,7 +290,7 @@ class WarSyncInserter : private kir::ExprMutator {
     auto inp_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto inp_tv : inp_tvs) {
       if (!isSharedMemory(inp_tv) ||
-          GpuLower::current()->syncMap()->needsRawSync(inp_tv).none()) {
+          !GpuLower::current()->syncMap()->needsAnyRawSync(inp_tv)) {
         continue;
       }
 
@@ -242,7 +301,7 @@ class WarSyncInserter : private kir::ExprMutator {
     }
   }
 
-  void handle(ForLoop* for_loop) final {
+  void handle(kir::ForLoop* for_loop) final {
     // Push loop scope information
     auto prev_within_iter_loop_ = within_iter_loop_;
     sync_hit_.push_back(false);
@@ -288,7 +347,12 @@ class WarSyncInserter : private kir::ExprMutator {
 
     // WAR Sync is necessary in this loop, register its insertion.
     if (insert_sync) {
-      auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
+      // Temporarily add the current for-loop to for_loops to check for warp
+      // specialization
+      for_loops_.push_back(for_loop);
+      auto sync_expr = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/true, isOptionalComputeSync(for_loops_));
+      for_loops_.pop_back();
       kir::ExprMutator::registerInsertAfter(
           for_loop->body().exprs().back(), sync_expr, &for_loop->body());
       handle(sync_expr);
@@ -349,7 +413,9 @@ class WarSyncInserter : private kir::ExprMutator {
 class ValidatePlacementAfterWrites : private kir::IrVisitor {
  public:
   //! Validate no expr in writes found under loop
-  static void validate(ForLoop* loop, const std::unordered_set<Expr*>& writes) {
+  static void validate(
+      kir::ForLoop* loop,
+      const std::unordered_set<Expr*>& writes) {
     ValidatePlacementAfterWrites validator(writes);
     validator.handle(loop);
   }
@@ -361,7 +427,7 @@ class ValidatePlacementAfterWrites : private kir::IrVisitor {
       : writes_(writes) {}
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
     } else {
       NVF_ERROR(
@@ -411,8 +477,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         //  except when these are accumulator register accesses across multiple
         //  wgmma.mma_async instructions of the same shape. In the latter case,
         //  an ordering guarantee is provided by default.
-        auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
-        registerInsertBefore(expr, wgmma_fence, scope);
+        registerInsertBefore(expr, getAsyncFence(AsyncOpType::WgMma), scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
           // fence.proxy.async makes sure that writes to operands in the generic
           // proxy are visible to the async proxy
@@ -424,6 +489,24 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         fill_async_mma_pipeline_ = true;
         // async mma pipeline has not been flushed yet.
         flush_async_mma_pipeline_ = false;
+      } else if (mma->isBlackwell()) {
+        registerInsertAfter(
+            expr,
+            IrBuilder::create<kir::MBarrierWaitParity>(
+                IrBuilder::create<kir::TensorIndex>(
+                    GpuLower::current()->mbarrierMap().at(expr),
+                    expr->fusion()->zeroVal()),
+                expr->fusion()->zeroVal(DataType::UInt32)));
+      }
+    } else if (GpuLower::current()->batchedTmaMbarrierMap().contains(expr)) {
+      // For non-circular buffered TMA loads, collect MBarrierWaitParity
+      // to be inserted after the last TMA load
+      pending_tma_waits_.push_back(IrBuilder::create<kir::MBarrierWaitParity>(
+          GpuLower::current()->batchedTmaMbarrierMap().at(expr),
+          expr->fusion()->zeroVal(DataType::UInt32)));
+      // Increment counter and flush if this is the last TMA load
+      if (++seen_non_cb_tma_loads_ == total_non_cb_tma_loads_) {
+        flushPendingTmaWaits(expr, scope_.empty() ? nullptr : scope_.back());
       }
     } else if (ir_utils::isCpAsyncBulkStore(expr)) {
       // Add a fence before TMA store so that writes in the generic proxy is
@@ -470,13 +553,18 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
     }
     for (const auto& [async_type, ops] : input_async_ops) {
-      auto sync_exprs = lower_utils::getSyncExprs(
-          async_type,
-          /*keep_stages=*/0,
-          /*requires_commit=*/async_type != AsyncOpType::WgMma);
-      for (auto sync_expr : sync_exprs) {
-        insertSyncExpr(ops, expr, sync_expr, nullptr);
+      if (async_type != AsyncOpType::WgMma) {
+        insertSyncExpr(ops, expr, getAsyncCommit(async_type), nullptr);
       }
+      Expr* wait_expr = getAsyncWait(async_type, /*keep_stages=*/0);
+      kir::ForLoop* sync_within_fl =
+          insertSyncExpr(ops, expr, wait_expr, nullptr);
+
+      if (async_type == AsyncOpType::WgMma && sync_within_fl != nullptr) {
+        // Add TensorCore Arrive and Epilogue Wait after wgmma::wait_all
+        insertPingPongMbarrierAfterWgmma(wait_expr, sync_within_fl);
+      }
+
       for (auto op : ops) {
         // Already waited for the write to complete, so no need to wait again
         // before exiting the kernel.
@@ -515,15 +603,22 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       last_writes_.pop_front();
       // Found that a sync is needed
 
-      if (!sync_bitmap.hasBID() &&
-          std::all_of(
-              expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
-                return !val->isA<TensorView>() ||
-                    !isSharedMemory(val->as<TensorView>()) ||
-                    ir_utils::isCpAsyncBulkLoad(val->definition());
-              })) {
-        // RAW of TMA is handled separately, so skip it here.
-        return;
+      if (!sync_bitmap.hasBID()) {
+        // Inconsistent TID access detected. So needed a block sync.
+        // But not all block syncs are handled in this pass. For example,
+        // some ops, such as TMA, uses mbarrier based completion mechanism,
+        // and the wait of mbarrier will automatically makes block in sync.
+        // So we need to skip the block sync in this case.
+        if (std::all_of(
+                expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
+                  return !val->isA<TensorView>() ||
+                      !ir_utils::isMemorySharedAcross(
+                          val->as<TensorView>()->getMemoryType(),
+                          ParallelType::TIDx) ||
+                      ir_utils::isCpAsyncBulkLoad(val->definition());
+                })) {
+          return;
+        }
       }
 
       // TODO: Explicitly test the 3 cases below
@@ -537,11 +632,42 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         sync_expr = IrBuilder::create<kir::GridSync>(
             sync_bitmap, maybe_alloc->buffer());
       } else {
-        sync_expr = IrBuilder::create<kir::BlockSync>(false); // is not war sync
+        sync_expr = IrBuilder::create<kir::BlockSync>(
+            /*war_sync=*/false, isOptionalComputeSync(for_loops_));
       }
 
       insertSyncExpr(last_writes, expr, sync_expr, maybe_alloc);
     }
+  }
+
+  // For Hopper Ping-Pong Warp-Specialization, insert a mbarrier::arrive
+  // to next warp group to release TensorCores and mbarrier::wait for CUDA
+  // epilogue for this warp group.
+  void insertPingPongMbarrierAfterWgmma(
+      Expr* wait_expr,
+      kir::ForLoop* sync_within_fl) {
+    auto compute_warp_iter = std::find_if(
+        for_loops_.begin(), for_loops_.end(), [](kir::ForLoop* fl) {
+          return fl->circularBufferLoopStage() ==
+              CircularBufferLoopStage::ComputeWarp;
+        });
+    if (compute_warp_iter == for_loops_.end()) {
+      return;
+    }
+    HopperPingPongMbarriers* ping_pong_mbarriers =
+        GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+            (*compute_warp_iter)->iter_domain());
+    if (ping_pong_mbarriers == nullptr) {
+      return;
+    }
+    Expr* mbarrier_arrive = ping_pong_mbarriers->createMbarrierArrive(
+        /*next_warp_group=*/true, /*is_epilogue=*/false);
+    Expr* mbarrier_wait = ping_pong_mbarriers->createMbarrierWait(
+        /*next_warp_group=*/false, /*is_epilogue=*/true);
+    kir::ExprMutator::registerInsertAfter(
+        wait_expr, mbarrier_arrive, &sync_within_fl->body());
+    kir::ExprMutator::registerInsertAfter(
+        mbarrier_arrive, mbarrier_wait, &sync_within_fl->body());
   }
 
   // Find where a sync needs to be inserted and insert the given sync.
@@ -549,7 +675,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   // before the expression at the common alloc point of producers (really
   // last_writes because we may have other exprs we're syncing besides the
   // producers of this one)
-  void insertSyncExpr(
+  kir::ForLoop* insertSyncExpr(
       const std::unordered_set<Expr*>& last_writes,
       Expr* insert_before_expr,
       Expr* sync_expr,
@@ -557,13 +683,14 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // The expressions in last_writes are those we're protecting the read
     // from. To figure out which loop we need a syncthread in, take the inner
     // most compute at for loop of all the outputs of the last writes.
-    std::unordered_set<ForLoop*> sync_within;
+    std::unordered_set<kir::ForLoop*> sync_within;
 
     for (auto last_write : last_writes) {
       auto write_out_tv = ir_utils::getTvOutput(last_write);
       NVF_ERROR(
           write_out_tv != nullptr,
-          "Error in RAW sync insertion, expecting a TV expr, but didn't find one.");
+          "Error in RAW sync insertion, expecting a TV expr, but didn't find "
+          "one.");
       if (write_out_tv->getComputeAtPosition() == 0) {
         continue;
       }
@@ -573,8 +700,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
       auto loops_it = std::find_if(
           for_loops_.begin(), for_loops_.end(), [&local_id](const auto& loop) {
-            return GpuLower::current()->caMap()->areMapped(
-                loop->iter_domain(), local_id, IdMappingMode::PERMISSIVE);
+            return GpuLower::current()
+                ->info()
+                .idModel()
+                .idGraph(IdMappingMode::PERMISSIVE)
+                .areMapped(loop->iter_domain(), local_id);
           });
 
       NVF_ERROR(
@@ -586,7 +716,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     }
 
     // The for loop the sync needs to be in
-    ForLoop* sync_within_fl = nullptr;
+    kir::ForLoop* sync_within_fl = nullptr;
     for (auto fl : for_loops_) {
       if (sync_within.count(fl)) {
         sync_within_fl = fl;
@@ -596,8 +726,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     if (sync_within_fl == nullptr) {
       // Sync should be placed at global scope, after its outer most loop if
       // it has one.
-      Expr* place_before =
-          !for_loops_.empty() ? for_loops_[0] : insert_before_expr;
+      Expr* place_before = !for_loops_.empty()
+          ? static_cast<Expr*>(for_loops_[0])
+          : insert_before_expr;
       // Find location in exprs_
       auto place_before_it =
           std::find(exprs_.begin(), exprs_.end(), place_before);
@@ -611,6 +742,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         registerInsertBefore(place_before, maybe_alloc, nullptr);
       }
       registerInsertBefore(*(place_before_it), sync_expr, nullptr);
+      return nullptr;
     } else {
       auto sync_within_loop_it =
           std::find(for_loops_.begin(), for_loops_.end(), sync_within_fl);
@@ -629,6 +761,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       if (maybe_alloc != nullptr) {
         registerInsertBefore(place_before, maybe_alloc, &place_in->body());
       }
+      return place_in;
     }
   }
 
@@ -649,7 +782,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     std::unordered_set<Expr*> last_writes;
     for (auto tv : ir_utils::filterByType<TensorView>(tvs)) {
       if (check_sync_map &&
-          GpuLower::current()->syncMap()->needsRawSync(tv).none()) {
+          !GpuLower::current()->syncMap()->needsAnyRawSync(tv)) {
         continue;
       }
       if (!isSharedMemory(tv)) {
@@ -670,7 +803,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     for (auto tv : ir_utils::filterByType<TensorView>(tvs)) {
       tv = GpuLower::current()->getMaybeTensorProducerAlias(tv);
 
-      if (GpuLower::current()->syncMap()->needsRawSync(tv).none()) {
+      if (!GpuLower::current()->syncMap()->needsAnyRawSync(tv)) {
         continue;
       }
       auto it = gmem.find(tv);
@@ -681,7 +814,33 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     return last_writes;
   }
 
+  // Flush all pending TMA wait expressions after the last TMA load
+  void flushPendingTmaWaits(
+      Expr* last_tma_load_expr,
+      Scope* last_tma_load_scope) {
+    if (pending_tma_waits_.empty()) {
+      return;
+    }
+
+    NVF_ERROR(
+        last_tma_load_expr != nullptr,
+        "Expected a TMA load expression for pending waits");
+
+    // Insert all pending waits after the last TMA load
+    // We insert them in reverse order so they appear in the original order
+    for (auto it = pending_tma_waits_.rbegin(); it != pending_tma_waits_.rend();
+         ++it) {
+      registerInsertAfter(last_tma_load_expr, *it, last_tma_load_scope);
+    }
+
+    pending_tma_waits_.clear();
+  }
+
   ReadAfterWriteSyncs(const std::vector<Expr*>& _exprs) {
+    // Initialize total number of non-circular buffered TMA loads
+    total_non_cb_tma_loads_ =
+        GpuLower::current()->info().batchedTmaInfo().numBatchableLoads();
+
     // Fusion shared_memory values
     // Tracks if shared memory is modified
     std::unordered_map<Val*, Expr*> smem;
@@ -706,8 +865,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         ParallelTypeBitmap bitmap;
         for (auto entry : gmem) {
           NVF_ERROR(entry.first->isA<TensorView>());
-          auto sync_bits = GpuLower::current()->syncMap()->needsRawSync(
-              entry.first->as<TensorView>());
+          auto sync_bits =
+              GpuLower::current()->syncMap()->getRawSyncParallelTypes(
+                  entry.first->as<TensorView>());
           bitmap |= sync_bits;
         }
 
@@ -750,10 +910,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         for (auto it : smem) {
           // No need to keep track of shared mem writes that does not
           //  require a RAW block sync.
-          if (GpuLower::current()
-                  ->syncMap()
-                  ->needsRawSync(it.first->as<TensorView>())
-                  .hasTID()) {
+          if (GpuLower::current()->syncMap()->needsBlockRawSync(
+                  it.first->as<TensorView>())) {
             smem_writes.insert(it.second);
           }
         }
@@ -790,7 +948,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // kernel.
     for (auto expr : async_exprs_writing_fusion_output_) {
       auto async_type = ir_utils::getAsyncOpType(expr);
-      auto sync_exprs = lower_utils::getSyncExprs(async_type, 0);
+      std::vector<Expr*> sync_exprs{
+          getAsyncCommit(async_type),
+          getAsyncWait(async_type, /*keep_stages=*/0)};
       exprs_.insert(exprs_.end(), sync_exprs.begin(), sync_exprs.end());
     }
 
@@ -848,6 +1008,15 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   //! exiting the kernel.
   std::vector<Expr*> async_exprs_writing_fusion_output_;
 
+  //! Pending TMA wait expressions to be inserted after the last TMA load
+  std::vector<Expr*> pending_tma_waits_;
+
+  //! Total number of non-circular buffered TMA loads
+  size_t total_non_cb_tma_loads_ = 0;
+
+  //! Number of non-circular buffered TMA loads encountered so far
+  size_t seen_non_cb_tma_loads_ = 0;
+
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& loop_nests) {
     ReadAfterWriteSyncs inserter(loop_nests);
@@ -878,6 +1047,15 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   }
 
  private:
+  //! Number of for loops opened by WarAsyncWaitInserter
+  std::vector<kir::ForLoop*> for_loop_stack_;
+
+  //! The for loop where wgmma operations are inserted into ComputeWarp
+  int64_t compute_warp_insertion_position_ = -1;
+
+  //! The ComputeWarp for loop
+  kir::ForLoop* active_compute_for_loop_ = nullptr;
+
   //! Is there a loop nest that has a non-trivial iteration (extent != 1) and
   //! not bound to a block/thread. This indicates if a WAR sync is necessary,
   //! otherwise the Expr is not in an iterating for loop.
@@ -900,7 +1078,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   //! Warp Specialization creates an If-Then-Else to separate load and compute
   //! operations. Therefore, the async_inputs_in_current_scope_ will not contain
   //! the async inputs for the corresponding async expression. Track async
-  //! inputs separately when we encounter them in load warp.
+  //! inputs separately when we encounter them in async warp.
   std::unordered_set<Val*> warp_specialized_async_inputs_in_current_scope_;
 
   //! Track async exprs separately when we encounter them in compute warp.
@@ -958,13 +1136,13 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   }
 
   void dispatch(Expr* expr) final {
-    // If not a tensor view expression continue with dispatch
+    // If not a TensorView expression continue with dispatch
     if (!ir_utils::isTvOp(expr)) {
       kir::ExprMutator::dispatch(expr);
       return;
     }
 
-    // Gather all async inputs in load warp
+    // Gather all async inputs in AsyncWarp
     TensorView* out_tv = ir_utils::getTvOutput(expr);
     NVF_ERROR(out_tv != nullptr);
     auto circular_buffer_loop =
@@ -972,7 +1150,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             out_tv, for_loops_);
     if (circular_buffer_loop != nullptr &&
         circular_buffer_loop->circularBufferLoopStage() ==
-            CircularBufferLoopStage::LoadWarp) {
+            CircularBufferLoopStage::AsyncWarp) {
       auto use_async_ops = getUseAsyncOpTypes(out_tv);
       if (!use_async_ops.empty()) {
         warp_specialized_async_inputs_in_current_scope_.emplace(out_tv);
@@ -1006,12 +1184,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // async_exprs_to_protect_ so that we know we need to protect it.
     auto async_op_type = ir_utils::getAsyncOpType(expr);
     if (async_op_type != AsyncOpType::NotAsync) {
-      bool within_compute_warp =
-          std::any_of(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
-            return fl->circularBufferLoopStage() ==
-                CircularBufferLoopStage::ComputeWarp;
-          });
-      if (within_compute_warp) {
+      if (isWithinComputeWarp(for_loop_stack_) &&
+          async_op_type == AsyncOpType::WgMma) {
         warp_specialized_async_exprs_to_protect_.insert(expr);
       } else {
         async_exprs_to_protect_.insert(expr);
@@ -1070,7 +1244,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   // circular buffer loop. When the prefetch distance is smaller than
   // stage_depth - 1, we have have buffers for eliminating WAR hazards, so we
   // can allow more pending transactions.
-  int64_t getPendingOpsFor(Expr* expr, ForLoop* current_loop) {
+  int64_t getPendingOpsFor(Expr* expr, kir::ForLoop* current_loop) {
     auto for_loops_including_current = for_loops_;
     for_loops_including_current.push_back(current_loop);
     const auto gpu_lower = GpuLower::current();
@@ -1116,22 +1290,31 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   // Special logic is required for warp specialized circular buffering because
   // the TMA loads and wgmma ops are separated by an IfThenElse.
   // kir::ExprMutator traverses the fusion in depth-wise order, so TMA loads in
-  // the LoadWarp are detected before the wgmma expressions in the ComputeWarp.
+  // the AsyncWarp are detected before the wgmma expressions in the ComputeWarp.
   //
   // This function inserts wgmma.commit_group and wgmma.wait_group expressions
-  // before the mbarrier::arrive, which allows load warp to launch next TMA
+  // before the mbarrier::arrive, which allows async warp to launch next TMA
   // load. First, we commit all the wgmma expressions issued in this iteration
   // of the for-loop. Then, we wait for some number of wgmma expressions based
   // on number of circular buffer stages and number of prefetch stages.
-  void handleComputeWarp(ForLoop* for_loop) {
+  void handleComputeWarp(kir::ForLoop* for_loop) {
     NVF_ERROR(
-        for_loop->circularBufferLoopStage() ==
-            CircularBufferLoopStage::ComputeWarp,
-        "for_loop is not circular buffer compute warp");
+        compute_warp_insertion_position_ != -1,
+        "for_loop is not within a circular buffer compute warp");
+
+    // Short-circuit: no wgmma expressions to protect in computeWarp.
+    // TODO: Create direct scan for wgmma operations in nested for loops.
+    if (for_loop->body().exprs().size() < 1 ||
+        !for_loop->body().exprs().back()->isA<kir::MBarrierArrive>()) {
+      for_loop_stack_.pop_back();
+      return;
+    }
+
     NVF_ERROR(
         warp_specialized_async_exprs_to_protect_.empty() ||
             !warp_specialized_async_inputs_in_current_scope_.empty(),
-        "Expected TMA loads in LoadWarp for WgMma operations were detected in ComputeWarp.");
+        "Expected TMA loads in AsyncWarp for WgMma operations were detected in "
+        "ComputeWarp.");
 
     // short-circuit: no wgmma expressions to protect in computeWarp.
     if (warp_specialized_async_exprs_to_protect_.empty()) {
@@ -1139,9 +1322,12 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       return;
     }
 
-    // Establish all tma loads in LoadWarp are used by WgMma operations in
+    // Establish all tma loads in AsyncWarp are used by WgMma operations in
     // ComputeWarp.
     for (Expr* expr : warp_specialized_async_exprs_to_protect_) {
+      if (ir_utils::isCpAsyncBulkStore(expr)) {
+        continue;
+      }
       NVF_ERROR(std::all_of(
           expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
             return warp_specialized_async_inputs_in_current_scope_.count(val);
@@ -1149,41 +1335,69 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       NVF_ERROR(ir_utils::getAsyncOpType(expr) == AsyncOpType::WgMma);
     }
 
+    NVF_ERROR(active_compute_for_loop_ != nullptr);
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            for_loop->iter_domain());
+            active_compute_for_loop_->iter_domain());
     int64_t pending_ops = opt.stage - opt.prefetch - 1;
 
-    auto sync_exprs =
-        lower_utils::getSyncExprs(AsyncOpType::WgMma, pending_ops);
-    size_t num_exprs = for_loop->body().exprs().size();
-    NVF_ERROR(num_exprs > 1);
-    NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
+    std::vector<Expr*> sync_exprs{
+        getAsyncCommit(AsyncOpType::WgMma),
+        getAsyncWait(AsyncOpType::WgMma, /*keep_stages=*/pending_ops)};
+    const auto& body_exprs = for_loop->body().exprs();
+    const auto num_exprs = std::ssize(body_exprs);
+    NVF_ERROR_GT(num_exprs, 1);
+    NVF_ERROR(body_exprs.back()->isA<kir::MBarrierArrive>());
+    Expr* reference_expr = *std::prev(body_exprs.end(), 2);
     while (!sync_exprs.empty()) {
-      registerInsertAfter(
-          for_loop->body().exprs().at(num_exprs - 2),
-          sync_exprs.back(),
-          &for_loop->body());
+      registerInsertAfter(reference_expr, sync_exprs.back(), &for_loop->body());
       sync_exprs.pop_back();
     }
 
     // Clear warp specialized async inputs and exprs
     warp_specialized_async_inputs_in_current_scope_.clear();
     warp_specialized_async_exprs_to_protect_.clear();
+    active_compute_for_loop_ = nullptr;
+    for_loop_stack_.pop_back();
   }
 
-  void handle(ForLoop* for_loop) final {
+  void handle(kir::ForLoop* for_loop) final {
     // Push loop scope information
     auto prev_within_iter_loop_ = within_iter_loop_;
+    for_loop_stack_.push_back(for_loop);
     within_iter_loop_ = within_iter_loop_ || !for_loop->isTrivial();
     auto prev_async_inputs = openScope();
+
+    // Short-circuit: special handling of ComputeWarp for-loop
+    // Track insertion position of wgmma operation.
+    if (for_loop->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp) {
+      NVF_ERROR(compute_warp_insertion_position_ == -1);
+      NVF_ERROR(active_compute_for_loop_ == nullptr);
+      compute_warp_insertion_position_ =
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferInsertionPosition(for_loop->iter_domain()) +
+          for_loop_stack_.size() - 1;
+      active_compute_for_loop_ = for_loop;
+    }
 
     // Process the expressions in the for loop
     kir::ExprMutator::handle(for_loop);
 
     // Short-circuit: special handling of ComputeWarp for-loop
+    // Add Ping-Pong Arrive Mbar
     if (for_loop->circularBufferLoopStage() ==
         CircularBufferLoopStage::ComputeWarp) {
+      Expr* mbarrier_arrive = insertPingPongEpilogueArriveMBarrier(for_loop);
+      if (mbarrier_arrive != nullptr) {
+        for_loop->body().pushBack(mbarrier_arrive);
+      }
+    }
+
+    // Short-circuit: special handling of ComputeWarp for-loop
+    // Add wgmma commit_group and wait_group
+    if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size()) {
       return handleComputeWarp(for_loop);
     }
 
@@ -1195,17 +1409,29 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       for (auto it = async_exprs_to_protect_.begin();
            it != async_exprs_to_protect_.end();) {
         auto expr = *it;
+        AsyncOpType type = ir_utils::getAsyncOpType(expr);
+
+        // The wgmma.commit must always be inserted at the end of epilogue for
+        // loop. The epilogue loop does not need wgmma.wait because it does not
+        // have async inputs to guard. The RAWSyncInserter adds the wgmma.wait
+        // before the output of wgmma expr is used by any other exprs.
+        bool is_wgmma_epilogue = (type == AsyncOpType::WgMma) &&
+            for_loop->circularBufferLoopStage() ==
+                CircularBufferLoopStage::Epilog;
+
+        bool is_async_inputs_not_present = std::none_of(
+            expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
+              return async_inputs_in_current_scope_.count(val);
+            });
+
         // If the input of the async op is not in the current scope, then this
         // async op is not related, so nothing to protect.
-        if (std::none_of(
-                expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
-                  return async_inputs_in_current_scope_.count(val);
-                })) {
+        if (!is_wgmma_epilogue && is_async_inputs_not_present) {
           it++;
           continue;
         }
+
         int64_t pending_ops = getPendingOpsFor(expr, for_loop);
-        auto type = ir_utils::getAsyncOpType(expr);
         // If there are multiple async ops of the same type to protect, we will
         // only insert a single wait expressions with the smallest
         // "pending_ops".
@@ -1221,12 +1447,17 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
       // Actually insert these wait expressions.
       for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
-        auto sync_exprs = lower_utils::getSyncExprs(type, pending_ops);
-        NVF_ERROR(!for_loop->body().exprs().empty());
+        std::vector<Expr*> sync_exprs{getAsyncCommit(type)};
+        if (for_loop->circularBufferLoopStage() !=
+            CircularBufferLoopStage::Epilog) {
+          sync_exprs.push_back(getAsyncWait(type, /*keep_stages=*/pending_ops));
+        }
+        const std::list<Expr*>& body_exprs = for_loop->body().exprs();
+        NVF_ERROR(!body_exprs.empty());
 
         // Default position is last expression in for loop
-        size_t num_exprs = for_loop->body().exprs().size();
-        size_t pos = num_exprs - 1;
+        const auto num_exprs = std::ssize(body_exprs);
+        auto pos = num_exprs - 1;
 
         // The sync qualifier in the `wgmma.wait_group` ptx instruction only
         // guarantees that a warp executes the instruction. The entire warp
@@ -1237,11 +1468,19 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             for_loop->circularBufferLoopStage() ==
                 CircularBufferLoopStage::Main) {
           NVF_ERROR(num_exprs > 1);
-          NVF_ERROR(for_loop->body().exprs().back()->isA<kir::BlockSync>());
-          --pos;
+          if (body_exprs.back()->isA<kir::BlockSync>()) {
+            --pos;
+          } else {
+            // Insert a sync if there is not one already
+            auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
+            kir::ExprMutator::registerInsertAfter(
+                body_exprs.back(), sync_expr, &for_loop->body());
+          }
         }
 
-        Expr* expr = for_loop->body().exprs().at(pos);
+        NVF_ERROR_GE(pos, 0);
+        NVF_ERROR_LT(pos, num_exprs);
+        Expr* expr = *std::next(body_exprs.begin(), pos);
         while (!sync_exprs.empty()) {
           registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
           sync_exprs.pop_back();
@@ -1251,7 +1490,24 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Pop for loop scope information
     within_iter_loop_ = prev_within_iter_loop_;
+    for_loop_stack_.pop_back();
     closeScope(prev_async_inputs);
+  }
+
+  // For Hopper Ping-Pong Warp-Specialization, insert
+  // a mbarrier::arrive to next warp group to release CUDA Epilogue.
+  Expr* insertPingPongEpilogueArriveMBarrier(kir::ForLoop* compute_for_loop) {
+    NVF_ERROR(
+        compute_for_loop->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp);
+    HopperPingPongMbarriers* ping_pong_mbarriers =
+        GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+            compute_for_loop->iter_domain());
+    if (ping_pong_mbarriers == nullptr) {
+      return nullptr;
+    }
+    return ping_pong_mbarriers->createMbarrierArrive(
+        /*next_warp_group=*/true, /*is_epilogue=*/true);
   }
 };
 

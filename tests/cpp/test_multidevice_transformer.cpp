@@ -10,27 +10,28 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/multidevice_transformer.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/multidevice_transformer.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-namespace {
 // Note: We test on smaller model and input sizes to avoid high error
 // accumulation for validation.
-static constexpr int64_t B = 2, E = 768, H = 16, S = 128;
+constexpr int64_t B = 2, E = 768, H = 16, S = 128;
+
 // Note: Dropout probabilities are set to 0. Since the dropout mask is sharded
 // it throws off the seed offset between the sharded nvFuser program and the
 // unsharded reference.
-static constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
+constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
+
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
-static constexpr double kParamScale = 0.02;
-} // namespace
+constexpr double kParamScale = 0.02;
 
 class DistributedTransformerTest
     : public MultiDeviceTest,
@@ -53,79 +54,6 @@ class DistributedTransformerTest
 };
 
 namespace {
-// testValidate doesn't work out of the box due to #2906, so I had to manually
-// specify the absolute tolerances. The atols passed in are tuned for bfloat,
-// the least precise dtype. They can probably be made stricter for other
-// dtypes.
-void validate(
-    const std::vector<at::Tensor>& expected_outputs,
-    const KernelArgumentHolder& outputs,
-    const std::vector<double>& atols) {
-  using testing::SizeIs;
-  const auto num_outputs = outputs.size();
-  ASSERT_THAT(expected_outputs, SizeIs(num_outputs));
-  ASSERT_THAT(atols, SizeIs(num_outputs));
-
-  for (const auto i : c10::irange(num_outputs)) {
-    // allclose can catch this as well. However, it would throw an exception,
-    // not showing which output was problematic.
-    NVF_ERROR(
-        outputs[i].is<at::Tensor>(), "Output is not a tensor at index ", i);
-    auto output_tensor = outputs[i].as<at::Tensor>();
-    NVF_ERROR(
-        output_tensor.dtype() == expected_outputs[i].dtype(),
-        "Output ",
-        i,
-        " has a mismatching data type.");
-
-    const double atol = atols[i];
-    // These default rtols are copied from
-    // https://github.com/pytorch/pytorch/blob/951c21d6790334d57862e94a3f582ac724147a53/torch/testing/_comparison.py#L65-L73.
-    double rtol;
-    switch (output_tensor.scalar_type()) {
-      case at::kBFloat16:
-        rtol = 1.6e-2;
-        break;
-      case at::kHalf:
-        rtol = 1e-3;
-        break;
-      case at::kFloat:
-        rtol = 1.3e-6;
-        break;
-      default:
-        rtol = 0.0;
-        break;
-    }
-
-    auto generate_comparison_details = [](at::Tensor expected_out,
-                                          at::Tensor out,
-                                          double atol,
-                                          double rtol) -> std::string {
-      std::ostringstream oss;
-      auto error = (out - expected_out).abs();
-      auto max_relative_error =
-          (error.max() / expected_out.abs().max()).item().to<double>();
-      auto error_count =
-          at::sum(error >= atol + expected_out.abs() * rtol).item();
-      indent(oss, 1)
-          << "max absolute error under rtol: "
-          << (error - expected_out.abs() * rtol).max().item().to<double>()
-          << std::endl;
-      indent(oss, 1) << "max relative error: " << max_relative_error
-                     << std::endl;
-      indent(oss, 1) << "failing elements: " << error_count << ", "
-                     << error_count.to<float>() / at::numel(out) * 100.0
-                     << "\% of tensor";
-      return oss.str();
-    };
-
-    EXPECT_TRUE(at::allclose(output_tensor, expected_outputs[i], rtol, atol))
-        << "Output " << i << " mismatches with atol " << atol << ":"
-        << std::endl
-        << generate_comparison_details(
-               expected_outputs[i], output_tensor, atol, rtol);
-  }
-}
 
 std::vector<at::Tensor> reference_mlp(
     at::Tensor x,
@@ -214,7 +142,7 @@ std::vector<at::Tensor> reference_mha_backwards(
   }
   auto
       [sdpa_output,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -248,7 +176,7 @@ std::vector<at::Tensor> reference_mha_backwards(
           qkv[1],
           qkv[2],
           sdpa_output,
-          log_sumexp,
+          logsumexp,
           cum_seq_q,
           cum_seq_k,
           /*max_q=*/*query_seq_len.maybe_as_int(),
@@ -271,7 +199,7 @@ std::vector<at::Tensor> reference_mha_backwards(
   // and become inputs to the nvfuser mha backwards pass
   std::vector<at::Tensor> tensors = {
       sdpa_output,
-      log_sumexp,
+      logsumexp,
       philox_seed,
       philox_offset,
       dropout_grad,
@@ -336,14 +264,14 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 
   KernelArgumentHolder args = {
       x,
-      shardTensor(w0, 0, mesh).unsqueeze(0),
-      shardTensor(b0, 0, mesh).unsqueeze(0),
-      shardTensor(w1, 1, mesh).unsqueeze(0),
+      shardTensor1D(w0, 0, mesh).unsqueeze(0),
+      shardTensor1D(b0, 0, mesh).unsqueeze(0),
+      shardTensor1D(w1, 1, mesh).unsqueeze(0),
       b1};
 
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(reference_outs[0], 1, mesh).unsqueeze(0),
-      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0),
+      shardTensor1D(reference_outs[0], 1, mesh).unsqueeze(0),
+      shardTensor1D(reference_outs[1], 1, mesh).unsqueeze(0),
       reference_outs[2],
       reference_outs[3]};
 
@@ -417,17 +345,17 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
   auto mask_ = reference_outs[4];
 
   KernelArgumentHolder args = {
-      shardTensor(x_, 0, mesh).unsqueeze(0),
-      shardTensor(w0_, 0, mesh).unsqueeze(0),
-      shardTensor(b0_, 0, mesh).unsqueeze(0),
-      shardTensor(w1_, 1, mesh).unsqueeze(0),
+      shardTensor1D(x_, 0, mesh).unsqueeze(0),
+      shardTensor1D(w0_, 0, mesh).unsqueeze(0),
+      shardTensor1D(b0_, 0, mesh).unsqueeze(0),
+      shardTensor1D(w1_, 1, mesh).unsqueeze(0),
       b1_};
 
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(reference_outs[0], 1, mesh).unsqueeze(0),
-      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0),
-      shardTensor(reference_outs[2], 0, mesh).unsqueeze(0),
-      shardTensor(reference_outs[3], 0, mesh).unsqueeze(0)};
+      shardTensor1D(reference_outs[0], 1, mesh).unsqueeze(0),
+      shardTensor1D(reference_outs[1], 1, mesh).unsqueeze(0),
+      shardTensor1D(reference_outs[2], 0, mesh).unsqueeze(0),
+      shardTensor1D(reference_outs[3], 0, mesh).unsqueeze(0)};
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
@@ -480,14 +408,14 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
   auto reference_outs = reference_mha(x, w0, b0, w1, b1);
   KernelArgumentHolder args = {
       x,
-      shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
-      shardTensor(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
-      shardTensor(w1, 1, mesh).unsqueeze(0),
+      shardTensor1D(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
+      shardTensor1D(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
+      shardTensor1D(w1, 1, mesh).unsqueeze(0),
       b1};
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(reference_outs[0].view({B * S, 3, E}), 2, mesh)
+      shardTensor1D(reference_outs[0].view({B * S, 3, E}), 2, mesh)
           .view({1, B * S, 3 * E / D}),
-      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0),
+      shardTensor1D(reference_outs[1], 1, mesh).unsqueeze(0),
       reference_outs[2],
       reference_outs[3]};
 
@@ -545,17 +473,17 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
   at::manual_seed(getATenRandomSeed());
   auto reference_outs = reference_mha(x, w0, b0, w1, b1);
   KernelArgumentHolder args = {
-      shardTensor(x, 0, mesh).unsqueeze(0),
-      shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
-      shardTensor(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
-      shardTensor(w1, 1, mesh).unsqueeze(0),
+      shardTensor1D(x, 0, mesh).unsqueeze(0),
+      shardTensor1D(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
+      shardTensor1D(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
+      shardTensor1D(w1, 1, mesh).unsqueeze(0),
       b1};
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(reference_outs[0].view({B * S, 3, E}), 2, mesh)
+      shardTensor1D(reference_outs[0].view({B * S, 3, E}), 2, mesh)
           .view({1, B * S, 3 * E / D}),
-      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0),
-      shardTensor(reference_outs[2], 0, mesh).unsqueeze(0),
-      shardTensor(reference_outs[3], 0, mesh).unsqueeze(0)};
+      shardTensor1D(reference_outs[1], 1, mesh).unsqueeze(0),
+      shardTensor1D(reference_outs[2], 0, mesh).unsqueeze(0),
+      shardTensor1D(reference_outs[3], 0, mesh).unsqueeze(0)};
 
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
@@ -619,16 +547,16 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       grad_,
       x_,
       mask_,
-      shardTensor(mlp_w0_, 0, mesh).unsqueeze(0),
-      shardTensor(mlp_w1_, 1, mesh).unsqueeze(0),
-      shardTensor(linear0_, 1, mesh).unsqueeze(0)};
+      shardTensor1D(mlp_w0_, 0, mesh).unsqueeze(0),
+      shardTensor1D(mlp_w1_, 1, mesh).unsqueeze(0),
+      shardTensor1D(linear0_, 1, mesh).unsqueeze(0)};
   std::vector<at::Tensor> expected_outputs = {
       outs[0], // dropout grad
-      shardTensor(outs[1], 1, mesh).unsqueeze(0), // linear1 weight grad
+      shardTensor1D(outs[1], 1, mesh).unsqueeze(0), // linear1 weight grad
       outs[2], // linear1 bias grad
-      shardTensor(outs[3], 1, mesh).unsqueeze(0), // gelu grad
-      shardTensor(outs[4], 0, mesh).unsqueeze(0), // linear0 weight grad
-      shardTensor(outs[5], 0, mesh).unsqueeze(0), // linear0 bias grad
+      shardTensor1D(outs[3], 1, mesh).unsqueeze(0), // gelu grad
+      shardTensor1D(outs[4], 0, mesh).unsqueeze(0), // linear0 weight grad
+      shardTensor1D(outs[5], 0, mesh).unsqueeze(0), // linear0 bias grad
       outs[6]}; // linear0 grad x
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -655,7 +583,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   TensorView* tvmask = makeContigConcreteTensor({B * S, E}, DataType::Bool);
   TensorView* tvsdpa_out =
       makeContigConcreteTensor({D, B, H / D, S, E / H}, dtype);
-  TensorView* tvsdpa_log_sumexp =
+  TensorView* tvsdpa_logsumexp =
       makeContigConcreteTensor({D, B, H / D, S}, DataType::Float);
   auto [tvsdpa_seed, tvsdpa_offset] = createSdpaRngTvs();
   TensorView* linear0 = makeSymbolicTensor(3, dtype);
@@ -666,7 +594,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   fusion->addInput(tvgrad);
   fusion->addInput(tvmask);
   fusion->addInput(tvsdpa_out);
-  fusion->addInput(tvsdpa_log_sumexp);
+  fusion->addInput(tvsdpa_logsumexp);
   fusion->addInput(tvsdpa_seed);
   fusion->addInput(tvsdpa_offset);
   fusion->addInput(linear0);
@@ -677,7 +605,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
       tvw1,
       tvmask,
       tvsdpa_out,
-      tvsdpa_log_sumexp,
+      tvsdpa_logsumexp,
       tvsdpa_seed,
       tvsdpa_offset,
       tvgrad,
@@ -708,27 +636,27 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   auto reference_outs = reference_mha_backwards(grad, x, mask, w0, b0, w1);
   KernelArgumentHolder args = {
       x,
-      shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
-      shardTensor(w1, 1, mesh).unsqueeze(0),
+      shardTensor1D(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
+      shardTensor1D(w1, 1, mesh).unsqueeze(0),
       grad,
       mask,
-      shardTensor(reference_outs[0], 1, mesh).unsqueeze(0), // sdpa.output
-      shardTensor(reference_outs[1], 1, mesh).unsqueeze(0), // sdpa.log_sumexp
+      shardTensor1D(reference_outs[0], 1, mesh).unsqueeze(0), // sdpa.output
+      shardTensor1D(reference_outs[1], 1, mesh).unsqueeze(0), // sdpa.logsumexp
       reference_outs[2], // sdpa.seed
       reference_outs[3], // sdpa.offset
-      shardTensor(reference_outs[13], 1, mesh).unsqueeze(0) // linear0
+      shardTensor1D(reference_outs[13], 1, mesh).unsqueeze(0) // linear0
   };
   std::vector<at::Tensor> expected_outputs = {
       reference_outs[4], // dropout grad
-      shardTensor(reference_outs[5], 1, mesh)
+      shardTensor1D(reference_outs[5], 1, mesh)
           .unsqueeze(0), // linear1 weight grad
       reference_outs[6], // linear1 bias grad
-      shardTensor(reference_outs[7], 1, mesh).unsqueeze(0), // q grad
-      shardTensor(reference_outs[8], 1, mesh).unsqueeze(0), // k grad
-      shardTensor(reference_outs[9], 1, mesh).unsqueeze(0), // v grad
-      shardTensor(reference_outs[10].view({3, E, E}), 1, mesh)
+      shardTensor1D(reference_outs[7], 1, mesh).unsqueeze(0), // q grad
+      shardTensor1D(reference_outs[8], 1, mesh).unsqueeze(0), // k grad
+      shardTensor1D(reference_outs[9], 1, mesh).unsqueeze(0), // v grad
+      shardTensor1D(reference_outs[10].view({3, E, E}), 1, mesh)
           .view({1, 3 * E / D, E}), // linear0 weight grad
-      shardTensor(reference_outs[11].view({3, E}), 1, mesh)
+      shardTensor1D(reference_outs[11].view({3, E}), 1, mesh)
           .view({1, 3 * E / D}), // linear0 bias grad
       reference_outs[12]};
 
@@ -786,26 +714,26 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
   auto at_out = (resid0_ + mlp_out_).to(at_dtype);
 
   KernelArgumentHolder args = {
-      shardTensor(x_, 0, mesh).unsqueeze(0),
+      shardTensor1D(x_, 0, mesh).unsqueeze(0),
       ln0_w_,
       ln0_b_,
-      shardTensor(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}),
-      shardTensor(mha_w1_, 1, mesh).unsqueeze(0),
+      shardTensor1D(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
+      shardTensor1D(mha_b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}),
+      shardTensor1D(mha_w1_, 1, mesh).unsqueeze(0),
       mha_b1_,
       ln1_w_,
       ln1_b_,
-      shardTensor(mlp_w0_, 0, mesh).unsqueeze(0),
-      shardTensor(mlp_b0_, 0, mesh).unsqueeze(0),
-      shardTensor(mlp_w1_, 1, mesh).unsqueeze(0),
+      shardTensor1D(mlp_w0_, 0, mesh).unsqueeze(0),
+      shardTensor1D(mlp_b0_, 0, mesh).unsqueeze(0),
+      shardTensor1D(mlp_w1_, 1, mesh).unsqueeze(0),
       mlp_b1_};
 
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(ln0_out_, 0, mesh).unsqueeze(0),
-      shardTensor(mha_out_, 0, mesh).unsqueeze(0),
-      shardTensor(ln1_out_, 0, mesh).unsqueeze(0),
-      shardTensor(mlp_out_, 0, mesh).unsqueeze(0),
-      shardTensor(at_out, 0, mesh).unsqueeze(0)};
+      shardTensor1D(ln0_out_, 0, mesh).unsqueeze(0),
+      shardTensor1D(mha_out_, 0, mesh).unsqueeze(0),
+      shardTensor1D(ln1_out_, 0, mesh).unsqueeze(0),
+      shardTensor1D(mlp_out_, 0, mesh).unsqueeze(0),
+      shardTensor1D(at_out, 0, mesh).unsqueeze(0)};
 
   auto fec = model->forward(dtype, true);
   at::manual_seed(getATenRandomSeed());
@@ -860,15 +788,15 @@ TEST_P(DistributedTransformerTest, Forward) {
       x_,
       ln0_w_,
       ln0_b_,
-      shardTensor(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}),
-      shardTensor(mha_w1_, 1, mesh).unsqueeze(0),
+      shardTensor1D(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
+      shardTensor1D(mha_b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}),
+      shardTensor1D(mha_w1_, 1, mesh).unsqueeze(0),
       mha_b1_,
       ln1_w_,
       ln1_b_,
-      shardTensor(mlp_w0_, 0, mesh).unsqueeze(0),
-      shardTensor(mlp_b0_, 0, mesh).unsqueeze(0),
-      shardTensor(mlp_w1_, 1, mesh).unsqueeze(0),
+      shardTensor1D(mlp_w0_, 0, mesh).unsqueeze(0),
+      shardTensor1D(mlp_b0_, 0, mesh).unsqueeze(0),
+      shardTensor1D(mlp_w1_, 1, mesh).unsqueeze(0),
       mlp_b1_};
 
   std::vector<at::Tensor> expected_outputs = {
@@ -949,21 +877,22 @@ TEST_P(DistributedTransformerTest, Backward) {
   auto dx_ = (ln0_x_grad_ + resid1_grad_).to(at_dtype);
 
   auto expected_outputs = {
-      shardTensor(mlp_grads_[1], 1, mesh)
+      shardTensor1D(mlp_grads_[1], 1, mesh)
           .unsqueeze(0), // mlp_linear1_weight_grad
       mlp_grads_[2], // mlp_linear1_bias_grad
-      shardTensor(mlp_grads_[4], 0, mesh)
+      shardTensor1D(mlp_grads_[4], 0, mesh)
           .unsqueeze(0), // mlp_linear0_weight_grad
-      shardTensor(mlp_grads_[5], 0, mesh).unsqueeze(0), // mlp_linear0_bias_grad
+      shardTensor1D(mlp_grads_[5], 0, mesh)
+          .unsqueeze(0), // mlp_linear0_bias_grad
       ln1_w_grad_,
       ln1_b_grad_,
-      shardTensor(mha_grads_[5], 1, mesh)
+      shardTensor1D(mha_grads_[5], 1, mesh)
           .unsqueeze(0), // mha linear1 weight grad
       mha_grads_[6], // mha linear1 bias grad
-      shardTensor(
+      shardTensor1D(
           mha_grads_[10].view({3, E, E}), 1, mesh) // failing starting here
           .view({1, 3 * E / D, E}), // mha linear0 bias grad
-      shardTensor(mha_grads_[11].view({3, E}), 1, mesh)
+      shardTensor1D(mha_grads_[11].view({3, E}), 1, mesh)
           .view({1, 3 * E / D}), // mha linear0 bias grad
       ln0_w_grad_,
       ln0_b_grad_,
@@ -972,14 +901,14 @@ TEST_P(DistributedTransformerTest, Backward) {
   KernelArgumentHolder args = {
       x_,
       grad_,
-      shardTensor(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
-      shardTensor(mha_w1_, 1, mesh).unsqueeze(0),
-      shardTensor(mlp_w0_, 0, mesh).unsqueeze(0),
-      shardTensor(mlp_w1_, 1, mesh).unsqueeze(0),
+      shardTensor1D(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
+      shardTensor1D(mha_w1_, 1, mesh).unsqueeze(0),
+      shardTensor1D(mlp_w0_, 0, mesh).unsqueeze(0),
+      shardTensor1D(mlp_w1_, 1, mesh).unsqueeze(0),
       mlp_out_[4], // mlp dropout mask
       mha_out_[4], // mha dropout mask
-      shardTensor(mha_grads_[0], 1, mesh).unsqueeze(0), // sdpa output
-      shardTensor(mha_grads_[1], 1, mesh).unsqueeze(0), // sdpa logsum_exp
+      shardTensor1D(mha_grads_[0], 1, mesh).unsqueeze(0), // sdpa output
+      shardTensor1D(mha_grads_[1], 1, mesh).unsqueeze(0), // sdpa logsum_exp
       mha_grads_[2], // sdpa seed
       mha_grads_[3], // sdpa offset
       ln1_w_,
@@ -990,9 +919,9 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln0_b_,
       ln0_mean_,
       ln0_rstd_,
-      shardTensor(mha_out_[0], 1, mesh).unsqueeze(0), // mha linear0
+      shardTensor1D(mha_out_[0], 1, mesh).unsqueeze(0), // mha linear0
       mha_out_[2].to(at::kFloat), // mha linear1
-      shardTensor(mlp_out_[0], 1, mesh).unsqueeze(0) // mlp linear1
+      shardTensor1D(mlp_out_[0], 1, mesh).unsqueeze(0) // mlp linear1
   };
 
   auto executor_cache = model->backward(dtype);
@@ -1014,6 +943,211 @@ TEST_P(DistributedTransformerTest, Backward) {
        0.02,
        0.02,
        0.02});
+}
+
+namespace {
+at::Tensor reference_loop_split_mlp(
+    at::Tensor inp,
+    at::Tensor w0,
+    at::Tensor b0,
+    at::Tensor w1,
+    at::Tensor b1) {
+  auto linear0 = at::linear(inp, w0, b0);
+  auto gelu = at::gelu(linear0.to(at::kFloat), "tanh");
+  auto linear1 = at::linear(gelu.to(inp.dtype()), w1, b1);
+  return linear1;
+}
+
+at::Tensor reference_loop_split_mha(
+    at::Tensor inp,
+    at::Tensor w0,
+    at::Tensor b0,
+    at::Tensor w1,
+    at::Tensor b1) {
+  at::Tensor linear0 = at::linear(inp, w0, b0);
+  auto qkv =
+      linear0.view({B, S, H, 3 * E / H}).transpose(1, 2).split(E / H, -1);
+  double scale = 1.0 / std::sqrt(E / H);
+  auto sdpa_out = at::_scaled_dot_product_flash_attention(
+      qkv[0],
+      qkv[1],
+      qkv[2],
+      /*dropout_p=*/kSdpaProb,
+      /*is_causal=*/true,
+      /*return_debug_mask=*/false,
+      scale);
+  auto attn = std::get<0>(sdpa_out);
+  auto attn_reshape = attn.transpose(1, 2).reshape({B, S, E});
+  auto linear1 = at::linear(attn_reshape, w1, b1);
+  auto [dropout, mask] = at::native_dropout(linear1, kDropoutProb, true);
+  auto out = dropout + inp;
+  return out;
+}
+} // namespace
+
+TEST_P(DistributedTransformerTest, LoopSplitMLP) {
+  if ((4 * E) % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide 4*E=" << 4 * E;
+  }
+  DataType dtype = GetParam();
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* inp = makeContigConcreteTensor({B, S, E}, dtype);
+  TensorView* w0 = makeContigConcreteTensor({4 * E, E}, dtype);
+  TensorView* b0 = makeContigConcreteTensor({4 * E}, dtype);
+  TensorView* w1 = makeContigConcreteTensor({E, 4 * E}, dtype);
+  TensorView* b1 = makeContigConcreteTensor({E}, dtype);
+
+  TensorView* linear0 = linear(inp, w0, b0);
+  TensorView* linear0_float = maybeCastOp(DataType::Float, linear0);
+  TensorView* gelu = tanh_gelu(linear0_float);
+  TensorView* gelu_dtype = maybeCastOp(dtype, gelu);
+  TensorView* linear1 = linear(gelu_dtype, w1, b1);
+
+  std::vector<TensorView*> fusion_inputs{inp, w0, b0, w1, b1};
+  for (auto tv : fusion_inputs) {
+    fusion->addInput(tv);
+    tv->setDeviceMesh(mesh);
+  }
+  fusion->addOutput(linear1);
+
+  w0->outer_split(0, d);
+  w0->axis(0)->parallelize(ParallelType::DIDx);
+  b0->outer_split(0, d);
+  b0->axis(0)->parallelize(ParallelType::DIDx);
+  w1->outer_split(1, d);
+  w1->axis(1)->parallelize(ParallelType::DIDx);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options_.dtype(at_dtype));
+  at::Tensor w0_tensor =
+      at::randn({4 * E, E}, tensor_options_.dtype(at_dtype)) * kParamScale;
+  at::Tensor b0_tensor =
+      at::randn({4 * E}, tensor_options_.dtype(at_dtype)) * kParamScale;
+  at::Tensor w1_tensor =
+      at::randn({E, 4 * E}, tensor_options_.dtype(at_dtype)) * kParamScale;
+  at::Tensor b1_tensor =
+      at::randn({E}, tensor_options_.dtype(at_dtype)) * kParamScale;
+
+  at::Tensor w0_sharded = shardTensor1D(w0_tensor, 0, mesh);
+  at::Tensor b0_sharded = shardTensor1D(b0_tensor, 0, mesh);
+  at::Tensor w1_sharded = shardTensor1D(w1_tensor, 1, mesh);
+
+  KernelArgumentHolder args = {
+      inp_tensor, w0_sharded, b0_sharded, w1_sharded, b1_tensor};
+  auto outputs = executor_cache.runFusionWithInputs(args);
+  at::Tensor nvf_out = outputs[0].as<at::Tensor>();
+
+  at::Tensor ref_out = reference_loop_split_mlp(
+      inp_tensor, w0_tensor, b0_tensor, w1_tensor, b1_tensor);
+  validate({ref_out}, {nvf_out}, {0.02});
+}
+
+TEST_P(DistributedTransformerTest, LoopSplitMHAFwd) {
+  if (H % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide H=" << H;
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  DataType dtype = GetParam();
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+
+  const int d = communicator_->size();
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* inp = makeContigConcreteTensor({B, S, E}, dtype);
+  TensorView* mha_w0 = makeContigConcreteTensor({3 * E, E}, dtype);
+  TensorView* mha_b0 = makeContigConcreteTensor({3 * E}, dtype);
+  TensorView* mha_w1 = makeContigConcreteTensor({E, E}, dtype);
+  TensorView* mha_b1 = makeContigConcreteTensor({E}, dtype);
+
+  fusion->addInput(inp);
+  fusion->addInput(mha_w0);
+  fusion->addInput(mha_b0);
+  fusion->addInput(mha_w1);
+  fusion->addInput(mha_b1);
+  TensorView* linear0 = linear(inp, mha_w0, mha_b0);
+
+  TensorView* qkv = reshape(linear0, {B, S, 3 * E}, {B, S, H, 3 * E / H});
+  TensorView* q = slice(qkv, {0, 0, 0, 0}, {B, S, H, E / H});
+  TensorView* k = slice(qkv, {0, 0, 0, E / H}, {B, S, H, 2 * E / H});
+  TensorView* v = slice(qkv, {0, 0, 0, 2 * E / H}, {B, S, H, 3 * E / H});
+
+  TensorView* q_permuted = permute(q, {0, 2, 1, 3});
+  TensorView* k_permuted = permute(k, {0, 2, 1, 3});
+  TensorView* v_permuted = permute(v, {0, 2, 1, 3});
+
+  SdpfaFwdResult sdpa_out = sdpfa_fwd(
+      q_permuted,
+      k_permuted,
+      v_permuted,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
+      /*dropout_p=*/IrBuilder::create<Val>(kSdpaProb),
+      /*is_causal=*/IrBuilder::create<Val>(true),
+      /*scale=*/nullptr);
+
+  TensorView* attn = sdpa_out.output;
+  TensorView* attn_permute = permute(attn, {0, 2, 1, 3});
+  TensorView* attn_reshape = reshape(attn_permute, {B, S, H, E / H}, {B, S, E});
+  TensorView* mha_w1_transposed = permute(mha_w1, {1, 0});
+  TensorView* matmul_out = matmul(attn_reshape, mha_w1_transposed);
+  TensorView* bias_add = add(matmul_out, mha_b1);
+  Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
+  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  TensorView* dropout_out = dropout(bias_add, prob, scale).output;
+  TensorView* residual = add(dropout_out, inp);
+  TensorView* out = maybeCastOp(dtype, residual);
+  fusion->addOutput(out);
+
+  for (auto tv : {inp, mha_w0, mha_b0, mha_w1, mha_b1}) {
+    tv->setDeviceMesh(mesh);
+  }
+  for (auto tv : {mha_w0, mha_b0}) {
+    tv->outer_split(0, d);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  mha_w1->outer_split(1, d);
+  mha_w1->axis(1)->parallelize(ParallelType::DIDx);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options_.dtype(at_dtype));
+  at::Tensor mha_w0_tensor =
+      at::randn({3 * E, E}, tensor_options_.dtype(at_dtype)) * kParamScale;
+  at::Tensor sharded_mha_w0 = shardTensor1D(mha_w0_tensor, 0, mesh);
+  at::Tensor mha_b0_tensor =
+      at::randn({3 * E}, tensor_options_.dtype(at_dtype)) * kParamScale;
+  at::Tensor sharded_mha_b0 = shardTensor1D(mha_b0_tensor, 0, mesh);
+  at::Tensor mha_w1_tensor =
+      at::randn({E, E}, tensor_options_.dtype(at_dtype)) * kParamScale;
+  at::Tensor sharded_mha_w1 = shardTensor1D(mha_w1_tensor, 1, mesh);
+  at::Tensor mha_b1_tensor =
+      at::randn({E}, tensor_options_.dtype(at_dtype)) * kParamScale;
+
+  KernelArgumentHolder args = {
+      inp_tensor,
+      sharded_mha_w0,
+      sharded_mha_b0,
+      sharded_mha_w1,
+      mha_b1_tensor};
+  auto outputs = executor_cache.runFusionWithInputs(args);
+
+  at::Tensor nvf_out = outputs.back().as<at::Tensor>();
+  at::manual_seed(getATenRandomSeed());
+  at::Tensor ref_out = reference_loop_split_mha(
+      inp_tensor, mha_w0_tensor, mha_b0_tensor, mha_w1_tensor, mha_b1_tensor);
+  validate({ref_out}, {nvf_out}, {0.02});
 }
 
 INSTANTIATE_TEST_SUITE_P(

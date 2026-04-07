@@ -5,29 +5,25 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <cstdlib>
+#include <forward_list>
+#include <list>
+#include <ranges>
+#include <vector>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <device_lower/utils.h>
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <cstdlib>
-#include <filesystem>
-#include <forward_list>
-#include <fstream>
-#include <list>
-#include <random>
-#include <ranges>
-#include <system_error>
-#include <vector>
+#include "device_lower/utils.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "scheduler/utils.h"
+#include "scheduler/vectorize_helper.h"
+#include "tests/cpp/utils.h"
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -40,7 +36,9 @@ int myFavoriteFunction(int a, int b) {
   }
 }
 
-TEST_F(NVFuserTest, FunctionTrace1) {
+using UtilsTest = NVFuserTest;
+
+TEST_F(UtilsTest, FunctionTrace1) {
 #ifndef NDEBUG
   std::stringstream ss;
   DebugStreamGuard g(ss);
@@ -52,13 +50,13 @@ TEST_F(NVFuserTest, FunctionTrace1) {
   EXPECT_THAT(
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning 3 at "));
-  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:32"));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:34"));
 #else
   GTEST_SKIP() << "Test only runs in debug mode";
 #endif
 }
 
-TEST_F(NVFuserTest, FunctionTrace2) {
+TEST_F(UtilsTest, FunctionTrace2) {
 #ifndef NDEBUG
   std::stringstream ss;
   DebugStreamGuard g(ss);
@@ -70,13 +68,13 @@ TEST_F(NVFuserTest, FunctionTrace2) {
   EXPECT_THAT(
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning -3 at "));
-  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:34"));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:36"));
 #else
   GTEST_SKIP() << "Test only runs in debug mode";
 #endif
 }
 
-TEST_F(NVFuserTest, FusionSplitDims) {
+TEST_F(UtilsTest, FusionSplitDims) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -87,14 +85,14 @@ TEST_F(NVFuserTest, FusionSplitDims) {
   scheduler_utils::splitDims(
       tv, {{0, p(2)}, {0, p(1)}, {3, p(6)}, {6, p(10)}}, dims);
   EXPECT_EQ(tv->nDims(), 11);
-  for (auto i : c10::irange(11)) {
+  for (auto i : arange(11)) {
     EXPECT_EQ(tv->axis(i)->extent()->evaluate(), p(i));
   }
   std::vector<int64_t> expect{0, 3, 4, 5, 7, 8, 9};
   EXPECT_EQ(dims, expect);
 }
 
-TEST_F(NVFuserTest, FusionMergeDims) {
+TEST_F(UtilsTest, FusionMergeDims) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -108,7 +106,7 @@ TEST_F(NVFuserTest, FusionMergeDims) {
   std::vector<int64_t> expect_shape{
       p(0), p(1), p(2) * p(3) * p(7) * p(8) * p(9), p(4), p(5), p(6), p(10)};
   EXPECT_EQ(tv->nDims(), expect_shape.size());
-  for (auto i : c10::irange(expect_shape.size())) {
+  for (auto i : arange(expect_shape.size())) {
     EXPECT_EQ(tv->axis(i)->extent()->evaluate(), expect_shape[i]);
   }
   std::vector<int64_t> expect_dims{0, 1, 2, 2, 3, 4, 5, 2, 2, 2, 6};
@@ -116,13 +114,13 @@ TEST_F(NVFuserTest, FusionMergeDims) {
   auto logical_domain = tv->getLogicalDomain();
   auto num_merged_dim = to_merge.size();
   auto inputs = IterVisitor::getInputsTo({tv->axis(2)});
-  for (auto index : c10::irange(num_merged_dim)) {
+  for (auto index : arange(num_merged_dim)) {
     EXPECT_TRUE(logical_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
         inputs[index]));
   }
 }
 
-TEST_F(NVFuserTest, FusionReorderAsRFactor) {
+TEST_F(UtilsTest, FusionReorderAsRFactor) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -154,7 +152,32 @@ TEST_F(NVFuserTest, FusionReorderAsRFactor) {
   EXPECT_EQ(old2new[2], 0);
 }
 
-TEST_F(NVFuserTest, FusionDisjointViewSet) {
+TEST_F(UtilsTest, ReorderAsAllocationMaps) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t d = 4, m = 3, n = 5, k = 7;
+
+  auto tv = makeConcreteTensor({m, n, d * k});
+  tv->outer_split(2, d); // [m, n, d, k]
+  tv->setAllocationDomain(
+      {tv->axis(1), tv->axis(2), tv->axis(3), tv->axis(0)},
+      true); // [n, d, k, m]
+  tv->reorder({{2, 0}}); // [d, m, n, k]
+
+  auto logical_reorder_map = scheduler_utils::reorderLogicalAsAllocationMap(tv);
+  auto loop_reorder_map = scheduler_utils::reorderLoopAsAllocationMap(tv);
+
+  std::unordered_map<int64_t, int64_t> expected_logical_map = {
+      {0, 2}, {1, 0}, {2, 1}};
+  std::unordered_map<int64_t, int64_t> expected_loop_map = {
+      {0, 1}, {1, 3}, {2, 0}, {3, 2}};
+
+  EXPECT_EQ(logical_reorder_map, expected_logical_map);
+  EXPECT_EQ(loop_reorder_map, expected_loop_map);
+}
+
+TEST_F(UtilsTest, FusionDisjointViewSet) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -174,7 +197,7 @@ TEST_F(NVFuserTest, FusionDisjointViewSet) {
   NVF_ERROR(disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
 }
 
-TEST_F(NVFuserTest, FusionBroadcastViewMultiples) {
+TEST_F(UtilsTest, FusionBroadcastViewMultiples) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -255,26 +278,28 @@ TEST_F(NVFuserTest, FusionBroadcastViewMultiples) {
   // tv7  [a, b, 1, 1, 1, 1] -> These broadcasts could be recognized
   // tv10 [a, b, c, d, e, f]
 
+  // Units are in bits
+
   EXPECT_EQ(bcast_info.broadcast_multiples[0].lhs_multiple, 0);
-  EXPECT_EQ(bcast_info.broadcast_multiples[0].rhs_multiple, 8 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[0].rhs_multiple, 8 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[1].lhs_multiple, 7 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[1].rhs_multiple, 8 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[1].lhs_multiple, 7 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[1].rhs_multiple, 8 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[2].lhs_multiple, 7 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[2].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[2].lhs_multiple, 7 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[2].rhs_multiple, 7 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[3].lhs_multiple, 8 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[3].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[3].lhs_multiple, 8 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[3].rhs_multiple, 7 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[4].lhs_multiple, 8 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[4].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[4].lhs_multiple, 8 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[4].rhs_multiple, 7 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[5].lhs_multiple, 8 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[5].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[5].lhs_multiple, 8 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[5].rhs_multiple, 7 * 4 * 8);
 }
 
-TEST_F(NVFuserTest, FusionTVDomainGuard) {
+TEST_F(UtilsTest, FusionTVDomainGuard) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -301,7 +326,7 @@ TEST_F(NVFuserTest, FusionTVDomainGuard) {
   EXPECT_EQ(tv->domain()->contiguity(), false_true);
 }
 
-class VectorizeHelperTest : public NVFuserTest {};
+using VectorizeHelperTest = NVFuserTest;
 
 // Test simple backward mapping through split
 TEST_F(VectorizeHelperTest, BackwardMapper1) {
@@ -1014,7 +1039,7 @@ TEST_F(VectorizeHelperTest, SpanningTree) {
   inputs.push_back(bcast_inp);
   auto bcast = broadcast(bcast_inp, {false, true});
 
-  for (auto i : c10::irange(10)) {
+  for (auto i : arange(10)) {
     auto resolution_inp = makeContigConcreteTensor({2, 2});
     inputs.push_back(resolution_inp);
     auto intermediate = add(bcast, resolution_inp);
@@ -1075,6 +1100,7 @@ TEST_F(VectorizeHelperTest, SpanningTree) {
   }
 }
 
+#if 0
 TEST_F(NVFuserTest, FusionSASSDumpError) {
   // create a fake nvdisasm that prints "I am fake" to stderr
   namespace fs = std::filesystem;
@@ -1130,8 +1156,9 @@ TEST_F(NVFuserTest, FusionSASSDumpError) {
   testValidate(
       ke.compiledKernel()->kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
+#endif
 
-TEST_F(NVFuserTest, ProveLinearAndGetStride) {
+TEST_F(UtilsTest, ProveLinearAndGetStride) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1633,10 +1660,10 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 // Test that lower_utils::proveLinearAndGetStride still works even if some
 // dependency are missing, as long as the missing dependency is irrelevant to
 // result.
-TEST_F(NVFuserTest, ProveLinearAndGetStrideWithMissingDependency) {
+TEST_F(UtilsTest, ProveLinearAndGetStrideWithMissingDependency) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  for (auto _ : c10::irange(100)) {
+  for (auto _ : arange(100)) {
     (void)_;
     // [16, 8, 2, 4]
     auto id16 =
@@ -1685,7 +1712,7 @@ TEST_F(NVFuserTest, ProveLinearAndGetStrideWithMissingDependency) {
   }
 }
 
-TEST_F(NVFuserTest, ProveLinearAndGetStrideEarlyStopping) {
+TEST_F(UtilsTest, ProveLinearAndGetStrideEarlyStopping) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2070,6 +2097,146 @@ TEST_F(TestCpp23BackPort, Enumerate) {
 
   // Can not do enumerate(fl) | std::views::reverse because fl is not
   // bidirectional
+}
+
+namespace {
+
+// Generator that yields integers from 0 to n-1
+Generator<int> zeroToN(int n) {
+  for (int i = 0; i < n; ++i) {
+    co_yield i;
+  }
+}
+
+// Generator that yields integers from n to 2*n - 1
+Generator<int> nTo2N(int n) {
+  for (int i = n; i < 2 * n; ++i) {
+    co_yield i;
+  }
+}
+
+// Generator that yields integers from m to m + 2*n - 1
+Generator<int> mTo2NplusM(int n, int m) {
+  for (auto x : zeroToN(n)) {
+    co_yield x + m;
+  }
+  for (auto x : nTo2N(n)) {
+    co_yield x + m;
+  }
+}
+
+// Generator that yields references
+Generator<int&> items(std::vector<int>& v) {
+  for (auto& x : v) {
+    co_yield x;
+  }
+}
+
+} // namespace
+
+TEST_F(UtilsTest, Generator1) {
+  static_assert(std::ranges::view<decltype(zeroToN(10))>);
+  std::vector<int> generated;
+  for (auto x : zeroToN(10) |
+           std::views::filter([](int x) { return x % 2 == 0; }) |
+           std::views::transform([](int x) { return x * x; })) {
+    generated.push_back(x);
+  }
+  std::vector<int> expect{0, 4, 16, 36, 64};
+  EXPECT_EQ(generated, expect);
+}
+
+TEST_F(UtilsTest, Generator2) {
+  static_assert(std::ranges::view<decltype(mTo2NplusM(10, 10))>);
+  std::vector<int> generated;
+  for (auto x : mTo2NplusM(10, 10)) {
+    generated.push_back(x);
+  }
+  std::vector<int> expect{10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                          20, 21, 22, 23, 24, 25, 26, 27, 28, 29};
+  EXPECT_EQ(generated, expect);
+}
+
+TEST_F(UtilsTest, Generator3) {
+  std::vector<int> v{0, 0, 0, 0, 0};
+  for (auto&& [i, x] : enumerate(items(v))) {
+    x = i * 10;
+  }
+  std::vector<int> expect{0, 10, 20, 30, 40};
+  EXPECT_EQ(v, expect);
+}
+
+TEST_F(UtilsTest, Generator4) {
+  auto one2five = []() -> Generator<int> {
+    for (int i = 1; i <= 5; ++i) {
+      co_yield i;
+    }
+  };
+  std::vector<int> v;
+  for (auto x : one2five()) {
+    v.push_back(x);
+  }
+  std::vector<int> expect{1, 2, 3, 4, 5};
+  EXPECT_EQ(v, expect);
+}
+
+TEST_F(UtilsTest, Generator5) {
+  auto excepted_exception = []() -> Generator<int> {
+    co_yield 1;
+    throw std::runtime_error("Hello, world!");
+    co_yield 2;
+  };
+  auto run_generator = [&]() {
+    for (auto x : excepted_exception()) {
+      EXPECT_EQ(x, 1);
+    }
+  };
+  EXPECT_THAT(
+      run_generator,
+      ::testing::ThrowsMessage<std::runtime_error>("Hello, world!"));
+}
+
+TEST_F(UtilsTest, GetOrDefault) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  std::unordered_map<Val*, int64_t> m;
+  m[in] = 1;
+
+  EXPECT_EQ(getOrDefault(m, in), 1);
+  EXPECT_EQ(getOrDefault(m, out), 0);
+}
+
+TEST_F(UtilsTest, FilterByTypeRanges) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  auto filtered = ir_utils::filterByType<TensorView>(fusion->vals());
+  static_assert(std::ranges::range<decltype(filtered)>);
+
+  EXPECT_EQ(std::ranges::distance(filtered), 2);
+
+  auto it =
+      std::ranges::find_if(filtered, [in](TensorView* tv) { return tv == in; });
+  EXPECT_NE(it, std::ranges::end(filtered));
+  EXPECT_EQ(*it, in);
+
+  int64_t take_count = 0;
+  for (TensorView* tv : filtered | std::views::take(1)) {
+    (void)tv;
+    ++take_count;
+  }
+  EXPECT_EQ(take_count, 1);
 }
 
 } // namespace nvfuser

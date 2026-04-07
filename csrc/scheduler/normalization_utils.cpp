@@ -5,23 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <expr_evaluator.h>
-#include <grouped_reduction.h>
-#include <id_model/id_model.h>
-#include <instrumentation.h>
-#include <iter_visitor.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <utils.h>
-#include <val_graph_visitor.h>
+#include "scheduler/normalization_utils.h"
+
+#include <ranges>
 
 #include <ATen/cuda/CUDAContext.h>
+
+#include "base.h"
+#include "expr_evaluator.h"
+#include "grouped_reduction.h"
+#include "id_model/id_model.h"
+#include "instrumentation.h"
+#include "iter_visitor.h"
+#include "scheduler/cache_policy_refiner.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/tools/domain_map.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 namespace normalization_scheduler_utils {
@@ -80,7 +84,7 @@ void PreferredLaunchConfig::initValidGdims() {
   // Reverse the first half and swap gridDim.x and gridDim.y. That
   // list becomes the latter half
   auto latter_half = grid_dims;
-  std::reverse(latter_half.begin(), latter_half.end());
+  std::ranges::reverse(latter_half);
   for (const auto& gdimx_gdimy : latter_half) {
     if (gdimx_gdimy.second == gdimx_gdimy.first) {
       // This is already in the first half
@@ -190,7 +194,7 @@ int64_t getMinPersistentBufferSize(
 // result in no (or little) register spilling
 bool checkIfWithinRegisterSpace(
     int64_t total_reduction_numel,
-    int64_t persistent_buffer_size,
+    int64_t persistent_buffer_size_bit,
     int64_t vectorize_factor,
     int64_t bdimy,
     int64_t gdimy) {
@@ -202,11 +206,12 @@ bool checkIfWithinRegisterSpace(
 
   const auto available_reg_count = getAvailableRegisterCount(pb_factor);
 
-  auto per_thread_persistent_buffer_size =
-      ceilDiv(ceilDiv(persistent_buffer_size, bdimy), gdimy) * vectorize_factor;
+  auto per_thread_persistent_buffer_size_bit =
+      ceilDiv(ceilDiv(persistent_buffer_size_bit, bdimy), gdimy) *
+      vectorize_factor;
 
   auto persistent_buffer_reg_count =
-      ceilDiv(per_thread_persistent_buffer_size, sizeof(int));
+      ceilDiv(per_thread_persistent_buffer_size_bit, sizeof(int) * 8);
 
   log("persistent_buffer_reg_count: ",
       persistent_buffer_reg_count,
@@ -225,10 +230,10 @@ bool checkIfWithinRegisterSpace(
 double getLastBlockWorkRatio(
     const int64_t total_reduction_numel,
     const int64_t bdimy,
-    const int64_t persistent_buffer_size) {
+    const int64_t persistent_buffer_size_bit) {
   auto last_block_pb =
-      total_reduction_numel % (persistent_buffer_size * bdimy) / bdimy;
-  return ((double)last_block_pb) / (double)persistent_buffer_size;
+      total_reduction_numel % (persistent_buffer_size_bit * bdimy) / bdimy;
+  return ((double)last_block_pb) / (double)persistent_buffer_size_bit;
 };
 
 // In the current outer normalization scheduling, only the last thread
@@ -259,7 +264,7 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
     const PreferredLaunchConfig& launch_cfg,
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t persistent_buffer_size_bit,
     const int64_t vectorize_factor) {
   const auto bdimy = launch_cfg.bdimy();
 
@@ -291,7 +296,7 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   while (current_gdimy >= min_gdimy &&
          checkIfWithinRegisterSpace(
              total_reduction_numel,
-             persistent_buffer_size,
+             persistent_buffer_size_bit,
              vectorize_factor,
              bdimy,
              current_gdimy)) {
@@ -352,7 +357,7 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   if (next_gdimx > 0) {
     auto remaining_iteration_factor = ceilDiv(
         ceilDiv(total_iteration_numel, vectorize_factor), launch_cfg.bdimx());
-    auto current_iterration_count =
+    auto current_iteration_count =
         ceilDiv(remaining_iteration_factor, launch_cfg.gdimx());
     auto next_iteration_count = ceilDiv(remaining_iteration_factor, next_gdimx);
     log("Next iteration count: ",
@@ -360,10 +365,10 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
         ", next gdimx: ",
         next_gdimx,
         ", current iteration: ",
-        current_iterration_count,
-        ", curreng gdimx: ",
+        current_iteration_count,
+        ", current gdimx: ",
         launch_cfg.gdimx());
-    if (next_iteration_count > current_iterration_count) {
+    if (next_iteration_count > current_iteration_count) {
       log("Still not good but stop here to avoid increase of iteration count");
       return std::make_tuple(optimal_gdimy, optimal_size, false);
     }
@@ -383,7 +388,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
     int64_t total_reduction_numel,
     int64_t total_iteration_numel,
     int64_t vectorize_factor,
-    int64_t persistent_buffer_size) {
+    int64_t persistent_buffer_size_bit) {
   PreferredLaunchConfig launch_cfg;
 
   // The launch config starts with the largest blockDim.x, which may
@@ -420,7 +425,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
 
     if (!checkIfWithinRegisterSpace(
             total_reduction_numel,
-            persistent_buffer_size,
+            persistent_buffer_size_bit,
             vectorize_factor,
             launch_cfg.bdimy(),
             launch_cfg.gdimy())) {
@@ -475,7 +480,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
           launch_cfg,
           total_reduction_numel,
           total_iteration_numel,
-          persistent_buffer_size,
+          persistent_buffer_size_bit,
           vectorize_factor);
       if (!gdimy_pb_size.has_value()) {
         launch_cfg.moveToNextConfig();
@@ -596,7 +601,7 @@ bool isConnectedOnlyThroughReductionProducer(
   for (auto otv : outer_reduction_tvs) {
     const auto& producers = ir_utils::producerTvsOf(otv);
     // cutoff at producers of outer reduction tvs as they are computed with
-    // inner reducitons
+    // inner reductions
     const auto& connected_tv_set = scheduler_utils::getAllTvsFrom(
         {otv}, {producers.begin(), producers.end()});
     for (auto tv : connected_tv_set) {
@@ -616,7 +621,7 @@ bool isReductionIterationAxisMatched(
   // vector of bool.
   auto reference_tv = inner_reduction_tvs[0];
   std::vector<bool> is_reduction(reference_tv->nDims(), false);
-  for (const auto i : c10::irange(reference_tv->nDims())) {
+  for (const auto i : arange(reference_tv->nDims())) {
     auto id = reference_tv->axis(i);
     NVF_CHECK(
         id->getIterType() == IterType::Iteration ||
@@ -629,9 +634,9 @@ bool isReductionIterationAxisMatched(
   }
   // check other inner reduction tvs, the corresponding axis should be
   // reduction.
-  for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
+  for (auto i : arange(1, inner_reduction_tvs.size())) {
     auto tv = inner_reduction_tvs[i];
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
@@ -646,7 +651,7 @@ bool isReductionIterationAxisMatched(
   }
   // check outer reduction tvs, the corresponding axis should be iteration.
   for (auto tv : outer_reduction_tvs) {
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
@@ -683,11 +688,44 @@ int64_t partialReductionBufferSize(
     }
     buffer_size = (buffer_size == -1) ? 0
                                       : buffer_size *
-            (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                  runtime_info.getIndexType());
+            dataTypeSizeByte(buffer->getDataType(),
+                             runtime_info.getIndexType());
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;
+}
+
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs) {
+  // set reference broadcast mask using the first inner reduction tv
+  std::vector<bool> ref_broadcast_mask;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      const auto& logical = tv->getLogicalDomain();
+      ref_broadcast_mask.reserve(logical.size());
+      for (const auto i : arange(logical.size())) {
+        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
+      }
+      break;
+    }
+  }
+  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
+
+  // find the broadcast tensor whose broadcast mask is same to the reference
+  std::vector<TensorView*> outer_broadcast_tvs;
+  for (auto tv : fusion->allTvs()) {
+    if (std::ranges::any_of(tv->getLoopDomain(), [](IterDomain* id) {
+          return id->isBroadcast();
+        })) {
+      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
+        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
+          outer_broadcast_tvs.emplace_back(tv);
+        }
+      }
+    }
+  }
+  return outer_broadcast_tvs;
 }
 
 // Get the appropriate scheduler based on reduction type
@@ -712,11 +750,10 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
       ir_utils::isReductionOp(ref_red_tv->definition()),
       "TensorView doesn't have a reduction.");
   NVF_ERROR(
-      std::any_of(
-          fusion->inputs().begin(),
-          fusion->inputs().end(),
-          [](Val* inp) { return inp->isA<TensorView>(); }),
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
+      std::ranges::any_of(
+          fusion->inputs(), [](Val* inp) { return inp->isA<TensorView>(); }),
+      "Tried to schedule a fusion with no tensor inputs, currently not "
+      "supported.");
 }
 
 namespace {
@@ -725,13 +762,15 @@ namespace {
 // larger than buffer size when split is not divisible. The difference is
 // counted as roundup overhead. This function estimates the maximum possible
 // shared memory size due to this round up.
-int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
+int64_t roundUpSharedMemory(
+    int64_t tv_buffer_size_bit,
+    int64_t data_type_size_bit) {
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
-  int64_t max_smem = 0;
+  int64_t max_smem_bit = 0;
   int64_t max_vectorize_factor =
-      SchedulerRuntimeInfo::max_alignment_size_in_byte / data_type_size;
-  int64_t dim_size = tv_buffer_size / data_type_size;
+      getMaxVectorizationSizeInBit() / data_type_size_bit;
+  int64_t dim_size = tv_buffer_size_bit / data_type_size_bit;
   // Check all possible combinations of vectorization factor, batch size and
   // threads per block
   for (int64_t vectorize_factor = 1; vectorize_factor <= max_vectorize_factor;
@@ -745,37 +784,37 @@ int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
     // per block
     int64_t threads_per_block = max_threads_per_block;
     int64_t persistent_batch = ceilDiv(after_vect, threads_per_block);
-    max_smem = std::max(
-        max_smem,
+    max_smem_bit = std::max(
+        max_smem_bit,
         persistent_batch * vectorize_factor * threads_per_block *
-            data_type_size);
+            data_type_size_bit);
   }
-  return max_smem;
+  return alignSharedMemoryBits(max_smem_bit);
 }
-int64_t sharedMemoryRoundUpOverhead(
+int64_t sharedMemoryRoundUpOverheadBit(
     SchedulerRuntimeInfo& runtime_info,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const bool project_to_inputs) {
   auto buffers = project_to_inputs
       ? persistent_buffer_info.projectable_buffer_inputs
       : persistent_buffer_info.persistent_buffers;
-  int64_t total_smem_overhead = 0;
+  int64_t total_smem_overhead_bit = 0;
   for (auto buffer : buffers) {
     // Buffer size derived from shape and dtype of the persistent tensor
-    int64_t logical_buffer_size =
-        scheduler_utils::getPersistentBufferSizeOfTensor(
+    int64_t logical_buffer_size_bit =
+        scheduler_utils::getPersistentBufferSizeBitOfTensor(
             buffer, runtime_info, persistent_buffer_info);
     // Required shared memory size if store that tensor in shared memory
     int64_t buffer_size_smem = roundUpSharedMemory(
-        logical_buffer_size, dataTypeSize(buffer->getDataType().value()));
+        logical_buffer_size_bit, dataTypeSizeBit(buffer->getDataType()));
     // The difference is counted as roundup overhead
-    total_smem_overhead += (buffer_size_smem - logical_buffer_size);
+    total_smem_overhead_bit += (buffer_size_smem - logical_buffer_size_bit);
   }
-  return total_smem_overhead;
+  return alignSharedMemoryBits(total_smem_overhead_bit);
 }
 } // namespace
 
-int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+int64_t getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<TensorView*>& reduction_tvs,
@@ -783,25 +822,27 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
     const bool can_use_smem_persistent,
     const bool project_to_inputs) {
   // Init to register file size, which is half of the full register file size
-  int64_t available_persistent_buffer_size =
-      scheduler_utils::register_file_size;
+  int64_t available_persistent_buffer_size_bit =
+      scheduler_utils::register_file_size_bit;
   // shared memory persistent is not implemented for 3D inner reduction
   if (!can_use_smem_persistent) {
-    return available_persistent_buffer_size;
+    return available_persistent_buffer_size_bit;
   }
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t smem_overhead =
-      scheduler_utils::getSharedMemoryOverheadPerBlock(fusion, reduction_tvs);
+  int64_t smem_overhead_bit =
+      scheduler_utils::getReductionSmemWorkspaceBit(fusion, reduction_tvs);
 
-  smem_overhead += sharedMemoryRoundUpOverhead(
+  smem_overhead_bit += sharedMemoryRoundUpOverheadBit(
       runtime_info, persistent_buffer_info, project_to_inputs);
 
-  int64_t available_shared_memory_size =
-      (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
+  smem_overhead_bit += scheduler_utils::static_smem_usage_in_bits;
 
-  available_persistent_buffer_size =
-      std::max(available_persistent_buffer_size, available_shared_memory_size);
-  return available_persistent_buffer_size;
+  int64_t available_shared_memory_size_bit =
+      (int64_t)dev_prop->sharedMemPerBlockOptin * 8 - smem_overhead_bit;
+
+  available_persistent_buffer_size_bit = std::max(
+      available_persistent_buffer_size_bit, available_shared_memory_size_bit);
+  return available_persistent_buffer_size_bit;
 }
 
 // Returns BufferProjectionStrategy based on buffer size, hardware, and fusion
@@ -821,17 +862,17 @@ BufferProjectionStrategy isProjectBufferToInputs(
     const bool check_projected_buffer_size) {
   // don't project if there are view ops and no buffer can be projected
   bool can_project = !persistent_buffer_info.has_view_ops &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+      persistent_buffer_size_info.projected_persistent_buffer_size_bit > 0;
   if (!can_project) {
     return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
-  // Enusre project to inputs can save persistent buffer size,
+  // Ensure project to inputs can save persistent buffer size,
   // unless it's innerOuter with outer broadcast where project to inputs reduces
   // gmem access.
   if (check_projected_buffer_size &&
-      persistent_buffer_size_info.projected_persistent_buffer_size >=
-          persistent_buffer_size_info.persistent_buffer_size) {
+      persistent_buffer_size_info.projected_persistent_buffer_size_bit >=
+          persistent_buffer_size_info.persistent_buffer_size_bit) {
     return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
@@ -841,16 +882,16 @@ BufferProjectionStrategy isProjectBufferToInputs(
   // false. For InnerOuterPersistent, both register and shared memory are used
   // and will be handled in getPersistentBufferStorageParams.
   if (scheduler_type != SchedulerType::InnerOuterPersistent) {
-    int64_t max_available_buffer =
-        getMaxRegOrSharedMemorySizeForPersistentBuffer(
+    int64_t max_available_buffer_bit =
+        getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
             fusion,
             runtime_info,
             reduction_tvs,
             persistent_buffer_info,
             can_use_smem_persistent,
             false);
-    if (max_available_buffer <
-        persistent_buffer_size_info.persistent_buffer_size) {
+    if (max_available_buffer_bit <
+        persistent_buffer_size_info.persistent_buffer_size_bit) {
       return BufferProjectionStrategy::ProjectToInputs;
     }
   }
@@ -865,7 +906,7 @@ BufferProjectionStrategy isProjectBufferToInputs(
     return BufferProjectionStrategy::ProjectToInputs;
   }
 
-  // Recompute from inputs reduces regisger usage which may lead to higher
+  // Recompute from inputs reduces register usage which may lead to higher
   // occupancy and better performance. However, it also increases computation
   // cost which may lead to lower performance, especially when the device has a
   // high bandwidth to flops ratio where the kernel may change from memory bound
@@ -875,10 +916,10 @@ BufferProjectionStrategy isProjectBufferToInputs(
   if (scheduler_type == SchedulerType::InnerPersistent) {
     bool is_high_bandwidth_flops_ratio =
         scheduler_utils::isHighBandwidthFlopsRatio();
-    int64_t buffer_per_block =
-        is_high_bandwidth_flops_ratio ? 24 * 4 * 1024 : 6 * 4 * 1024;
-    if (persistent_buffer_size_info.persistent_buffer_size <=
-        buffer_per_block) {
+    int64_t buffer_per_block_bit =
+        is_high_bandwidth_flops_ratio ? 24 * 4 * 1024 * 8 : 6 * 4 * 1024 * 8;
+    if (persistent_buffer_size_info.persistent_buffer_size_bit <=
+        buffer_per_block_bit) {
       return BufferProjectionStrategy::NoProjectToAvoidRecompute;
     }
   }
@@ -938,12 +979,12 @@ PersistentKernelProperties getPersistentKernelProperties(
   NVF_ERROR(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSizeBit(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
   // Can project to input?
   // Figure out if we want to projet persistent buffers to the inputs for
-  // exmaple if we have an input tensor t0 that's fp16:
+  // example if we have an input tensor t0 that's fp16:
   //
   // t0 = makeSymbolicTensor(2, DataType::Half)
   // t1 = castOp(DataType::Float, t0)
@@ -976,9 +1017,9 @@ PersistentKernelProperties getPersistentKernelProperties(
       (project_strategy == BufferProjectionStrategy::ProjectToInputs);
   bool disable_project_to_avoid_recompute =
       (project_strategy == BufferProjectionStrategy::NoProjectToAvoidRecompute);
-  int64_t max_persistent_buffer_size = project_persistent_buffers
-      ? persistent_buffer_size_info.projected_persistent_buffer_size
-      : persistent_buffer_size_info.persistent_buffer_size;
+  int64_t max_persistent_buffer_size_bit = project_persistent_buffers
+      ? persistent_buffer_size_info.projected_persistent_buffer_size_bit
+      : persistent_buffer_size_info.persistent_buffer_size_bit;
 
   // Info about input and output tensors
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
@@ -995,7 +1036,7 @@ PersistentKernelProperties getPersistentKernelProperties(
           });
 
   // Info about ops in the fusion, used to set model specific parameters
-  int64_t max_dtype_size = 1;
+  int64_t max_dtype_size_bit = 1;
   int64_t n_tensor_inputs = 0;
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
@@ -1003,9 +1044,9 @@ PersistentKernelProperties getPersistentKernelProperties(
     if (!tv->isFusionInput()) {
       continue;
     }
-    max_dtype_size = std::max(
-        max_dtype_size,
-        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
+    max_dtype_size_bit = std::max(
+        max_dtype_size_bit,
+        dataTypeSizeBit(tv->getDataType(), runtime_info.getIndexType()));
     n_tensor_inputs++;
   }
   // To prevent division by zero, ensure that n_tensor_inputs is not equal to
@@ -1051,9 +1092,9 @@ PersistentKernelProperties getPersistentKernelProperties(
       .inner_most_dimension_numel = properties.inner_most_dimension_numel,
       .total_reduction_numel = properties.total_reduction_numel,
       .total_iteration_numel = properties.total_iteration_numel,
-      .max_persistent_buffer_size = max_persistent_buffer_size,
+      .max_persistent_buffer_size_bit = max_persistent_buffer_size_bit,
       .n_tensor_inputs = n_tensor_inputs,
-      .max_dtype_size = max_dtype_size,
+      .max_dtype_size_bit = max_dtype_size_bit,
       .vectorize_factor = vectorize_factor,
       .project_persistent_buffers = project_persistent_buffers,
       .index_type = runtime_info.getIndexType(),
@@ -1113,7 +1154,7 @@ bool checkReductionPattern(
   // Helper function to check the pattern equivalence for a list of
   // TensorViews
   auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
-    for (const auto it : c10::irange(1, rtvs.size())) {
+    for (const auto it : arange(1, rtvs.size())) {
       if (!registry_utils::checkPatternEquivalence(
               rtvs[it - 1], rtvs[it], logical_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
@@ -1163,6 +1204,19 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
         scheduler_type, "no reduction tv");
     return false;
   }
+
+  // Reject when output IDs are not covered by reference tv. Assuming reduction
+  // scheduler simply uses reduction_tvs[0] as the reference, if that changes,
+  // this needs to be changed. see issue
+  // https://github.com/NVIDIA/Fuser/issues/3811
+  scheduler_tools::DomainMap domain_map(fusion);
+  if (!domain_map.isValidReference(reduction_tvs[0], /*check_inputs=*/false)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type,
+        "Output contains ID that's not scheduled by reference tv.");
+    return false;
+  }
+
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
   const SchedulerType persistent_heuristic =
@@ -1176,7 +1230,7 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
-  if (!ir_utils::getViewOps(fusion).empty()) {
+  if (!ir_utils::getReshapeOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
@@ -1259,7 +1313,8 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<TensorView*>& cached_inputs) {
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<TensorView*>& persistent_buffers) {
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
@@ -1267,13 +1322,10 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   if (rparams->smem_persistent_buffers.empty()) {
     return {};
   }
-  const auto& persistent_buffers =
-      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+
   auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
-    return std::any_of(
-        rparams->smem_persistent_buffers.begin(),
-        rparams->smem_persistent_buffers.end(),
-        [lookup_tv](const auto* tv) {
+    return std::ranges::any_of(
+        rparams->smem_persistent_buffers, [lookup_tv](const auto* tv) {
           // can't use `tv->sameAs(lookup_tv)` since the saved tvs in
           // smem_persistent_buffers are from a cloned fusion.
           return tv->name() == lookup_tv->name();
@@ -1290,7 +1342,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         ? (int)rparams->unroll_factor_inner_reduction
         : 1;
     size_t loading_size =
-        dataTypeSize(smem_tv->getDataType().value()) * vect_factor;
+        dataTypeSizeByte(smem_tv->getDataType()) * vect_factor;
     bool is_supported_bytes =
         (loading_size == 4 || loading_size == 8 || loading_size == 16);
     return is_supported_bytes;
@@ -1305,25 +1357,42 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     // If a buffer is absent from [smem_persistent_buffers], it may be a
     // cached input. In such cases, verify if the original input tensor is
     // stored in [smem_persistent_buffers]. So, we may need to call
-    // isSharedMemoryPersistent() twice, one for the buffer iteself and the
+    // isSharedMemoryPersistent() twice, one for the buffer itself and the
     // other for the buffer's input tensor if the buffer is a cached input
     // and it is not in [smem_persistent_buffers].
     bool is_cached_input = false;
     bool use_smem = isSharedMemoryPersistent(tv);
-    if (!use_smem &&
-        std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
-            cached_inputs.end()) {
+    if (!use_smem && std::ranges::any_of(cached_inputs, [tv](const auto& pair) {
+          return pair.first == tv;
+        })) {
       auto input_tv = ir_utils::producerTvsOf(tv).at(0);
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
     }
+    // For warp specialized, may direct load non-circular buffered tv to regs
+    // Non-circular buffered tvs are those have broadcast dimensions that mapped
+    // with reduction dimensions.
+    if (rparams->tma_warp_specialized &&
+        rparams->is_non_circular_buffer_gmem_to_regs) {
+      const auto& outer_broadcast_tvs = getOuterBroadcastTvs(
+          fusion, scheduler_utils::getReductionTvs(fusion));
+      if (std::ranges::any_of(outer_broadcast_tvs, [&tv](TensorView* bcast_tv) {
+            return DependencyCheck::isDependencyOf(tv, bcast_tv);
+          })) {
+        use_smem = false;
+      }
+    }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
-      // When loading from global memory (gmem), use CpAsync with a short data
-      // path of gmem -> smem to reduce temporary register usage. Otherwise, the
-      // data path from gmem to shared memory (smem) follows this sequence: gmem
-      // -> L1 cache -> register -> smem.
-      if (supportCpAsync(tv) && is_cached_input) {
+      // Use 1D TMA, CpAsyncBulk
+      if (rparams->tma_warp_specialized && is_cached_input) {
+        tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulk);
+      } else if (supportCpAsync(tv) && is_cached_input) {
+        // When loading from global memory (gmem), use CpAsync with a short data
+        // path of gmem -> smem to reduce temporary register usage. Otherwise,
+        // the data path from gmem to shared memory (smem) follows this
+        // sequence: gmem -> L1 cache -> register -> smem.
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
@@ -1336,21 +1405,29 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // transaction). In each transaction, different banks are visited, e.g.
       // transaction-1, threads 0-7 visit banks 0-31
       auto cached_tv = tv->cacheAfter();
-      // At this point, if cached_tv has multiple uses,  it becomes the
-      // persistent buffer instead of tv due to the way the persistent buffer
-      // selector works. To make tv remain as the persistent buffer, all of the
-      // uses must be privatized.
-      const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
-      for (auto i = 1; i < (int)consumers.size(); i++) {
-        auto consumer = consumers.at(i);
-        // recompute cached_tv for each consumer, so it is no longer persistent
-        // similar to project to inputs, here we are projecting to the shared
-        // memory buffer.
-        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
-        ir_utils::replaceValInExprInputs(
-            consumer->definition(), cached_tv, cached_tv_replicate);
-        smem_consumers.push_back(cached_tv_replicate);
+      // At this point, if cached_tv has multiple uses,  it becomes the
+      // persistent buffer instead of smem tv, due to the way the persistent
+      // buffer selector works. To make smem tv remain as the persistent buffer,
+      // all of the uses must be privatized. However, for tma warp specialized
+      // case, we don't need to privatize the cached_tv, so the smem tv is only
+      // consumed by its register cache. It can be used to issue the next TMA
+      // load right after the copy from shared memory to register cache.
+      // Otherwise, it needs to wait all the computations to finish before
+      // issuing the next TMA.
+      if (!rparams->tma_warp_specialized ||
+          !rparams->is_circular_buffer_regs_cached) {
+        const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
+        for (auto i = 1; i < (int)consumers.size(); i++) {
+          auto consumer = consumers.at(i);
+          // recompute cached_tv for each consumer, so it is no longer
+          // persistent similar to project to inputs, here we are projecting to
+          // the shared memory buffer.
+          auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), cached_tv, cached_tv_replicate);
+          smem_consumers.push_back(cached_tv_replicate);
+        }
       }
     }
   }
@@ -1358,12 +1435,20 @@ std::vector<TensorView*> movePersistentBufferToSmem(
 }
 
 namespace {
-void recomputeNonPersistentUnmappbleTvs(
+void recomputeNonPersistentUnmappableTvs(
     const scheduler_utils::PersistentBufferInfo& persistent_info) {
   for (auto non_persistent_buffer : persistent_info.non_persistent_buffers) {
+    std::vector<Expr*> filtered_uses;
+    std::copy_if(
+        non_persistent_buffer->uses().begin(),
+        non_persistent_buffer->uses().end(),
+        std::back_inserter(filtered_uses),
+        [](Expr* e) {
+          return !e->isOneOf<LaunchDependentGridOp, WaitForPriorGridOp>();
+        });
     // If there's only one use, it must be cached
-    if (non_persistent_buffer->uses().size() == 1) {
-      auto caching_load = non_persistent_buffer->uses().at(0);
+    if (filtered_uses.size() == 1) {
+      auto caching_load = filtered_uses.at(0);
       NVF_ERROR(caching_load->isA<LoadStoreOp>());
       non_persistent_buffer =
           caching_load->as<LoadStoreOp>()->out()->as<TensorView>();
@@ -1386,14 +1471,15 @@ void recomputeNonPersistentUnmappbleTvs(
 } // namespace
 
 // common prepare for all persistent schedulers
-void beforeSchedule(
+void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
-    std::vector<TensorView*>& cached_inputs,
+    std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+    std::vector<TensorView*>& persistent_buffers,
+    std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
   const scheduler_utils::PersistentBufferInfo persistent_info =
       scheduler_utils::persistentBuffers(fusion);
 
@@ -1410,21 +1496,28 @@ void beforeSchedule(
   bool unroll = rparams->isUnrolled();
   // Cache inputs even if not unrolled, as otherwise we may not create a
   // persistent buffer if that persistent buffer would be the input.
-  cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  cached_inputs = scheduler_utils::cacheInputs(fusion, /*unroll=*/true);
 
-  recomputeNonPersistentUnmappbleTvs(persistent_info);
+  recomputeNonPersistentUnmappableTvs(persistent_info);
 
   // Cache and fork outputs
   cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
+
+  scheduler_utils::applyPDL(fusion, cached_inputs, cached_outputs);
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
+  // recheck persistent buffers after project to inputs and cached inputs
+  persistent_buffers =
+      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+
   // move persistent buffer marked in [smem_persistent_buffers] from register to
   // smem
-  smem_consumers = movePersistentBufferToSmem(fusion, rparams, cached_inputs);
+  smem_consumers = movePersistentBufferToSmem(
+      fusion, rparams, cached_inputs, persistent_buffers);
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
@@ -1439,10 +1532,9 @@ TensorView* scheduleReductionGeneral(
   // changes registry needs to change.
   auto reduction_tv = reduction_tvs[0];
 
-  if (!ir_utils::getViewOps(fusion).empty()) {
-    ComputeAtMap ca_map(fusion);
-    // Propagate reshape transforms through the graph, expecially the reference.
-    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
+  if (!ir_utils::getReshapeOps(fusion).empty()) {
+    // Propagate reshape transforms through the graph, especially the reference.
+    scheduler_utils::propagateReshapeTransforms(fusion);
 
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
@@ -1455,8 +1547,8 @@ TensorView* scheduleReductionGeneral(
     groupReductions(reduction_tvs, false);
   }
 
-  auto dim_analysis = scheduler_utils::canonicalDimReduction(
-      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
+  auto dim_analysis = scheduler_utils::canonicalizeReduction(
+      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3d);
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
 
@@ -1467,7 +1559,8 @@ TensorView* scheduleReductionGeneral(
   if (!has_iter_axis) {
     NVF_ERROR(
         rparams->fastest_dim,
-        "If all dims are reduction, should be sending it to fastest dim scheduler.");
+        "If all dims are reduction, should be sending it to fastest dim "
+        "scheduler.");
   }
 
   return reduction_scheduler_utils::scheduleReductionTV(
@@ -1485,16 +1578,18 @@ void schedulePersistentKernel(
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  beforeSchedule(
+  std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
+      persistent_buffers;
+  std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
+  commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
       smem_consumers,
+      persistent_buffers,
       cached_outputs);
 
   TensorView* reference_tv =
@@ -1530,13 +1625,74 @@ void schedulePersistentKernel(
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
+
+  std::unordered_set<TensorView*> unroll_vectorizable_cached_and_cast_tvs;
+  for (auto tv : unroll_vectorizable_cached_tvs) {
+    unroll_vectorizable_cached_and_cast_tvs.insert(tv);
+  }
+
+  if (rparams->vectorize_casts) {
+    for (auto tv : fusion->allTvs()) {
+      if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+        if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+            (dataTypeSizeBit(tv->dtype()) < 8 ||
+             dataTypeSizeBit(uop->in()->dtype()) < 8)) {
+          unroll_vectorizable_cached_and_cast_tvs.insert(tv);
+        }
+      }
+    }
+  }
+
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
       is_unroll_or_vectorization,
       use_grouped_reduction,
       reduction_tvs,
-      unroll_vectorizable_cached_tvs);
+      unroll_vectorizable_cached_and_cast_tvs);
+
+  // For inner persistent with vectorized load, use explicitly unroll for cached
+  // input if it is a persistent buffer. This won't increase register usage
+  // and encourages compiler issuing memory load instructions together. It
+  // improves performance with cuda-13.0.
+  bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
+      rparams->fastest_dim && !rparams->schedule_3d;
+  if (unroll_persistent_cached_inputs) {
+    for (const auto& [cached_input, input_idx] : cached_inputs) {
+      if (std::ranges::find(persistent_buffers, cached_input) ==
+          persistent_buffers.end()) {
+        continue;
+      }
+      // Find PersistentBatch domain to unroll, typical case is:
+      // [..., PersistentBatch, US, TIDx, Vect].
+      // From first principle, the PersistentBatch domain was created from
+      // an outer split and parallelized with Serial, and its content equals
+      // rparams->batches_per_block_inner_reduction, we should have only one
+      // such domain.
+      int identified_count = 0;
+      for (auto id : cached_input->getLoopDomain()) {
+        if (id->getParallelType() != ParallelType::Serial ||
+            !id->definition() || !id->definition()->isA<Split>()) {
+          continue;
+        }
+        auto split = id->definition()->as<Split>();
+        if (split->innerSplit() ||
+            split->factor()->value().as<int64_t>() !=
+                rparams->batches_per_block_inner_reduction) {
+          continue;
+        }
+        identified_count++;
+        id->parallelize(ParallelType::Unroll);
+      }
+      NVF_ERROR(
+          identified_count == 1,
+          "Expected to find exactly one PersistentBatch domain to unroll, but "
+          "found ",
+          identified_count,
+          " in ",
+          cached_input->toString());
+    }
+  }
 
   // Needs special handling of vectorized loading from shared memory due to
   // potential different data types of inputs and shared memory tensor.
@@ -1558,7 +1714,7 @@ void schedulePersistentKernel(
     NVF_ERROR(
         rparams->persistent_kernel,
         "computeWith should be only used with persistent kernels");
-    for (const auto persistent_buffer : cached_inputs) {
+    for (const auto& [persistent_buffer, input_idx] : cached_inputs) {
       persistent_buffer->computeWith(-1, true);
     }
   }
@@ -1607,10 +1763,8 @@ class PersistentBufferResolution : public IterVisitor {
       return;
     }
 
-    if (std::any_of(
-            resolution_points_.begin(),
-            resolution_points_.end(),
-            [&tv](TensorView* resolution_point) {
+    if (std::ranges::any_of(
+            resolution_points_, [&tv](TensorView* resolution_point) {
               return DependencyCheck::isDependencyOf(resolution_point, tv);
             })) {
       // If already resolved, don't start a new reduction path.
@@ -1765,11 +1919,11 @@ bool isCacheableUnmappableTv(
     TensorView* unmappable_tv,
     const std::vector<TensorView*>& reduction_tvs,
     const ValGraph& almost_exact_graph) {
-  // To make an unmmapble tensor persistent, we need to make sure it
+  // To make an unmappable tensor persistent, we need to make sure it
   // can be parallelized in the same way as the following reduction
-  // and residual paths. While the unmmapble tensor is transformed in
-  // the same way, since it is not inlineable, the effect of loop
-  // promotion by broadcast inling is not propagated to the unmappable
+  // and residual paths. While the unmappable tensor is transformed in
+  // the same way, since it is not inlinable, the effect of loop
+  // promotion by broadcast inlining is not propagated to the unmappable
   // tensor. For example, in the following fusion, both t2 and t3 are the
   // unmappable tensors but t2 is problematic.
   //
@@ -1820,14 +1974,10 @@ bool isCacheableUnmappableTv(
     // If the reduction tv doesn't depend on unmappable tv,
     // all_vals will be empty.
     if (all_vals.empty() ||
-        std::any_of(
-            reduction_tvs.begin(),
-            reduction_tvs.end(),
-            [&](const auto& reduction_tv_j) {
-              return reduction_tv_j != reduction_tv &&
-                  std::find(all_vals.begin(), all_vals.end(), reduction_tv_j) !=
-                  all_vals.end();
-            })) {
+        std::ranges::any_of(reduction_tvs, [&](auto reduction_tv_j) {
+          return reduction_tv_j != reduction_tv &&
+              std::ranges::find(all_vals, reduction_tv_j) != all_vals.end();
+        })) {
       continue;
     }
     immediate_reduction_tvs.push_back(reduction_tv);
@@ -1836,9 +1986,9 @@ bool isCacheableUnmappableTv(
   NVF_ERROR(!immediate_reduction_tvs.empty());
 
   // For each (indirect) consumer reduction tensor, make sure the
-  // unmappble tensor is consistent with the reduction tensor with
+  // unmappable tensor is consistent with the reduction tensor with
   // respect to the reduction IDs. The reduction IDs are those that
-  // are not inlineable, so they won't get the effect of loop
+  // are not inlinable, so they won't get the effect of loop
   // promotion if that happens inside the group of inlined tensors.
   for (const auto& reduction_tv : immediate_reduction_tvs) {
     bool missing_reduction_id_found = false;
@@ -1848,16 +1998,15 @@ bool isCacheableUnmappableTv(
         continue;
       }
 
-      // Here, we only look for a logical ID of the unmappble tensor
+      // Here, we only look for a logical ID of the unmappable tensor
       // that is mapped with the reduction ID. If found,
       // parallelization of this reduction ID should be consistently
-      // applied to the unmappble tensor as well.
+      // applied to the unmappable tensor as well.
       //
       // TODO: Even if they are not mapped, is it possible that they
       // are still mapped through reshape ops?
-      auto it = std::find_if(
-          unmappable_tv->getLogicalDomain().begin(),
-          unmappable_tv->getLogicalDomain().end(),
+      auto it = std::ranges::find_if(
+          unmappable_tv->getLogicalDomain(),
           [&](const auto& unmappable_tv_logical_id) {
             return almost_exact_graph.disjointValSets().strictAreMapped(
                 reduction_id, unmappable_tv_logical_id);

@@ -7,14 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <visibility.h>
-
-#include <ir/interface_nodes.h>
-#include <type.h>
-
 #include <tuple>
 #include <vector>
+
+#include "exceptions.h"
+#include "ir/interface_nodes.h"
+#include "type.h"
+#include "visibility.h"
 
 //
 // The operations defined in this header is intended as user facing functions.
@@ -128,7 +127,10 @@ constexpr TensorView* get(const VarMeanResult& results) {
 
 namespace nvfuser {
 
-TensorView* mean(TensorView* x, const std::vector<int64_t>& dims, bool keepdim);
+NVF_API TensorView* mean(
+    TensorView* x,
+    const std::vector<int64_t>& dims,
+    bool keepdim);
 
 NVF_API TensorView* variance(
     TensorView* x,
@@ -209,6 +211,17 @@ NVF_API BackwardRMSNormResult rms_norm_backward(
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
     TensorView* rstd,
+    TensorView* weight,
+    const std::vector<bool>& output_mask);
+
+// From thunder generated python definiton
+// root-mean-square is saved instead of reciprocal rms.
+// Only quires one inner reduction instead of two.
+NVF_API BackwardRMSNormResult thunder_rms_norm_backward(
+    TensorView* dy,
+    TensorView* x,
+    const std::vector<int64_t>& norm_shape,
+    TensorView* rms,
     TensorView* weight,
     const std::vector<bool>& output_mask);
 

@@ -8,11 +8,12 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <scheduler/registry.h>
-#include <scheduler/transpose_heuristic.h>
-#include <visibility.h>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "scheduler/registry.h"
+#include "scheduler/transpose_heuristic.h"
+#include "visibility.h"
 
 #define SUPPORT_SPLITTING_INNERMOST_DIM 0
 

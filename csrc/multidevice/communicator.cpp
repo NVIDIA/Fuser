@@ -5,19 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <cuda_utils.h>
-#include <multidevice/communicator.h>
-#include <options.h>
-#include <utils.h>
+#include "multidevice/communicator.h"
 
 #include <netdb.h>
+
+#include <cstdlib>
 #include <map>
+#include <numeric>
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
-#ifdef USE_C10D_GLOO
-#include <torch/csrc/distributed/c10d/ProcessGroupGloo.hpp>
-#endif
+#include <torch/csrc/distributed/c10d/exception.h>
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -25,6 +23,10 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupUCC.hpp>
 #endif
 #endif
+
+#include "base.h"
+#include "cuda_utils.h"
+#include "options.h"
 
 namespace nvfuser {
 
@@ -36,8 +38,8 @@ std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
     case CommunicatorBackend::kUcc:
       out << "UCC";
       break;
-    case CommunicatorBackend::kGloo:
-      out << "GLOO";
+    case CommunicatorBackend::kCuda:
+      out << "CUDA";
       break;
   }
   return out;
@@ -56,9 +58,15 @@ char* tryReadEnv(const std::vector<std::string>& envs) {
   return nullptr;
 }
 
-// Parse the environment to retrieve MPI rank, world size, local rank,
+// Parses the environment to retrieve MPI rank, world size, local rank,
 // local world size, and also master address and master port.
-// Returns true if the distributed configuration is valid, false otherwise
+//
+// We intend to support mpirun, torchrun
+// (https://docs.pytorch.org/docs/stable/elastic/run.html#environment-variables)
+// and slurm. However, only mpirun is tested in CI at this moment, so I
+// wouldn't be surprised the other launchers don't work out of the box.
+//
+// Returns true if the distributed configuration is valid, false otherwise.
 bool parseEnv(
     RankType& rank,
     int64_t& size,
@@ -66,10 +74,8 @@ bool parseEnv(
     int64_t& local_size,
     std::string& master_addr,
     int& master_port) {
-  char* env = nullptr;
-
   // retrieves the rank of the current process
-  env = tryReadEnv({"OMPI_COMM_WORLD_RANK", "WORLD_RANK", "SLURM_PROCID"});
+  char* env = tryReadEnv({"OMPI_COMM_WORLD_RANK", "RANK", "SLURM_PROCID"});
   if (env == nullptr) {
     return false;
   }
@@ -83,8 +89,8 @@ bool parseEnv(
   size = std::atoi(env);
 
   // retrieves the size of the communicator
-  env = tryReadEnv(
-      {"OMPI_COMM_WORLD_LOCAL_RANK", "WORLD_LOCAL_RANK", "SLURM_LOCALID"});
+  env =
+      tryReadEnv({"OMPI_COMM_WORLD_LOCAL_RANK", "LOCAL_RANK", "SLURM_LOCALID"});
   if (env == nullptr) {
     return false;
   }
@@ -93,7 +99,7 @@ bool parseEnv(
   // retrieves the size of the communicator
   env = tryReadEnv(
       {"OMPI_COMM_WORLD_LOCAL_SIZE",
-       "WORLD_LOCAL_SIZE",
+       "LOCAL_WORLD_SIZE",
        "SLURM_NTASKS_PER_NODE"});
   if (env == nullptr) {
     return false;
@@ -118,9 +124,9 @@ bool parseEnv(
   if ((env = std::getenv("NVFUSER_MASTER_PORT")) != nullptr) {
     master_port = std::atoi(env);
   } else {
-    LOG(INFO)
-        << "The environment variable NVFUSER_MASTER_PORT has not been specified. "
-        << "Set the master port to default: " << master_port;
+    LOG(INFO) << "The environment variable NVFUSER_MASTER_PORT has not been "
+                 "specified. "
+              << "Set the master port to default: " << master_port;
   }
 
   return true;
@@ -153,14 +159,6 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   }
 #endif
 
-#ifdef USE_C10D_GLOO
-  if (backend == CommunicatorBackend::kGloo) {
-    auto pg_opts = c10d::ProcessGroupGloo::Options::create();
-    return c10::make_intrusive<::c10d::ProcessGroupGloo>(
-        store, rank, size, pg_opts);
-  }
-#endif
-
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
   if (backend == CommunicatorBackend::kUcc) {
     constexpr auto timeout = std::chrono::milliseconds(30 * 60 * 1000);
@@ -187,6 +185,9 @@ Communicator::Communicator(
       ucc_available_(false),
       nccl_available_(false) {
   if (isOptionDisabled(DisableOption::Multidevice)) {
+    TORCH_WARN(
+        "Multi-device support is disabled. All communication operations will "
+        "fail.");
     return;
   }
 
@@ -213,7 +214,19 @@ Communicator::Communicator(
         local_rank_ == server_local_rank;
   }
   store_opts.port = master_port_;
-  store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+
+  try {
+    store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+  } catch (const c10d::SocketError& e) {
+    TORCH_WARN(
+        "Failed to create a TCPStore: ",
+        e.what(),
+        ". The Communicator is therefore made unavailable. If you imported "
+        "both nvfuser and nvfuser_direct, this warning is expected and can be "
+        "ignored: https://github.com/NVIDIA/Fuser/pull/4722");
+    is_available_ = false;
+    return;
+  }
 #endif
 
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
@@ -329,8 +342,9 @@ void Communicator::cleanup() {
   // Without this, the TCPStore server can be cleaned up before TCPStore
   // clients are created, causing an hang. This happened with
   // test_multidevice.py::test_sizes_and_ranks.
-  if (is_available()) {
+  if (is_available_) {
     barrier();
+    is_available_ = false;
   }
 
   store_ = nullptr;
@@ -350,21 +364,21 @@ void Communicator::cleanup() {
   }
 #endif
   backends_.clear();
-
-  is_available_ = false;
 }
 
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
     const std::string& prefix) {
-  NVF_ERROR(
+  NVF_CHECK(
       is_available(),
       "The singleton Communicator isn't available. "
-      "This is likely because Communicator::cleanup has been called "
-      "or the instance wasn't successfully initialized.");
+      "This is most likely because the instance wasn't successfully "
+      "initialized due to lack of a multi-process running (e.g. mpirun or "
+      "torchrun). Sometimes, this is because Communicator::cleanup has been "
+      "accidentally called before this function.");
 
-  CommunicatorBackend b = getBackend(backend);
+  CommunicatorBackend b = backend.value_or(default_backend_);
   // generate a string key which is unique to the team
   // create the team and cache it
   std::string team_key = prefix + getTeamKey(team, b);

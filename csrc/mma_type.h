@@ -333,7 +333,7 @@ MmaInputSmemSwizzle getSwizzleFromBytes(int64_t bytes);
 
 // MMA stringify utils
 NVF_API std::string toString(MmaLayout input_layout);
-std::string toString(const GemmTile& tile);
+NVF_API std::string toString(const GemmTile& tile);
 NVF_API std::string toString(const MatMulTileOptions& opts);
 NVF_API std::string toString(MmaMacro macro);
 NVF_API std::string toString(MmaInputSmemSwizzle swizzle);

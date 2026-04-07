@@ -6,14 +6,13 @@
  */
 // clang-format on
 #pragma once
-#include <device_lower/lower2device.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_params.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 #include <c10/core/DeviceType.h>
 
@@ -22,6 +21,13 @@ namespace nvfuser {
 class PrecomputedValues;
 class KernelArgumentHolder;
 struct TensorArgAbstract;
+
+//! adjust evaluator sizes for dtype with non-regular width.
+//! This is necessary to compensate fp4, fp6, where the at::Tensor size doesn't
+//! match the logical domain of TensorView
+void adjustEvaluatorSizes(
+    const TensorView* tv,
+    std::vector<int64_t>& unsharded_sizes);
 
 //! NaiveValueMachine:
 //!  This is an un-optimized runtime for evaluating a
@@ -205,17 +211,22 @@ class PrecomputedValues {
 
   //! Bind concrete value to the given index
   //!  if the index is valid.
-  void bindValue_(int index, const PolymorphicValue& value) {
+  //! \param ir_node Used to track the original IR node for the index, only
+  //!  used for improving error messages
+  void bindValue_(
+      int index,
+      const PolymorphicValue& value,
+      const Val* ir_node = nullptr) {
     if (index < 0 || is_constant_[index]) {
       return;
     }
     defined_[index] = true;
     values_[index] = value;
-    binding_log_.emplace_back(index, value);
+    binding_log_.emplace_back(index, value, ir_node);
   }
   template <typename T>
-  void bindValue(int index, const T& value) {
-    bindValue_(index, PolymorphicValue(value));
+  void bindValue(int index, const T& value, const Val* ir_node = nullptr) {
+    bindValue_(index, PolymorphicValue(value), ir_node);
   }
 
   //! Invalidate all computed values in the workspace.
@@ -286,7 +297,7 @@ class PrecomputedValues {
   //! An internal log to keep track of all the bindings
   //!  used in each evaluation cycle. To be used for
   //!  consistency check.
-  std::vector<std::pair<int, PolymorphicValue>> binding_log_;
+  std::vector<std::tuple<int, PolymorphicValue, const Val*>> binding_log_;
 
   //! Integer runtime for realizing the values computations.
   std::unique_ptr<NaiveValueMachine> value_machine_;

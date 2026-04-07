@@ -22,9 +22,82 @@
 
 namespace nvfuser {
 
+namespace {
+
+// Returns the set of "batchable" non-circular-buffered TMA load expressions
+// found in the given expression list. This is used internally by
+// BatchedTmaInfo.
+std::unordered_set<const Expr*> getBatchableTmaLoads(
+    const std::vector<Expr*>& exprs) {
+  // Due to restriction of elect sync, we need to have at least 32 threads in
+  // the block.
+  NVF_ERROR(GpuLower::hasCurrent());
+  auto bdimx_val = GpuLower::current()->info().parallelDimensionMap().get(
+      ParallelType::TIDx);
+  if (!bdimx_val || !bdimx_val->isConstScalar() ||
+      bdimx_val->evaluate().as<int64_t>() < 32L) {
+    return {};
+  }
+
+  // Find all batchable non-circular TMA loads.
+  std::vector<Expr*> non_cb_tma_load_exprs;
+  for (auto expr : exprs) {
+    if (!ir_utils::isCpAsyncBulkLoad(expr)) {
+      continue;
+    }
+    auto tv = ir_utils::getTvOutput(expr);
+    if (tv->circularBufferOptions().isEnable()) {
+      return {};
+    }
+    // The following conditions can be relaxed in the future.
+    // We have some tests where TMA load is used in an untraditional way.
+    // e.g. parallelized with threads, serial load, which requires multiple
+    // mbarriers or reuse of the same mbarrier.
+    if (std::any_of(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            [](const IterDomain* id) {
+              return id->isThreadDim() ||
+                  id->getParallelType() == ParallelType::Serial;
+            })) {
+      return {};
+    }
+    non_cb_tma_load_exprs.push_back(expr);
+  }
+  if (non_cb_tma_load_exprs.size() <= 1) {
+    return {};
+  }
+  // Ensure all TMA loads are parallelized in the same way since we naively put
+  // mbarrier wait after the last TMA load which leads to incorrect behavior in
+  // cases with TMA loaded tv goes through broadcast (not exist in auto
+  // scheduler yet but we have a test case for this)
+  // TmaPointwiseBcastTest.InnerOuterBcast/use_auto_scheduler_0_tma_inner_bcast_1_tma_outer_bcast_1
+  const auto& ref_dom =
+      ir_utils::getTvOutput(non_cb_tma_load_exprs.front())->getLoopDomain();
+  for (auto expr : non_cb_tma_load_exprs | std::views::drop(1)) {
+    const auto& dom = ir_utils::getTvOutput(expr)->getLoopDomain();
+    if (!std::ranges::equal(
+            dom,
+            ref_dom,
+            {},
+            &IterDomain::getParallelType,
+            &IterDomain::getParallelType)) {
+      return {};
+    }
+  }
+  return std::unordered_set<const Expr*>(
+      non_cb_tma_load_exprs.begin(), non_cb_tma_load_exprs.end());
+}
+
+} // namespace
+
+BatchedTmaInfo::BatchedTmaInfo(Fusion* fusion) {
+  // Compute the set of batchable TMA load expressions from the fusion
+  batchable_tma_loads_ = getBatchableTmaLoads(fusion->exprs());
+}
+
 std::ostream& operator<<(std::ostream& os, const TMADim& d) {
-  os << "TMADim{"
-     << "partitioned="
+  os << "TMADim{" << "partitioned="
      << (d.partitioned ? d.partitioned->toString() : "nullptr")
      << ", box=" << (d.box ? d.box->toString() : "nullptr")
      << ", tile=" << (d.tile ? d.tile->toString() : "nullptr")
@@ -673,7 +746,8 @@ class HandleExpr {
         });
     NVF_ERROR(
         from_it != frontier_.end(),
-        "The TMA domain must be equivalent to the allocation domain of the gmem tensor, but ",
+        "The TMA domain must be equivalent to the allocation domain of the "
+        "gmem tensor, but ",
         from[0]->toString(),
         " is not on the path.");
     if (auto split = dynamic_cast<Split*>(expr->front())) {
@@ -683,7 +757,7 @@ class HandleExpr {
           SimplifyingIrBuilder::modExpr(
               from[0]->front()->as<IterDomain>()->extent(), split->factor()),
           split->fusion()->zeroVal());
-      GpuLower::current()->validate(
+      NVFUSER_LOWER_VALIDATE(
           is_divisible,
           "Invalid view in TMA: the extent of ",
           from[0]->toString(),
@@ -712,7 +786,8 @@ class HandleExpr {
         });
     NVF_ERROR(
         outer_it != frontier_.end(),
-        "The TMA domain must be equivalent to the allocation domain of the gmem tensor, but ",
+        "The TMA domain must be equivalent to the allocation domain of the "
+        "gmem tensor, but ",
         outer->toString(),
         " is not on the path.");
     auto inner = from[1];
@@ -743,7 +818,8 @@ class HandleExpr {
     bool is_supported_expr = expr->front()->isOneOf<Split, Merge>();
     NVF_ERROR(
         is_supported_expr,
-        "TMA domain must be a view of the allocation domain of the gmem tensor, but ",
+        "TMA domain must be a view of the allocation domain of the gmem "
+        "tensor, but ",
         expr->toString(),
         " is not a valid expression for view.");
     auto from_ = from(expr, direction);
@@ -1067,11 +1143,11 @@ std::vector<TMADim> run(
 } // namespace collapse_tma_domain
 
 TMAInfo getTMAInfo(LoadStoreOp* ldst) {
-  TensorView* producer_tv = ldst->in()->as<TensorView>();
+  auto* producer_tv = ldst->in()->as<TensorView>();
   // In case the producer is aliased, use the alias instead
   producer_tv = GpuLower::current()->getMaybeTensorProducerAlias(producer_tv);
 
-  TensorView* consumer_tv = ldst->out()->as<TensorView>();
+  auto* consumer_tv = ldst->out()->as<TensorView>();
   TensorView *smem_tv = nullptr, *gmem_tv = nullptr;
   if (producer_tv->getMemoryType() == MemoryType::Shared) {
     NVF_ERROR(consumer_tv->getMemoryType() == MemoryType::Global);
@@ -1127,7 +1203,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       bulk_groups,
       nonbulk_groups,
       inferred_dims,
-      dataTypeSize(gmem_tv->dtype()),
+      dataTypeSizeByte(gmem_tv->dtype()),
       swizzle);
   return TMAInfo(std::move(final_tma_domain), swizzle, gmem_tv);
 }
@@ -1197,7 +1273,8 @@ std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
         NVF_ERROR(
             result.emplace(ir_utils::getTvOutput(ldst), getTMAInfo(ldst))
                 .second,
-            "Ambiguous TMA information, likely something is wrong in the Fusion IR");
+            "Ambiguous TMA information, likely something is wrong in the "
+            "Fusion IR");
       }
     }
   }

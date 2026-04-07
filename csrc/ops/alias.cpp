@@ -5,20 +5,24 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <expr_evaluator.h>
-#include <expr_simplifier.h>
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-#include <transform_view.h>
-#include <type_promotion.h>
+#include "ops/alias.h"
+
+#include <ranges>
+
+#include "base.h"
+#include "expr_evaluator.h"
+#include "expr_simplifier.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "transform_view.h"
+#include "type_promotion.h"
 
 namespace nvfuser {
 
 Val* set(Val* v) {
-  Val* out = ops::newValLike(v, v->getDataType().value());
+  Val* out = ops::newValLike(v, v->getDataType());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v);
   return out;
 }
@@ -28,7 +32,7 @@ TensorView* set(TensorView* tv) {
 }
 
 Val* segment_set(Val* v) {
-  Val* out = ops::newValLike(v, v->getDataType().value());
+  Val* out = ops::newValLike(v, v->getDataType());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterSet, out, v);
   return out;
 }
@@ -43,9 +47,9 @@ TensorView* view(TensorView* x, DataType dtype) {
     return x;
   }
 
-  auto input_type = x->getDataType().value();
-  auto input_size = dataTypeSize(input_type);
-  auto newsize = dataTypeSize(dtype);
+  auto input_type = x->getDataType();
+  auto input_size = dataTypeSizeByte(input_type);
+  auto newsize = dataTypeSizeByte(dtype);
 
   if (input_size == newsize) {
     return bitCastOp(dtype, x);
@@ -64,9 +68,7 @@ TensorView* reshape(
       original_sizes.size());
 
   // handle empty reshapes by converting to full
-  if (std::any_of(original_sizes.begin(), original_sizes.end(), [](int64_t s) {
-        return s == 0l;
-      })) {
+  if (std::ranges::any_of(original_sizes, [](int64_t s) { return s == 0l; })) {
     // The original
     bool has_dynamic_axis = false;
     bool has_zero_output_size = false;
@@ -103,7 +105,7 @@ TensorView* tryStaticReshape(
     const std::vector<IterDomain*>& inp_dom,
     const std::vector<Val*>& new_sizes) {
   std::vector<int64_t> inp_sizes(inp_dom.size());
-  for (const auto i : c10::irange(inp_dom.size())) {
+  for (const auto i : arange(inp_dom.size())) {
     IterDomain* id = inp_dom[i];
     Val* id_size = id->getMaybeExpandedExtent();
     if (!id_size->isConstInt()) {
@@ -113,7 +115,7 @@ TensorView* tryStaticReshape(
   }
 
   std::vector<int64_t> out_sizes(new_sizes.size());
-  for (const auto i : c10::irange(new_sizes.size())) {
+  for (const auto i : arange(new_sizes.size())) {
     Val* id_size = new_sizes[i];
     if (!id_size->isConstInt()) {
       return nullptr;
@@ -132,11 +134,15 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   auto inp_dom = TensorDomain::noReductions(inp_tv->getLogicalDomain());
 
   NVF_CHECK(
-      std::none_of(
-          inp_dom.begin(),
-          inp_dom.end(),
-          [](auto inp_id) { return inp_id->maybePartial(); }),
+      std::ranges::none_of(
+          inp_dom, [](auto inp_id) { return inp_id->maybePartial(); }),
       "Unsupported input tensor to reshape as its axes may be partial: ",
+      inp_tv->toString());
+
+  NVF_CHECK(
+      !inp_tv->domain()->hasRaggedIterDomain(),
+      "Reshape operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
       inp_tv->toString());
 
   auto static_reshape_output = tryStaticReshape(inp_tv, inp_dom, new_sizes);
@@ -150,7 +156,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   // domain.
   std::vector<IterDomain*> logical_domain(new_sizes.size(), nullptr);
   bool found_neg_one = false;
-  for (const auto i : c10::irange(new_sizes.size())) {
+  for (const auto i : arange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
     if (new_size->isConstScalar() && new_size->evaluate().as<int64_t>() == -1) {
       // It is usually safe to use the provided scalars as the output shapes.
@@ -164,10 +170,10 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
 
       Val* numel = FusionGuard::getCurFusion()->oneVal();
       Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
-      for (const auto j : c10::irange(inp_dom.size())) {
+      for (const auto j : arange(inp_dom.size())) {
         numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
       }
-      for (const auto j : c10::irange(new_sizes.size())) {
+      for (const auto j : arange(new_sizes.size())) {
         if (i == j) {
           continue;
         }
@@ -194,8 +200,26 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
       inp_tv->dtype());
 
-  IrBuilder::createInContainer<ViewOp>(inp_tv->container(), out_tv, inp_tv);
+  IrBuilder::createInContainer<ReshapeOp>(inp_tv->container(), out_tv, inp_tv);
 
+  return out_tv;
+}
+
+NVF_API TensorView* reshape(
+    TensorView* x,
+    std::function<void(AbstractTensor&)> transform) {
+  auto root_domain = ops::newOutputDomain({x});
+  AbstractTensor abst(root_domain);
+  transform(abst);
+  auto logical_domain = abst.as<IterDomain*>();
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          logical_domain,
+          logical_domain,
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
+      x->getDataType());
+  IrBuilder::create<ReshapeOp>(out_tv, x);
   return out_tv;
 }
 
@@ -218,6 +242,12 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
       end_dim);
   NVF_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
 
+  NVF_CHECK(
+      !x->domain()->hasRaggedIterDomain(),
+      "Flatten operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      x->toString());
+
   if (start_dim == end_dim) {
     return x;
   }
@@ -225,9 +255,9 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   auto out = IrBuilder::createInContainer<TensorView>(
       x->container(),
       x->domain()->flatten(start_dim, end_dim),
-      x->getDataType().value());
+      x->getDataType());
 
-  IrBuilder::create<ViewOp>(out, x);
+  IrBuilder::create<ReshapeOp>(out, x);
   return out;
 }
 
@@ -236,7 +266,11 @@ TensorView* squeeze(
     const std::vector<int64_t>& dims,
     bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  auto x_dom = x->domain()->noReductions();
+  std::vector<IterDomain*> x_dom;
+  x_dom.reserve(x->getLoopDomain().size());
+  for (auto id : x->getLoopDomain() | TensorDomain::kNoReductions) {
+    x_dom.push_back(id);
+  }
   const auto ndims = static_cast<int64_t>(x_dom.size());
 
   NVF_ERROR(
@@ -274,18 +308,22 @@ TensorView* squeeze(
     const std::vector<bool>& to_squeeze,
     bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  auto x_dom = x->domain()->noReductions();
-  const auto ndims = static_cast<int64_t>(x_dom.size());
+  // SqueezeOp is cloned during segmentation where the loop domain
+  // may have device parallelization. Hence, use the logical domain
+  // explcitly to avoid a mismatch between domain and `to_squeeze` dims.
+  auto x_dom = TensorDomain::noReductions(x->getLogicalDomain());
+  const auto ndims = std::ssize(x_dom);
 
-  NVF_ERROR(
-      ndims == (int64_t)to_squeeze.size(),
+  NVF_ERROR_EQ(
+      ndims,
+      std::ssize(to_squeeze),
       "Invalid to_squeeze for squeeze: ",
       to_squeeze,
       ". Input tensor: ",
       x->toString());
 
   std::vector<IterDomain*> out_domain;
-  for (const auto idx : c10::irange(ndims)) {
+  for (const auto idx : arange(ndims)) {
     auto id = x_dom[idx];
     if (to_squeeze[idx]) {
       if (!id->isSymbolic()) {
@@ -307,16 +345,15 @@ TensorView* squeeze(
     }
   }
 
-  auto out = IrBuilder::create<TensorView>(
+  auto* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      *x->getDataType());
+      x->getDataType());
   if (x->hasDeviceMesh()) {
     out->setDeviceMesh(x->getDeviceMesh());
   }
 
-  if (std::none_of(
-          to_squeeze.begin(), to_squeeze.end(), [](bool b) { return b; })) {
+  if (std::ranges::none_of(to_squeeze, std::identity())) {
     // If we did not squeeze any axes, this is just set()
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
   } else {
@@ -328,7 +365,8 @@ TensorView* squeeze(
 
 TensorView* unsqueeze(TensorView* x, int64_t dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int64_t>(x->domain()->noReductions().size());
+  const auto ndims = static_cast<int64_t>(
+      std::ranges::distance(x->getLoopDomain() | TensorDomain::kNoReductions));
 
   if (dim < 0) {
     dim = ndims + dim + 1;
@@ -393,7 +431,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
           out_logical,
           out_logical,
           TensorDomain::getContiguityFilledWith(out_logical, true)),
-      x->getDataType().value());
+      x->getDataType());
   if (x->hasDeviceMesh()) {
     out_tensor->setDeviceMesh(x->getDeviceMesh());
   }
@@ -418,7 +456,8 @@ TensorView* permute(
 
 TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int64_t>(x->domain()->noReductions().size());
+  const auto ndims = static_cast<int64_t>(
+      std::ranges::distance(x->getLoopDomain() | TensorDomain::kNoReductions));
 
   if (dim0 < 0) {
     dim0 = ndims + dim0;
@@ -435,7 +474,7 @@ TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
       dim1 >= 0 && dim1 <= ndims, "Invalid transpose dimension 1: ", dim1);
 
   std::vector<int64_t> new2old(ndims);
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : arange(ndims)) {
     if (i == dim0) {
       new2old[i] = dim1;
     } else if (i == dim1) {
@@ -449,7 +488,8 @@ TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
 
 TensorView* transpose(TensorView* x) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  const auto ndims = static_cast<int64_t>(x->domain()->noReductions().size());
+  const auto ndims = static_cast<int64_t>(
+      std::ranges::distance(x->getLoopDomain() | TensorDomain::kNoReductions));
 
   NVF_CHECK(
       ndims <= 2,
@@ -487,7 +527,12 @@ TensorView* pad(
     const std::vector<Val*>& pad_widths,
     Val* value,
     std::optional<IterType> iter_type_opt) {
-  DataType dt = inp->getDataType().value();
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Padding a tensor with RaggedIterDomain not supported: ",
+      inp->toString());
+
+  DataType dt = inp->getDataType();
   if (!value) {
     // Create a zero of the appropriate type
     if (isComplexType(dt)) {
@@ -502,7 +547,7 @@ TensorView* pad(
     }
   }
   NVF_CHECK(
-      hasSimilarDtype(dt, value->getDataType().value()),
+      hasSimilarDtype(dt, value->getDataType()),
       "Tensor arg and pad value must have the same dtype.");
   const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
   const auto ndims = inp_dom.size();
@@ -524,7 +569,7 @@ TensorView* pad(
   std::vector<Val*> normalized_pad_widths;
 
   // Fill zero for non padded dimensions
-  for (const auto i : c10::irange(num_non_padded_dims)) {
+  for (const auto i : arange(num_non_padded_dims)) {
     (void)i;
     normalized_pad_widths.push_back(FusionGuard::getCurFusion()->zeroVal());
     normalized_pad_widths.push_back(FusionGuard::getCurFusion()->zeroVal());
@@ -532,7 +577,7 @@ TensorView* pad(
 
   // torch.pad has padding widths of inner dimensions before outer
   // dimensions
-  for (const auto i : c10::irange(num_padded_dims)) {
+  for (const auto i : arange(num_padded_dims)) {
     auto left_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2);
     auto right_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2 + 1);
     normalized_pad_widths.push_back(maybeCastOp(DataType::Index, left_pad));
@@ -542,7 +587,7 @@ TensorView* pad(
   // Indicates if any dimension is actually padded. Can be false even
   // when non-empty padding width vector is passed
   bool is_padded_any = false;
-  for (const auto idx : c10::irange(ndims)) {
+  for (const auto idx : arange(ndims)) {
     auto inp_root_id = inp_dom.at(idx);
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
@@ -575,7 +620,7 @@ TensorView* pad(
           logical_ids,
           logical_ids,
           TensorDomain::getContiguityFilledWith(logical_ids, true)),
-      *inp->getDataType());
+      inp->getDataType());
 
   IrBuilder::create<PadOp>(out, inp, normalized_pad_widths, value);
 
@@ -593,18 +638,26 @@ TensorView* cat(
     bool manual_padding) {
   NVF_CHECK(!inputs.empty(), "No input tensor given");
 
-  const auto dtype = inputs.at(0)->getDataType().value();
+  NVF_CHECK(
+      std::ranges::none_of(
+          inputs,
+          [](TensorView* inp_tv) {
+            return inp_tv->domain()->hasRaggedIterDomain();
+          }),
+      "Concat with a tensor with RaggedIterDomain not supported");
+
+  const auto dtype = inputs.at(0)->getDataType();
 
   std::vector<std::vector<IterDomain*>> inp_doms;
   int64_t ndims = -1;
 
   for (auto inp : inputs) {
     NVF_CHECK(
-        inp->getDataType().value() == dtype,
+        inp->getDataType() == dtype,
         "Can't concatenate tensors with different data types: ",
         dtype,
         ", ",
-        inp->getDataType().value());
+        inp->getDataType());
     inp_doms.emplace_back(TensorDomain::noReductions(inp->getLogicalDomain()));
     auto i_ndims = static_cast<int64_t>(inp_doms.back().size());
     if (ndims == -1) {
@@ -636,10 +689,8 @@ TensorView* cat(
   // Primarily used for FusionTranslation, which adds the padOp for each tensor
   // separately.
   if (manual_padding) {
-    bool all_padded =
-        std::all_of(inputs.begin(), inputs.end(), [](TensorView* tv) {
-          return tv->definition()->isA<PadOp>();
-        });
+    bool all_padded = std::ranges::all_of(
+        inputs, [](TensorView* tv) { return tv->definition()->isA<PadOp>(); });
     NVF_ERROR(
         all_padded,
         "Expected all inputs to be padded when manual_padding is True.");
@@ -651,7 +702,7 @@ TensorView* cat(
 
   Val* concat_ext = nullptr;
 
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : arange(inputs.size())) {
     auto input_dim_extent =
         inp_doms.at(i).at(cat_dim)->getMaybeExpandedExtent();
     concat_ext = SimplifyingIrBuilder::addExpr(concat_ext, input_dim_extent);
@@ -664,10 +715,10 @@ TensorView* cat(
   Val* left_pad = FusionGuard::getCurFusion()->zeroVal();
   Val* right_pad = concat_ext;
   std::vector<Val*> resized_inputs(inputs.size());
-  for (const auto input_idx : c10::irange(inputs.size())) {
+  for (const auto input_idx : arange(inputs.size())) {
     const auto& inp_dom = inp_doms.at(input_idx);
     std::vector<Val*> pad_widths(ndims * 2);
-    for (const auto dim : c10::irange(ndims)) {
+    for (const auto dim : arange(ndims)) {
       auto inp_root_id = inp_dom.at(dim);
       Val* left_pad_i = nullptr;
       Val* right_pad_i = nullptr;
@@ -734,19 +785,30 @@ TensorView* cat(
   return out;
 }
 
+std::string Slice::toString() const {
+  std::ostringstream oss;
+  oss << "Slice(start=" << start->toInlineString()
+      << ", stop=" << stop->toInlineString()
+      << ", step=" << step->toInlineString() << ")";
+  return oss.str();
+}
+
 TensorView* slice(
     TensorView* inp,
     const std::vector<Slice>& ranges,
     bool manual_normalization) {
   const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
-  const int64_t ndims = static_cast<int64_t>(inp_dom.size());
+  const int64_t ndims = std::ssize(inp_dom);
+
+  NVF_CHECK_EQ(
+      ndims,
+      std::ssize(ranges),
+      "The range vector must have the same number of Slice descriptors.");
 
   NVF_CHECK(
-      ndims == static_cast<int64_t>(ranges.size()),
-      "The range vector must have the same number of Slice descriptors. Given: ",
-      ranges.size(),
-      ", Expected: ",
-      ndims);
+      !inp->domain()->hasRaggedIterDomain(),
+      "Slicing a tensor with RaggedIterDomain not supported: ",
+      inp->toString());
 
   ExpressionEvaluator expr_eval;
 
@@ -853,7 +915,7 @@ TensorView* slice(
     return range;
   };
 
-  for (auto& range : ranges) {
+  for (const Slice& range : ranges) {
     // Step not supported yet
     NVF_CHECK(
         range.step == nullptr || range.step->isOneInt(),
@@ -861,20 +923,23 @@ TensorView* slice(
         range.step->toString());
   }
 
-  std::vector<IterDomain*> root_ids(ndims);
-  std::vector<IterDomain*> logical_ids(ndims);
-  std::vector<Slice> normalized_ranges(ndims);
+  std::vector<Slice> normalized_ranges;
+  normalized_ranges.reserve(ndims);
+  std::vector<IterDomain*> root_ids;
+  root_ids.reserve(ndims);
+  std::vector<IterDomain*> logical_ids;
+  logical_ids.reserve(ndims);
 
   bool needs_real_slicing = false;
-  for (const auto idx : c10::irange(ndims)) {
-    IterDomain* inp_root_id = inp_dom[idx];
+  for (const auto& [inp_root_id, range] : zip(inp_dom, ranges)) {
     Val* inp_root_size = inp_root_id->getMaybeExpandedExtent();
-    Slice range = normalize_slice_range(ranges.at(idx), inp_root_size);
-    normalized_ranges.at(idx) = range;
+    Slice normalized_range = normalize_slice_range(range, inp_root_size);
+    normalized_ranges.push_back(normalized_range);
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
-    if (range.start->isZeroInt() && range.stop->sameAs(inp_root_size) &&
-        range.step->isOneInt()) {
+    if (normalized_range.start->isZeroInt() &&
+        normalized_range.stop->sameAs(inp_root_size) &&
+        normalized_range.step->isOneInt()) {
       // This dim doesn't need slicing
       out_root_id = inp_root_id->cloneWithoutRFactor();
       out_rf_id = out_root_id;
@@ -884,13 +949,13 @@ TensorView* slice(
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
       out_rf_id = IterDomain::resize(
           out_root_id,
-          SimplifyingIrBuilder::negExpr(range.start),
-          SimplifyingIrBuilder::subExpr(range.stop, inp_root_size),
+          SimplifyingIrBuilder::negExpr(normalized_range.start),
+          SimplifyingIrBuilder::subExpr(normalized_range.stop, inp_root_size),
           true);
       needs_real_slicing = true;
     }
-    root_ids.at(idx) = out_root_id;
-    logical_ids.at(idx) = out_rf_id;
+    root_ids.push_back(out_root_id);
+    logical_ids.push_back(out_rf_id);
   }
 
   // If slicing isn't actually needed, just return a copy
@@ -904,7 +969,7 @@ TensorView* slice(
           logical_ids,
           logical_ids,
           TensorDomain::getContiguityFilledWith(logical_ids, true)),
-      *inp->getDataType());
+      inp->getDataType());
 
   IrBuilder::create<SliceOp>(out, inp, normalized_ranges);
   return out;
@@ -950,7 +1015,7 @@ std::vector<TensorView*> chunk(
   std::vector<TensorView*> slices;
   slices.reserve(chunks);
   std::vector<Slice> ranges(num_dims);
-  for (auto i : c10::irange(chunks)) {
+  for (auto i : arange(chunks)) {
     ranges[dim].start = ranges[dim].stop;
     ranges[dim].stop =
         (i == chunks - 1 ? nullptr
@@ -976,17 +1041,14 @@ TensorView* broadcast(
   NVF_CHECK(
       nBCastDims - n_broadcasts ==
           TensorDomain::noReductions(inp->getLogicalDomain()).size(),
-      "Invalid broadcast, number of false entries in is_broadcast_dim expected to be ",
+      "Invalid broadcast, number of false entries in is_broadcast_dim expected "
+      "to be ",
       TensorDomain::noReductions(inp->getLogicalDomain()).size(),
       " but received ",
       nBCastDims - n_broadcasts);
 
   if (n_broadcasts == 0) {
-    auto identity = set(inp);
-    NVF_ERROR(
-        identity->getValType().value() == ValType::TensorView,
-        "Expected identity op, but didn't get a TensorView back.");
-    return identity->as<TensorView>();
+    return inp;
   }
 
   std::vector<IterDomain*> out_domain;
@@ -1001,8 +1063,7 @@ TensorView* broadcast(
                                .iter_type(IterType::Broadcast)
                                .build());
     } else {
-      out_domain.push_back(
-          IterDomainBuilder(inp_domain[iinp]).resetSchedulingParams().build());
+      out_domain.push_back(inp_domain[iinp]->cloneWithoutRFactor());
       iinp++;
     }
     ibdim++;
@@ -1011,7 +1072,7 @@ TensorView* broadcast(
   TensorView* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
+      inp->getDataType());
   if (inp->hasDeviceMesh()) {
     out->setDeviceMesh(inp->getDeviceMesh());
   }
@@ -1023,11 +1084,12 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
 
   NVF_CHECK(
-      expanded_sizes.size() >= inp_domain.size(),
-      "Invalid expand, number of sizes provided is expected to be at least ",
-      inp_domain.size(),
-      " but received ",
-      expanded_sizes.size());
+      !inp->domain()->hasRaggedIterDomain(),
+      "Expand operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp->toString());
+
+  NVF_CHECK_GE(expanded_sizes.size(), inp_domain.size());
 
   inp = ops::maybe_broadcast_inner_to_rank(inp, expanded_sizes.size());
   inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
@@ -1040,7 +1102,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   bool expanded = false;
 
   std::vector<IterDomain*> out_domain;
-  for (auto i : c10::irange(inp_domain.size())) {
+  for (auto i : arange(inp_domain.size())) {
     auto inp_id = inp_domain[i];
     auto out_id_builder = IterDomainBuilder(inp_id);
     maybe_expanded_sizes[i] = inp_domain[i]->extent();
@@ -1089,7 +1151,9 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // the extent to the given expanded size.
       // Note that expansion to 1 just means its extent becomes 1 and
       // does not mean the ID becomes a broadcast.
-      out_id_builder.extent(maybeCastOp(DataType::Index, expanded_sizes[i]));
+      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
+      out_id_builder.extent(expanded_extent);
+      maybe_expanded_sizes[i] = expanded_extent;
     } else {
       // Input id is non-expand and its extent is concrete. Nothing
       // to expand, but the input and expanded sizes should match if
@@ -1107,80 +1171,52 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
     out_domain.push_back(out_id_builder.build());
   }
 
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
+  auto* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
+      inp->getDataType());
   if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, inp);
   } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
+    IrBuilder::create<ExpandOp>(out, inp, maybe_expanded_sizes);
   }
-  return out_tensor;
+  return out;
 }
 
 TensorView* expand_as(TensorView* inp, TensorView* other) {
-  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-  auto other_domain = TensorDomain::noReductions(other->getLogicalDomain());
+  const std::vector<IterDomain*>& inp_domain =
+      TensorDomain::noReductions(inp->getLogicalDomain());
+  const std::vector<IterDomain*>& other_domain =
+      TensorDomain::noReductions(other->getLogicalDomain());
+  std::vector<Val*> expanded_sizes;
+  expanded_sizes.reserve(inp_domain.size());
 
-  NVF_CHECK(
-      inp_domain.size() <= other_domain.size(),
-      "Invalid expand_as, dimensions of inp is higher than dimensions of other, expected other to be at least ",
-      inp_domain.size(),
-      " but received ",
-      other_domain.size());
-
-  inp = ops::maybe_broadcast_inner_to_rank(inp, other_domain.size());
-  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-
-  std::vector<IterDomain*> out_domain;
-  std::vector<Val*> maybe_expanded_sizes;
-  bool expanded = false;
-  for (auto i : c10::irange(inp_domain.size())) {
-    auto inp_id = inp_domain[i];
-    auto other_id = other_domain[i];
-
-    auto out_id_builder = IterDomainBuilder(inp_id);
-    Val* maybe_expanded_size = inp_id->extent();
-
-    if (!inp_id->isBroadcast()) {
+  for (auto [inp_id, other_id] : zip(inp_domain, other_domain)) {
+    if (inp_id->isBroadcast()) {
+      expanded_sizes.push_back(other_id->getMaybeExpandedExtent());
+    } else {
       NVF_ERROR(
           !other_id->isBroadcast(),
-          "Cannot expand as a tensor if other has broadcast dimensions that don't map to broadcast dimensions in the input.");
-      if (!inp_id->isConstInt() && other_id->isConstInt()) {
-        out_id_builder.extent(
-            ops::promoteSize(inp_id->extent(), other_id->extent()));
-      }
-    } else {
-      if (!other_id->isBroadcast()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->extent());
-        maybe_expanded_size = other_id->extent();
-      } else if (other_id->isBroadcast() && other_id->hasExpandedExtent()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->expandedExtent());
-        maybe_expanded_size = other_id->expandedExtent();
-      }
+          "Cannot expand as a tensor if other has broadcast dimensions that "
+          "don't map to broadcast dimensions in the input.");
+      // promoteSize returns LHS if both are symbolic. This is good because it's
+      // easier for `expand` to tell that this dimension isn't expanded at all.
+      expanded_sizes.push_back(
+          ops::promoteSize(inp_id->extent(), other_id->extent()));
     }
-    out_domain.push_back(out_id_builder.build());
-    maybe_expanded_sizes.push_back(maybe_expanded_size);
   }
-
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
-  } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
-  }
-  return out_tensor;
+  return expand(inp, expanded_sizes);
 }
 
 TensorView* repeat(
     TensorView* inp_tv,
     const std::vector<int64_t>& repeat_times) {
+  NVF_CHECK(
+      !inp_tv->domain()->hasRaggedIterDomain(),
+      "Repeat operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp_tv->toString());
+
   const auto ndims =
       TensorDomain::noReductions(inp_tv->getLogicalDomain()).size();
 
@@ -1198,7 +1234,7 @@ TensorView* repeat(
 
   bool has_repetition_of_broadcast = false;
   auto intermediate_tv = inp_tv;
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : arange(ndims)) {
     if (repeat_times.at(i) == 1) {
       continue;
     }
@@ -1239,7 +1275,7 @@ TensorView* repeat(
   std::vector<std::optional<bool>> new_contiguity;
   new_contiguity.reserve(ndims);
 
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : arange(ndims)) {
     auto inp_id = intermediate_tv->getLogicalDomain().at(i);
     IterDomain* new_id = nullptr;
 
@@ -1266,6 +1302,94 @@ TensorView* repeat(
   IrBuilder::create<RepeatOp>(out_tv, intermediate_tv);
 
   return out_tv;
+}
+
+TensorView* asNested(
+    TensorView* data,
+    TensorView* extents,
+    int64_t ragged_dim) {
+  NVF_ERROR(data != nullptr, "asNested: data tensor is null");
+  NVF_ERROR(extents != nullptr, "asNested: extents tensor is null");
+
+  NVF_CHECK(
+      !data->domain()->hasRaggedIterDomain(),
+      "Multiple level of nesting is not supported: ",
+      data->toString());
+
+  // Get the logical domain of the input, excluding reductions
+  auto inp_logical = data->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto inp_logical_size = std::ranges::distance(inp_logical);
+
+  // Clone the logical domain to create the root domain for output
+  std::vector<IterDomain*> root_domain;
+  root_domain.reserve(inp_logical_size);
+  for (auto* id : inp_logical) {
+    root_domain.push_back(id->cloneWithoutRFactor());
+  }
+
+  ragged_dim = wrapDim(ragged_dim, inp_logical_size);
+
+  // Filter out reduction dimensions from extents tensor
+  auto extents_no_reduction =
+      extents->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto extents_ndim = std::ranges::distance(extents_no_reduction);
+  NVF_ERROR_GT(
+      extents_ndim,
+      0,
+      "asNested: extents tensor must have at least one non-reduction "
+      "dimension");
+
+  // Validate shape correspondence for multi-dimensional extents
+  // For N-D extents, outer dimensions must match outer dimensions of input
+  // tensor Rule: extents.ndim - 1 == ragged_dim (except 1D extents which are
+  // always valid).
+  if (extents_ndim > 1) {
+    NVF_ERROR_EQ(
+        extents_ndim - 1,
+        ragged_dim,
+        "asNested: Multi-dimensional extents require shape ",
+        "[d0, d1, ..., d(axis-1), num_components]. ",
+        "Got ",
+        extents_ndim,
+        "D extents for partitioning axis ",
+        ragged_dim);
+  }
+  // Note: 1D extents are always valid for any axis (uniform partition)
+
+  // Partition the specified dimension in root domain
+  // This replaces one IterDomain with (component_id, ragged_id)
+  auto [component_id, ragged_id] =
+      RaggedIterDomain::partition(root_domain.at(ragged_dim), extents);
+
+  // Build the logical domain: replace ragged_dim with component and ragged
+  std::vector<IterDomain*> logical_domain;
+  logical_domain.reserve(root_domain.size() + 1); // One extra for the split
+
+  for (const auto i : arange(root_domain.size())) {
+    if (static_cast<int64_t>(i) == ragged_dim) {
+      // Replace with component and ragged dimensions
+      logical_domain.push_back(component_id);
+      logical_domain.push_back(ragged_id);
+    } else {
+      logical_domain.push_back(root_domain.at(i));
+    }
+  }
+
+  // Create the output TensorView with the partitioned structure
+  auto* out = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          logical_domain,
+          logical_domain,
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
+      data->getDataType());
+
+  // For now, just use LoadStoreOp to represent the nesting
+  // operation. Does it make more sense to have a specific TensorView
+  // op like ReshapeOp?
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, data);
+
+  return out;
 }
 
 } // namespace nvfuser

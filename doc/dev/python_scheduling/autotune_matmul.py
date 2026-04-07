@@ -5,6 +5,8 @@
 
 import torch
 import itertools
+
+# TODO Update script to use nvfuser_direct module
 from nvfuser import FusionDefinition, SchedulerType
 
 # Description of the problem

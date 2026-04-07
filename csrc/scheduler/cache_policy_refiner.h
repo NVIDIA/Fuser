@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <visibility.h>
+#include "fusion.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

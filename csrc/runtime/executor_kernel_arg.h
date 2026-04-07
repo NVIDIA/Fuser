@@ -7,18 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <ATen/core/ivalue.h>
-#include <exceptions.h>
-#include <expr_evaluator.h>
-#include <ir/all_nodes.h>
-#include <serde/fusion_cache_generated.h>
-#include <torch/csrc/jit/ir/ir.h>
-#include <type.h>
-#include <visibility.h>
-
 #include <cstddef>
+#include <iterator>
 #include <optional>
+#include <string>
 #include <vector>
+
+#include <ATen/core/ivalue.h>
+
+#include "base.h"
+#include "exceptions.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -66,8 +66,8 @@ class NVF_API KernelArgumentHolder {
   // KernelArgumentHolder specific push to disambiguate from PolymorphicValue
   // push
   template <typename T>
-  std::enable_if_t<std::is_same_v<std::decay_t<T>, KernelArgumentHolder>, void>
-  push(const T& args) {
+  requires std::is_same_v<std::decay_t<T>, KernelArgumentHolder> void push(
+      const T& args) {
     arguments_.reserve(arguments_.size() + args.size());
     for (const auto& arg : args) {
       arguments_.emplace_back(arg);
@@ -179,8 +179,8 @@ class NVF_API KernelArgumentHolder {
     return std::back_inserter(arguments_);
   }
 
-  size_t size() const {
-    return arguments_.size();
+  int64_t size() const {
+    return std::ssize(arguments_);
   }
 
   bool empty() const {
@@ -202,13 +202,6 @@ class NVF_API KernelArgumentHolder {
   }
 
   std::string toString() const;
-
-  //! Serialize Kernel Argument Holder using flatbuffers
-  flatbuffers::Offset<serde::KernelArgumentHolder> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize Kernel Argument Holder using flatbuffers
-  void deserialize(const serde::KernelArgumentHolder* buffer);
 
  private:
   void setCommonDevice();
@@ -233,6 +226,7 @@ std::vector<std::byte> tensorToBytes(
     const std::vector<int64_t>& logical_sizes,
     const std::vector<int64_t>& allocation_strides,
     PrimDataType idx_type,
+    AdjustLastDim adjust_last_dim = {.numerator = 1, .denominator = 1},
     const std::vector<int64_t>& unsharded_logical_sizes = {});
 
 int64_t computeBytes(const KernelArgumentHolder& args);

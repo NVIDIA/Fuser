@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -49,16 +49,14 @@ def huggingface_attn_bwd_fusion(
     T13 = fd.ops.mul(T6, T11)
     T14 = fd.ops.sum(T13, dims=[2], keepdim=False, dtype=DataType.Null)
 
-    V18 = fd.define_vector([T5.size(0), T5.size(1), 1], dtype=DataType.Int)
-    T19 = fd.ops.broadcast_in_dim(T14, shape=V18, broadcast_dims=[0, 1])
+    T19 = fd.ops.broadcast_in_dim(
+        T14, shape=[T5.size(0), T5.size(1), 1], broadcast_dims=[0, 1]
+    )
     V24 = T5.shape()
     T25 = fd.ops.broadcast_in_dim(T19, shape=V24, broadcast_dims=[0, 1, 2])
     T27 = fd.ops.sub(T11, T25)
     T28 = fd.ops.mul(T6, T27)
-    V34 = fd.define_vector(
-        [batch_size, num_heads, T5.size(1), T5.size(2)], dtype=DataType.Int
-    )
-    T35 = fd.ops.reshape(T28, new_shape=V34)
+    T35 = fd.ops.reshape(T28, new_shape=[batch_size, num_heads, T5.size(1), T5.size(2)])
 
     if dtype in PROMOTE_DTYPES:
         T35 = fd.ops.cast(T35, dtype=dtype)
@@ -75,6 +73,7 @@ def huggingface_attn_bwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_huggingface_attn_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -117,6 +116,7 @@ def test_huggingface_attn_bwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_huggingface_attn_bwd_baseline_benchmark(
     benchmark,
     size: tuple,

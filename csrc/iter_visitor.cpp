@@ -9,7 +9,6 @@
 
 #include <fusion.h>
 #include <ir/all_nodes.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <type.h>
 
@@ -58,7 +57,8 @@ class MemberStatements : public OptOutDispatch {
   void dispatch(Val* val) final {
     FusionGuard::getCurFusion()->assertInContainer(
         val,
-        "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse val, ");
+        "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse "
+        "val, ");
     OptOutDispatch::dispatch(val);
   }
 
@@ -68,9 +68,19 @@ class MemberStatements : public OptOutDispatch {
     next_stmts_.push_back(stmt->stopOffset());
   }
 
+  void handle(RaggedIterDomain* stmt) final {
+    // Visit the standard IterDomain fields
+    next_stmts_.push_back(stmt->start());
+    next_stmts_.push_back(stmt->extent());
+    next_stmts_.push_back(stmt->stopOffset());
+    // Visit the extents TensorView (ragged-specific field)
+    next_stmts_.push_back(stmt->extents());
+  }
+
   void handle(TensorDomain* stmt) final {
-    next_stmts_.insert(
-        next_stmts_.end(), stmt->loop().begin(), stmt->loop().end());
+    for (const std::vector<IterDomain*>* dom : stmt->allDomains()) {
+      next_stmts_.insert(next_stmts_.end(), dom->begin(), dom->end());
+    }
   }
 
   void handle(TensorView* tv) final {
@@ -483,7 +493,8 @@ void BackwardVisitor::traverseTo(
       for (auto out : traversal_pair.first->outputs()) {
         NVF_ERROR(
             vals.find(out) != vals.end(),
-            "Invalid backward traversal found. Some output paths were not provided:",
+            "Invalid backward traversal found. Some output paths were not "
+            "provided:",
             out);
       }
     }

@@ -5,63 +5,57 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
 #include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
+#include "cuda_utils.h"
+#include "driver_api.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "runtime/communication_executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
+using testing::Contains;
 using testing::Each;
-using testing::IsTrue;
 using testing::Pointer;
-using testing::Property;
+using testing::UnorderedElementsAre;
 
 namespace {
 void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_EQ(runtime->executors().size(), 1);
-  EXPECT_THAT(
-      runtime->executors(),
-      Each(Pointer(Property(
-          "is a HostIrExecutor",
-          &ExecutorAbstract::isA<HostIrExecutor>,
-          IsTrue()))))
-      << "failed to compile to a HostIrContainer with Communications";
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    auto hicExprs = runtime->getHostIrContainer().topLevelExprs();
+    EXPECT_THAT(hicExprs, Contains(IsA<Communication>()))
+        << "host ir container should have at least one communication";
+  } else {
+    EXPECT_EQ(runtime->executors().size(), 1);
+    EXPECT_THAT(
+        runtime->executors(), Each(Pointer(IsA<CommunicationExecutor>())))
+        << "failed to compile to a HostIrContainer with Communications";
+  }
 }
 } // namespace
-
-// This is made a macro instead of a function, because GTEST_SKIP can only be
-// used in individual test cases or `SetUp` methods.
-#define SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh)                 \
-  do {                                                                \
-    const auto num_devices = communicator_->size();                   \
-    for (const auto& mesh : {in_mesh, out_mesh}) {                    \
-      for (const auto device_id : mesh.vector()) {                    \
-        if (device_id >= num_devices) {                               \
-          GTEST_SKIP() << "Mesh (" << mesh << ") requires more than " \
-                       << num_devices << " devices.";                 \
-        }                                                             \
-      }                                                               \
-    }                                                                 \
-  } while (0)
 
 using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
 
 static constexpr int kTensorSize = 4;
 
-class LowerGatherTest : public MultiDeviceTest,
-                        public testing::WithParamInterface<InOutMesh> {};
+class LowerGatherTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerGatherTest, ) {
-  const auto& [in_mesh, out_mesh] = GetParam();
-  SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -75,9 +69,11 @@ TEST_P(LowerGatherTest, ) {
   out->setDeviceMesh(out_mesh);
   in->axis(0)->parallelize(ParallelType::DIDx);
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
+
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
-      at::randn({in_mesh.size(), kTensorSize}, tensor_options);
+      at::randn({in_mesh.size(), kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -90,21 +86,48 @@ TEST_P(LowerGatherTest, ) {
   }
 }
 
+namespace {
+std::string paramToString(
+    const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+  auto&& [meshes, enable_hir] = info.param;
+  auto&& [in_mesh, out_mesh] = meshes;
+
+  std::stringstream ss;
+  ss << "InMesh";
+  for (auto id : in_mesh.vector()) {
+    ss << "_" << id;
+  }
+  ss << "_OutMesh";
+  for (auto id : out_mesh.vector()) {
+    ss << "_" << id;
+  }
+  ss << (enable_hir ? "_HostIr" : "_NonHostIr");
+
+  return ss.str();
+}
+} // namespace
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     LowerGatherTest,
-    // Trick to enforce clang-format to break lines for readability.
-    testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0, 1}, {0}}, //
-         {{0, 1}, {1}}, //
-         {{1, 2}, {0, 2}}})));
+    // Create product of InOutMesh configurations and HostIrLowering options
+    testing::Combine(
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0, 1}, {0}}, {{0, 1}, {1}}, {{1, 2}, {0, 2}}})),
+        testing::Bool()),
+    paramToString);
 
-class LowerScatterTest : public MultiDeviceTest,
-                         public testing::WithParamInterface<InOutMesh> {};
+class LowerScatterTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerScatterTest, ) {
-  const auto& [in_mesh, out_mesh] = GetParam();
-  SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -118,9 +141,11 @@ TEST_P(LowerScatterTest, ) {
   out->setDeviceMesh(out_mesh);
   out->axis(0)->parallelize(ParallelType::DIDx);
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
+
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
-      at::randn({out_mesh.size(), kTensorSize}, tensor_options);
+      at::randn({out_mesh.size(), kTensorSize}, tensor_options_);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
@@ -136,17 +161,23 @@ TEST_P(LowerScatterTest, ) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     LowerScatterTest,
-    testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0}, {0, 1}}, //
-         {{1}, {0, 1}}, //
-         {{0, 2}, {1, 2}}})));
+    testing::Combine(
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {0, 1}}, {{1}, {0, 1}}, {{0, 2}, {1, 2}}})),
+        testing::Bool()),
+    paramToString);
 
-class LowerSendRecvTest : public MultiDeviceTest,
-                          public testing::WithParamInterface<InOutMesh> {};
+class LowerSendRecvTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerSendRecvTest, ) {
-  const auto& [in_mesh, out_mesh] = GetParam();
-  SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -162,9 +193,11 @@ TEST_P(LowerSendRecvTest, ) {
   in->axis(0)->parallelize(ParallelType::DIDx);
   out->axis(0)->parallelize(ParallelType::DIDx);
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
+
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
-      at::randn({in_mesh.size(), kTensorSize}, tensor_options);
+      at::randn({in_mesh.size(), kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -180,15 +213,36 @@ TEST_P(LowerSendRecvTest, ) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     LowerSendRecvTest,
-    testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0}, {1}}, //
-         {{1}, {0}}, //
-         {{1, 2}, {0, 1}}, //
-         {{1, 2}, {1, 0}}})));
+    testing::Combine(
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {1}}, {{1}, {0}}, {{1, 2}, {0, 1}}, {{1, 2}, {1, 0}}})),
+        testing::Bool()),
+    paramToString);
 
-using LowerCollectiveTest = MultiDeviceTest;
+class LowerCollectiveTest : public MultiDeviceTest,
+                            public testing::WithParamInterface<
+                                std::tuple<CommunicatorBackend, bool>> {
+ protected:
+  void SetUp() override;
+};
 
-TEST_F(LowerCollectiveTest, Allgather) {
+void LowerCollectiveTest::SetUp() {
+  MultiDeviceTest::SetUp();
+
+  const auto& [backend_type, enable_host_ir_lowering] = GetParam();
+  if (!communicator_->isBackendAvailable(backend_type)) {
+    GTEST_SKIP() << "Backend not available: " << backend_type;
+  }
+  // getBackendForTeam throws an error if the requested backend type isn't
+  // available. Therefore, we call it after the isBackendAvailable check.
+  communicator_->setDefaultBackend(backend_type);
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+}
+
+TEST_P(LowerCollectiveTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -204,7 +258,7 @@ TEST_F(LowerCollectiveTest, Allgather) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -215,7 +269,7 @@ TEST_F(LowerCollectiveTest, Allgather) {
   EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
 }
 
-TEST_F(LowerCollectiveTest, Allgather_LoopSplit) {
+TEST_P(LowerCollectiveTest, Allgather_LoopSplit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -223,17 +277,16 @@ TEST_F(LowerCollectiveTest, Allgather_LoopSplit) {
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
 
   TensorView* in = makeContigTensor(1);
-  in->setDeviceMesh(mesh);
   TensorView* out = set(in);
   fusion->addInput(in);
   fusion->addOutput(out);
 
+  in->setDeviceMesh(mesh);
   in->split(0, num_devices, /*inner_split=*/false);
   in->axis(0)->parallelize(ParallelType::DIDx);
   in->setAllocationDomain(in->getLoopDomain(), true);
 
-  out->split(0, num_devices, /*inner_split=*/false);
-  out->setAllocationDomain(out->getLoopDomain(), true);
+  out->setDeviceMesh(mesh);
 
   at::Tensor unsharded_tensor =
       at::randn({num_devices * kTensorSize}, at::kFloat);
@@ -248,43 +301,7 @@ TEST_F(LowerCollectiveTest, Allgather_LoopSplit) {
   EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
 }
 
-// This currently fails due to getShardingChanges reads root/logical only:
-// https://github.com/NVIDIA/Fuser/blob/1dda106a946adcfd1526b83e4f2d4abebb9e32e4/csrc/multidevice/utils.cpp#L77.
-// Will try to fix this in a follow-up PR and reenable the test.
-TEST_F(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto num_devices = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(num_devices);
-
-  TensorView* in = makeContigTensor(2);
-  in->setDeviceMesh(mesh);
-  TensorView* out = set(in);
-  fusion->addInput(in);
-  fusion->addOutput(out);
-
-  in->split(1, num_devices, /*inner_split=*/false);
-  in->axis(1)->parallelize(ParallelType::DIDx);
-  in->setAllocationDomain(in->getLoopDomain(), true);
-
-  out->split(1, num_devices, /*inner_split=*/false);
-  out->setAllocationDomain(out->getLoopDomain(), true);
-
-  at::Tensor unsharded_tensor =
-      at::arange(2 * num_devices * 3, at::kFloat).view({2, num_devices * 3});
-  at::Tensor in_tensor =
-      shardTensor(unsharded_tensor, in).to(communicator_->device());
-
-  FusionExecutorCache fec(std::move(fusion));
-  at::Tensor out_tensor =
-      fec.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
-  assertIsCompiledToHostIrContainer(fec);
-
-  EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
-}
-
-TEST_F(LowerCollectiveTest, Broadcast) {
+TEST_P(LowerCollectiveTest, Broadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -300,13 +317,14 @@ TEST_F(LowerCollectiveTest, Broadcast) {
   out->setDeviceMesh(mesh);
 
   at::Tensor unsharded_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
   if (num_devices > 1) {
     assertIsCompiledToHostIrContainer(executor_cache);
   }
@@ -315,7 +333,7 @@ TEST_F(LowerCollectiveTest, Broadcast) {
       at::equal(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
 }
 
-TEST_F(LowerCollectiveTest, Reduce) {
+TEST_P(LowerCollectiveTest, Reduce) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -332,7 +350,7 @@ TEST_F(LowerCollectiveTest, Reduce) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
@@ -347,7 +365,7 @@ TEST_F(LowerCollectiveTest, Reduce) {
   }
 }
 
-TEST_F(LowerCollectiveTest, Allreduce) {
+TEST_P(LowerCollectiveTest, Allreduce) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -363,7 +381,7 @@ TEST_F(LowerCollectiveTest, Allreduce) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -374,7 +392,7 @@ TEST_F(LowerCollectiveTest, Allreduce) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
-TEST_F(LowerCollectiveTest, Allreduce_Concrete) {
+TEST_P(LowerCollectiveTest, Allreduce_Concrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -392,7 +410,7 @@ TEST_F(LowerCollectiveTest, Allreduce_Concrete) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -405,7 +423,65 @@ TEST_F(LowerCollectiveTest, Allreduce_Concrete) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
-TEST_F(LowerCollectiveTest, ReduceScatter) {
+TEST_P(LowerCollectiveTest, ReduceScatter) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = sum(in, {1});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  in->setDeviceMesh(mesh);
+  in->outer_split(1, d);
+  in->axis(1)->parallelize(ParallelType::DIDx);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  out->setDeviceMesh(mesh);
+  out->outer_split(1, d);
+  out->axis(1)->parallelize(ParallelType::DIDx);
+  out->outer_split(0, d);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  at::Tensor unsharded_in_tensor = at::randn({d * 2, d * 3}, tensor_options_);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  at::Tensor unsharded_out_tensor = unsharded_in_tensor.sum(1);
+  EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const std::vector<SegmentedGroup*>& groups =
+      runtime->fusionSegments()->groups();
+  EXPECT_THAT(
+      groups,
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::Reduction),
+          HeuristicIs(SchedulerType::Communication)));
+  for (auto* group : groups) {
+    if (group->schedulerType() == SchedulerType::Communication) {
+      EXPECT_EQ(group->inputs().at(0)->as<TensorView>()->nDims(), 3)
+          << "This TV is the output of the local reduction and the input of "
+             "the ReduceScatter. Its loop domain should contain three "
+             "elements: in no particular order, [i{2d}, iDIDx{d}, r{3}]. "
+             "nvFuser used to add an extra split and thus [i{d}, i{2}, "
+             "iDIDx{d}, r{3}] as the loop domain. This is in "
+             "theory valid but unnecessarily complicated and in practice "
+             "caused some schedulers to fail. "
+             "Many schedulers panic when they see the input fusion segment "
+             "contains non-DID loop splits.";
+    }
+  }
+}
+
+TEST_P(LowerCollectiveTest, ReduceScatter_LogicalSplit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -422,7 +498,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   out->axis(1)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -434,7 +510,41 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
 }
 
-TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
+TEST_P(LowerCollectiveTest, ReduceScatter_StaticShape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* in = makeContigConcreteTensor({d, -1});
+  TensorView* out = sum(in, {0});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  out->setDeviceMesh(mesh);
+  out->outer_split(-1, d);
+  out->axis(-2)->parallelize(ParallelType::DIDx);
+
+  at::Tensor in_ref = at::randn({d, d * 3}, tensor_options_);
+  at::Tensor out_ref = in_ref.sum(0);
+
+  at::Tensor in_tensor = shardTensor(in_ref, in);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(at::allclose(out_tensor, shardTensor(out_ref, out)));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::Communication)));
+}
+
+TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
   // Allreduce = ReduceScatter + Allgather
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -456,7 +566,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
   fusion->addOutput(out);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
+      at::randn({num_devices, num_devices, kTensorSize}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -464,6 +574,333 @@ TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
+}
+
+TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "This test exercises ReorderShardedAxisPass, and requires "
+                    "at least 2 devices.";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3, d * 7});
+  TensorView* tv1 = sum(tv0, {1});
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->setDeviceMesh(mesh);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->outer_split(-1, d);
+  tv1->axis(-2)->parallelize(ParallelType::DIDx);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor =
+      at::randint(2, {5, d * 3, d * 7}, tensor_options_);
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 1, mesh);
+
+  at::Tensor expected_output =
+      shardTensor1D(unsharded_in_tensor.sum(1), -1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(out_tensor.t().is_contiguous());
+  EXPECT_TRUE(at::equal(out_tensor, expected_output));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::Communication),
+          HeuristicIs(SchedulerType::Reduction)));
+}
+
+TEST_P(LowerCollectiveTest, AllreduceNoncontig) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  tv0->setAllocationDomain(tv0->getLogicalDomain(), false);
+  TensorView* tv1 = sum(tv0, {1});
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options_);
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  at::Tensor expected_output = unsharded_in_tensor.sum(1);
+  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::Communication),
+          HeuristicIs(SchedulerType::Reduction)));
+}
+
+TEST_P(LowerCollectiveTest, Allgather_CompliantAllocation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+
+  TensorView* tv1 = set(tv0);
+  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->setDeviceMesh(mesh);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({d * 3, 5}, tensor_options_);
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 0, mesh).t();
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(out_tensor.t().is_contiguous());
+  EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.t()));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::Communication)));
+}
+
+TEST_P(LowerCollectiveTest, Allgather_NonCompliantAllocation) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Should pass with one GPU, but doesn't.";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  tv0->setAllocationDomain(tv0->getLogicalDomain(), false);
+
+  TensorView* tv1 = set(tv0);
+  tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->setDeviceMesh(mesh);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options_);
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(out_tensor.is_contiguous());
+  EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::PointWise)).Times(2));
+}
+
+TEST_P(LowerCollectiveTest, Allgather_NoncontiguousOutput) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Should pass with one GPU, but doesn't.";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  const auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  out->setAllocationDomain({out->axis(1), out->axis(0)}, false);
+
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+
+  in->outer_split(1, d);
+  in->axis(1)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_in_tensor = at::randn({2, d * 3}, tensor_options_);
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  EXPECT_TRUE(at::equal(out_tensor, unsharded_in_tensor));
+
+  EXPECT_LT(out_tensor.stride(0), out_tensor.stride(1))
+      << "`out` has been specified to be column major";
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::Communication)));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    LowerCollectiveTest,
+    ::testing::Combine(
+        testing::Values(CommunicatorBackend::kNccl),
+        testing::Bool()),
+    ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>&
+            info) -> std::string {
+      const auto& [backend_type, enable_host_ir_lowering] = info.param;
+      std::stringstream ss;
+      ss << backend_type;
+      ss << (enable_host_ir_lowering ? "_HostIr" : "_NonHostIr");
+      return ss.str();
+    }));
+
+class LowerCollectiveCudaTest : public MultiDeviceTest {
+ protected:
+  bool isMulticastSupported() {
+    const int64_t local_rank = communicator_->local_rank();
+    int is_multicast_supported = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &is_multicast_supported,
+        CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+        static_cast<int>(local_rank)));
+    return is_multicast_supported != 0;
+  }
+};
+
+TEST_F(LowerCollectiveCudaTest, Allgather) {
+  constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+  out->setMemoryType(MemoryType::Symmetric);
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, kMsgSize}, tensor_options_);
+  at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.executor.use_allocation_cache = true;
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
+
+  at::Tensor out_tensor;
+  for (int i = 0; i < 10; ++i) {
+    out_tensor = executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+  }
+
+  EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor));
+}
+
+TEST_F(LowerCollectiveCudaTest, Broadcast) {
+  constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+  out->setMemoryType(MemoryType::Symmetric);
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  constexpr DeviceIdxType kRoot = 0;
+  in->setDeviceMesh({kRoot});
+  out->setDeviceMesh(mesh);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.executor.use_allocation_cache = true;
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
+
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, kMsgSize}, tensor_options_);
+  const auto device_id = communicator_->deviceId();
+  at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
+
+  at::Tensor out_tensor =
+      executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(
+      at::allclose(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
 }
 
 } // namespace nvfuser

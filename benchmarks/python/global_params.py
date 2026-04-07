@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import torch
 from typing import Union, List, Tuple
-from nvfuser import DataType
+from nvfuser_direct import DataType
 from .core import BENCHMARK_CONFIG
-from nvfuser.pytorch_utils import DEVICE_PROPERTIES
+from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
 import itertools
 import os
 from random import sample

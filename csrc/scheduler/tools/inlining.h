@@ -7,15 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <id_model/id_model.h>
-#include <ir/interface_nodes.h>
-#include <scheduler/tools/maxinfo_propagator.h>
-#include <transform_replay.h>
-#include <visibility.h>
-
 #include <memory>
 #include <unordered_set>
+
+#include "exceptions.h"
+#include "id_model/id_model.h"
+#include "ir/interface_nodes.h"
+#include "scheduler/tools/maxinfo_propagator.h"
+#include "transform_replay.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -112,5 +112,8 @@ NVF_API void inlineSelectedAt(
     int64_t reference_pos,
     bool best_effort = false,
     const std::unordered_set<IterDomain*>& uninlinable_ids = {});
+
+// Reset inlining of all tensors
+void resetInlining(Fusion* fusion);
 
 } // namespace nvfuser

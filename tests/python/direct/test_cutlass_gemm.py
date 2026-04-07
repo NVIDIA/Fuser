@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+# Owner(s): ["module: nvfuser"]
+
+import pytest
+import torch
+from python.direct_utils import microarchitecture_is
+from nvfuser_direct import nvf_cutlass
+
+
+# GPU Compute Capability: https://developer.nvidia.com/cuda/gpus
+# tested on blackwell compute 10.0 (B200 and GB200)
+# doesn't support 12.0 (RTX PRO 6000 and RTX 50XX)
+# Not tested on 10.3 (B300 and GB300)
+# Not tested on 12.1 (DGX Spark)
+@pytest.mark.skipif(
+    not microarchitecture_is(10, 0),
+    reason="Does not support blackwell compute 12.0, other arches are not tested.",
+)
+@pytest.mark.parametrize("config", [[1024, 128, 256], [267, 128, 256]])
+@pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8], [5, 7, 9]])
+@pytest.mark.parametrize("tensor_dtype", [torch.bfloat16, torch.float16])
+def test_grouped_mm(
+    config,
+    tokens_per_expert_neg_one,
+    tensor_dtype,
+):
+    # k dimension is multiple of 128 to avoid padding
+    m, n, k = config
+    tokens_per_expert = list(tokens_per_expert_neg_one)
+    tokens_per_expert.append(m - sum(tokens_per_expert))
+    g = len(tokens_per_expert)
+
+    mat1 = torch.testing.make_tensor((m, k), dtype=tensor_dtype, device="cuda:0")
+    mat2 = torch.testing.make_tensor((g, n, k), dtype=tensor_dtype, device="cuda:0")
+    ab_strides = torch.full((g,), k, dtype=torch.int64, device="cuda:0")
+    c_strides = torch.full((g,), n, dtype=torch.int64, device="cuda:0")
+
+    # offsets represents the lhs of slice in nvfuser
+    offsets = torch.empty((g,), dtype=torch.int32, device="cuda:0")
+    # aten_offsets represents the rhs of slice of torch._grouped_mm(A[m,k], B[g, n, k])
+    aten_offsets = torch.empty((g,), dtype=torch.int32, device="cuda:0")
+    problem_sizes = torch.empty((g, 3), dtype=torch.int32, device="cuda:0")
+
+    accumulated_tokens = 0
+    # Use tokens_per_expert to calculate offsets into m dimension of input tensor.
+    for i in range(g):
+        offsets[i] = accumulated_tokens
+        accumulated_tokens += tokens_per_expert[i]
+        aten_offsets[i] = accumulated_tokens
+
+        problem_sizes[i][0] = tokens_per_expert[i]
+        problem_sizes[i][1] = n
+        problem_sizes[i][2] = k
+
+    out = nvf_cutlass.grouped_mm(
+        mat1,
+        mat2,
+        ab_strides,
+        c_strides,
+        problem_sizes,
+        offsets,
+    )
+
+    # Create pytorch expected output reference
+    # For each expert, apply gemm. Slice the input matrix given the tokens_per_expert.
+    # C[start:stop] = A[start:stop] @ B[expert].
+    out_ref = torch._grouped_mm(mat1, mat2.transpose(-1, -2), aten_offsets)
+    torch.testing.assert_close(out_ref, out, atol=1e-2, rtol=1e-2)

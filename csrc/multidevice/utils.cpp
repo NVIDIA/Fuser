@@ -5,123 +5,93 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "multidevice/utils.h"
 
-#include <c10/util/irange.h>
+#include <algorithm>
+#include <ostream>
+#include <ranges>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
-#include <device_lower/utils.h>
-#include <expr_simplifier.h>
-#include <host_ir/lower.h>
-#include <instrumentation.h>
-#include <ir/container.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <scheduler/utils.h>
-#include <statement_guard.h>
+#include "compute_at_map.h"
+#include "ir/builder.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/internal_nodes.h"
+#include "ops/arith.h"
+#include "transform_replay.h"
+#include "type.h"
 
 namespace nvfuser {
 
-NVF_API bool distributedEnabled() {
-#ifdef NVFUSER_DISTRIBUTED
-  return true;
-#else
-  return false;
-#endif
+std::ostream& operator<<(std::ostream& os, DomainType domain_type) {
+  switch (domain_type) {
+    case DomainType::kRoot:
+      return os << "kRoot";
+    case DomainType::kLogical:
+      return os << "kLogical";
+    case DomainType::kLoop:
+      return os << "kLoop";
+    case DomainType::kAllocation:
+      return os << "kAllocation";
+  }
+  std::unreachable();
 }
 
 namespace {
 
-// Returns the position where an axis is allocated in a tv, skipping trivial
-// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
-// tv's loop domain WAR: today we assume that the loop domain match with the
-// actual allocation, but this will have to change in the future.
-int64_t allocationIndex(TensorView* tv, IterDomain* id) {
-  int64_t index = 0;
-  for (auto* loop_id : tv->getLoopDomain()) {
-    if (loop_id == id) {
-      return index;
-    }
-    if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
-        !loop_id->isBroadcast()) {
-      index++;
-    }
+const std::vector<IterDomain*>& getDomainOf(
+    const TensorView* tv,
+    DomainType domain_type) {
+  switch (domain_type) {
+    case DomainType::kRoot:
+      return tv->getMaybeRootDomain();
+    case DomainType::kLogical:
+      return tv->getLogicalDomain();
+    case DomainType::kLoop:
+      return tv->getLoopDomain();
+    case DomainType::kAllocation:
+      return tv->getMaybeAllocationDomain();
   }
-  return -1;
+  std::unreachable();
 }
 
 } // namespace
 
-std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
-    TensorView* producer,
-    TensorView* consumer) {
-  std::vector<IterDomain*> shard_additions;
-  std::vector<IterDomain*> shard_deletions;
-  auto rootmap =
-      PairwiseLogicalDomainMap(producer, consumer).mapBroadcast(false);
-  const auto c2p_map = rootmap.mapConsumerToProducer();
-
-  for (IterDomain* out_root : consumer->getMaybeRootDomain()) {
-    IterDomain* in_root = c2p_map.at(out_root);
-    // Ignore sharded broadcast domains and
-    // sharded reductions on the consumer
-    // ex. DIDx(i0) -> r(i0) or DIDx(i0) -> r(DIDx(i0))
-    // since they don't affect allocation.
-    if (in_root->isDeviceDim() && !in_root->isBroadcast() &&
-        !out_root->isDeviceDim() && !out_root->isReduction()) {
-      shard_deletions.push_back(in_root);
-    } else if (
-        !in_root->isDeviceDim() && out_root->isDeviceDim() &&
-        !out_root->isBroadcast()) {
-      shard_additions.push_back(out_root);
-    } else if (in_root->isDeviceDim() && out_root->isDeviceDim()) {
-      NVF_ERROR(
-          in_root->getParallelType() == out_root->getParallelType(),
-          " resharding ",
-          in_root->toString(),
-          " to ",
-          out_root->toString(),
-          " which is not supported");
-    }
-  }
-  return std::make_pair(shard_additions, shard_deletions);
-}
-
 bool isSharded(const TensorView* tv) {
-  bool is_sharded = false;
-  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
-    if (!alloc_id->isDeviceDim()) {
-      continue;
+  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
+      mapDeviceAndStreamParallelTypeToId(tv->getLoopDomain());
+  for (ParallelType parallel_type : kParallelTypeDIDs) {
+    if (parallel_type_to_id.count(parallel_type) > 0) {
+      return true;
     }
-
-    // Only one axis can be sharded on DIDx.
-    NVF_ERROR(
-        !is_sharded,
-        "Multiple IterDomains parallelized on DIDx in TensorView ",
-        tv);
-    is_sharded = true;
   }
-  return is_sharded;
+  return false;
 }
 
-namespace {
-
-// Collect device-parallel IterDomains in `domain` and return them as a
-// ParallelType-to-IterDomain map.
-std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
+std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
     const std::vector<IterDomain*>& domain) {
+  const std::unordered_set<ParallelType>& parallel_types =
+      deviceAndStreamParallelTypes();
+
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
-  parallel_type_to_id.reserve(kParallelTypeDIDs.size());
+  parallel_type_to_id.reserve(parallel_types.size());
+
   for (IterDomain* id : domain) {
     const ParallelType parallel_type = id->getParallelType();
-    if (!isParallelTypeDeviceDim(parallel_type)) {
+    if (parallel_types.count(parallel_type) == 0) {
+      continue;
+    }
+
+    // rDIDx{i0}, usually a product of an Allreduce or a ReduceScatter, is
+    // treated as replicated. This way `iDIDx{i0} => rDIDx{i0}` is considered
+    // resharding.
+    if (id->isReduction()) {
       continue;
     }
 
     NVF_ERROR(
-        parallel_type_to_id.try_emplace(parallel_type, id).second,
+        parallel_type_to_id.emplace(parallel_type, id).second,
         "Found multiple loop IterDomains with the same parallel type (",
         parallel_type,
         "): ",
@@ -130,42 +100,40 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
   return parallel_type_to_id;
 }
 
+namespace {
+
 std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
     const std::vector<IterDomain*>& domain) {
   std::unordered_map<IterDomain*, int64_t> id_to_axis;
   int64_t axis = 0;
   for (auto* id : domain) {
-    // Reduction IterDomains are not materialized as an at::Tensor axis.
     if (id->isReduction()) {
-      continue;
+      // Reduction IterDomains are not materialized as an at::Tensor axis.
+      id_to_axis[id] = -1;
+    } else {
+      id_to_axis[id] = axis;
+      axis++;
     }
-    id_to_axis[id] = axis;
-    axis++;
   }
   return id_to_axis;
 }
 
-} // namespace
-
-int64_t getShardedLogicalAxis(
-    const TensorView* tv,
-    const ParallelType parallel_type) {
-  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
-  IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
-  if (alloc_id == nullptr) {
-    return -1;
-  }
-
+// Finds the logical IterDomain that transitively produces `id` and returns its
+// tensor axis. Returns -1 for reduction dimensions because they don't
+// correspond to any tensor axis.
+int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = alloc_id;
-  while (logical_id_to_axis.count(id) == 0) {
+  while (true) {
+    if (auto i = logical_id_to_axis.find(id); i != logical_id_to_axis.end()) {
+      return i->second;
+    }
+
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
         "Failed to find a non-reduction logical IterDomain that produces ",
-        alloc_id);
+        id);
     if (auto* split = dynamic_cast<Split*>(def)) {
       // Returning just which tensor axis is sharded isn't sufficient to let
       // shardTensor, a user of this function, know how to shard the tensor.
@@ -202,6 +170,8 @@ int64_t getShardedLogicalAxis(
           split);
       id = split->in();
     } else if (auto* merge = dynamic_cast<Merge*>(def)) {
+      // During propagation, we follow the outermost of the merge to shard
+      // across reshape. We follow that here, but it may not always be accurate.
       // For example,
       //
       //   t = makeContigTensor(2);
@@ -210,485 +180,100 @@ int64_t getShardedLogicalAxis(
       //
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
-      NVF_THROW(
-          "Failed to attribute the sharding to a single tensor axis and therefore bailed out: ",
-          merge);
+      id = merge->outer();
+    } else if (auto* swizzle = dynamic_cast<Swizzle1D*>(def)) {
+      id = swizzle->in();
     } else {
       NVF_THROW(
-          "Unexpected transforms from logical to a DID-parallel allocation IterDomain: ",
+          "Unexpected transforms from logical to a DID-parallel allocation "
+          "IterDomain: ",
           def);
     }
   }
-
-  return logical_id_to_axis.at(id);
-}
-
-int64_t getShardedLoopAxis(
-    const TensorView* tv,
-    const ParallelType parallel_type) {
-  NVF_ERROR(
-      isParallelTypeDeviceDim(parallel_type),
-      "Expect a DID but found: ",
-      parallel_type);
-  for (int64_t i : c10::irange(tv->nDims())) {
-    if (tv->getLoopDomain()[i]->isDeviceDim()) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-at::Tensor shardTensor(
-    at::Tensor tensor,
-    const int64_t axis,
-    const DeviceMesh& mesh,
-    const DeviceIdxType device_id) {
-  auto i = mesh.idxOf(device_id);
-  auto extent = tensor.size(axis);
-  auto nslices = mesh.size();
-  NVF_CHECK(
-      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh");
-  auto stride = extent / nslices;
-  // TODO: returning slice 0 temporarily when device is not in the mesh.
-  i = (i < 0) ? 0 : i;
-  // The following slicing is problematic when DID is on an inner split (cf.
-  // MultiDeviceTest.ShardTensor_InnerSplit). We currently disallow that and
-  // it's enforced by getShardedLogicalAxis.
-  return tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
-}
-
-std::vector<int64_t> unshardedSizes(
-    const TensorView* tv,
-    c10::IntArrayRef sizes) {
-  std::vector<int64_t> unsharded_sizes = sizes.vec();
-  for (ParallelType parallel_type : kParallelTypeDIDs) {
-    const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_type);
-    if (sharded_axis == -1) {
-      continue;
-    }
-    unsharded_sizes.at(sharded_axis) *= tv->getDeviceMesh().size(parallel_type);
-  }
-  return unsharded_sizes;
-}
-
-int64_t numDeviceDims(const TensorView* tv) {
-  return std::count_if(
-      tv->getLoopDomain().begin(),
-      tv->getLoopDomain().end(),
-      [](IterDomain* id) { return id->isDeviceDim(); });
-}
-
-namespace {
-// Given a loop ID `id` and a source domain `sources`, returns the Val* that
-// represents the index of that loop ID. `sources` is either the producer's
-// logical or the consumer's root. The boolean returned indicates whether the
-// loop ID depends on a producer logical ID or a consumer root ID that are
-// mapped by PairwiseLogicalDomainMap. Recall that the caller only examines DIDs
-// that originates from a mapped ID. `id_to_index` operates as a cache.
-std::pair<Val*, bool> computeLoopIndex(
-    IterDomain* id,
-    const std::vector<IterDomain*>& sources,
-    std::unordered_map<IterDomain*, std::pair<Val*, bool>>& id_to_index) {
-  if (id == nullptr) {
-    return {nullptr, false};
-  }
-
-  std::vector<Expr*> transforms =
-      StmtSort::getExprsBetween({sources.begin(), sources.end()}, {id});
-  for (Expr* transform : transforms) {
-    if (std::all_of(
-            transform->outputs().begin(),
-            transform->outputs().end(),
-            [&](Val* val) {
-              return id_to_index.count(val->as<IterDomain>()) > 0;
-            })) {
-      continue;
-    }
-
-    if (auto* split = dynamic_cast<Split*>(transform)) {
-      auto* in = split->in()->as<IterDomain>();
-      auto* outer = split->outer()->as<IterDomain>();
-      auto* inner = split->inner()->as<IterDomain>();
-
-      const auto& in_info = id_to_index.at(in);
-      id_to_index[outer] = {
-          div(in_info.first, inner->extent()), in_info.second};
-      id_to_index[inner] = {
-          mod(in_info.first, inner->extent()), in_info.second};
-    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-      auto* outer = merge->outer()->as<IterDomain>();
-      auto* inner = merge->inner()->as<IterDomain>();
-      auto* out = merge->out()->as<IterDomain>();
-
-      const auto& outer_info = id_to_index.at(outer);
-      const auto& inner_info = id_to_index.at(inner);
-      id_to_index[out] = {
-          add(mul(outer_info.first, inner->extent()), inner_info.first),
-          outer_info.second || inner_info.second};
-    } else {
-      NVF_THROW("Unexpected transform: ", transform);
-    }
-  }
-
-  return id_to_index.at(id);
 }
 
 } // namespace
 
-bool haveDifferentShardings(
-    const TensorView* producer,
-    const TensorView* consumer) {
-  // cpu scalars are not required to have a mesh
-  if (producer->isCpuScalar() || consumer->isCpuScalar()) {
-    return false;
+int64_t getShardedLogicalAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  const DomainType domain_type = parallel_type == ParallelType::Stream
+      ? DomainType::kAllocation
+      : DomainType::kLoop;
+  IterDomain* parallel_id =
+      getShardedIterDomain(tv, parallel_type, domain_type);
+  if (parallel_id == nullptr) {
+    return -1;
   }
 
-  // exit early in the unsharded case for performance
-  if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
-    return false;
-  }
-
-  // If device mesh are different, the Expr is resharding
-  if (producer->getDeviceMesh() != consumer->getDeviceMesh()) {
-    return true;
-  }
-
-  // The rest of this function tries to do the following: for each pair of
-  // logical-domain-mapped IterDomains (i.e. those mapped by
-  // PairwiseLogicalDomainMap), check if they are sharded consistently. If not,
-  // returns true. For example,
-  //
-  //   a: iDIDx{M}, iK
-  //   b: iK, iDIDy{N}
-  //   c = matmul(a, b): iDIDx{M}, iDIDy{N}
-  //
-  // haveDifferentShardings(a, c) only cares about iM, which is
-  // logical-domain-mapped, but not iK or iN, which are not
-  // logical-domain-mapped.
-  //
-  // One challenge is that DID parallelization doesn't always
-  // happen on the root/logical IterDomains. For example, a root/logical
-  // IterDomain may be outer-split by the number of devices, and only the outer
-  // split gets parallelized on DID.
-  //
-  //   logical: iM
-  //   loop: iDIDx{D}, iM/D
-  //
-  // Therefore, we collect all the loop IterDomains that depend on the
-  // logical-domain-mapped IterDomains, and check if they are DID-parallelized
-  // consistently.
-  const std::unordered_map<IterDomain*, IterDomain*>& c2p =
-      PairwiseLogicalDomainMap(producer, consumer)
-          // We skip broadcast dimensions because they are replicated on all
-          // devices regardless of DIDx. Even when the corresponding consumer
-          // dimension is non-broadcast, they don't cause communication. If we
-          // didn't skip them, we would need to modify the downstream code for
-          // collecting assumptions of `index < extent`. Recall that
-          // non-expanded broadcast dimensions have a fixed extent of 1.
-          .mapBroadcast(false)
-          .mapConsumerToProducer();
-
-  Fusion* fusion = producer->fusion();
-  NVF_ERROR(
-      fusion == consumer->fusion(),
-      "The producer and consumer must be in the same fusion.");
-  FusionGuard fg(fusion);
-  StatementGuard sg(fusion);
-
-  // The second element of the value pair indicates whether the IterDomain
-  // depends on a mapped producer logical IterDomain or a mapped consumer root
-  // IterDomain. Propagating this information is needed to solve the matmul
-  // example above.
-  std::unordered_map<IterDomain*, std::pair<Val*, bool>> id_to_index;
-  std::vector<Val*> assumptions;
-  assumptions.reserve(
-      (producer->getLogicalDomain().size() +
-       consumer->getMaybeRootDomain().size()) *
-      2);
-
-  auto create_index = [&](IterDomain* id) {
-    auto* index = IrBuilder::create<Val>(DataType::Index);
-    NVF_ERROR(id_to_index.emplace(id, std::make_pair(index, false)).second);
-    assumptions.push_back(
-        SimplifyingIrBuilder::leExpr(fusion->zeroVal(), index));
-    assumptions.push_back(SimplifyingIrBuilder::ltExpr(index, id->extent()));
-  };
-
-  for (IterDomain* p_id : producer->getLogicalDomain()) {
-    create_index(p_id);
-  }
-  for (IterDomain* c_id : consumer->getMaybeRootDomain()) {
-    IterDomain* p_id = getOrDefault(c2p, c_id);
-    if (p_id == nullptr) {
-      create_index(c_id);
-      continue;
-    }
-
-    std::pair<Val*, bool>& index_and_mapped = id_to_index.at(p_id);
-    index_and_mapped.second = true;
-    NVF_ERROR(
-        id_to_index.emplace(c_id, std::make_pair(index_and_mapped.first, true))
-            .second);
-  }
-
-  // In practice, only loop IterDomains can be parallelized, and no two loop
-  // IterDomains in a TensorView can have the same parallel type. Therefore, we
-  // do the check in reverse order for efficiency and simplicity:
-  // 1. For each DID parallel type, find the loop IterDomain in producer and the
-  // one in consumer that have the type.
-  // 2. Find what IterDomains they come from in producer's logical or
-  // consumer's root domain. If that input IterDomain is not
-  // logical-domain-mapped, treat the loop IterDomain as not existing -- it is
-  // parallelized but just not a concern for this producer-consumer pair.
-  // 3. Check if the two loop IterDomains map to two indices that are
-  // mathematically equivalent.
-  std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
-      mapDeviceParallelTypeToId(producer->getLoopDomain());
-  std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
-      mapDeviceParallelTypeToId(consumer->getLoopDomain());
-
-  for (const auto parallel_type : kParallelTypeDIDs) {
-    IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
-    Val* p_index = nullptr;
-    bool p_mapped = false;
-    std::tie(p_index, p_mapped) =
-        computeLoopIndex(p_id, producer->getLogicalDomain(), id_to_index);
-    if (!p_mapped) {
-      p_index = nullptr;
-    }
-
-    IterDomain* c_id = getOrDefault(c_parallel_type_to_id, parallel_type);
-    Val* c_index = nullptr;
-    bool c_mapped = false;
-    std::tie(c_index, c_mapped) =
-        computeLoopIndex(c_id, consumer->getMaybeRootDomain(), id_to_index);
-    if (!c_mapped) {
-      c_index = nullptr;
-    }
-
-    const bool is_equivalent = [&]() -> bool {
-      if (p_index == nullptr && c_index == nullptr) {
-        return true;
-      }
-      if (p_index == nullptr || c_index == nullptr) {
-        return false;
-      }
-
-      return simplifyExpr(
-                 SimplifyingIrBuilder::eqExpr(p_index, c_index),
-                 /*variables=*/{},
-                 assumptions)
-          ->isTrue();
-    }();
-
-    if (!is_equivalent) {
-      return true;
-    }
-  }
-
-  return false;
+  return getProducingLogicalAxis(tv, parallel_id);
 }
 
-bool isResharding(const Expr* expr) {
-  FUSER_PERF_SCOPE("isResharding");
+IterDomain* getShardedIterDomain(
+    const TensorView* tv,
+    const ParallelType parallel_type,
+    const DomainType domain_type) {
+  const auto& domain = getDomainOf(tv, domain_type);
 
-  if (!ir_utils::isTvOp(expr)) {
-    return false;
+  for (IterDomain* id : domain | TensorDomain::kNoReductions) {
+    if (id->getParallelType() == parallel_type) {
+      return id;
+    }
   }
+  return nullptr;
+}
 
-  // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
-  // which is too costly
-  for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      if (haveDifferentShardings(input, output)) {
-        return true;
-      }
+namespace {
+int64_t rankOfParallelType(ParallelType parallel_type) {
+  // Currently, when reorderParallelizedToFront is called, the loop domain is
+  // expected to be parallelized on only Stream and DIDs. To make the order
+  // convenient for schedulers, we put Stream first, DIDs second, and Serial
+  // last. Stream is before DIDs so we can inline computation and communication
+  // into the same host for-loop. The best order between DIDs is not yet clear.
+  // For now, I'm going with DIDz < DIDy < DIDx as it works with
+  // https://nv/nvfuser-cp
+  switch (parallel_type) {
+    case ParallelType::Stream:
+      return 0;
+    case ParallelType::DIDz:
+      return 1;
+    case ParallelType::DIDy:
+      return 2;
+    case ParallelType::DIDx:
+      return 3;
+    default:
+      // I could assign other types an arbitrary rank but I prefer NVF_THROW to
+      // catch unexpected changes in the future.
+      NVF_THROW("Unexpected parallel type: ", parallel_type);
+  }
+}
+} // namespace
+
+std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(
+    TensorView* tv) {
+  std::vector<std::pair<int64_t, int64_t>> rank_to_axis;
+  rank_to_axis.reserve(tv->nDims());
+  for (auto [axis, id] : enumerate(tv->getLoopDomain())) {
+    auto parallel_type = id->getParallelType();
+    // We skip ParallelType::Serial because TensorView::reorder automatically
+    // orders unspecified IterDomains to the back stably.
+    if (parallel_type != ParallelType::Serial) {
+      rank_to_axis.emplace_back(rankOfParallelType(parallel_type), axis);
     }
   }
 
-  return false;
-}
+  std::ranges::stable_sort(rank_to_axis);
 
-bool isInnerResharding(Expr* expr) {
-  NVF_ERROR(
-      ir_utils::isTvOp(expr),
-      "Non-tv op is not supported : ",
-      expr->toString());
-
-  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto [shard_additions, shard_deletions] =
-          getShardingChanges(input, output);
-      NVF_ERROR(
-          shard_additions.size() + shard_deletions.size() <= 1,
-          "Resharding expr can only support one axis")
-      if ((!shard_deletions.empty() &&
-           allocationIndex(input, shard_deletions.at(0)) > 0) ||
-          (!shard_additions.empty() &&
-           allocationIndex(output, shard_additions.at(0)) > 0)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
-  for (auto tv : tvs) {
-    tv->setDeviceMesh(ref->getDeviceMesh());
-  }
-  if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(
-        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
-  }
-
-  // parallelAllLke, tries to DID-parallelize
-  // reduction dimensions. For example,
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [r{i1}, i2] -> (Pointwise) -> [i2]
-  //
-  // becomes
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [rDID{i1}, i2] -> (Pointwise) -> [i2]
-  //
-  // This implies that the reduction result only exists on the "home" device.
-  // `lower_communication` can't lower such a reduction today. lowerToReduce
-  // is closest but it uses the output device mesh to indicate the home device.
-  // Also, an extra broadcast will be needed to replicate the reduction result
-  // to all devices for the pointwise op.
-  //
-  // Therefore, instead, we remove the DID from reduction dimensions and
-  // therefore reset them to Serial. This way,
-  // the above becomes
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [r{i1}, i2] -> (Pointwise) -> [i2]
-  //
-  // where the reduction will be lowered to an Allreduce.
-  //
-  // Alternatively, @naoyam proposed to represent an allreduce as a reduce
-  // followed by a broadcasting set.
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [rDID{i1}, i2] -> (Set) [i2] -> (Pointwise)
-  //   -> [i2]
-  //
-  // This will make the semantics similar to other parallel types and therefore
-  // we can better leverage existing parallelization utilities. We have yet to
-  // pursue this because of implementation difficulty -- `lower_communication`
-  // would need to match the reduce-set pattern.
-  for (TensorView* tv : tvs) {
-    for (IterDomain* id : tv->getLoopDomain()) {
-      if (id->isReduction() && id->isDeviceDim()) {
-        id->parallelize(ParallelType::Serial);
-      }
-    }
-  }
-}
-
-void shardBetween(
-    const std::vector<Expr*>& from,
-    const std::vector<Expr*>& to,
-    TensorView* ref) {
-  std::vector<TensorView*> from_tvs;
-  std::vector<TensorView*> to_tvs;
-  for (auto expr : from) {
-    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::copy(outputs.begin(), outputs.end(), std::back_inserter(from_tvs));
-  }
-
-  for (auto expr : to) {
-    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::copy(outputs.begin(), outputs.end(), std::back_inserter(to_tvs));
-  }
-
-  shardBetween(from_tvs, to_tvs, ref);
-}
-
-void shardBetween(
-    const std::vector<TensorView*>& from,
-    const std::vector<TensorView*>& to,
-    TensorView* ref) {
-  std::unordered_set<TensorView*> boundary = {to.begin(), to.end()};
-  for (auto tv : from) {
-    auto expr = tv->definition();
-    if (expr == nullptr) {
-      continue;
-    }
-    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    std::copy(
-        inputs.begin(), inputs.end(), std::inserter(boundary, boundary.end()));
-  }
-
-  std::unordered_set<TensorView*> all_tvs =
-      scheduler_utils::getAllTvsFrom(from, boundary);
-  shardAllLike(ref, {all_tvs.begin(), all_tvs.end()});
-
-  // Remove DID parallelizations on reduction axes.
-  for (auto* tv : all_tvs) {
-    for (IterDomain* id : tv->getLoopDomain()) {
-      if (id->isReduction() && id->isDeviceDim()) {
-        id->parallelize(ParallelType::Serial);
-      }
-    }
-  }
-}
-
-int64_t requestedNumberOfDevices(Fusion* fusion) {
-  DeviceIdxType max_index = 0;
-  for (auto tv : fusion->allTvs()) {
-    if (tv->hasDeviceMesh()) {
-      for (auto d_id : tv->getDeviceMesh().vector()) {
-        max_index = std::max(max_index, d_id);
-      }
-    }
-  }
-  return static_cast<int64_t>(max_index + 1);
-}
-
-void unshard(TensorView* tv) {
-  for (IterDomain* id : tv->getLoopDomain()) {
-    if (id->isDeviceDim()) {
-      id->parallelize(ParallelType::Serial);
-    }
-  }
-  tv->setDeviceMesh(DeviceMesh());
-}
-
-void unshard(Fusion* fusion) {
-  for (auto tv : fusion->allTvs()) {
-    unshard(tv);
-  }
-}
-
-std::set<DeviceIdxType> involvedDevices(Expr* expr) {
-  std::set<DeviceIdxType> ret;
-  for (const auto& tvs :
-       {ir_utils::filterByType<TensorView>(expr->inputs()),
-        ir_utils::filterByType<TensorView>(expr->outputs())}) {
-    for (auto* tv : tvs) {
-      if (tv->hasDeviceMesh()) {
-        auto& mesh = tv->getDeviceMesh().vector();
-        std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
-      } else {
-        ret.insert(0);
-      }
-    }
-  }
-  return ret;
-}
-
-void reorderDIDToFront(TensorView* tv) {
   // old position to new position
-  std::unordered_map<int64_t, int64_t> order_map;
+  std::unordered_map<int64_t, int64_t> order;
   int64_t current_pos = 0;
-
-  for (auto pos : c10::irange(tv->nDims())) {
-    if (tv->axis(pos)->isDeviceDim()) {
-      order_map[pos] = current_pos;
-      current_pos++;
-    }
+  for (auto [rank, axis] : rank_to_axis) {
+    order[axis] = current_pos;
+    current_pos++;
   }
 
-  tv->reorder(order_map);
+  tv->reorder(order);
+  return order;
 }
 
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
@@ -724,6 +309,61 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     }
   }
   return ret;
+}
+
+bool isValidDeviceSplit(Expr* expr) {
+  if (expr == nullptr || !expr->isA<Split>()) {
+    return false;
+  }
+  auto* split = expr->as<Split>();
+  if (split == nullptr || !split->outer()->isDeviceDim() ||
+      split->innerSplit()) {
+    return false;
+  }
+  return true;
+}
+
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
+  // Filter out reduction dimensions so the index to `logical` directly maps to
+  // an at::Tensor axis.
+  const std::vector<IterDomain*>& logical =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : arange(std::ssize(logical))) {
+    IterDomain* id = logical.at(idx);
+    if (id->isRFactorProduct() && id->isDeviceDim()) {
+      NVF_ERROR(
+          rfactor_did_idx == -1,
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+          logical);
+      rfactor_did_idx = idx;
+    }
+  }
+
+  return rfactor_did_idx;
+}
+
+int64_t getRelativeIndex(const Team& team, DeviceIdxType rank) {
+  auto i = std::ranges::find(team, rank);
+  NVF_ERROR(i != team.end(), "Unable to find rank ", rank, " in team ", team);
+  return std::distance(team.begin(), i);
+}
+
+std::pair<Val*, Val*> dispatchSwizzle1D(
+    Val* host_loop_index,
+    DeviceIdxType device_id,
+    ParallelType pt,
+    const DeviceMesh& mesh) {
+  int64_t team_size = mesh.size(pt);
+  at::Tensor md_index = mesh.multiDimensionalIndexOf(device_id);
+  auto pt_axis = mesh.parallelTypeToAxis(pt);
+  int64_t team_index = md_index[pt_axis].item<int64_t>();
+  Val* team_size_val = IrBuilder::create<Val>(team_size, DataType::Index);
+  Val* team_index_val = IrBuilder::create<Val>(team_index, DataType::Index);
+  return std::make_pair(
+      mod(add(host_loop_index, team_index_val), team_size_val),
+      mod(add(team_size_val, sub(team_index_val, host_loop_index)),
+          team_size_val));
 }
 
 } // namespace nvfuser

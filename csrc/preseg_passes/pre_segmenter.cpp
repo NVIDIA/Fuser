@@ -5,28 +5,31 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <debug.h>
-#include <options.h>
+#include "preseg_passes/pre_segmenter.h"
 
-#include <preseg_passes/pre_segmenter.h>
-
-#include <instrumentation.h>
-#include <preseg_passes/add_axioms.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/consecutive_cast.h>
-#include <preseg_passes/exact_mapped_extent_substitution.h>
-#include <preseg_passes/insert_reshardings.h>
-#include <preseg_passes/make_resharding_contiguous.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/move_pad.h>
-#include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <preseg_passes/remove_bcast_squeeze.h>
-#include <preseg_passes/remove_empty.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <preseg_passes/segment_inplace_update.h>
-#include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
-#include <preseg_passes/translate_repeat_to_expand.h>
+#include "debug.h"
+#include "instrumentation.h"
+#include "options.h"
+#include "preseg_passes/add_axioms.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "preseg_passes/consecutive_cast.h"
+#include "preseg_passes/decompose_reshardings.h"
+#include "preseg_passes/exact_mapped_extent_substitution.h"
+#include "preseg_passes/finalize_multidevice_domains.h"
+#include "preseg_passes/fmin_fmax_promotion.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "preseg_passes/move_gather.h"
+#include "preseg_passes/move_pad.h"
+#include "preseg_passes/move_repeat_forward.h"
+#include "preseg_passes/move_split_cat.h"
+#include "preseg_passes/propagate_shardings.h"
+#include "preseg_passes/remove_bcast_squeeze.h"
+#include "preseg_passes/remove_empty.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "preseg_passes/segment_inplace_update.h"
+#include "preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h"
+#include "preseg_passes/translate_repeat_to_expand.h"
+#include "preseg_passes/translate_scatter_accumulate.h"
 
 namespace nvfuser::preseg_passes {
 
@@ -39,24 +42,20 @@ namespace nvfuser::preseg_passes {
     debug() << "========================================" << std::endl;
   }
 
-  // For resharding across GPUs.
-  OptimizationPass<PropagateShardingsPass>::runPass(fusion);
-  OptimizationPass<InsertReshardingsPass>::runPass(fusion);
-  OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
-  OptimizationPass<MakeReshardingContiguousPass>::runPass(fusion);
-
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
+  OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
   // This pass should be placed before ConsecutiveCastPass as more
   // consecutive cast ops may be exposed by this pass
   OptimizationPass<TranslateRepeatToExpand>::runPass(fusion);
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
+  OptimizationPass<FMinFMaxPromotionPass>::runPass(fusion);
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   // MovePadPass needs to happen:
   // 1. before MarkAliasPrepare; and
-  //    avoid moving pad operatoins around, which could disturb the analysis
+  //    avoid moving pad operations around, which could disturb the analysis
   //    from MarkAliasPrepare
   // 2. after MoveSplitCat
   //    to avoid this pass moving PadOp around to break the
@@ -78,12 +77,26 @@ namespace nvfuser::preseg_passes {
   // open an issue for this and see if we want to have a more aggressive
   // approach inside MovePadPass instead. removes extra cast added from pushing
   // pad out OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
-  OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
-  OptimizationPass<AllocationDomainPass>::runPass(fusion);
+
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
-  OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
+  OptimizationPass<MoveRepeatForwardPass>::runPass(fusion);
+  OptimizationPass<MoveGatherPass>::runPass(fusion);
+  OptimizationPass<TranslateScatterAccumulate>::runPass(fusion);
+
+  OptimizationPass<PropagateShardingsPass>::runPass(fusion);
+  OptimizationPass<DecomposeReshardingsPass>::runPass(fusion);
+  OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
+
+  OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
+  OptimizationPass<AllocationDomainPass>::runPass(fusion);
+
+  // This pass should be the last presegmentation pass.
+  // It transforms the allocation domains of tvs with device mesh to
+  // inherit DID splits. Before this pass, the allocation domains are
+  // permutations of the logical domains.
+  OptimizationPass<FinalizeMultideviceDomainsPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

@@ -7,15 +7,12 @@
 // clang-format on
 #pragma once
 
+#include <unordered_map>
+
 #include <exceptions.h>
 #include <ir/internal_nodes.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
-
-#include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 namespace nvfuser {
 
@@ -182,7 +179,7 @@ struct TransformReplayOptions {
   }
 };
 
-class NVF_API TransformReplay {
+class TransformReplay {
  public:
   // Replay producer as consumer, returns {producer, producer_compute_at_axis}.
   //
@@ -229,6 +226,24 @@ class NVF_API TransformReplay {
 
   // Self replay the transformation on `self` from logical to loop and
   // allocation onto `new_self`.
+  //
+  // This method is often used to propagate transforms from one TV to another
+  // that's not necessarily a producer/consumer. It assumes enough similarity
+  // between `self` and `new_self`. When self's logical and new_self's logical
+  // have the same length, their logical IterDomains have to match exactly,
+  // e.g., same extents, same IterTypes and same ParallelTypes. When one of
+  // them is longer than the other, the extra IterDomains (and only those) are
+  // reductions.  The remaining IterDomains still map one-to-one without
+  // ambiguity.
+  //
+  // For example,
+  // ```
+  // in: logical=[i{n}, r{m}], loop=[iDIDy{d}, i{n/d}, rDIDx{d}, r{m/d}]
+  // out = in + 1.0: logical=[i{n}]
+  // ```
+  // `out` and `in` are similar enough to selfReplay so `out` gets a loop domain
+  // of [iDIDy{d}, i{n/d}]. However, to achieve that, we'll have to ignore
+  // `in`'s reduction dimensions.
   static void selfReplay(const TensorDomain* self, TensorDomain* new_self);
 
   // Returns the loop position in producer that matches with `consumer_pos` in

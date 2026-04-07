@@ -5,12 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/id_model.h>
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <logical_domain_map.h>
-#include <preseg_passes/allocation_order_inference.h>
+#include "preseg_passes/allocation_order_inference.h"
+
+#include <ranges>
+
+#include "id_model/id_model.h"
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "logical_domain_map.h"
 
 namespace nvfuser::preseg_passes {
 
@@ -18,9 +21,9 @@ namespace {
 
 // returns non-broadcast & non-reduction iter domains in tv's allocation
 // domain.
-std::vector<IterDomain*> nonTrivialIterDomains(const TensorView* tv) {
-  return TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+auto nonTrivialIterDomains(const TensorView* tv) {
+  return tv->getMaybeAllocationDomain() | TensorDomain::kNoReductions |
+      TensorDomain::kNoBroadcasts;
 }
 
 // counts the number of non-broadcast & non-reduction iter domains in tv's
@@ -158,7 +161,7 @@ void mapAllocationDomain(
   // initialize new target allocation domain with nullptr
   std::vector<IterDomain*> target_alloc_domain(
       target_logical_domain.size(), nullptr);
-  for (auto i : c10::irange(target_logical_domain.size())) {
+  for (auto i : arange(target_logical_domain.size())) {
     // sharp-edges 1
     // preserves non-mapped reduction id in its original position
     if (target_logical_domain[i]->isReduction() &&
@@ -254,7 +257,7 @@ void mapAllocationDomain(
 //   `target->getLogicalDomain()`, which would gives `target` similar innermost
 //   dimensions as with `ref`. For details on the propagation rule see Note [
 //   Allocation Order Mapping ]
-void inferenceAllocationOrder(
+void inferAllocationOrder(
     Fusion* fusion,
     const std::vector<TensorView*>& srcs,
     const std::vector<TensorView*>& dsts) {
@@ -316,17 +319,18 @@ void inferenceAllocationOrder(
       // found multiple candidate with the same iterdomain count
       if (non_trivial_iter_count[tv] == non_bc_high_water_mark &&
           ref != nullptr) {
-        std::vector<IterDomain*> ref_alloc_non_trivial =
-            nonTrivialIterDomains(ref);
-        std::vector<IterDomain*> tv_alloc_non_trivial =
-            nonTrivialIterDomains(tv);
+        auto ref_alloc_non_trivial = nonTrivialIterDomains(ref);
+        auto tv_alloc_non_trivial = nonTrivialIterDomains(tv);
+        auto ref_size = std::ranges::distance(ref_alloc_non_trivial);
+        auto tv_size = std::ranges::distance(tv_alloc_non_trivial);
         NVF_ERROR(
-            ref_alloc_non_trivial.size() == tv_alloc_non_trivial.size(),
-            "candidates of allocation order reference should have identical non-trivial ID size");
+            ref_size == tv_size,
+            "candidates of allocation order reference should have identical "
+            "non-trivial ID size");
         // ensure that there's no ambiguity on permutation mapping from multiple
         // references. we need both ref candidates to have the same mapping on
         // allocation domain
-        for (const auto& [id_ref, id] :
+        for (auto [id_ref, id] :
              zip(ref_alloc_non_trivial, tv_alloc_non_trivial)) {
           if (!val_sets.permissiveAreMapped(id_ref, id)) {
             // reset ref to nullptr, while keeping the iterdomain count high
@@ -347,11 +351,12 @@ void inferenceAllocationOrder(
   }
 }
 
-// Propagate allocation orders from an SDPA's inputs to outputs. This is
-// necessary to make an SPDA's allocation domain consistent with the output
+// Propagates allocation orders from an SDPA's inputs to outputs. This is
+// necessary to make an SDPA's allocation domain consistent with the output
 // at::Tensor from expression evaluation. Currently, we call ATen to evaluate
 // SDPAs so matching their behavior, despite being fragile, is the best
-// solution.
+// solution I can think of. SdpaTest.FlashAttentionStrideOrder verifies the
+// flash attention API indeed matches our expectations.
 class SdpaPropagator : public OptOutConstDispatch {
  public:
   void handle(const SdpaFwdOp* e) override {
@@ -360,6 +365,7 @@ class SdpaPropagator : public OptOutConstDispatch {
     // Don't propagate allocation to LSE because it's allocated as [B,H,S]:
     // https://github.com/pytorch/pytorch/blob/0db21a6b23fc6d7ccf6246dfd22f063694996144/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L454.
   }
+
   void handle(const SdpaBwdOp* e) override {
     // https://github.com/pytorch/pytorch/blob/7578a0b26836116fed4daecf2f08ff75a4b2dbea/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L904
     propagateAllocation(e->query(), e->grad_query());
@@ -419,7 +425,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
     dsts.push_back(output);
   }
   // propagate allocation domain from sources to destinations
-  inferenceAllocationOrder(fusion, srcs, dsts);
+  inferAllocationOrder(fusion, srcs, dsts);
 
   SdpaPropagator sdpa_propagator;
   for (Expr* e : fusion->exprs()) {

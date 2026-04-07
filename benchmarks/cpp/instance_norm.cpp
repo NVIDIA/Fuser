@@ -123,8 +123,8 @@ static void NvFuserScheduler_InstanceNorm(
   // Write: y, running_mean, running_var
   benchmark_state.SetBytesProcessed(
       benchmark_state.iterations() *
-      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSize(dtype) +
-       (kChannels * 2 * 2) * dataTypeSize(DataType::Float)));
+      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSizeByte(dtype) +
+       (kChannels * 2 * 2) * dataTypeSizeByte(DataType::Float)));
 }
 
 // ------------------------------------------------------------------------------
@@ -193,7 +193,7 @@ static void NvFuserScheduler_InstanceNormNHWC(
   // Write: y
   benchmark_state.SetBytesProcessed(
       benchmark_state.iterations() *
-      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSize(dtype)));
+      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSizeByte(dtype)));
 }
 
 static void Baseline_InstanceNorm(
@@ -269,8 +269,8 @@ static void Baseline_InstanceNorm(
   // Write: y, running_mean, running_var
   benchmark_state.SetBytesProcessed(
       benchmark_state.iterations() *
-      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSize(dtype) +
-       (kChannels * 2 * 2) * dataTypeSize(DataType::Float)));
+      ((kChannels * 2 + at_x.numel() * 2) * dataTypeSizeByte(dtype) +
+       (kChannels * 2 * 2) * dataTypeSizeByte(DataType::Float)));
 }
 
 //------------------------------------------------------------------------------

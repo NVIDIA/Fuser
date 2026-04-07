@@ -6,16 +6,24 @@
  */
 // clang-format on
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_replay.h>
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "transform_replay.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
+
+using testing::ContainerEq;
+using testing::Each;
+using testing::IsTrue;
+using testing::Optional;
+using testing::Property;
+using testing::SizeIs;
 
 using ReplayTest = NVFuserTest;
 
@@ -96,6 +104,70 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
       /*dim=*/-1);
 
   EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
+}
+
+TEST_F(ReplayTest, ReplaySplitOnReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* out = sum(in, {0});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  constexpr int d = 2;
+  out->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  out->outer_split(0, d);
+
+  TensorView* new_out = sum(in, {0});
+  TransformReplay::selfReplay(out->domain(), new_out->domain());
+  fusion.replaceOutput(out, new_out);
+
+  std::vector<IterDomain*> out_loop =
+      fusion.outputs().at(0)->as<TensorView>()->getLoopDomain();
+  EXPECT_THAT(out_loop, SizeIs(2));
+  EXPECT_THAT(out_loop, Each(Property(&IterDomain::isReduction, IsTrue())));
+}
+
+TEST_F(ReplayTest, IgnoreSplitOnReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* x = sum(in, {0});
+  TensorView* out = set(x);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  constexpr int d = 2;
+  x->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  x->outer_split(0, d);
+  x->outer_split(2, d);
+
+  TransformReplay::selfReplay(x->domain(), out->domain());
+
+  EXPECT_THAT(
+      out->getLoopDomain(),
+      ElementsAre(
+          Property(&IterDomain::isIteration, IsTrue()),
+          Property(&IterDomain::isIteration, IsTrue())));
+}
+
+TEST_F(ReplayTest, LoopAndAllocation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* out = set(in);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  constexpr int d = 2;
+  in->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  in->outer_split(0, d);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  TransformReplay::selfReplay(in->domain(), out->domain());
+  EXPECT_THAT(out->getLoopDomain(), SizeIs(2));
+  EXPECT_THAT(out->getLoopDomain(), ContainerEq(out->getAllocationDomain()));
+  EXPECT_THAT(out->getContiguity(), Each(Optional(IsTrue())));
 }
 
 } // namespace nvfuser

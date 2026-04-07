@@ -8,6 +8,7 @@
 #include <predicate_compute.h>
 
 #include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <id_model/indexing_traversal.h>
@@ -18,9 +19,6 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <transform_iter.h>
-
-#include <c10/util/irange.h>
-#include <device_lower/utils.h>
 
 namespace nvfuser {
 
@@ -42,9 +40,8 @@ bool isOutputLocal(const Expr* expr) {
 } // namespace
 
 bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
-  auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-      id, IdMappingMode::EXACT);
-  if (std::find(ids_.begin(), ids_.end(), concrete_id) == ids_.end()) {
+  auto concrete_id = lower_utils::getConcreteMappedId(id);
+  if (std::ranges::find(ids_, concrete_id) == ids_.end()) {
     ids_.push_back(concrete_id);
     return true;
   } else {
@@ -60,10 +57,7 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 
   for (const auto& pred_id : ids()) {
     // Just sanity check that pred_id is concrete
-    NVF_ERROR(
-        pred_id ==
-        GpuLower::current()->caMap()->getConcreteMappedID(
-            pred_id, IdMappingMode::EXACT));
+    NVF_ERROR(pred_id == lower_utils::getConcreteMappedId(pred_id));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
     pred = SimplifyingIrBuilder::logicalAndExpr(pred, new_pred);
   }
@@ -82,13 +76,13 @@ namespace {
 // omit the predicate for a parallel type.
 std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
     const Expr* expr,
-    const std::vector<ForLoop*>& loops,
-    ForLoop* unswitched_loop) {
+    const std::vector<kir::ForLoop*>& loops,
+    kir::ForLoop* unswitched_loop) {
   if (unswitched_loop == nullptr) {
     return {};
   }
 
-  const auto& id_model = GpuLower::current()->idModel();
+  const auto& id_model = GpuLower::current()->info().idModel();
   const auto& indexing_graph =
       id_model.idGraph(TensorIndexer::traversalGraphType());
 
@@ -97,11 +91,8 @@ std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
 
   std::vector<IterDomain*> loop_ids;
   loop_ids.reserve(loops.size());
-  std::transform(
-      loops.begin(),
-      loops.end(),
-      std::back_inserter(loop_ids),
-      [&](ForLoop* loop) {
+  std::ranges::transform(
+      loops, std::back_inserter(loop_ids), [&](kir::ForLoop* loop) {
         return getLoopPromotion(loop->iter_domain(), id_model);
       });
 
@@ -134,7 +125,7 @@ std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
   for (const auto& [expr_g, dir] : predicate_path) {
     const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
     const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
-    if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
+    if (std::ranges::any_of(inputs, [&](const ValGroup& input) {
           return non_unswitch_dep_ids.has(input);
         })) {
       // Depends on non-unswitched ids
@@ -182,10 +173,9 @@ std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
 
       // If none of the inputs depends on unswitched_loop_id and its
       // dependents, this expr should not matter.
-      if (std::none_of(
-              inputs.begin(), inputs.end(), [&](const ValGroup& input) {
-                return unswitch_dep_ids.has(input);
-              })) {
+      if (std::ranges::none_of(inputs, [&](const ValGroup& input) {
+            return unswitch_dep_ids.has(input);
+          })) {
         continue;
       }
 
@@ -195,7 +185,7 @@ std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
       // unswitched_loop_id itself. Use of unswitched_loop_id and its
       // dependents should not make unswitched_loop_id not fully
       // unswitched.
-      if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
+      if (std::ranges::any_of(inputs, [&](const ValGroup& input) {
             return non_unswitch_dep_ids.has(input) &&
                 !unswitch_dep_ids.has(input);
           })) {
@@ -220,8 +210,8 @@ std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
 std::unordered_map<ParallelType, ParallelizedDomainPredicate::PredicateInfo>
 ParallelizedDomainPredicate::getPredicateMap(
     const Expr* expr,
-    const std::vector<ForLoop*>& loops,
-    ForLoop* unswitched_loop) {
+    const std::vector<kir::ForLoop*>& loops,
+    kir::ForLoop* unswitched_loop) {
   const auto gpu_lower = GpuLower::current();
   auto output_tvs = ir_utils::getTvs(expr->outputs());
 
@@ -246,7 +236,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   auto unswitch_protected_loop_ids =
       getUnswitchProtectedParallelLoopIds(expr, loops, unswitched_loop);
 
-  for (const auto i : c10::irange(loops.size())) {
+  for (const auto i : arange(loops.size())) {
     auto loop = loops[i];
 
     // Parallel dimensions need not be predicated if fully unswitched.
@@ -262,7 +252,8 @@ ParallelizedDomainPredicate::getPredicateMap(
         lower_utils::isExtentEqualToMaxParallelTypeExtent(loop_id)) {
       continue;
     }
-    auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
+    auto parallel_dim =
+        gpu_lower->info().parallelDimensionMap().getRaw(loop_ptype);
 
     // If protected by unswitch, the unswitch predicate is enough without
     // predicating the parallel type. For example, suppose a logical
@@ -277,10 +268,8 @@ ParallelizedDomainPredicate::getPredicateMap(
     // the other output is assigned with the maximum index, this
     // predicate is sufficient even when blockDim.x > K.
     if (within_unswitch &&
-        std::find(
-            unswitch_protected_loop_ids.begin(),
-            unswitch_protected_loop_ids.end(),
-            loop_id) != unswitch_protected_loop_ids.end()) {
+        std::ranges::find(unswitch_protected_loop_ids, loop_id) !=
+            unswitch_protected_loop_ids.end()) {
       continue;
     }
 
@@ -290,8 +279,10 @@ ParallelizedDomainPredicate::getPredicateMap(
           tv->getLoopDomain().begin(),
           tv->getLoopDomain().end(),
           [&](auto tv_id) {
-            return gpu_lower->caMap()->areMapped(
-                loop_id, tv_id, IdMappingMode::EXACT);
+            return gpu_lower->info()
+                .idModel()
+                .idGraph(IdMappingMode::EXACT)
+                .areMapped(loop_id, tv_id);
           });
       if (it == tv->getLoopDomain().end()) {
         continue;
@@ -332,7 +323,7 @@ ParallelizedDomainPredicate::getPredicateMap(
 
 Val* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   DEBUG_PRINT_SCOPE_NAME(
       "ParallelizedDomainPredicate::getPredicate", "expr = ", expr);
   auto pred_map = getPredicateMap(expr, loops);
@@ -352,8 +343,7 @@ Val* ParallelizedDomainPredicate::getPredicate(
   RECORD_AND_RETURN(pred);
 }
 
-UnswitchPredicateKey::UnswitchPredicateKey()
-    : predicated_concrete_id_(nullptr) {
+UnswitchPredicateKey::UnswitchPredicateKey() {
   for (auto pt : kParallelTypeThreads) {
     parallel_concrete_ids_.insert({pt, nullptr});
   }
@@ -437,10 +427,8 @@ UnswitchPredicateKey::UnswitchPredicateKey(
       consumer_tv->getLoopDomain().end(),
       std::back_inserter(parallelized_consumer_loop_ids),
       [&](IterDomain* x) {
-        return std::find(
-                   all_parallelized_consumer_ids.begin(),
-                   all_parallelized_consumer_ids.end(),
-                   x) != all_parallelized_consumer_ids.end();
+        return std::ranges::find(all_parallelized_consumer_ids, x) !=
+            all_parallelized_consumer_ids.end();
       });
 
   if (parallelized_consumer_loop_ids.empty()) {
@@ -450,11 +438,10 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   }
 
   // Find the corresponding concrete id for each parallel type
-  for (auto consumer_loop : parallelized_consumer_loop_ids) {
-    auto pt = consumer_loop->getParallelType();
-    auto concrete_loop = GpuLower::current()->caMap()->getConcreteMappedID(
-        consumer_loop, IdMappingMode::EXACT);
-    parallel_concrete_ids_.at(pt) = concrete_loop;
+  for (auto consumer_loop_id : parallelized_consumer_loop_ids) {
+    auto pt = consumer_loop_id->getParallelType();
+    auto concrete_loop_id = lower_utils::getConcreteMappedId(consumer_loop_id);
+    parallel_concrete_ids_.at(pt) = concrete_loop_id;
   }
 }
 
@@ -489,21 +476,63 @@ std::size_t UnswitchPredicateKeyHash::operator()(
 
 namespace {
 
-// Select first warp of threads along TIDx axis and then use ptx::elect_sync
-// TODO If TIDx is known at compile-time, generate custom mask.
-Val* createElectSyncPredicate() {
-  Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+// Create elect-sync to pick a thread
+Val* createElectSyncExpr() {
   Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
   Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
   IrBuilder::create<UnaryOp>(
       UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-  return SimplifyingIrBuilder::logicalAndExpr(
-      elect_sync_val,
-      IrBuilder::ltExpr(
-          NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
+  return elect_sync_val;
 }
 
-Val* createElectSyncPredicate(kir::Predicate* pred) {
+// Select first warp of threads along TIDx axis and use ptx::elect_sync if not
+// warp collective.
+// TODO If TIDx is known at compile-time, generate custom mask.
+Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
+  Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+  Val* select_first_warp = IrBuilder::ltExpr(
+      NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
+
+  // Short-Circuit: TMA Store is a warp-collective, so ElectSync is not
+  // necessary.
+  if (is_warp_collective) {
+    return select_first_warp;
+  }
+
+  return SimplifyingIrBuilder::logicalAndExpr(
+      createElectSyncExpr(), select_first_warp);
+}
+
+// Get linear index for AsyncWarp Group. Then, select first warp. Finally, use
+// ptx::elect_sync if not warp collective.
+// TODO If TIDx is known at compile-time, generate custom mask.
+Val* createElectSyncPredicateAsync() {
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+  Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+
+  const ParallelDimensionMap& pdim_map =
+      GpuLower::current()->info().parallelDimensionMap();
+  Val* async_warp_thread_index = pdim_map.getLinearThreadIndexAsync();
+  Val* warp_id =
+      SimplifyingIrBuilder::divExpr(async_warp_thread_index, warp_size);
+  // TODO Only select first warp now
+  Val* select_warp = SimplifyingIrBuilder::eqExpr(warp_id, zero);
+
+  // Use elect-sync if available
+  if (pdim_map.canUseElectSyncInAsyncWarp()) {
+    return SimplifyingIrBuilder::logicalAndExpr(
+        select_warp, createElectSyncExpr());
+  }
+
+  // Warp Specialized ParallelType is ThreadIdx.x and it contains less than 32
+  // threads, so manually select first thread in warp.
+  Val* thread_id =
+      SimplifyingIrBuilder::modExpr(async_warp_thread_index, warp_size);
+  Val* select_thread = SimplifyingIrBuilder::eqExpr(thread_id, zero);
+  return SimplifyingIrBuilder::logicalAndExpr(select_warp, select_thread);
+}
+
+Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {
   NVF_ERROR(pred != nullptr);
   NVF_ERROR(pred->expr() != nullptr);
 
@@ -523,7 +552,8 @@ Val* createElectSyncPredicate(kir::Predicate* pred) {
   }
 
   Val* tidx_paralleltype_dim =
-      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
+      GpuLower::current()->info().parallelDimensionMap().get(
+          ParallelType::TIDx);
 
   // short-circuit: ParallelType::TIDx is not used in cuda kernel.
   if (tidx_paralleltype_dim == nullptr) {
@@ -531,28 +561,47 @@ Val* createElectSyncPredicate(kir::Predicate* pred) {
   }
 
   // short-circuit: Expect ParallelType::TIDx to have at least one warp.
+  bool is_tma_store = ir_utils::isCpAsyncBulkStore(pred->expr());
   if (tidx_paralleltype_dim->isConstScalar() &&
       tidx_paralleltype_dim->evaluate().as<int64_t>() < 32) {
-    Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-    return IrBuilder::eqExpr(
-        NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
+    if (is_tma_store) {
+      return pred->fusion()->trueVal();
+    } else {
+      Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+      return IrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
+    }
   }
 
-  return createElectSyncPredicate();
+  NVF_ERROR(!(is_tma_store && is_async_warp));
+  if (is_async_warp) {
+    return createElectSyncPredicateAsync();
+  }
+  return selectFirstWarpElectSyncPredicate(is_tma_store);
 }
 
 Val* createSingleExpressionElectSync(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   NVF_ERROR(pred->expr() != nullptr);
   NVF_ERROR(
-      ir_utils::isCpAsyncBulk(pred->expr()), "Limited to TMA expressions");
+      ir_utils::isCpAsyncBulk(pred->expr()) ||
+          (pred->expr()->isA<MmaOp>() &&
+           pred->expr()->as<MmaOp>()->isBlackwell()),
+      "Limited to TMA/Blackwell MMA expressions");
 
   TensorView* out_tv = ir_utils::getTvOutput(pred->expr());
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+
+  const ParallelDimensionMap& pdim_map =
+      GpuLower::current()->info().parallelDimensionMap();
   auto pred_map =
       ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
+
+  bool is_async_warp = std::ranges::any_of(loops, [](kir::ForLoop* fl) {
+    return fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp;
+  });
+
   Val* parallel_dom_pred = GpuLower::current()->kernel()->trueVal();
   for (auto pt : {ParallelType::TIDx, ParallelType::TIDy, ParallelType::TIDz}) {
     // short-circuit: parallelDim is not used by CTA
@@ -560,19 +609,19 @@ Val* createSingleExpressionElectSync(
       continue;
     }
 
-    // Case 1: TMA expression uses ParallelDim to launch multiple
+    // Case 1: TMA/Blackwell MMA expression uses ParallelDim to launch multiple
     // operations simultaneously. Use parallel domain predicate if it
     // exists.
     auto pred_info_it = pred_map.find(pt);
     if (pred_info_it != pred_map.end()) {
-      const auto& pred_info = pred_info_it->second;
-      auto tid_pred = pred_info.getPredicate();
-      parallel_dom_pred =
-          SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
+      const ParallelizedDomainPredicate::PredicateInfo& pred_info =
+          pred_info_it->second;
+      parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
+          parallel_dom_pred, pred_info.getPredicate());
     }
 
-    // Case 2: ParallelDim is used by CTA but not the TMA expression.
-    // Select a single thread along ParallelDim.
+    // Case 2: ParallelDim is used by CTA but not the TMA/Blackwell MMA
+    // expression. Select a single thread along ParallelDim.
     bool is_tv_tid_parallelized = std::any_of(
         out_tv->domain()->loop().begin(),
         out_tv->domain()->loop().end(),
@@ -581,12 +630,12 @@ Val* createSingleExpressionElectSync(
       if (pt == ParallelType::TIDx) {
         // Use createElectSyncPredicate for ParallelDim::TIDx.
         parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
-            parallel_dom_pred, createElectSyncPredicate(pred));
+            parallel_dom_pred, createElectSyncPredicate(pred, is_async_warp));
       } else {
         // Select first element of dimension for ParallelDim::TIDy and
         // ParallelDim::TIDz.
         Val* paralleltype_dim =
-            GpuLower::current()->parallelDimensionMap().get(pt);
+            GpuLower::current()->info().parallelDimensionMap().get(pt);
         if (paralleltype_dim == nullptr || !paralleltype_dim->isOneInt()) {
           parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
               parallel_dom_pred,
@@ -608,50 +657,147 @@ Val* createSingleExpressionElectSync(
 //  2. TMA expression does not use ParallelType::TIDy or ParallelType::TIDz.
 Val* createMultipleExpressionElectSync(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   NVF_ERROR(pred->expr() == nullptr);
 
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+  const ParallelDimensionMap& pdim_map =
+      GpuLower::current()->info().parallelDimensionMap();
 
   // Determine if warp specialized tma load expression.
-  ParallelType load_warp_on = ParallelType::Serial;
-  auto load_warp_loop_it =
-      std::find_if(loops.begin(), loops.end(), [](ForLoop* fl) {
-        return fl->circularBufferLoopStage() ==
-            CircularBufferLoopStage::LoadWarp;
-      });
-  if (load_warp_loop_it != loops.end()) {
-    load_warp_on =
-        std::get<WarpSpecialized>(GpuLower::current()
-                                      ->circularBufferInfo()
-                                      .getCircularBufferOptionsFor(
-                                          (*load_warp_loop_it)->iter_domain())
-                                      .type)
-            .on;
+  ParallelType async_warp_on = ParallelType::Serial;
+  auto async_warp_loop_it = std::ranges::find_if(loops, [](kir::ForLoop* fl) {
+    return fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp;
+  });
+  if (async_warp_loop_it != loops.end()) {
+    auto circular_buffer_type = std::get<WarpSpecialized>(
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor((*async_warp_loop_it)->iter_domain())
+            .type);
+    async_warp_on = circular_buffer_type.on;
   }
 
-  // If we are in a load warp, then the warp-dispatching IfThenElse
-  // already selects on `load_warp_on`, so we should not generate
-  // predicates for it here.
-  Val* conditional = load_warp_on == ParallelType::TIDx
-      ? pred->fusion()->trueVal()
-      : createElectSyncPredicate();
-  for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-    if (pdim_map.has(pt) && load_warp_on != pt) {
-      conditional = SimplifyingIrBuilder::logicalAndExpr(
-          conditional,
-          IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+  // Short-circuit: If we are in a async warp, then the warp-dispatching
+  // IfThenElse already selects on `async_warp_on`, so we should not
+  // generate predicates for it here.
+  if (async_warp_loop_it == loops.end()) {
+    Val* conditional = async_warp_on == ParallelType::TIDx
+        ? pred->fusion()->trueVal()
+        : selectFirstWarpElectSyncPredicate(/*is_warp_collective=*/false);
+    for (ParallelType pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+      if (pdim_map.has(pt) && async_warp_on != pt) {
+        conditional = SimplifyingIrBuilder::logicalAndExpr(
+            conditional,
+            IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+      }
     }
+    return conditional;
   }
-  return conditional;
+
+  return createElectSyncPredicateAsync();
 }
 
 } // namespace
 
+// predicate value for 1D TMA load and expect arrive bytes, it combines
+// ElectSync and Inline predicate.
+OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
+    kir::Predicate* pred,
+    const std::vector<kir::ForLoop*>& current_loops) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::OneDimTmaLoadExpectArrive");
+  auto expr = pred->expr();
+  NVF_ERROR(expr != nullptr);
+  OneDimTmaPredicateInfo one_dim_tma_pred_info;
+  auto pval_elect_sync = createElectSyncPredicate(pred, true);
+  auto pval_inline = getInlinePredicate(
+      expr,
+      current_loops,
+      /*thread_pred=*/nullptr,
+      PredicateType::Inline);
+  // We want to merge [pval_inline] with [pval_elect_sync].
+  // However, the loop indices nested in [ IF ElectSync] are no longer
+  // accessible when predicates are combined. Therefore, we visit all the
+  // for-loops after the one contains elect sync and replace loop index with
+  // zero.
+  std::unordered_map<Val*, Val*> replace_map;
+  const auto& loops = pred->tma1dLoadLoops();
+  auto circular_loop_iter = std::ranges::find_if(loops, [](kir::ForLoop* fl) {
+    return fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp;
+  });
+  for (auto it = circular_loop_iter; it != loops.end(); it++) {
+    auto fl = *it;
+    // save circular buffer loop index, will be replaced when generating
+    // predicate for MBarrierWaitParity in computation branch.
+    // tma1dLoadLoops() returns all the loops above the actual tma load expr.
+    // skip the loops that are already in the current loop nest since their
+    // indices are accessible.
+    if (std::ranges::any_of(current_loops, [&](kir::ForLoop* loop) {
+          return loop->iter_domain() == fl->iter_domain();
+        })) {
+      one_dim_tma_pred_info.loop_indices_circular_to_predicate.push_back(
+          fl->index());
+      continue;
+    }
+    // Replace indicies of other forloops to 0.
+    // Replace the loop index with zero removes the corresponding predicate
+    // to this loop-domain, we should ensure the split generating this
+    // domain is divisible.
+    replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
+    auto id_def = fl->iter_domain()->definition();
+    if (!id_def) {
+      continue;
+    }
+    if (auto split = dynamic_cast<Split*>(id_def)) {
+      GpuLower::current()->validate(
+          split->isDivisible(),
+          "Loop domains between circular buffer and 1D TMA load requires "
+          "divisible split, got: ",
+          split->toString());
+    }
+  }
+  pval_inline = ir_utils::replaceValRecursively(pval_inline, replace_map);
+  one_dim_tma_pred_info.inline_pred_val = pval_inline;
+  one_dim_tma_pred_info.combined_pred_val =
+      SimplifyingIrBuilder::logicalAndExpr(pval_elect_sync, pval_inline);
+  return one_dim_tma_pred_info;
+}
+
+// predicates MBarrierWaitParity for 1d tma load
+Val* PredicateCompute::OneDimTmaWaitParity(
+    kir::Predicate* pred,
+    const std::vector<kir::ForLoop*>& current_loops,
+    const OneDimTmaPredicateInfo& one_dim_tma_pred_info) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::OneDimTmaWaitParity");
+  auto expr = pred->expr();
+  NVF_ERROR(expr != nullptr);
+  // Since MBarrierWaitParity has no output tensor, its predicate value
+  // cannot be computed directly. Instead, we reuse [inline_pred_1d_tma], but
+  // replace the loop index from AsyncWarp branches which was saved when compute
+  // predicate OneDimTmaLoadExpectArrive  .
+  NVF_ERROR(expr->isA<kir::MBarrierWaitParity>())
+  auto inline_pred_1d_tma = one_dim_tma_pred_info.inline_pred_val;
+  auto circular_loop_iter =
+      std::ranges::find_if(current_loops, [](kir::ForLoop* fl) {
+        return fl->circularBufferLoopStage() ==
+            CircularBufferLoopStage::ComputeWarp;
+      });
+  std::unordered_map<Val*, Val*> replace_map;
+  for (auto it = circular_loop_iter; it != current_loops.end(); it++) {
+    auto fl = *it;
+    auto async_loop_index =
+        one_dim_tma_pred_info.loop_indices_circular_to_predicate.at(
+            std::distance(circular_loop_iter, it));
+    replace_map[async_loop_index] = fl->index();
+  }
+  auto pred_val =
+      ir_utils::replaceValRecursively(inline_pred_1d_tma, replace_map);
+  return pred_val;
+}
+
 Val* PredicateCompute::getElectSyncPredicate(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getElectSyncPredicate");
 
   // Short-Circuit: A single expression is associated with the predicate.
@@ -664,8 +810,7 @@ Val* PredicateCompute::getElectSyncPredicate(
 
 Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
-    const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops,
+    const std::vector<kir::ForLoop*>& loops,
     Val* thread_pred,
     PredicateType pred_type) {
   DEBUG_PRINT_SCOPE(
@@ -709,19 +854,12 @@ Val* PredicateCompute::getInlinePredicate(
   // TMem ld/st accesses TMem in a very specific pattern and can not be
   // predicated like accesses to general memory types, we do not have a good
   // way to predicate the accesses yet, so we just skip the predicate for now.
-  if (ir_utils::isCpAsyncBulk(expr) || ir_utils::isLdStTMem(expr)) {
+  if (ir_utils::isCpAsyncBulkTensorTile(expr) || ir_utils::isLdStTMem(expr)) {
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
-  std::vector<PredicateInfo> pred_info_vec;
-  if (!ir_utils::hasRootToLoopLinearTransformations(out_tv) ||
-      GpuLower::current()->idModelOptions().inlinePredicate()) {
-    pred_info_vec =
-        gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops);
-  } else {
-    pred_info_vec = Index::getReferenceRootPredicates(
-        out_tv, loops, rotated_loops, nullptr);
-  }
+  std::vector<PredicateInfo> pred_info_vec =
+      gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops);
 
   std::vector<Val*> preds;
 
@@ -765,7 +903,11 @@ Val* PredicateCompute::getInlinePredicate(
 
   preds.push_back(parallel_dom_pred);
 
-  if (thread_pred != nullptr) {
+  // Don't need thread predicate for 1D TMA load with circular buffer, it is
+  // already predicated with ElectSync.
+  if (thread_pred &&
+      !(ir_utils::isCpAsyncBulk1D(expr) &&
+        gpu_lower->circularBufferInfo().getCircularBufferAxis(out_tv))) {
     preds.push_back(thread_pred);
   }
 
@@ -774,7 +916,7 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   Val* cond = preds[0];
-  for (const auto i : c10::irange(1, preds.size())) {
+  for (const auto i : arange(1, preds.size())) {
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 
@@ -782,8 +924,8 @@ Val* PredicateCompute::getInlinePredicate(
 }
 
 Val* UnswitchPredicate::get(
-    const std::vector<ForLoop*>& outer_loops,
-    ForLoop* unrolled_loop) {
+    const std::vector<kir::ForLoop*>& outer_loops,
+    kir::ForLoop* unrolled_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::get");
 
   UnswitchPredicate up(outer_loops, unrolled_loop);
@@ -812,16 +954,9 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   auto out_tv = ir_utils::getTvOutput(tv_expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
-  std::vector<PredicateInfo> ref_pred_info;
-
-  if (!ir_utils::hasRootToLoopLinearTransformations(out_tv) ||
-      GpuLower::current()->idModelOptions().unswitchPredicate()) {
-    ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
-        out_tv, tv_expr, for_loops_, unrolled_loop_);
-  } else {
-    ref_pred_info = Index::getReferenceRootPredicates(
-        out_tv, for_loops_, rotated_loop_, unrolled_loop_);
-  }
+  std::vector<PredicateInfo> ref_pred_info =
+      gpu_lower->tensorIndexer().getPredicates(
+          out_tv, tv_expr, for_loops_, unrolled_loop_);
 
   // If RootPredicateInfo has a static predicate that is more
   // restrictive than the current one, replace the current with the
@@ -844,8 +979,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     bool first_key_set = false;
 
     for (auto root_id : root_ids) {
-      auto concrete_root_id = gpu_lower->caMap()->getConcreteMappedID(
-          root_id, IdMappingMode::EXACT);
+      auto concrete_root_id = lower_utils::getConcreteMappedId(root_id);
 
       if (root_id->isBroadcast()) {
         continue;
@@ -902,10 +1036,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
           pending_predicates_.begin() + (int64_t)pending_predicates_.size() - 1;
     } else if (root_ids.size() == 1) {
       // If not new, try to find a corresponding MergedPredicates.
-      merged_pred_it = std::find_if(
-          pending_predicates_.begin(),
-          pending_predicates_.end(),
-          [&first_key](const auto& merged_predicates) {
+      merged_pred_it = std::ranges::find_if(
+          pending_predicates_, [&first_key](const auto& merged_predicates) {
             return merged_predicates.predicate_key == first_key;
           });
       // Note: It is possible that no matching merged predicate info
@@ -958,7 +1090,7 @@ void UnswitchPredicate::addParallelizedDomainPredicates(Expr* tv_expr) {
   }
 }
 
-void UnswitchPredicate::openLoop(ForLoop* fl) {
+void UnswitchPredicate::openLoop(kir::ForLoop* fl) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::openLoop");
 
   for_loops_.push_back(fl);
@@ -968,7 +1100,7 @@ void UnswitchPredicate::openLoop(ForLoop* fl) {
       predicateOn(expr);
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       openIte(ite);
-    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       openLoop(for_loop);
     }
   }
@@ -979,40 +1111,15 @@ void UnswitchPredicate::openLoop(ForLoop* fl) {
 void UnswitchPredicate::openIte(kir::IfThenElse* ite) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::openIte");
 
-  // Loop rotation transform loops like
-  //  for i ...
-  //    statement1(i)
-  //    statement2(i)
-  //    statement3(i)
-  //    statement4(i)
-  // into
-  //  statement1(0)
-  //  statement2(0)
-  //  for i ...
-  //    statement3(i)
-  //    statement4(i)
-  //    if LoopRotation:
-  //      statement1(i+1)
-  //      statement2(i+1)
-  // So when we see an `if LoopRotation` during visiting, the last loop is
-  // rotated, and we need to use `i+1` instead of `i` as loop index.
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.insert(for_loops_.back());
-  }
-
   // only expand the ite thenBody
   for (auto expr : ite->thenBody().exprs()) {
     if (ir_utils::isTvOp(expr) || isTensorIndexOp(expr)) {
       predicateOn(expr);
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       openIte(ite);
-    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       openLoop(for_loop);
     }
-  }
-
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.erase(for_loops_.back());
   }
 }
 
@@ -1146,8 +1253,8 @@ void UnswitchPredicate::mergeUnswitchPredicates(
 }
 
 UnswitchPredicate::UnswitchPredicate(
-    std::vector<ForLoop*> outer_loops,
-    ForLoop* unrolled_loop)
+    std::vector<kir::ForLoop*> outer_loops,
+    kir::ForLoop* unrolled_loop)
     : for_loops_(std::move(outer_loops)), unrolled_loop_(unrolled_loop) {
   openLoop(unrolled_loop);
   finalize();

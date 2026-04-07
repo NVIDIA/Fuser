@@ -11,11 +11,11 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
-#include <alias_analysis.h>
-#include <fusion.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <tests/cpp/utils.h>
+#include "alias_analysis.h"
+#include "fusion.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 
@@ -73,11 +73,12 @@ TEST_F(AliasAnalysisTest, View_Contiguous) {
 
   AliasAnalysisResult analysis = findAliases(&fusion);
   EXPECT_EQ(analysis.getRoot(out), in);
-  Layout preferred_layout = analysis.preferredLayout(out);
+  auto preferred_layout = analysis.preferredLayout(out);
+  ASSERT_TRUE(preferred_layout.has_value());
   EXPECT_THAT(
-      preferred_layout.allocation_domain,
+      preferred_layout->allocation_domain(),
       ElementsAre(out->axis(0), out->axis(1)));
-  EXPECT_THAT(preferred_layout.contiguity, Each(Optional(IsTrue())));
+  EXPECT_THAT(preferred_layout->contiguity(), Each(Optional(IsTrue())));
 }
 
 TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
@@ -116,7 +117,7 @@ TEST_F(AliasAnalysisTest, Set) {
 
   const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
-      analysis.preferredLayout(out).allocation_domain,
+      analysis.preferredLayout(out)->allocation_domain(),
       ElementsAre(out_logical[1], out_logical[2], out_logical[0]));
 }
 
@@ -136,7 +137,7 @@ TEST_F(AliasAnalysisTest, Permute) {
 
   const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
-      analysis.preferredLayout(out).allocation_domain,
+      analysis.preferredLayout(out)->allocation_domain(),
       ElementsAre(out_logical[2], out_logical[0], out_logical[1]));
 }
 
@@ -270,7 +271,40 @@ TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
   EXPECT_EQ(analysis.getRoot(expanded_tv), in);
 }
 
-TEST_F(AliasAnalysisTest, NoAliasForReshardingExprs) {
+// Broadcast with input that has a reordered layout (subset of out_logical). The
+// preferred layout should keep that reorder for non-broadcast dims and insert
+// broadcast dims at their logical positions so allocation stays close to
+// logical.
+TEST_F(AliasAnalysisTest, Broadcast_OutLayoutReorderOfSubsetOfOutLogical) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // logical domain: [i0, i1]
+  // allocation domain: [i1, i0]
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  fusion.addInput(in);
+  in->setAllocationDomain({in->axis(1), in->axis(0)}, true);
+
+  // logical domain: [i0, b, i1]
+  TensorView* out = broadcast(in, {false, true, false});
+  fusion.addOutput(out);
+
+  fusion.print();
+
+  // prefered layout for output is [i1, i0]
+  // we want to insert bcast dimension between i1 and i0, to match it original
+  // position in logical domain, so the final allocation domain should be [i1,
+  // b, i0] which is a permutation of its logical domain.
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  auto preferred_layout = analysis.preferredLayout(out);
+  auto allocation_domain = preferred_layout->allocation_domain();
+  EXPECT_THAT(
+      allocation_domain, ElementsAre(out->axis(2), out->axis(1), out->axis(0)));
+}
+
+// See PR: https://github.com/NVIDIA/Fuser/pull/4274
+// for alias analysis for resharding exprs
+TEST_F(AliasAnalysisTest, AliasForReshardingExprs) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -286,6 +320,242 @@ TEST_F(AliasAnalysisTest, NoAliasForReshardingExprs) {
 
   fusion.addInput(in);
   fusion.addOutput(out);
+
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_TRUE(analysis.getRoot(out) == in);
+}
+
+TEST_F(AliasAnalysisTest, View_NotInvolvingDid) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int kNumDevices = 4;
+  auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigConcreteTensor({-1, -1, 768});
+  TensorView* out = reshape(in, {mul(size(in, 0), size(in, 1)), size(in, 2)});
+
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(-1, kNumDevices);
+    tv->axis(-2)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::randn({2, 3, 768 / kNumDevices}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+
+  // Concretization is needed for reshapes involving dynamic sizes.
+  DynamicTransform::concretizeFusion(&fusion, args);
+  ASSERT_EQ(fusion.inputs().size(), 1);
+  ASSERT_EQ(fusion.outputs().size(), 1);
+  // Concretization updates fusion's inputs and outputs.
+  in = fusion.inputs()[0]->as<TensorView>();
+  out = fusion.outputs()[0]->as<TensorView>();
+
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_TRUE(analysis.getRoot(out) == in);
+}
+
+TEST_F(AliasAnalysisTest, View_DidInFront) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int kNumDevices = 4;
+  auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigConcreteTensor({-1, -1, 768});
+  TensorView* out = reshape(in, {mul(size(in, 0), size(in, 1)), size(in, 2)});
+
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(-1, kNumDevices);
+    tv->axis(-2)->parallelize(ParallelType::DIDx);
+    tv->reorder({{-2, 0}});
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::randn({2, 3, 768 / kNumDevices}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+
+  // Concretization is needed for reshapes involving dynamic sizes.
+  DynamicTransform::concretizeFusion(&fusion, args);
+  ASSERT_EQ(fusion.inputs().size(), 1);
+  ASSERT_EQ(fusion.outputs().size(), 1);
+  // Concretization updates fusion's inputs and outputs.
+  in = fusion.inputs()[0]->as<TensorView>();
+  out = fusion.outputs()[0]->as<TensorView>();
+
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_TRUE(analysis.getRoot(out) == in);
+}
+
+TEST_F(AliasAnalysisTest, View_DidOnMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int kNumDevices = 4;
+  auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigConcreteTensor({-1, -1, 12, 64});
+  TensorView* out =
+      reshape(in, {size(in, 0), size(in, 1), IrBuilder::create<Val>(768)});
+
+  in->setDeviceMesh(mesh);
+  in->outer_split(-2, kNumDevices);
+  in->axis(-3)->parallelize(ParallelType::DIDx);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  out->setDeviceMesh(mesh);
+  out->outer_split(-1, kNumDevices);
+  out->axis(-2)->parallelize(ParallelType::DIDx);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::randn({2, 3, 12 / kNumDevices, 64}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+
+  // Concretization is needed for reshapes involving dynamic sizes.
+  DynamicTransform::concretizeFusion(&fusion, args);
+  ASSERT_EQ(fusion.inputs().size(), 1);
+  ASSERT_EQ(fusion.outputs().size(), 1);
+  // Concretization updates fusion's inputs and outputs.
+  in = fusion.inputs()[0]->as<TensorView>();
+  out = fusion.outputs()[0]->as<TensorView>();
+
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_TRUE(analysis.getRoot(out) == in);
+}
+
+TEST_F(AliasAnalysisTest, View_DidOnMerge_Noncontiguous) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int kNumDevices = 4;
+  auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigConcreteTensor({-1, -1, 12, 64});
+  TensorView* out =
+      reshape(in, {size(in, 0), size(in, 1), IrBuilder::create<Val>(768)});
+
+  in->setDeviceMesh(mesh);
+  in->outer_split(-2, kNumDevices);
+  in->axis(-3)->parallelize(ParallelType::DIDx);
+  in->setAllocationDomain(in->getLoopDomain(), {true, true, true, false, true});
+
+  out->setDeviceMesh(mesh);
+  out->outer_split(-1, kNumDevices);
+  out->axis(-2)->parallelize(ParallelType::DIDx);
+  out->setAllocationDomain(out->getLoopDomain(), {true, true, true, true});
+
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::randn({2, 3, 12 / kNumDevices, 64}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+
+  // Concretization is needed for reshapes involving dynamic sizes.
+  DynamicTransform::concretizeFusion(&fusion, args);
+  ASSERT_EQ(fusion.inputs().size(), 1);
+  ASSERT_EQ(fusion.outputs().size(), 1);
+  // Concretization updates fusion's inputs and outputs.
+  in = fusion.inputs()[0]->as<TensorView>();
+  out = fusion.outputs()[0]->as<TensorView>();
+
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_TRUE(analysis.getRoot(out) == nullptr);
+}
+
+TEST_F(AliasAnalysisTest, View_DidOnSplit) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int kNumDevices = 4;
+  auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigConcreteTensor({-1, -1, 768});
+  auto* head = IrBuilder::create<Val>(12);
+  TensorView* out =
+      reshape(in, {size(in, 0), size(in, 1), head, div(size(in, 2), head)});
+
+  in->setDeviceMesh(mesh);
+  in->outer_split(-1, kNumDevices);
+  in->axis(-2)->parallelize(ParallelType::DIDx);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  out->setDeviceMesh(mesh);
+  out->outer_split(-2, kNumDevices);
+  out->axis(-3)->parallelize(ParallelType::DIDx);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::randn({2, 3, 768 / kNumDevices}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+
+  // Concretization is needed for reshapes involving dynamic sizes.
+  DynamicTransform::concretizeFusion(&fusion, args);
+  ASSERT_EQ(fusion.inputs().size(), 1);
+  ASSERT_EQ(fusion.outputs().size(), 1);
+  // Concretization updates fusion's inputs and outputs.
+  in = fusion.inputs()[0]->as<TensorView>();
+  out = fusion.outputs()[0]->as<TensorView>();
+
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_TRUE(analysis.getRoot(out) == in);
+}
+
+TEST_F(AliasAnalysisTest, View_DidOnSplit_Noncontiguous) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int kNumDevices = 4;
+  auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigConcreteTensor({-1, -1, 768});
+  auto* head = IrBuilder::create<Val>(12);
+  TensorView* out =
+      reshape(in, {size(in, 0), size(in, 1), head, div(size(in, 2), head)});
+
+  in->setDeviceMesh(mesh);
+  in->outer_split(-1, kNumDevices);
+  in->axis(-2)->parallelize(ParallelType::DIDx);
+  in->setAllocationDomain(in->getLoopDomain(), {false, false, true, false});
+
+  out->setDeviceMesh(mesh);
+  out->outer_split(-2, kNumDevices);
+  out->axis(-3)->parallelize(ParallelType::DIDx);
+  out->setAllocationDomain(
+      out->getLoopDomain(), {false, false, true, true, true});
+
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::randn({2, 3, 768 / kNumDevices}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+
+  // Concretization is needed for reshapes involving dynamic sizes.
+  DynamicTransform::concretizeFusion(&fusion, args);
+  ASSERT_EQ(fusion.inputs().size(), 1);
+  ASSERT_EQ(fusion.outputs().size(), 1);
+  // Concretization updates fusion's inputs and outputs.
+  in = fusion.inputs()[0]->as<TensorView>();
+  out = fusion.outputs()[0]->as<TensorView>();
 
   AliasAnalysisResult analysis = findAliases(&fusion);
   EXPECT_TRUE(analysis.getRoot(out) == nullptr);

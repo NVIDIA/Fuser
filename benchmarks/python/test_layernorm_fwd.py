@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -29,9 +29,8 @@ def layernorm_fwd_fusion(
 
     T3, T4 = fd.ops.var_mean(T0, dims=[1], correction=0, keepdim=False)
 
-    V6 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
-    T7 = fd.ops.broadcast_in_dim(T3, shape=V6, broadcast_dims=[0])
-    T11 = fd.ops.broadcast_in_dim(T4, shape=V6, broadcast_dims=[0])
+    T7 = fd.ops.broadcast_in_dim(T3, shape=[T0.size(0), 1], broadcast_dims=[0])
+    T11 = fd.ops.broadcast_in_dim(T4, shape=[T0.size(0), 1], broadcast_dims=[0])
 
     S12 = fd.define_scalar(eps, dtype=DataType.Double)
     T13 = fd.ops.add(T7, S12)
@@ -68,6 +67,7 @@ def layernorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_layernorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -98,9 +98,13 @@ def test_layernorm_fwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
+import os
+
+
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_layernorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -109,11 +113,16 @@ def test_layernorm_fwd_baseline_benchmark(
 ):
     if executor == "torchcompile":
         clear_dynamo_cache()
+        assert os.environ.get("TORCHINDUCTOR_COORDINATE_DESCENT_TUNING") == "1"
+        assert (
+            os.environ.get("TORCHINDUCTOR_COORDINATE_DESCENT_CHECK_ALL_DIRECTIONS")
+            == "1"
+        )
     batch_size, hidden_size = size
     inputs = [
-        torch.randn(size, device="cuda", dtype=dtype),
-        torch.randn(hidden_size, device="cuda", dtype=dtype),
-        torch.randn(hidden_size, device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.randn(hidden_size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.randn(hidden_size, device="cuda", dtype=dtype, requires_grad=True),
     ]
 
     benchmark_fn = with_executor(executor, layernorm)

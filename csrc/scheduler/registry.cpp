@@ -5,17 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "scheduler/registry.h"
+
 #include <ATen/cuda/CUDAContext.h>
-#include <instrumentation.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/heuristic.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/resize.h>
-#include <scheduler/runtime_info.h>
-#include <scheduler/utils.h>
+
+#include "instrumentation.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/greedy.h"
+#include "scheduler/heuristic.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/resize.h"
+#include "scheduler/runtime_info.h"
+#include "scheduler/utils.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -33,11 +37,42 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
 
   FusionGuard fg(fusion);
 
-  // These ops are  are only accepted in `ExprEval`
-  // scheduler, all other schedulers should reject them.
-  if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp>(fusion)) {
+  // These ops are supported only by the ExprEval or Cutlass schedulers. All
+  // others should reject them
+  if (scheduler_type != SchedulerType::Greedy &&
+      scheduler_type != SchedulerType::Cutlass &&
+      ir_utils::hasOpsOfType<ScaledMmaOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
+  }
+
+  // These ops are  are only accepted in `ExprEval`
+  // scheduler, all other schedulers should reject them.
+  // TODO: remove IndexPutAccumulateOp
+  if (scheduler_type != SchedulerType::Greedy &&
+      ir_utils::hasOpsOfType<
+          ScatterOp,
+          SdpaFwdOp,
+          SdpaBwdOp,
+          EmbeddingFwdOp,
+          IndexPutAccumulateOp,
+          ArgsortOp,
+          GroupedMmaOp,
+          CutlassNvfp4GroupedMmaOp,
+          TopKOp,
+          ScanOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Has unsupported ops");
+    return false;
+  }
+
+  // Support of non-exact gather was dropped when the legacy indexer was
+  // deprecated
+  if (std::ranges::any_of(
+          ir_utils::getOpsOfType<GatherOp>(fusion),
+          [](GatherOp* gather) { return !gather->exactSizes(); })) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Non-exact gather ops");
     return false;
   }
 
@@ -55,6 +90,7 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
         scheduler_type, "Connected fusion graph check failed!");
     return false;
   }
+
   if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Iter domain graph check failed!");
@@ -64,6 +100,28 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
   if (registry_utils::SchedulerTopologyChecker::hasResizeAndIndexOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "has resize-based ops and index ops");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::hasCyclicReshape(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Fusion has cyclic reshapes.");
+    return false;
+  }
+
+  // Resize scheduler allows incompatible reshapes
+  if (scheduler_type != SchedulerType::Resize &&
+      registry_utils::SchedulerTopologyChecker::hasIncompatibleTransforms(
+          fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Fusion has incompatible reshapes.");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::
+          rejectScheduleFusionGlobalBufferRequirement(fusion, scheduler_type)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Fusion doesn't meets global buffer requirement.");
     return false;
   }
 
@@ -99,8 +157,12 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<ExprEvalScheduler>();
     case SchedulerType::Resize:
       return std::make_unique<ResizeScheduler>();
+    case SchedulerType::Greedy:
+      return std::make_unique<GreedyScheduler>();
     case SchedulerType::Communication:
       return std::make_unique<CommunicationScheduler>();
+    case SchedulerType::Cutlass:
+      return std::make_unique<CutlassScheduler>();
     default:
       NVF_THROW("unreachable");
   }
@@ -231,6 +293,8 @@ template class HeuristicDataCacheEntry<
     HeuristicCompileTime::UnrollableInputsAndOutputs>;
 template class HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>;
 template class HeuristicDataCacheEntry<
+    HeuristicCompileTime::BlockQuantizationOps>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::PersistentBufferInfo>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::ScopePersistentFactorInfo>;
@@ -242,6 +306,4 @@ template class HeuristicDataCacheEntry<
 template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
-template class HeuristicDataCacheEntry<
-    HeuristicCompileTime::SchedulerHyperParameters>;
 } // namespace nvfuser

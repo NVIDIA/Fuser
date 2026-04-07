@@ -109,13 +109,33 @@ std::vector<typename GetValType<ExprT>::type> getInputsOfExpr(
   return dir == Direction::Forward ? inputs(expr) : outputs(expr);
 }
 
+template <typename BFSType, typename... AdditionalArgs>
+std::vector<typename BFSType::ValType> getInputsOfExpr(
+    const typename BFSType::ExprType& expr,
+    Direction dir,
+    const AdditionalArgs&... additional_args) {
+  return getInputsOfExpr(
+      expr,
+      dir,
+      typename BFSType::InputsType(additional_args...),
+      typename BFSType::OutputsType(additional_args...));
+}
+
 template <typename ExprT, typename InputsT, typename OutputsT>
 std::vector<typename GetValType<ExprT>::type> getOutputsOfExpr(
     const ExprT& expr,
     Direction dir,
     InputsT inputs,
     OutputsT outputs) {
-  return dir == Direction::Forward ? outputs(expr) : inputs(expr);
+  return getInputsOfExpr(expr, reverse(dir), inputs, outputs);
+}
+
+template <typename BFSType, typename... AdditionalArgs>
+std::vector<typename BFSType::ValType> getOutputsOfExpr(
+    const typename BFSType::ExprType& expr,
+    Direction dir,
+    const AdditionalArgs&... additional_args) {
+  return getInputsOfExpr<BFSType>(expr, reverse(dir), additional_args...);
 }
 
 // Traversal for finding the shortest path from given vals to another
@@ -788,12 +808,43 @@ std::vector<typename GetValType<ExprT>::type> getInputsOfExprPath(
   return inputs;
 }
 
+template <typename BFSType, typename... AdditionalArgs>
+std::vector<typename BFSType::ValType> getInputsOfExprPath(
+    const typename BFSType::ExprPath& path,
+    const AdditionalArgs&... additional_args) {
+  using ValT = typename BFSType::ValType;
+  std::vector<ValT> inputs;
+  std::unordered_set<ValT> all_outputs;
+
+  for (const auto& [expr, dir] : path) {
+    for (const auto& inp :
+         getInputsOfExpr<BFSType>(expr, dir, additional_args...)) {
+      if (all_outputs.find(inp) == all_outputs.end()) {
+        inputs.push_back(inp);
+      }
+    }
+    for (const auto& out :
+         getOutputsOfExpr<BFSType>(expr, dir, additional_args...)) {
+      all_outputs.emplace(out);
+    }
+  }
+
+  return inputs;
+}
+
 template <typename ExprT, typename InputsT, typename OutputsT>
 std::vector<typename GetValType<ExprT>::type> getOutputsOfExprPath(
     const std::vector<std::pair<ExprT, Direction>>& path,
     InputsT get_inputs,
     OutputsT get_outputs) {
   return getInputsOfExprPath(reverse(path), get_inputs, get_outputs);
+}
+
+template <typename BFSType, typename... AdditionalArgs>
+std::vector<typename BFSType::ValType> getOutputsOfExprPath(
+    const typename BFSType::ExprPath& path,
+    const AdditionalArgs&... additional_args) {
+  return getInputsOfExprPath<BFSType>(reverse(path), additional_args...);
 }
 
 // Given a set of exprs and vals, get all reachable ones from another set of
@@ -867,7 +918,6 @@ std::vector<typename BFSType::ValType> getValsBetween(
     const std::vector<typename BFSType::ValType>& from,
     const std::vector<typename BFSType::ValType>& to,
     const AdditionalArgs&... additional_args) {
-  using ValType = typename BFSType::ValType;
   auto path = getExprsBetween<BFSType>(
                   from,
                   to,
@@ -875,6 +925,18 @@ std::vector<typename BFSType::ValType> getValsBetween(
                   /*allowed_direction=*/Direction::Undefined,
                   additional_args...)
                   .first;
+  return getValsBetween<BFSType>(path, from, to, additional_args...);
+}
+
+// Similar to the above version of getValsBetween, but for when the
+// traversal path is already obtained.
+template <typename BFSType, typename... AdditionalArgs>
+std::vector<typename BFSType::ValType> getValsBetween(
+    const typename BFSType::ExprPath& path,
+    const std::vector<typename BFSType::ValType>& from,
+    const std::vector<typename BFSType::ValType>& to,
+    const AdditionalArgs&... additional_args) {
+  using ValType = typename BFSType::ValType;
 
   VectorOfUniqueEntries<ValType> unique_vals;
   for (auto [expr, dir] : path) {

@@ -7,15 +7,23 @@
 // clang-format on
 #pragma once
 
-#include <host_ir/container.h>
-#include <ir/base_nodes.h>
-#include <multidevice/communication.h>
-#include <multidevice/multidevice.h>
+#include "fusion_segmenter.h"
+#include "host_ir/container.h"
+#include "ir/base_nodes.h"
+#include "multidevice/multidevice.h"
+#include "multidevice/post_communication.h"
 
 namespace nvfuser {
 
 struct HostIrLowerParams {
   CommunicatorBackend communicator_backend = CommunicatorBackend::kNccl;
+  bool offset_stream_indexing_by_rank = false;
+  // If enabled, explicitly synchronize stream (i+1) with stream i inside stream
+  // parallel loops just after the communication to prevent iteration i+1 from
+  // starting before i's communication completes. This ensures proper overlap
+  // between comms and compute. For now, this is only supported for the
+  // "Allgather+compute" case
+  bool inter_stream_synchronization = false;
 };
 
 class HostIrLower {
@@ -23,21 +31,30 @@ class HostIrLower {
   explicit HostIrLower(const HostIrLowerParams& params = HostIrLowerParams())
       : params_(params) {}
 
-  // The flag `ignore_inner_resharding` is useful because the preseg passes
-  // `InsertReshardingsPass` and `ReorderShardedAxisPass` want different
-  // behaviors
-  static bool canLower(Expr* expr, bool ignore_inner_resharding = false);
-
   // Lower a sharded Expr into a series of Communication.
-  std::vector<Expr*> lower(Expr* c);
+  std::vector<Expr*> lower(Expr* c, DeviceIdxType my_device_index);
 
   std::unique_ptr<hir::HostIrContainer> lower(
       std::unique_ptr<Fusion> fusion,
-      int64_t my_device_index);
+      DeviceIdxType my_device_index);
+
+  static bool isLowerableAsStandaloneHostOp(Expr* expr);
+
+  static bool shouldMergeSegmentedGroups(
+      SegmentedGroup* group1,
+      SegmentedGroup* group2);
 
  private:
-  std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);
   const HostIrLowerParams params_;
 };
+
+namespace hir_pass {
+
+std::vector<Expr*> convertSingleOpToCommunication(
+    Expr* c,
+    DeviceIdxType my_device_idx,
+    const HostIrLowerParams& params);
+
+} // namespace hir_pass
 
 } // namespace nvfuser

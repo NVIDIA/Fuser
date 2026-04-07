@@ -7,16 +7,20 @@
 // clang-format on
 #include <evaluator_common.h>
 
+#include <algorithm>
+#include <concepts>
+#include <optional>
+#include <ranges>
+
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tensor_metadata.h>
-
-#include <optional>
 
 namespace nvfuser {
 
@@ -82,13 +86,14 @@ std::vector<Val*> makeSortedEvaluationList(std::vector<Val*> input) {
 
 //! Kernel IR utility, collects all the symbolic values
 //!  used in allocation nodes.
-void collectBufferSizes(
-    std::vector<Val*>& into,
-    const std::vector<Expr*>& exprs) {
+template <std::ranges::input_range ExprRange>
+requires std::
+    convertible_to<std::ranges::range_reference_t<ExprRange>, Expr*> void
+    collectBufferSizes(std::vector<Val*>& into, const ExprRange& exprs) {
   for (auto expr : exprs) {
     if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
       into.push_back(allocate->size());
-    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       collectBufferSizes(into, for_loop->body().exprs());
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       collectBufferSizes(into, ite->thenBody().exprs());
@@ -130,6 +135,32 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 
 } // namespace
 
+void adjustEvaluatorSizes(
+    const TensorView* tv,
+    std::vector<int64_t>& unsharded_sizes) {
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  // Early return when no adjustment is needed.
+  if (adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1) {
+    return;
+  }
+  // Adjust the inner most dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  NVF_ERROR(!unsharded_sizes.empty(), "DataType not supported");
+  int64_t last_id_index = -1;
+  for (const auto& [i, id] : enumerate(tv->getLogicalDomain())) {
+    if (id == tv->getMaybeAllocationDomain().back()) {
+      last_id_index = i;
+      break;
+    }
+  }
+  NVF_ERROR(
+      last_id_index != -1,
+      "could not find the last ID in allocation for sub byte data types.");
+  unsharded_sizes[last_id_index] =
+      adjust_last_dim.fromATenToNVF(unsharded_sizes[last_id_index]);
+}
+
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
   FUSER_PERF_SCOPE("PrecomputedValues::PrecomputedValues");
   loadSymbols(collectRuntimeUsedValues(fusion));
@@ -156,7 +187,7 @@ void PrecomputedValues::bindParallelExtents(
     auto raw_val = launch_constraint.getRawVal(it.first);
     if (raw_val > 0) {
       for (auto extent : it.second) {
-        bindValue(extent->evaluatorIndex(), raw_val);
+        bindValue(extent->evaluatorIndex(), raw_val, extent);
       }
     }
   }
@@ -168,7 +199,10 @@ void PrecomputedValues::bindConcreteParallelTypeValue(
   auto index_list_it = thread_dim_value_indices_.find(pt);
   if (index_list_it != thread_dim_value_indices_.end()) {
     for (auto index : *(index_list_it->second)) {
-      bindValue(index, value);
+      const Val* ir_node = (index >= 0 && index < (int)symbols_.size())
+          ? symbols_[index]
+          : nullptr;
+      bindValue(index, value, ir_node);
     }
   }
 }
@@ -184,10 +218,12 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
 void PrecomputedValues::bindValues(
     const std::vector<Val*>& inputs,
     const KernelArgumentHolder& args) {
-  NVF_ERROR(
-      args.size() == inputs.size(), "kernel inputs size does not match args");
+  NVF_ERROR_EQ(
+      args.size(),
+      std::ssize(inputs),
+      "kernel inputs size does not match args");
 
-  for (const auto i : c10::irange((int64_t)inputs.size())) {
+  for (const auto i : arange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
     if (auto* tv = dynamic_cast<TensorView*>(input)) {
@@ -196,7 +232,7 @@ void PrecomputedValues::bindValues(
         bindTensorMetaData(tv, tensor);
       }
     } else {
-      bindValue(input->evaluatorIndex(), args[i]);
+      bindValue(input->evaluatorIndex(), args[i], input);
     }
   }
 }
@@ -210,7 +246,7 @@ void PrecomputedValues::initializeValueList(
   values_ = std::vector<PolymorphicValue>(num_of_values_, PolymorphicValue());
 
   // Fill in constants and assign evaluator indices
-  for (const auto i : c10::irange(num_of_values_)) {
+  for (const auto i : arange(num_of_values_)) {
     // Use an expression evaluator to test if value is const
     // Structs must be bound directly
     if (!isStructType(sorted_value_list[i]->dtype()) &&
@@ -236,10 +272,10 @@ const PolymorphicValue& PrecomputedValues::getMaybeValueFor(
 
 void PrecomputedValues::print() const {
   debug() << "Precomputed Values:\n";
-  for (auto i : c10::irange(symbols_.size())) {
+  for (auto i : arange(symbols_.size())) {
     if (defined_[i]) {
       debug() << symbols_[i]->toInlineString() << " = "
-              << PolymorphicValue_functions::toString(values_[i]) << std::endl;
+              << PolymorphicValue_functions::toString(values_[i]) << '\n';
     }
   }
 }
@@ -254,7 +290,8 @@ void PrecomputedValues::invalidate() {
   // clear binding values
   binding_log_.clear();
 
-  // invalidate value entries
+  // invalidate value entries (vector<bool> is not a ranges output_range)
+  // NOLINTNEXTLINE(modernize-use-ranges)
   std::fill(defined_.begin(), defined_.end(), false);
 
   // invalidate flag
@@ -262,7 +299,7 @@ void PrecomputedValues::invalidate() {
 }
 
 PrecomputedValues PrecomputedValues::clone(IrCloner& ir_cloner) const {
-  PrecomputedValues pv(static_cast<Fusion*>(ir_cloner.container()));
+  PrecomputedValues pv(ir_cloner.container()->as<Fusion>());
 
   // this is a map to unique pointers to vectors, so we need to copy the
   // vectors and create new unique pointers
@@ -282,7 +319,7 @@ PrecomputedValues PrecomputedValues::clone(IrCloner& ir_cloner) const {
       pv.binding_log_.end(), binding_log_.begin(), binding_log_.end());
 
   pv.symbols_.resize(symbols_.size());
-  for (const auto i : c10::irange(symbols_.size())) {
+  for (const auto i : arange(symbols_.size())) {
     pv.symbols_[i] = ir_cloner.clone(symbols_[i]);
   }
 
@@ -328,14 +365,19 @@ void PrecomputedValues::initializeNamedScalars() {
 void PrecomputedValues::validate() {
   FUSER_PERF_SCOPE("PrecomputedValuess::Validate");
   using namespace PolymorphicValue_functions;
-  for (const auto& it : binding_log_) {
-    NVF_ERROR(
-        isSame(values_[it.first], it.second),
-        "Precomputed values failed to validate.",
-        "\nSomething unexpected changed between the compilation and execution.\n",
-        values_[it.first],
-        " != ",
-        it.second);
+  for (const auto& [index, expected_value, ir_node] : binding_log_) {
+    if (!isSame(values_[index], expected_value)) {
+      std::stringstream error_msg;
+      error_msg << "Precomputed values failed to validate.\n"
+                << "Something unexpected changed between the compilation and "
+                   "execution.\n";
+      if (ir_node != nullptr) {
+        error_msg << "IR node: " << ir_node->toString() << "\n";
+      }
+      error_msg << "Computed value: " << values_[index] << "\n"
+                << "Expected value: " << expected_value;
+      NVF_ERROR(false, error_msg.str());
+    }
   }
   has_valid_values_ = true;
 }
@@ -350,19 +392,23 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
-  for (const auto dim :
-       c10::irange(static_cast<int64_t>(logical_domain.size()))) {
+  adjustEvaluatorSizes(tv, logical_sizes);
+
+  for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
     IterDomain* id = logical_domain[dim];
     const auto dim_size = logical_sizes.at(dim);
     if (id->isBroadcast()) {
       // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
       // and .ExpandedBroadcast.
-      bindValue(id->extent()->evaluatorIndex(), 1L);
+      bindValue(id->extent()->evaluatorIndex(), 1L, id->extent());
       if (id->hasExpandedExtent()) {
-        bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);
+        bindValue(
+            id->expandedExtent()->evaluatorIndex(),
+            dim_size,
+            id->expandedExtent());
       }
     } else {
-      bindValue(id->extent()->evaluatorIndex(), dim_size);
+      bindValue(id->extent()->evaluatorIndex(), dim_size, id->extent());
     }
   }
 
@@ -390,11 +436,11 @@ void PrecomputedValues::bindTensorMetaData(
       tv->toString(),
       " with input tensor ",
       tensor);
-  bindValue(metadata_val->evaluatorIndex(), metadata);
+  bindValue(metadata_val->evaluatorIndex(), metadata, metadata_val);
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
-    : precomputed_values_(precomputed_values), num_of_instructions_{0} {
+    : precomputed_values_(precomputed_values) {
   for (auto val : precomputed_values_.symbols_) {
     auto def = val->definition();
     if (def) {
@@ -442,7 +488,7 @@ void NaiveValueMachine::copyFrom(const NaiveValueMachine& other) {
 }
 
 void NaiveValueMachine::run() {
-  for (const auto i : c10::irange(num_of_instructions_)) {
+  for (const auto i : arange(num_of_instructions_)) {
     // Skip this instruction if the dest location
     //  has already been computed or is constant.
     if (precomputed_values_.defined_[dest_[i]] ||
@@ -463,7 +509,7 @@ void NaiveValueMachine::makeUnaryOp(UnaryOp* uop) {
   inst_type_[index] = InstructionType::UNARY_OP;
   uop_type_[index] = uop->getUnaryOpType();
   if (uop_type_[index] == UnaryOpType::Cast) {
-    data_type_[index] = uop->out()->getDataType().value();
+    data_type_[index] = uop->out()->getDataType();
   }
   src0_[index] = in;
   dest_[index] = out;
@@ -570,6 +616,9 @@ void NaiveValueMachine::runUnaryOp(int index) {
     case UnaryOpType::Abs:
       dest = abs(src);
       break;
+    case UnaryOpType::Ceil:
+      dest = ceil(src);
+      break;
     case UnaryOpType::LogicalNot:
       dest = !src;
       break;
@@ -646,11 +695,17 @@ void NaiveValueMachine::runBinaryOp(int index) {
     case BinaryOpType::BitwiseXor:
       dest = lhs ^ rhs;
       break;
+    case BinaryOpType::FMax:
+      dest = fmax(lhs, rhs);
+      break;
     case BinaryOpType::Max:
-      dest = lhs > rhs ? lhs : rhs;
+      dest = max(lhs, rhs);
+      break;
+    case BinaryOpType::FMin:
+      dest = fmin(lhs, rhs);
       break;
     case BinaryOpType::Min:
-      dest = lhs < rhs ? lhs : rhs;
+      dest = min(lhs, rhs);
       break;
     case BinaryOpType::Gcd:
       dest = gcd(lhs, rhs);

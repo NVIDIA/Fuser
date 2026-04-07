@@ -34,7 +34,7 @@ namespace scheduler_tools {
 // repeated at the end of its computation.
 //
 // This can be problematic since the whole segment is scheduled based
-// on the repeated tensor whose size is largere than the rest of the
+// on the repeated tensor whose size is larger than the rest of the
 // tensors by the repetition factor. For example, if the it is
 // repeated twice, we would launch threads and blocks that are
 // required for the twice-larger tensor but most of the actual
@@ -53,20 +53,21 @@ namespace scheduler_tools {
 // TODO: Consider generalizing this heuristics to the other
 // schedulers.
 
+// Some of the relevant iter domains of the output tensor of the
+// reshape that realizes a repetition.
 struct StaticRepeatInfo {
-  // The final output tensor of the detected repeat pattern, e.g.,
-  // t3 in the above example case.
-  TensorView* repeat_output_tv = nullptr;
-  // The reshape output tensor, e.g., t3 in the above example case. It
-  // is not the same as repeat_output_tv when there's a cache.
+  // Tensor after a repeat. In the above example, this corresponds
+  // to t3.
   TensorView* reshape_output_tv = nullptr;
-  // The ID of reshape output TV that corresponds to the
-  // expanded broadcast ID. In the above example case, this
-  // would be the root ID of t3 that corresponds to b2
-  IterDomain* reshape_repeat_id = nullptr;
-  // Output tensors of the detected broadcast, expand and reshape
-  // ops. In the above example case, this would consist of t1, t2 and t3.
-  std::unordered_set<TensorView*> repeat_tvs;
+  // Root ID that is repeated. In the above example, this corresponds
+  // to i1.
+  IterDomain* input_id = nullptr;
+  // Root ID that is originally an expanded broadcast. In the above example,
+  // this corresponds to b(2).
+  IterDomain* factor_id = nullptr;
+  // Logical repeated ID. In the above example, this corresponds
+  // to 2*i1.
+  IterDomain* output_id = nullptr;
 };
 
 // Check if the given tensor matches with the final reshape output
@@ -77,4 +78,5 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     TensorView* maybe_repeat_out_tv);
 
 } // namespace scheduler_tools
+
 } // namespace nvfuser

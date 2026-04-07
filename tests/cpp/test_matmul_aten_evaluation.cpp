@@ -5,20 +5,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/optimization_pass.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/mma_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "mma_type.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/mma_utils.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
+
+using testing::ElementsAre;
 
 using Sizes = std::vector<int64_t>;
 using MatmulNodeParamType = std::tuple<Sizes, Sizes>;
@@ -31,7 +34,7 @@ class MatmulNodeParameterizedTest
   MatmulNodeParameterizedTest() : optimization_guard_(false) {}
 
  private:
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 };
 
@@ -44,7 +47,7 @@ class LinearNodeParametrizedTest
   LinearNodeParametrizedTest() : optimization_guard_(false) {}
 
  private:
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 };
 
@@ -88,7 +91,7 @@ void checkMatmulOpIdMapping(
   // exists (is not negative) and is not Broadcast before checking mapping.
   int batch_ndims =
       output->nDims() - (B->nDims() > 1) - (A->nDims() > 1) - red_dims;
-  for (int64_t i : c10::irange(batch_ndims)) {
+  for (int64_t i : arange(batch_ndims)) {
     int64_t i_a = A->nDims() - 3 - i;
     int64_t i_b = B->nDims() - 3 - i;
     int64_t i_out = batch_ndims - 1 - i;
@@ -122,7 +125,7 @@ void checkLinearOpIdMapping(
   ASSERT_EQ(output->nDims(), input->nDims() + weight->nDims() - 2 + red_dims);
 
   // Check that the first input_size - 1 dims are mapped for input
-  for (auto i : c10::irange(input->nDims() - 1)) {
+  for (auto i : arange(input->nDims() - 1)) {
     if (!input->axis(i)->isBroadcast()) {
       EXPECT_TRUE(checkMapped(vg, input->axis(i), output->axis(i)));
     }

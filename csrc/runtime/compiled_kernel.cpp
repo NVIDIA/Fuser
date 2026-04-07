@@ -6,33 +6,16 @@
  */
 // clang-format on
 
-#include <runtime/compiled_kernel.h>
+#include "runtime/compiled_kernel.h"
 
-#include <codegen.h>
-#include <cuda_utils.h>
-#include <debug.h>
-#include <device_lower/analysis/bank_conflict.h>
-#include <disjoint_set.h>
-#include <driver_api.h>
-#include <fusion_profiler.h>
-#include <global_allocator.h>
-#include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_db/kernel_db.h>
-#include <kernel_ir.h>
-#include <multidevice/communication.h>
-#include <multidevice/communicator.h>
-#include <multidevice/utils.h>
-#include <options.h>
-#include <polymorphic_value.h>
-#include <runtime/allocations.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/executor_utils.h>
-#include <serde/utils.h>
-#include <tensor_metadata.h>
-#include <utils.h>
+#include <array>
+#include <cmath>
+#include <cstring>
+#include <fstream>
+#include <regex>
+#include <vector>
+
+#include <cuda_runtime.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -41,48 +24,72 @@
 #include <c10/core/DeviceGuard.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
-#include <c10/util/irange.h>
 #include <torch/csrc/jit/resource_guard.h>
 
-#include <array>
-#include <cmath>
-#include <cstring>
-#include <fstream>
-#include <vector>
-
-#include <cuda_runtime.h>
-
-#include <nvfuser_resources/array.h>
-#include <nvfuser_resources/basic_type_traits.h>
-#include <nvfuser_resources/bf16_support.h>
-#include <nvfuser_resources/bit.h>
-#include <nvfuser_resources/block_reduction.h>
-#include <nvfuser_resources/block_sync_atomic.h>
-#include <nvfuser_resources/block_sync_default.h>
-#include <nvfuser_resources/block_welford_outer.h>
-#include <nvfuser_resources/broadcast.h>
-#include <nvfuser_resources/cluster.h>
-#include <nvfuser_resources/complex_number.h>
-#include <nvfuser_resources/fp16_support.h>
-#include <nvfuser_resources/fp8_support.h>
-#include <nvfuser_resources/fused_reduction.h>
-#include <nvfuser_resources/fused_welford_helper.h>
-#include <nvfuser_resources/fused_welford_impl.h>
-#include <nvfuser_resources/fused_welford_impl_outer.h>
-#include <nvfuser_resources/grid_broadcast.h>
-#include <nvfuser_resources/grid_reduction.h>
-#include <nvfuser_resources/grid_sync.h>
-#include <nvfuser_resources/helpers.h>
-#include <nvfuser_resources/index_utils.h>
-#include <nvfuser_resources/mbarrier.h>
-#include <nvfuser_resources/memory.h>
-#include <nvfuser_resources/random_numbers.h>
-#include <nvfuser_resources/tensor.h>
-#include <nvfuser_resources/tensor_memory.h>
-#include <nvfuser_resources/tuple.h>
-#include <nvfuser_resources/type_traits.h>
-#include <nvfuser_resources/warp.h>
-#include <nvfuser_resources/welford.h>
+#include "base.h"
+#include "codegen.h"
+#include "cuda_utils.h"
+#include "debug.h"
+#include "device_lower/analysis/bank_conflict.h"
+#include "device_lower/lower2device.h"
+#include "disjoint_set.h"
+#include "driver_api.h"
+#include "fusion_profiler.h"
+#include "global_allocator.h"
+#include "instrumentation.h"
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_db/kernel_db.h"
+#include "kernel_ir.h"
+#include "multidevice/communicator.h"
+#include "multidevice/post_communication.h"
+#include "multidevice/utils.h"
+#include "nvfuser_resources/argsort.h"
+#include "nvfuser_resources/array.h"
+#include "nvfuser_resources/basic_type_traits.h"
+#include "nvfuser_resources/bf16_support.h"
+#include "nvfuser_resources/bit.h"
+#include "nvfuser_resources/block_quantization_kernels.h"
+#include "nvfuser_resources/block_reduction.h"
+#include "nvfuser_resources/block_sync_atomic.h"
+#include "nvfuser_resources/block_sync_default.h"
+#include "nvfuser_resources/block_welford_outer.h"
+#include "nvfuser_resources/broadcast.h"
+#include "nvfuser_resources/casts.h"
+#include "nvfuser_resources/cluster.h"
+#include "nvfuser_resources/complex_number.h"
+#include "nvfuser_resources/cub_utils.h"
+#include "nvfuser_resources/fp16_support.h"
+#include "nvfuser_resources/fp4_support.h"
+#include "nvfuser_resources/fp8_support.h"
+#include "nvfuser_resources/fused_reduction.h"
+#include "nvfuser_resources/fused_welford_helper.h"
+#include "nvfuser_resources/fused_welford_impl.h"
+#include "nvfuser_resources/fused_welford_impl_outer.h"
+#include "nvfuser_resources/grid_broadcast.h"
+#include "nvfuser_resources/grid_dependency_control.h"
+#include "nvfuser_resources/grid_reduction.h"
+#include "nvfuser_resources/grid_sync.h"
+#include "nvfuser_resources/helpers.h"
+#include "nvfuser_resources/index_utils.h"
+#include "nvfuser_resources/mbarrier.h"
+#include "nvfuser_resources/memory.h"
+#include "nvfuser_resources/random_numbers.h"
+#include "nvfuser_resources/scan.h"
+#include "nvfuser_resources/tensor.h"
+#include "nvfuser_resources/tensor_memory.h"
+#include "nvfuser_resources/topk.h"
+#include "nvfuser_resources/tuple.h"
+#include "nvfuser_resources/type_traits.h"
+#include "nvfuser_resources/warp.h"
+#include "nvfuser_resources/welford.h"
+#include "options.h"
+#include "polymorphic_value.h"
+#include "runtime/allocations.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/executor_utils.h"
+#include "tensor_metadata.h"
 
 namespace nvfuser {
 
@@ -98,10 +105,12 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
   ss << nvfuser_resources::fp8_support_cu;
+  ss << nvfuser_resources::fp4_support_cu;
 
   // Base classes and helpers
   ss << nvfuser_resources::type_traits_cu;
   ss << nvfuser_resources::array_cu;
+  ss << nvfuser_resources::casts_cu;
   ss << nvfuser_resources::tensor_memory_cu;
   ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::random_numbers_cu;
@@ -126,6 +135,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::welford_cu;
   ss << nvfuser_resources::warp_cu;
   ss << nvfuser_resources::memory_cu;
+  ss << nvfuser_resources::grid_dependency_control_cu;
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
   ss << nvfuser_resources::fused_welford_impl_cu;
@@ -151,6 +161,13 @@ class NvrtcCompileDriver {
   std::string invoke(nvrtcProgram program, const std::string& src) const {
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
     auto opts = getOptions();
+    if (isDebugDumpEnabled(DebugDumpOption::CompileParams)) {
+      debug() << "NVRTC Compile Parameters (" << opts.size()
+              << " options):" << '\n';
+      for (const auto& opt : options_) {
+        debug() << "  " << opt << '\n';
+      }
+    }
     auto result = nvrtcCompileProgram(
         program, static_cast<int>(opts.size()), opts.data());
     size_t logsize = 0;
@@ -173,7 +190,7 @@ class NvrtcCompileDriver {
           log_buf);
     }
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      debug() << log_buf << std::endl;
+      debug() << log_buf << '\n';
     }
     return std::string(log_buf);
   }
@@ -182,7 +199,7 @@ class NvrtcCompileDriver {
   // Get options that can be passed to nvrtcCompileProgram
   std::vector<const char*> getOptions() const {
     std::vector<const char*> opts(options_.size());
-    for (const auto i : c10::irange(options_.size())) {
+    for (const auto i : arange(options_.size())) {
       opts.at(i) = options_.at(i).c_str();
     }
     return opts;
@@ -191,56 +208,6 @@ class NvrtcCompileDriver {
  private:
   std::vector<std::string> options_;
 };
-
-// Query the target GPU version number NVRTC compiles CUDA kernels for
-void queryTargetGPUVersion(
-    const cudaDeviceProp* const prop,
-    int64_t& major,
-    int64_t& minor,
-    bool& compile_to_sass) {
-  using CudaVersion = std::pair<int, int>;
-  CudaVersion nvrtc_version;
-  NVFUSER_NVRTC_SAFE_CALL(
-      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
-
-  NVF_CHECK(
-      nvrtc_version.first >= 6,
-      "NVRTC versions less than 6 are not supported. Is: ",
-      nvrtc_version.first);
-
-  // Version supported by device
-  // Usually any lower version works too but is less efficient
-  const CudaVersion dev_version = CudaVersion(prop->major, prop->minor);
-  // Maximum version supported by the driver, cap dev_version to this
-  CudaVersion max_dev_version;
-  if (nvrtc_version.first <= 7) { // 7 supports 2-5.x
-    max_dev_version = CudaVersion(5, 0);
-  } else if (nvrtc_version.first <= 8) { // 8 supports 2-6.x
-    max_dev_version = CudaVersion(6, 0);
-  } else if (nvrtc_version.first <= 9) { // 9 supports 3-7.2
-    max_dev_version = CudaVersion(7, 2);
-  } else if (nvrtc_version.first <= 10) { // 10 supports 3-7.5
-    max_dev_version = CudaVersion(7, 5);
-  } else if (nvrtc_version == CudaVersion(11, 0)) { // 11.0 supports 3-8.0
-    max_dev_version = CudaVersion(8, 0);
-  } else if (nvrtc_version.first == 11 && nvrtc_version.second < 8) {
-    max_dev_version = CudaVersion(8, 6);
-  } else {
-    // If the driver version is unknown (i.e. newer than this code)
-    // assume the driver supports this device
-    max_dev_version = dev_version;
-  }
-  if (dev_version > max_dev_version) {
-    major = max_dev_version.first;
-    minor = max_dev_version.second;
-    // if we are clamping major/minor, sass is not compatible
-    compile_to_sass = false;
-  } else {
-    major = dev_version.first;
-    minor = dev_version.second;
-    compile_to_sass = true;
-  }
-}
 
 #if defined(__linux__)
 std::string disassembleBinary(
@@ -337,10 +304,9 @@ std::string disassembleBinary(
     // so I have to dump the stdin to a temp file and let nvdisasm read it. I am
     // hoping that nvdisasm will support reading from stdin one day.
     std::stringstream ss;
-    ss << "export PATH=$PATH:/usr/local/cuda/bin;"
-       << "TMPFILE=$(mktemp);"
-       << "cat>$TMPFILE;"
-       << "nvdisasm $TMPFILE " << nvdisasm_args << "; rm $TMPFILE";
+    ss << "export PATH=$PATH:/usr/local/cuda/bin;" << "TMPFILE=$(mktemp);"
+       << "cat>$TMPFILE;" << "nvdisasm $TMPFILE " << nvdisasm_args
+       << "; rm $TMPFILE";
     auto command = ss.str();
     execl("/bin/bash", "bash", "-c", command.c_str(), NULL);
 
@@ -390,7 +356,7 @@ class CuModuleLoadDataDriver {
         &module, image, opts.size(), opts.data(), opt_vals.data()));
 
     if (logging_enabled_) {
-      debug() << log_ << std::endl;
+      debug() << log_ << '\n';
     }
 
     return log_;
@@ -419,7 +385,7 @@ class CuModuleLoadDataDriver {
     // matrixMulDynlinkJIT sample
     // https://github.com/NVIDIA/cuda-samples/blob/master/Samples/0_Introduction/matrixMulDynlinkJIT/matrixMulDynlinkJIT.cpp#L169-L204.
     std::vector<void*> opt_val_voidp(opt_vals.size());
-    for (const auto i : c10::irange(opt_vals.size())) {
+    for (const auto i : arange(opt_vals.size())) {
       auto opt_val = opt_vals.at(i);
       if (std::holds_alternative<int>(opt_val)) {
         // NOLINTNEXTLINE(performance-no-int-to-ptr)
@@ -537,6 +503,11 @@ void fillCompileOptions(
     nvrtc_compile_driver.setOption("--fmad=true");
   }
 
+  // Enable fast math optimizations if requested
+  if (isOptionEnabled(EnableOption::FastMath)) {
+    nvrtc_compile_driver.setOption("--use_fast_math");
+  }
+
   // Add line info to generated kernels
   if (isOptionEnabled(EnableOption::KernelLineInfo)) {
     nvrtc_compile_driver.setOption("-lineinfo");
@@ -550,10 +521,11 @@ void fillCompileOptions(
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     nvrtc_compile_driver.setOption("-DNVFUSER_PROFILE_KERNEL");
   }
-  if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
+  bool is_ptxas_verbose = isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
       isOptionEnabled(EnableOption::WarnRegisterSpill) ||
-      compile_params.enable_ptxas_verbose) {
+      compile_params.enable_ptxas_verbose;
+  if (is_ptxas_verbose) {
     // show register usage in compilation log
     if (compile_to_sass) {
       nvrtc_compile_driver.setOption("--ptxas-options");
@@ -572,7 +544,8 @@ void fillCompileOptions(
         TORCH_WARN(
             "ptxas optimization level manually set as ",
             val,
-            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
+            ", which could negatively affect performance. Try removing env "
+            "variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
       }
       if (compile_to_sass) {
         nvrtc_compile_driver.setOption("--ptxas-options");
@@ -582,7 +555,8 @@ void fillCompileOptions(
       }
     } else {
       TORCH_WARN_ONCE(
-          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
+          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but "
+          "received ",
           val,
           ", ignoring the option");
     }
@@ -600,28 +574,44 @@ void fillCompileOptions(
       module_load_driver.setOption(CU_JIT_MAX_REGISTERS, (int)*max_register);
     }
   }
+
+  if (isOptionDisabled(DisableOption::NvrtcCaching) || is_ptxas_verbose) {
+    // JIT caching is introduced in 12.9. It's always disabled in
+    // prior versions.
+    int major = 0, minor = 0;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&major, &minor));
+    if ((major == 12 && minor >= 9) || major > 12) {
+      nvrtc_compile_driver.setOption("--no-cache");
+    }
+  }
+
+  for (const auto& include_path : compile_params.include_paths) {
+    nvrtc_compile_driver.setOption("-I" + include_path);
+  }
 }
 
 // Dump ptxas output if register spill is detected
 int warnRegisterSpill(const std::string& compile_log) {
-  auto getRegisterSpillInfo = [](const std::string& log, const char* subStr) {
-    auto it_end =
-        std::search(log.begin(), log.end(), subStr, subStr + strlen(subStr)) -
-        1;
-    auto it_beg = it_end - 1;
-    while (!std::isspace(*(it_beg - 1))) {
-      it_beg--;
-    }
-    std::string str(it_beg, it_end);
-    return std::stoi(str);
+  // Get a matching int from a given nvrtc compile log that matches a
+  // pattern of "\d+ sub_str", e.g., in the case of "4 bytes stack
+  // frame", 4 would be returned.
+  auto get_preceding_int = [](const std::string& log,
+                              const std::string& sub_str) -> int64_t {
+    std::regex pattern("(\\d+) " + sub_str);
+    std::smatch matches;
+    NVF_ERROR(
+        std::regex_search(log, matches, pattern),
+        "Unexpected compile log: ",
+        log);
+    return std::stoi(matches[1]);
   };
 
-  const char* str_stack = "bytes stack frame";
-  const char* str_store = "bytes spill stores";
-  const char* str_load = "bytes spill loads";
-  int stack_count = getRegisterSpillInfo(compile_log, str_stack);
-  int store_count = getRegisterSpillInfo(compile_log, str_store);
-  int load_count = getRegisterSpillInfo(compile_log, str_load);
+  const std::string str_stack = "bytes stack frame";
+  const std::string str_store = "bytes spill stores";
+  const std::string str_load = "bytes spill loads";
+  int64_t stack_count = get_preceding_int(compile_log, str_stack);
+  int64_t store_count = get_preceding_int(compile_log, str_store);
+  int64_t load_count = get_preceding_int(compile_log, str_load);
   int allowed_spill = 0;
   if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
     auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
@@ -630,15 +620,15 @@ int warnRegisterSpill(const std::string& compile_log) {
         allowed_spill = std::stoi(optionArgs[0]);
       } catch (const std::exception& e) {
         debug() << "skip invalid argument for WarnRegisterSpill, arg = "
-                << optionArgs[0] << std::endl;
+                << optionArgs[0] << '\n';
       }
     }
   }
   if (stack_count > allowed_spill || store_count > allowed_spill ||
       load_count > allowed_spill) {
-    debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
+    debug() << "WARNING: Register spill detected\n" << compile_log << '\n';
   }
-  return store_count + load_count;
+  return static_cast<int>(store_count + load_count);
 }
 
 void createNvrtcProgram(
@@ -672,7 +662,7 @@ std::string dumpCompiledCodeToFile(
     const std::string& suffix) {
   std::stringstream file_name;
   file_name << "__tmp_" << kernel_name << suffix;
-  debug() << "PRINTING: " << file_name.str() << std::endl;
+  debug() << "PRINTING: " << file_name.str() << '\n';
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
@@ -704,13 +694,17 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
 
   createNvrtcProgram(program, func_name, full_src_code);
 
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
-  log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
+  std::string canonical_func_name =
+      CompiledKernel::kernelNamespace() + "::" + func_name;
+
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcAddNameExpression(program, canonical_func_name.c_str()));
+  log << nvrtc_compile.invoke(program, full_src_code) << '\n';
 
   auto compiled_kernel = std::make_unique<executor_utils::CudaExecutable>();
   const char* lowered_kernel_name = nullptr;
-  NVFUSER_NVRTC_SAFE_CALL(
-      nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetLoweredName(
+      program, canonical_func_name.c_str(), &lowered_kernel_name));
   compiled_kernel->kernel_name = lowered_kernel_name;
   compiled_kernel->compile_log = log.str();
 
@@ -719,6 +713,12 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
       compiled_kernel->cubin_filename =
           dumpCompiledCodeToFile(compiled_kernel->cubin, func_name, ".cubin");
+    }
+    if (isDebugDumpEnabled(DebugDumpOption::SassToFile)) {
+      std::string sass_str = disassembleBinary(compiled_kernel->cubin, "-c");
+      compiled_kernel->sass = {sass_str.begin(), sass_str.end()};
+      compiled_kernel->sass_filename =
+          dumpCompiledCodeToFile(compiled_kernel->sass, func_name, ".sass");
     }
   }
 
@@ -743,19 +743,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
     std::optional<int64_t> opt_block_size = std::nullopt) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
-  at::cuda::jit::initializeCudaContext();
-
-  // The above initialization works in some cases. However, it seems to
-  // occasionally fail to initialize a primary context. Here we check for that
-  // and if we detect that no context exists, we create one manually.
-  int device = 0;
-  cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
-    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
-    // cu12, that context is not necessarily created. In that case, we create
-    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(nullptr);
-  }
+  executor_utils::initializeCudaContext();
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
@@ -813,7 +801,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
                              : compiled_kernel->ptx)))) {
     compiled_kernel = compileSource(
         full_src_code, func_name, compile_to_sass, nvrtc_compile_driver);
-    log << compiled_kernel->compile_log << std::endl;
+    log << compiled_kernel->compile_log << '\n';
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
@@ -832,7 +820,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
              compiled_kernel->module,
              (compile_to_sass ? compiled_kernel->cubin.data()
                               : compiled_kernel->ptx.data()))
-      << std::endl;
+      << '\n';
   compiled_kernel->compile_log = log.str();
   compiled_kernel->compile_args = compile_args;
 
@@ -851,109 +839,6 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
   if (opt_block_size.has_value()) {
     compiled_kernel->block_size = opt_block_size.value();
   }
-
-  return compiled_kernel;
-}
-
-std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
-    const serde::CudaKernel* buffer,
-    const CompileParams& compile_params) {
-  FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
-
-  NVF_ERROR(buffer != nullptr, "serde::CudaKernel is nullptr.");
-
-  // Deserialize flatbuffer into CudaExecutable
-  auto compiled_kernel = std::make_unique<executor_utils::CudaExecutable>();
-  compiled_kernel->kernel_name = buffer->kernel_name()->str();
-  compiled_kernel->compile_args = buffer->compile_args()->str();
-  compiled_kernel->block_size = buffer->block_size();
-
-  if (buffer->cubin() != nullptr) {
-    compiled_kernel->cubin.reserve(buffer->cubin()->size());
-    std::copy(
-        buffer->cubin()->begin(),
-        buffer->cubin()->end(),
-        std::back_inserter(compiled_kernel->cubin));
-    compiled_kernel->cubin_filename = buffer->cubin_filename()->str();
-  }
-
-  if (buffer->ptx() != nullptr) {
-    compiled_kernel->ptx.reserve(buffer->ptx()->size());
-    std::copy(
-        buffer->ptx()->begin(),
-        buffer->ptx()->end(),
-        std::back_inserter(compiled_kernel->ptx));
-    compiled_kernel->ptx_filename = buffer->ptx_filename()->str();
-  }
-
-  at::cuda::jit::initializeCudaContext();
-
-  // The above initialization works in some cases. However, it seems to
-  // occasionally fail to initialize a primary context. Here we check for that
-  // and if we detect that no context exists, we create one manually.
-  int device = 0;
-  cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
-    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
-    // cu12, that context is not necessarily created. In that case, we create
-    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(nullptr);
-  }
-
-  const auto prop = at::cuda::getCurrentDeviceProperties();
-
-  // Generate compile args and compare against saved args in compiled_kernel
-  NvrtcCompileDriver nvrtc_compile_driver;
-  CuModuleLoadDataDriver module_load_driver;
-
-  int64_t major = 0, minor = 0;
-  bool compile_to_sass = false;
-  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
-
-  std::optional<int64_t> opt_block_size;
-  if (compiled_kernel->block_size >= -1) {
-    opt_block_size = compiled_kernel->block_size;
-  }
-
-  fillCompileOptions(
-      nvrtc_compile_driver,
-      module_load_driver,
-      compile_to_sass,
-      major,
-      minor,
-      compile_params,
-      opt_block_size);
-
-  const auto latest_compile_args =
-      toDelimitedString(nvrtc_compile_driver.options(), " ");
-  NVF_ERROR(
-      latest_compile_args == compiled_kernel->compile_args,
-      "The compile arguments for the serialized cuda kernel does not ",
-      "match the latest generated compile args.\t",
-      latest_compile_args,
-      "\t",
-      compiled_kernel->compile_args);
-
-  NVF_ERROR(
-      !compile_to_sass || !compiled_kernel->cubin.empty(),
-      "Expected compiled cubin after deserializing CudaExecutable.");
-
-  NVF_ERROR(
-      compile_to_sass || !compiled_kernel->ptx.empty(),
-      "Expected compiled ptx after deserializing CudaExecutable.");
-
-  std::stringstream log;
-  log << module_load_driver.invoke(
-             compiled_kernel->module,
-             (compile_to_sass ? compiled_kernel->cubin.data()
-                              : compiled_kernel->ptx.data()))
-      << std::endl;
-  compiled_kernel->compile_log = log.str();
-
-  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
-      &(compiled_kernel->function),
-      compiled_kernel->module,
-      compiled_kernel->kernel_name.c_str()));
 
   return compiled_kernel;
 }
@@ -996,56 +881,6 @@ static const std::string& defineStdComplex() {
   return result;
 }
 
-// When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
-// This function retrieves structured code from the specified files.
-// The files should be comma-separated, and their order corresponds to the
-// fusion_id order. If the provided number of files is fewer than the fusion
-// segments, the function will resort to the available files in sequence
-// and issue a warning.
-std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
-  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
-  if (!external_code_path) {
-    return "";
-  }
-  std::string all_external_code_paths(external_code_path);
-  if (all_external_code_paths.empty() || fusion_id < 1) {
-    return "";
-  }
-  auto getExternalCodeFile =
-      [fusion_id](const std::string& input) -> std::string {
-    std::stringstream ss(input);
-    std::string token;
-    int64_t count = 0;
-    while (std::getline(ss, token, ',')) {
-      if (++count == fusion_id) {
-        return token;
-      }
-    }
-    debug()
-        << "Didn't find requested external source code. Will use generated code!\n"
-        << "Number of source code files should equal the number of fusion segments.\n"
-        << "External source code filenames should be delineated with commas, e.g.: file1.cu,file2.cu.\n";
-    return "";
-  };
-
-  std::string single_code_path = getExternalCodeFile(all_external_code_paths);
-  if (single_code_path.empty()) {
-    return "";
-  }
-  std::ifstream cuda_src(single_code_path);
-  if (!cuda_src.is_open()) {
-    debug() << "Failed to open external source file: " << single_code_path
-            << std::endl;
-    return "";
-  }
-  debug() << "--------> Compiling external CUDA code: " << single_code_path
-          << std::endl;
-
-  std::stringstream buffer;
-  buffer << cuda_src.rdbuf();
-  return buffer.str();
-}
-
 bool requiresDisabledParamCache(const kir::Kernel* kernel) {
   std::vector<Val*> output_extents;
   for (auto out : kernel->outputs()) {
@@ -1073,10 +908,8 @@ bool requiresDisabledParamCache(const kir::Kernel* kernel) {
       input_dependencies.pushBack(inp);
     }
   }
-  if (std::any_of(
-          input_dependencies.begin(), input_dependencies.end(), [](Val* inp) {
-            return inp->isScalar();
-          })) {
+  if (std::ranges::any_of(
+          input_dependencies, [](Val* inp) { return inp->isScalar(); })) {
     return true;
   } else if (!input_dependencies.empty()) {
     VectorOfUniqueEntries<Expr*> all_exprs(DependencyCheck::getAllExprsBetween(
@@ -1110,12 +943,61 @@ bool requiresDisabledParamCache(const kir::Kernel* kernel) {
 std::string _getStructuredCode(
     const std::string& kernel_str,
     PrimDataType index_type,
-    std::string kernel_name) {
+    std::string kernel_name,
+    bool has_argsort = false,
+    bool has_topk = false,
+    bool has_scan = false,
+    bool has_block_layout = false,
+    bool has_cluster_reduction = false,
+    bool has_block_quantize_op = false) {
   // generating cuda code;
   std::string code = "";
+
+  if (has_argsort || has_scan || has_topk) {
+    // Internally, CUB uses std::is_pointer, not
+    // cuda::std::is_pointer, and it fails to compile as nvrtc does not
+    // have <type_traits>. This doesn't seem to be the case with nvcc. A
+    // WAR for nvrtc is to provide std::is_pointer as an alias of
+    // cuda::std::is_pointer.
+    code += "#ifndef __NVCC__\n";
+    code += "#include <cuda/std/type_traits>\n";
+    code += "namespace std {\n";
+    code += "using cuda::std::is_pointer;\n";
+    code += "} // namespace std\n";
+    code += "#endif\n";
+  }
+
   code += defineStdComplex();
-  code += std::string("namespace {\n") + defineTypes() +
-      defineIndexType(index_type) + kernelPreamble() + kernel_str + "}\n";
+  code += std::string("namespace ") + CompiledKernel::kernelNamespace() +
+      "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
+      "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
+
+  if (has_cluster_reduction) {
+    code += nvfuser_resources::cluster_cu;
+  }
+
+  // The following runtime namespaces are already nested in `nvf` namespace
+  if (has_argsort || has_topk || has_scan) {
+    code += nvfuser_resources::cub_utils_cu;
+  }
+
+  if (has_argsort) {
+    code += nvfuser_resources::argsort_cu;
+  }
+  if (has_scan) {
+    code += nvfuser_resources::scan_cu;
+  }
+  if (has_topk) {
+    code += nvfuser_resources::topk_cu;
+  }
+
+  if (has_block_layout || has_block_quantize_op) {
+    code += nvfuser_resources::block_quantization_kernels_cu;
+  }
+
+  code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
+  code += kernel_str;
+  code += "\n} // namespace " + CompiledKernel::kernelNamespace() + "\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
     debug() << "\n======= Codegen output for kernel: " << kernel_name
@@ -1129,9 +1011,9 @@ std::string _getStructuredCode(
   if (isDebugDumpEnabled(DebugDumpOption::CudaToFile)) {
     std::stringstream file_name;
     file_name << "__tmp_" << kernel_name << ".cu";
-    debug() << "PRINTING: " << file_name.str() << std::endl;
+    debug() << "PRINTING: " << file_name.str() << '\n';
     std::ofstream out(file_name.str());
-    out << code << std::endl;
+    out << code << '\n';
     out.close();
   }
 
@@ -1139,6 +1021,107 @@ std::string _getStructuredCode(
 }
 
 } // namespace
+
+// When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
+// This function retrieves structured code from the specified files.
+// The files should be comma-separated, and their order corresponds to the
+// fusion_id order. If the provided number of files is fewer than the fusion
+// segments, the function will resort to the available files in sequence
+// and issue a warning.
+std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
+  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
+  if (!external_code_path) {
+    return "";
+  }
+  std::string all_external_code_paths(external_code_path);
+  if (all_external_code_paths.empty() || fusion_id < 1) {
+    return "";
+  }
+  auto getExternalCodeFile =
+      [fusion_id](const std::string& input) -> std::string {
+    std::stringstream ss(input);
+    std::string token;
+    int64_t count = 0;
+    while (std::getline(ss, token, ',')) {
+      if (++count == fusion_id) {
+        return token;
+      }
+    }
+    debug() << "Didn't find requested external source code. Will use generated "
+               "code!\n"
+            << "Number of source code files should equal the number of fusion "
+               "segments.\n"
+            << "External source code filenames should be delineated with "
+               "commas, e.g.: file1.cu,file2.cu.\n";
+    return "";
+  };
+
+  std::string single_code_path = getExternalCodeFile(all_external_code_paths);
+  if (single_code_path.empty()) {
+    return "";
+  }
+  std::ifstream cuda_src(single_code_path);
+  if (!cuda_src.is_open()) {
+    debug() << "Failed to open external source file: " << single_code_path
+            << '\n';
+    return "";
+  }
+  debug() << "--------> Compiling external CUDA code: " << single_code_path
+          << '\n';
+
+  std::stringstream buffer;
+  buffer << cuda_src.rdbuf();
+  return buffer.str();
+}
+
+void queryTargetGPUVersion(
+    const cudaDeviceProp* const prop,
+    int64_t& major,
+    int64_t& minor,
+    bool& compile_to_sass) {
+  using CudaVersion = std::pair<int, int>;
+  CudaVersion nvrtc_version;
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+
+  NVF_CHECK(
+      nvrtc_version.first >= 6,
+      "NVRTC versions less than 6 are not supported. Is: ",
+      nvrtc_version.first);
+
+  // Version supported by device
+  // Usually any lower version works too but is less efficient
+  const CudaVersion dev_version = CudaVersion(prop->major, prop->minor);
+  // Maximum version supported by the driver, cap dev_version to this
+  CudaVersion max_dev_version;
+  if (nvrtc_version.first <= 7) { // 7 supports 2-5.x
+    max_dev_version = CudaVersion(5, 0);
+  } else if (nvrtc_version.first <= 8) { // 8 supports 2-6.x
+    max_dev_version = CudaVersion(6, 0);
+  } else if (nvrtc_version.first <= 9) { // 9 supports 3-7.2
+    max_dev_version = CudaVersion(7, 2);
+  } else if (nvrtc_version.first <= 10) { // 10 supports 3-7.5
+    max_dev_version = CudaVersion(7, 5);
+  } else if (nvrtc_version == CudaVersion(11, 0)) { // 11.0 supports 3-8.0
+    max_dev_version = CudaVersion(8, 0);
+  } else if (nvrtc_version.first == 11 && nvrtc_version.second < 8) {
+    max_dev_version = CudaVersion(8, 6);
+  } else {
+    // If the driver version is unknown (i.e. newer than this code)
+    // assume the driver supports this device
+    max_dev_version = dev_version;
+  }
+  if (dev_version > max_dev_version) {
+    major = max_dev_version.first;
+    minor = max_dev_version.second;
+    // if we are clamping major/minor, sass is not compatible
+    compile_to_sass = false;
+  } else {
+    major = dev_version.first;
+    minor = dev_version.second;
+    compile_to_sass = true;
+  }
+}
 
 NVF_API CompiledKernel::CompiledKernel(
     Fusion* fusion,
@@ -1151,21 +1134,16 @@ NVF_API CompiledKernel::CompiledKernel(
     int64_t group_id,
     const std::vector<std::function<void(GpuLower*)>>& pre_lowering_hooks,
     const std::vector<std::function<void(kir::Kernel*)>>& post_lowering_hooks)
-    : compile_params_(compile_params),
-      scheduler_type_(scheduler_type),
-      fusion_id_(fusion_id),
-      concrete_id_(concrete_id),
-      runtime_id_(runtime_id),
-      group_id_(group_id),
-      lowered_(std::make_unique<GpuLower>(fusion, compile_params)),
-      device_(device) {
+    : CompiledKernelBase(
+          device,
+          scheduler_type,
+          fusion_id,
+          concrete_id,
+          runtime_id,
+          group_id),
+      compile_params_(compile_params),
+      lowered_(std::make_unique<GpuLower>(fusion, compile_params)) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
-
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion->print();
-  } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    fusion->printMath();
-  }
 
   // TODO: No hooks can be sent because this is in the constructor
   for (const auto& hook : pre_lowering_hooks) {
@@ -1174,6 +1152,19 @@ NVF_API CompiledKernel::CompiledKernel(
   lowered_->run();
   for (const auto& hook : post_lowering_hooks) {
     hook(lowered_->kernel());
+  }
+
+  // Add CUDA include path if fusion contains ArgsortOp or TopKOp. Note that
+  // this is a temporary measure. CUB header files need to be
+  // installed as part of the nvFuser installation.
+  if (lowered_->kernel()->summary().has_argsort ||
+      lowered_->kernel()->summary().has_scan ||
+      lowered_->kernel()->summary().has_topk) {
+    compile_params_.include_paths.emplace_back("/usr/local/cuda/include");
+    // As of CUDA 13, the CUB header files are moved to the cccl
+    // subdirectory. This include path is not necessary pre 13 but is
+    // added anyway as it should be just a no-op.
+    compile_params_.include_paths.emplace_back("/usr/local/cuda/include/cccl");
   }
 }
 
@@ -1198,7 +1189,9 @@ NVF_API CompiledKernel::CompiledKernel(
           {},
           {}) {}
 
-void CompiledKernel::compile(int64_t block_size) {
+NVF_API CompiledKernel::~CompiledKernel() = default;
+
+void CompiledKernel::compile(const LaunchParams& lparams) {
   FUSER_PERF_SCOPE("CompiledKernel::compile");
 
   NVF_ERROR(
@@ -1209,7 +1202,7 @@ void CompiledKernel::compile(int64_t block_size) {
   // dynamic input size of a tensor the cache doesn't work correctly. This
   // should be enabled in the cache, but since it's not, for now we will disable
   // it under these circumstances.
-  disable_parameter_cache_ = requiresDisabledParamCache(kernel());
+  launch_param_cache_disabled_ = requiresDisabledParamCache(kernel());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrGraph)) {
     std::stringstream file_name;
@@ -1239,11 +1232,11 @@ void CompiledKernel::compile(int64_t block_size) {
   if (isDebugDumpEnabled(DebugDumpOption::BankConflictInfo)) {
     auto bank_conflict_info = getBankConflictInfo(kernel);
     if (bank_conflict_info.empty()) {
-      debug() << "===== No bank confliction =====" << std::endl;
+      debug() << "===== No bank confliction =====" << '\n';
     } else {
-      debug() << "======= Bank confliction =======" << std::endl;
+      debug() << "======= Bank confliction =======" << '\n';
       for (auto info : bank_conflict_info) {
-        debug() << "Expr: " << info.first->toString() << std::endl;
+        debug() << "Expr: " << info.first->toString() << '\n';
         auto conflict = info.second;
         if (conflict.first > 1) {
           debug() << "input conflict: " << conflict.first << " way, ";
@@ -1251,13 +1244,13 @@ void CompiledKernel::compile(int64_t block_size) {
         if (conflict.second > 1) {
           debug() << "output conflict: " << conflict.second << " way";
         }
-        debug() << std::endl;
+        debug() << '\n';
       }
-      debug() << "================================" << std::endl;
+      debug() << "================================" << '\n';
     }
   }
 
-  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), block_size);
+  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), lparams);
 
   const kir::KernelSummary& kernel_summary = kernel->summary();
 
@@ -1296,24 +1289,25 @@ void CompiledKernel::compile(int64_t block_size) {
         "The static shared memory allocation is larger than available memory.");
   }
 
-  if (kernel_summary.has_dynamic_local_memory_allocations) {
+  if (!kernel_summary.dynamic_lmem_allocations.empty()) {
     std::stringstream ss;
-    ss << "Allocations must be based on constant integers for local memory. However, found: ";
+    ss << "Allocations must be based on constant integers for local memory. "
+          "However, found: ";
     for (auto alloc : kernel_summary.dynamic_lmem_allocations) {
       ss << alloc->buffer()->toString() << ", ";
     }
     ss << " have dynamic allocations but are placed in local memory.";
     NVF_THROW(ss.str());
   }
-
+  int64_t block_size = lparams.nThreads();
   NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
 
   // Basically setting high water mark as 1 when we don't provide args for
   // compilation, it will just generate a kernel that gets ditched at the
   // first run - not great. We should have better heuristics.
-  block_size_high_water_mark_ =
-      std::max<int64_t>(block_size, block_size_high_water_mark_);
-  maxrregcount_high_water_mark_ = compile_params_.maxrregcount;
+  block_size_high_watermark_ =
+      std::max<int64_t>(block_size, block_size_high_watermark_);
+  maxrregcount_high_watermark_ = compile_params_.maxrregcount;
   compiled_kernel_ = getCudaExecutable(
       kernel_code_,
       getStructuredCode(),
@@ -1325,7 +1319,7 @@ void CompiledKernel::compile(int64_t block_size) {
   NVF_ERROR(validKernelId(), "Invalid kernel id for CompiledKernel.");
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
-    debug() << disassembledKernelSASS() << std::endl;
+    debug() << disassembledKernelSASS() << '\n';
   }
 }
 
@@ -1342,14 +1336,22 @@ std::string CompiledKernel::getStructuredCode() const {
     return structured_code;
   }
   return _getStructuredCode(
-      kernelString(), kernel()->indexType(), kernelName());
+      kernelString(),
+      kernel()->indexType(),
+      kernelName(),
+      kernel()->summary().has_argsort,
+      kernel()->summary().has_topk,
+      kernel()->summary().has_scan,
+      kernel()->summary().has_preprocess_grouped_matmul_input_sf,
+      kernel()->summary().has_cluster_reduction,
+      kernel()->summary().has_block_quantize_op);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
-  return disassembleBinary(compiled_kernel_->cubin, "-fun 1 -c");
+  return disassembleBinary(compiled_kernel_->cubin, "-c");
 }
 
-void CompiledKernel::createKernelId() {
+void CompiledKernelBase::createKernelId() {
   NVF_ERROR(fusion_id_ > -1, "Invalid fusion_id.");
   NVF_ERROR(concrete_id_ > -1, "Invalid concrete_id.");
   NVF_ERROR(runtime_id_ > -1, "Invalid runtime_id.");
@@ -1366,6 +1368,11 @@ void CompiledKernel::createKernelId() {
     ss << "_g" << group_id_;
   }
   kernel_id_ = ss.str();
+}
+
+kir::Kernel* CompiledKernel::kernel() const {
+  NVF_ERROR(lowered_);
+  return lowered_->kernel();
 }
 
 void RtcKernel::compile(
@@ -1418,7 +1425,8 @@ float RtcKernel::run(
   for (const auto& input : args) {
     NVF_ERROR(
         input.is<at::Tensor>() && input.as<at::Tensor>().is_cuda(),
-        "Only CUDA tensors are supported for direct nvRTC launches at this time.");
+        "Only CUDA tensors are supported for direct nvRTC launches at this "
+        "time.");
     auto input_tensor = input.as<at::Tensor>();
     data.emplace_back(tensorToBytes(
         input_tensor,
@@ -1454,28 +1462,6 @@ float RtcKernel::run(
   return kernel_time_ms;
 }
 
-void CompiledKernel::deserialize(const serde::KernelExecutor* buffer) {
-  // Initialize CompileOptions
-  c10::DeviceGuard dg(device_);
-
-  // Initialize internal fields
-  maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
-  warp_size_ = buffer->warp_size();
-  kernel_code_ = buffer->kernel_code()->str();
-
-  // KernelDB query checks kernel_code string and compile_params before
-  // copying cubin.
-  compile_params_.index_type = serde::mapToNvfuserDtype(buffer->index_type());
-  compile_params_.maxrregcount = maxrregcount_high_water_mark_;
-
-  // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
-  createKernelId();
-  setUsedTVs();
-
-  compiled_kernel_ =
-      getCudaExecutable(buffer->compiled_kernel(), compile_params_);
-}
-
 void CompiledKernel::setUsedTVs() {
   auto used_vals = kernel()->usedMathVals();
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
@@ -1504,7 +1490,8 @@ void validateCooperativeLaunch(
           ->multiProcessorCount;
   NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
-      "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
+      "Wanted to launch a cooperative kernel, however the number of blocks is "
+      "greater than ",
       "what can be resident on the GPU at once. Need: ",
       grid_size,
       " (",
@@ -1525,8 +1512,8 @@ void CompiledKernel::recompileKernel(
     const CompileParams& new_compile_params) {
   FUSER_PERF_SCOPE("CompiledKernel::runFusion::recompileKernel");
   const auto structured_code = getStructuredCode();
-  block_size_high_water_mark_ = new_launch_params.nThreads();
-  maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
+  block_size_high_watermark_ = new_launch_params.nThreads();
+  maxrregcount_high_watermark_ = new_compile_params.maxrregcount;
 
   // TODO: This should send in the right device!
   compiled_kernel_ = getCudaExecutable(
@@ -1535,7 +1522,7 @@ void CompiledKernel::recompileKernel(
       kernelName(),
       kernel_id_,
       new_compile_params,
-      block_size_high_water_mark_);
+      block_size_high_watermark_);
 
   if (kernel()->summary().has_cooperative_grid_reduction) {
     // We need to increase shared memory before kernel launch, but also before

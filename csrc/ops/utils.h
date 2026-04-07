@@ -7,18 +7,25 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <scheduler/matmul_utils.h>
-#include <type.h>
-#include <visibility.h>
-
+#include <cstdint>
 #include <vector>
+
+#include "exceptions.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "scheduler/matmul_utils.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
-enum class AttnRole { Q = 0, K, V, Mask };
+enum class AttnRole : std::uint8_t { Q = 0, K, V, Mask };
+
+struct ScaledTensorView {
+  TensorView* tv = nullptr;
+  TensorView* block_scaling_factor = nullptr;
+  TensorView* global_scaling_factor = nullptr;
+};
 
 namespace ops {
 
@@ -86,6 +93,12 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
     size_t out_size,
     bool k_bcast);
 
+// Creates an output RaggedIterDomain from input RaggedIterDomains at the same
+// dimension position. All inputs must be RaggedIterDomain. Uses the extents,
+// IterType, and ParallelType from the first input.
+RaggedIterDomain* newOutputRaggedIterDomain(
+    const std::vector<IterDomain*>& input_ids);
+
 // Takes a vector of aligned input iterdomains to create the output iterdomain.
 // This is used if the input iterdomains are not trivially mapped to the output
 // iterdomains. For eg: MatmulOp. If given, the forced_iter_type argument will
@@ -119,9 +132,13 @@ Val* getMinimumValue(DataType v);
 //   true for bool.
 Val* getMaximumValue(DataType v);
 
-std::vector<unsigned int> canonicalizeAxes(
+std::vector<int64_t> canonicalizeAxes(
     const std::vector<int64_t>& axes,
     int64_t ndims);
+
+// Returns a scalar which is a two-sided identity element for the given binary
+// operator
+Val* binOpIdentity(BinaryOpType op_type, DataType dtype);
 
 } // namespace ops
 } // namespace nvfuser

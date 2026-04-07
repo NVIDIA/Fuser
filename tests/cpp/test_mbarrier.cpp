@@ -5,17 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <unordered_set>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <device_lower/utils.h>
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <unordered_set>
+#include "device_lower/utils.h"
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -70,7 +70,7 @@ TEST_F(MBarrierTest, Simple) {
 
     Val* mbarrier_address = SimplifyingIrBuilder::mulExpr(
         dynamic_smem_allocations.at(0)->size(),
-        dataTypeSize(dynamic_smem_allocations.at(0)->buffer()->dtype()));
+        dataTypeSizeByte(dynamic_smem_allocations.at(0)->buffer()->dtype()));
     mbarrier_alloc->setAddress(mbarrier_address);
 
     auto smem_alloc_it = std::find_if(

@@ -5,23 +5,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <codegen.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "codegen.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/iostream.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
-class TensorFactoryTest : public NVFuserTest {};
+using TensorFactoryTest = NVFuserTest;
 
 TEST_F(TensorFactoryTest, StandaloneFull) {
   auto sizes = {0, 1, 10, 17, 1024};

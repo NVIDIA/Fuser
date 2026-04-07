@@ -6,13 +6,13 @@
  */
 // clang-format on
 #pragma once
-#include <exceptions.h>
-#include <serde/fusion_cache_generated.h>
-#include <type.h>
-#include <visibility.h>
+#include <optional>
 
 #include <c10/core/DeviceType.h>
-#include <optional>
+
+#include "exceptions.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -26,6 +26,18 @@ struct CompileParams {
   // struct without having to select a specific device. Otherwise the default
   // constructor will be deleted for the struct.
   std::optional<c10::Device> device = std::nullopt;
+  // Additional include paths to be added to the nvrtc compilation
+  std::vector<std::string> include_paths;
+
+  // CTA shape known at compile time
+  std::optional<int64_t> bdimx = std::nullopt;
+  std::optional<int64_t> bdimy = std::nullopt;
+  std::optional<int64_t> bdimz = std::nullopt;
+
+  // Threads used for computation, excluding warp specialization padding
+  std::optional<int64_t> compute_bdimx = std::nullopt;
+  std::optional<int64_t> compute_bdimy = std::nullopt;
+  std::optional<int64_t> compute_bdimz = std::nullopt;
 
   bool operator==(const CompileParams& other) const {
     // Disallow comparison if the index type is nullopt
@@ -37,14 +49,19 @@ struct CompileParams {
         "cannot compare as the other index type is not defined");
     return index_type == other.index_type &&
         maxrregcount == other.maxrregcount &&
-        enable_magic_zero == other.enable_magic_zero && device == other.device;
+        enable_magic_zero == other.enable_magic_zero &&
+        device == other.device && include_paths == other.include_paths &&
+        bdimx == other.bdimx && bdimy == other.bdimy && bdimz == other.bdimz &&
+        compute_bdimx == other.compute_bdimx &&
+        compute_bdimy == other.compute_bdimy &&
+        compute_bdimz == other.compute_bdimz;
   }
 
   bool operator!=(const CompileParams& other) const {
     return !(*this == other);
   }
 
-  std::string toString() const;
+  NVF_API std::string toString() const;
 };
 
 class LaunchParams {
@@ -145,7 +162,7 @@ class LaunchParams {
   // for a ParallelType cannot be set multiple times. bindUnsafe allows setting
   // value of ParallelType multiple times. It is used for when LaunchParams is
   // a configuration parameter.
-  void bindUnsafe(int64_t val, ParallelType p_type);
+  NVF_API void bindUnsafe(int64_t val, ParallelType p_type);
 
   // Adjusted value based on get functions above for each value
   NVF_API int64_t getDim(ParallelType p_type) const;
@@ -161,13 +178,6 @@ class LaunchParams {
   NVF_API void print() const;
 
   NVF_API std::string toString() const;
-
-  //! Serialize LaunchParams using flatbuffers
-  flatbuffers::Offset<serde::LaunchParams> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
-
-  //! Deserialize LaunchParams using flatbuffers
-  void deserialize(const serde::LaunchParams* buffer);
 
  private:
   // Spell them out because I want signed ints to know if they were initialized

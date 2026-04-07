@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/scheduler_types.h>
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
+#include "fusion.h"
+#include "scheduler/pointwise_utils.h"
+#include "scheduler/scheduler_types.h"
+#include "scheduler/tools/domain_map.h"
+#include "scheduler/utils.h"
+#include "scheduler/vectorize_helper.h"
 
 namespace nvfuser {
 
@@ -49,7 +49,7 @@ enum class CompileTimeEntryType {
   CAN_SCHEDULE_MUL_SUM_AS_MMA,
   LOGICAL_REORDER_MAP,
   VECTORIZATION_BREAK_POINT_OF_RED_PROD,
-  SCHEDULE_HYPERPARAMETERS
+  HAS_BLOCK_QUANTIZATION_OPS
 };
 
 //! Entry type definition class for `DOMAIN_MAP`,
@@ -143,6 +143,16 @@ class ReductionTVs {
       CompileTimeEntryType::REDUCTION_TVS;
 };
 
+//! Entry type definition class for `HAS_BLOCK_QUANTIZATION_OPS`,
+//!  stores any BlockQuantizationOp operations (including
+//!  GroupedBlockQuantizationOp).
+class BlockQuantizationOps {
+ public:
+  using DataType = std::vector<Expr*>;
+  static const CompileTimeEntryType EntryType =
+      CompileTimeEntryType::HAS_BLOCK_QUANTIZATION_OPS;
+};
+
 //! Entry type definition class for `PERSISTENT_BUFFER_INFO`,
 //!  stores persistent buffers inferred from topology and scheduling of fusion.
 class PersistentBufferInfo {
@@ -213,15 +223,6 @@ class VectorizationBreakPointOfReductionProducer {
   using DataType = int64_t;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::VECTORIZATION_BREAK_POINT_OF_RED_PROD;
-};
-
-//! Entry type definition class for `SCHEDULE_HYPERPARAMETERS`,
-//!  stores hyperparameters for SchedulerEntry::computeHeuristics
-class SchedulerHyperParameters {
- public:
-  using DataType = scheduler_utils::SchedulerHyperParameters;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::SCHEDULE_HYPERPARAMETERS;
 };
 
 //! Base abstract class for unified storage in `HeuristicDataCache`,

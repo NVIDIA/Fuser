@@ -1,0 +1,865 @@
+# nvFuser Environment Variable Definitions
+# This file defines all environment variables recognized by nvFuser
+# Manually maintained - keep in sync with csrc/options.h
+
+categories:
+  environment:
+    display_name: "Environment & Compiler Settings (CC, CXX, CUDA_HOME, etc.)"
+  build:
+    display_name: "Build Configuration (NVFUSER_BUILD_*)"
+  build_advanced:
+    display_name: "Advanced Build Options (NVFUSER_BUILD_*)"
+  dump:
+    display_name: "Debug/Diagnostic Options (NVFUSER_DUMP)"
+  enable:
+    display_name: "Feature Enable Options (NVFUSER_ENABLE)"
+  disable:
+    display_name: "Feature Disable Options (NVFUSER_DISABLE)"
+  profiler:
+    display_name: "Profiler Options (NVFUSER_PROF)"
+  compilation:
+    display_name: "Runtime Compilation Control"
+  misc:
+    display_name: "Miscellaneous Options"
+
+options:
+  # ========================================================================
+  # ENVIRONMENT AND COMPILER CONFIGURATION
+  # ========================================================================
+  - name: CC
+    description: C compiler to use
+    type: string
+    category: environment
+
+  - name: CXX
+    description: C++ compiler to use
+    type: string
+    category: environment
+
+  - name: CUDA_HOME
+    description: CUDA installation directory
+    type: string
+    category: environment
+
+  - name: TORCH_CUDA_ARCH_LIST
+    description: Target CUDA architectures (e.g., '8.0;9.0')
+    type: string
+    category: environment
+
+  - name: CFLAGS
+    description: Additional C compiler flags
+    type: string
+    category: environment
+
+  - name: CXXFLAGS
+    description: Additional C++ compiler flags
+    type: string
+    category: environment
+
+  - name: LDFLAGS
+    description: Additional linker flags
+    type: string
+    category: environment
+
+  - name: NVFUSER_SOURCE_DIR
+    description: nvFuser source directory
+    type: string
+    category: environment
+
+  # ========================================================================
+  # BUILD-TIME OPTIONS (NVFUSER_BUILD_*)
+  # ========================================================================
+  - name: NVFUSER_BUILD_BUILD_TYPE
+    description: "Build type"
+    type: multi
+    category: build
+    choices: ["Release", "Debug", "RelWithDebInfo"]
+
+  - name: NVFUSER_BUILD_CPP_STANDARD
+    description: C++ standard version
+    type: int
+    category: build
+    default: "20"
+
+  - name: NVFUSER_BUILD_NO_PYTHON
+    description: Skip Python bindings
+    type: bool
+    category: build
+
+  - name: NVFUSER_BUILD_NO_CUTLASS
+    description: Skip building CUTLASS kernels
+    type: bool
+    category: build
+
+  - name: NVFUSER_BUILD_NO_TEST
+    description: Skip C++ tests
+    type: bool
+    category: build
+
+  - name: NVFUSER_BUILD_NO_BENCHMARK
+    description: Skip benchmarks
+    type: bool
+    category: build
+
+  - name: NVFUSER_BUILD_NO_NINJA
+    description: Use make instead of ninja
+    type: bool
+    category: build
+
+  - name: NVFUSER_BUILD_ENABLE_PCH
+    description: Enable precompiled headers
+    type: bool
+    category: build
+
+  # ========================================================================
+  # ADVANCED BUILD OPTIONS
+  # ========================================================================
+  - name: NVFUSER_BUILD_WITH_UCC
+    description: Build with UCC support for multi-device
+    type: bool
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_WITH_ASAN
+    description: Build with Address Sanitizer
+    type: bool
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_WITHOUT_DISTRIBUTED
+    description: Build without multidevice support
+    type: bool
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_EXPLICIT_ERROR_CHECK
+    description: Enable explicit error checking
+    type: bool
+    category: build_advanced
+
+  - name: NVFUSER_CUTLASS_MAX_JOBS
+    description: Max parallel jobs for CUTLASS build
+    type: int
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_DIR
+    description: Custom build directory
+    type: string
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_INSTALL_DIR
+    description: Custom install directory
+    type: string
+    category: build_advanced
+
+  - name: MAX_JOBS
+    description: Max parallel compilation jobs
+    type: int
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_VERSION_TAG
+    description: Tag for build nvfuser version
+    type: string
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_WHEEL_NAME
+    description: Wheel name for pip package
+    type: string
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_INSTALL_REQUIRES
+    description: Package dependencies for install (comma-separated)
+    type: string
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_EXTRAS_REQUIRE
+    description: Extra requirements (Python dict string)
+    type: string
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_NVMMH_INCLUDE_DIR
+    description: Location to find nvMatmulHeuristics.h
+    type: string
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_OVERWRITE_VERSION
+    description: Overwrite version
+    type: bool
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_CMAKE_ONLY
+    description: Only generate build directory without building
+    type: bool
+    category: build_advanced
+
+  - name: NVFUSER_BUILD_SETUP
+    description: Run build setup
+    type: bool
+    category: build_advanced
+
+  # ========================================================================
+  # DEBUG AND DIAGNOSTIC OPTIONS (NVFUSER_DUMP)
+  # ========================================================================
+  - name: fusion_ir_original
+    description: Dump the original fusion IR built by the Python API
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: fusion_ir_concretized
+    description: Dump the Fusion IR after concretization
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: fusion_ir_preseg
+    description: Dump the Fusion IR after pre-segmenter optimization and before segmentation
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: fusion_ir_presched
+    description: Dump the segmented Fusion IR before scheduling
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: fusion_ir
+    description: Dump the Fusion IR before lowering (fed to KernelExecutor::compile)
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: fusion_ir_graph
+    description: Dump a GraphViz graph of the Fusion IR
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: fusion_ir_math
+    description: Dump just the compute (math) part of the Fusion IR for conciseness
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: kernel_ir
+    description: Dump the compiler Kernel IR
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: cuda_kernel
+    description: Dump the generated CUDA C++ kernel code
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: cuda_full
+    description: Dump the complete CUDA C++ code
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: cuda_to_file
+    description: Dump CUDA strings to file
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: cubin
+    description: Dump compiled CUBIN
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: ptx
+    description: Dump compiled PTX
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: sass
+    description: Dump disassembled SASS
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: sass_to_file
+    description: Dump disassembled SASS to file
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: launch_param
+    description: Dump the launch parameters of kernel
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: dynamic_shared_memory
+    description: Dump the dynamic shared memory allocation
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: fusion_args
+    description: Print the runtime fusion arguments
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: kernel_args
+    description: Print the runtime kernel arguments when launching kernels
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: global_zeroed_memory
+    description: Print the log for zeroed global memory allocator
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: host_ir
+    description: Dump the Host IR program
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: host_ir_lowering
+    description: Dump the Host IR after each lowering pass
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: host_ir_jit
+    description: Dump the LLVM IR lowered from Host IR
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: inlining
+    description: Verbose information about tensor inlining
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: segmented_fusion
+    description: Dump segmented fusion graph
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: draw_segmented_fusion
+    description: Dump segmented fusion graph drawing
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: segmenter_logging
+    description: Dump detailed segmenter logging
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: pre_segmenter_logging
+    description: Pre-segmenter logging
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: python_definition
+    description: Python Frontend Fusion Definition
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: transform_propagator
+    description: Print propagation path and replay result
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: bank_conflict
+    description: Dump bank conflict info
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: sync_map
+    description: RAW dependency info
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: ca_map
+    description: Dump the computeAt map
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: parallel_dimensions
+    description: Dump known parallel dimensions
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: buffer_reuse_verbose
+    description: Dump the analysis details of local/shared buffer re-use
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: lower_verbose
+    description: Print all passes' transform in GpuLower::lower
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: expr_simplify
+    description: Print all passes' transform in simplifyExpr
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: expr_sort
+    description: Print merging decisions on expression sorting
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: expr_sort_verbose
+    description: Print verbose debug info on expression sorting
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: occupancy
+    description: Dump occupancy information
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: index_type
+    description: Print the index type of the launched kernel
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: predicate_elimination
+    description: Print the predicate elimination information
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: indexing_verbose
+    description: Print verbose debug info on indexing
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: communication
+    description: Print multi-GPU communications posted
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: compile_params
+    description: Print NVRTC compile parameters
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: ptxas_verbose
+    description: Print the ptxas verbose log including register usage
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: perf_debug_verbose
+    description: Print verbose information when running kernels
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: ftrace
+    description: Dump the function trace of selected internal functions
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: cutlass_compile
+    description: Dump compile commands and compile times for CutlassExecutor
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: scheduler_params
+    description: Dump scheduler heuristic parameters
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  - name: scheduler_verbose
+    description: Dump detailed scheduler logging
+    type: bool
+    category: dump
+    env_var: NVFUSER_DUMP
+
+  # ========================================================================
+  # FEATURE ENABLE OPTIONS (NVFUSER_ENABLE)
+  # ========================================================================
+  - name: cutlass_scheduler
+    description: Enable the CUTLASS scheduler and executor
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: fuse_matmul
+    description: Enable automatic fusion of matmul and linear ops
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: fuse_multiple_matmuls
+    description: Allow fusing more than one matmul in a single kernel
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: id_model
+    description: Enable IdModel
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: id_model_extra_validation
+    description: Enable extra error checking when building IdModel
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: io_to_lower_precision
+    description: Enable castInputOutputToLowerPrecision
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: kernel_db
+    description: Enable Kernel Database
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: kernel_debug
+    description: Enable debug mode in nvrtc
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: kernel_lineinfo
+    description: Embed line info to compiled kernel and dump full CUDA C++ code
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: kernel_profile
+    description: Enable intra-kernel performance profiling
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: memory_promotion
+    description: Enable promotion of memory types for non-pointwise ops
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: reuse_zeroed_memory
+    description: Re-use zeroed memory used for grid synchronization
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: static_fusion_count
+    description: Enable using single static count in kernel name
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: warn_register_spill
+    description: Enable warnings of register spill
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: tma_pointwise
+    description: Enable TMA pointwise kernel
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: tma_inner_persistent
+    description: Enable TMA inner persistent kernel
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: tma_reduction
+    description: Enable TMA reduction kernel
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: ws_normalization
+    description: Enable warp specialized persistent kernel
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: host_ir_lowering
+    description: Enable FusionKernelRuntime lowering to host IR
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: host_ir_jit
+    description: Enable Host IR JIT compilation with LLVM
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: insert_resharding_after
+    description: Insert resharding set after the expression
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: fast_math
+    description: Enable fast math optimizations (--use_fast_math)
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: p2p_protocol
+    description: "Prescribe P2P protocol: put|get"
+    type: multi
+    category: enable
+    env_var: NVFUSER_ENABLE
+    choices: ["", "put", "get"]
+
+  - name: multicast_protocol
+    description: "Prescribe multicast protocol: memcpy|multimem|batch_memcpy"
+    type: multi
+    category: enable
+    env_var: NVFUSER_ENABLE
+    choices: ["", "memcpy", "multimem", "batch_memcpy"]
+
+  - name: parallel_serde
+    description: Enable deserializing FusionExecutorCache in parallel
+    type: bool
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  - name: wait_debugger
+    description: Wait for gdb attach at start for specified rank (value is rank number)
+    type: int
+    category: enable
+    env_var: NVFUSER_ENABLE
+
+  # ========================================================================
+  # FEATURE DISABLE OPTIONS (NVFUSER_DISABLE)
+  # ========================================================================
+  - name: infer_contiguity
+    description: Disable contiguity inference
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+  - name: compile_to_sass
+    description: Disable direct compilation to SASS (compile to PTX instead)
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: contig_indexing
+    description: Disable contiguous indexing
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: expr_simplify
+    description: Disable expression simplifier
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: index_hoist
+    description: Disable index hoisting
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: magic_zero
+    description: Disable nvfuser_zero
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: fma
+    description: Disable FMA instructions (warning - negatively affects performance)
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: greedy_scheduler
+    description: Disable the greedy scheduler
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: resize_scheduler
+    description: Disable the resize scheduler
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: grouped_grid_welford_outer_opt
+    description: Disable use of outer-optimized grouped grid welford kernel
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: nvrtc_caching
+    description: Disable compilation caching by nvrtc
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: parallel_compile
+    description: Disable compiling Fusion segments in parallel
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: predicate_elimination
+    description: Disable predicate elimination
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: kernel_reuse
+    description: Disable re-using cached FusionKernelRuntimes with different input shapes
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: matmul_expr_eval
+    description: Disable ATen evaluation for entire fusion containing matmul
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: nvtx
+    description: Disable NVTX instrumentation
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: python_inline_definitions
+    description: Disable printing of inline definitions
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: var_name_remapping
+    description: Disable variable name remapping
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: welford_vectorization
+    description: Disable vectorization of Welford ops
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: reuse_mismatched_type_registers
+    description: Disable explicitly re-using registers unless types match
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: fallback
+    description: Disable fallback to eager mode on errors
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  - name: multidevice
+    description: Disable creation of multidevice communicator (mainly for debugging)
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
+
+  # ========================================================================
+  # PROFILER OPTIONS (NVFUSER_PROF)
+  # ========================================================================
+  - name: NVFUSER_PROF
+    description: Profiler mode
+    type: multi
+    category: profiler
+    choices: ["", "enable", "enable.nocupti", "print", "print.nocupti", "print.verbose"]
+
+  # ========================================================================
+  # RUNTIME COMPILATION CONTROL
+  # ========================================================================
+  - name: NVFUSER_MAX_REG_COUNT
+    description: Maximum number of registers per thread
+    type: int
+    category: compilation
+
+  - name: NVFUSER_JIT_OPT_LEVEL
+    description: PTX optimization level (0-4, default 4)
+    type: int
+    category: compilation
+
+  - name: NVFUSER_USE_BLOCK_SYNC_ATOMIC
+    description: Use atomic-based block synchronization instead of barriers
+    type: bool
+    category: compilation
+
+  - name: NVFUSER_EXTERNAL_SRC
+    description: Load kernel code from external CUDA files (comma-separated paths)
+    type: string
+    category: compilation
+
+  - name: NVFUSER_TRACE
+    description: Generate Chrome tracing format JSON file (specify file path)
+    type: string
+    category: compilation
+
+  - name: NVFUSER_MATMUL_HEURISTIC_PLUGIN
+    description: Shared library path for custom matmul scheduling heuristics
+    type: string
+    category: compilation
+
+  - name: NVFUSER_NUM_THREADS
+    description: Number of threads for parallel compilation (default 8)
+    type: int
+    category: compilation
+
+  # ========================================================================
+  # MISCELLANEOUS OPTIONS
+  # ========================================================================
+  - name: DEBUG_SERDE
+    description: Serde debugging flags
+    type: multi
+    category: misc
+    choices: ["debug", "disable"]
+
+  - name: NVFUSER_MASTER_ADDR
+    description: Master node address for multi-node execution (required for multi-node)
+    type: string
+    category: misc
+
+  - name: NVFUSER_MASTER_PORT
+    description: Master node port for multi-node execution (default 29500)
+    type: int
+    category: misc

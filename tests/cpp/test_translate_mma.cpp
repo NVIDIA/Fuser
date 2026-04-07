@@ -3,48 +3,47 @@
  * AFFILIATES. All rights reserved. SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <macros.h>
-
-#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
-#include <codegen.h>
-#include <device_lower/analysis/bank_conflict.h>
-#include <device_lower/lower2device.h>
-#include <disjoint_set.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <options.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/optimization_pass.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/matmul.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "codegen.h"
+#include "device_lower/analysis/bank_conflict.h"
+#include "device_lower/lower2device.h"
+#include "disjoint_set.h"
+#include "exceptions.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "ir/iostream.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "macros.h"
+#include "mma_type.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "options.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/matmul.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
 class CombineMulSumAsMmaTest : public NVFuserTest {
   void SetUp() override {
-    // These test are enable for Turing and newer. Temporarily
+    // These test are enable for Hopper and newer. Temporarily
     // we are skipping Blackwell since the matmul for it is under development.
-    auto lower_major = 8;
+    auto lower_major = 9;
     auto lower_minor = 0;
     auto upper_major = 10;
     auto upper_minor = 0;
@@ -72,9 +71,9 @@ class CombineMulSumAsMmaTestWithLayout
   MmaLayout layout;
   void SetUp() override {
     layout = GetParam();
-    // These test are enable for Turing and newer.
+    // These test are enable for Hopper and newer.
     // we are skipping Blackwell since the matmul for it is under development.
-    auto lower_major = 8;
+    auto lower_major = 9;
     auto lower_minor = 0;
     auto upper_major = 10;
     auto upper_minor = 0;
@@ -92,10 +91,7 @@ class CombineMulSumAsMmaTestWithLayout
   bool pre_hopper;
 };
 
-void performSubstitution(
-    Fusion* fusion,
-    bool avoid_intermediates,
-    bool should_not_find = false) {
+void performSubstitution(Fusion* fusion, bool should_not_find = false) {
   EXPECT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 
   std::vector<mma_utils::MatmulPattern> patterns =
@@ -108,7 +104,7 @@ void performSubstitution(
   ASSERT_FALSE(patterns.empty());
   EXPECT_EQ(patterns.size(), 1);
 
-  patterns.front().translateToMmaOp(avoid_intermediates);
+  patterns.front().translateToMmaOp();
 
   ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 }
@@ -131,7 +127,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, MulSumToMatmul_Pass) {
 
   fusion.addOutput(tv3);
 
-  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
+  performSubstitution(&fusion);
 }
 
 // This test checks that the pattern matcher does not incorrectly identify
@@ -150,8 +146,7 @@ TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_Fail1) {
   auto tv3 = sum(tv2, {-1});
   fusion.addOutput(tv3);
 
-  performSubstitution(
-      &fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/true);
+  performSubstitution(&fusion, /*should_not_find=*/true);
 }
 
 // This fusion has Broadcast batch axes in each operand.
@@ -186,8 +181,7 @@ TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_MultipleBroadcasts) {
   auto tv3 = sum(tv2, {-1});
   fusion->addOutput(tv3);
 
-  performSubstitution(
-      fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/false);
+  performSubstitution(fusion, /*should_not_find=*/false);
 
   // We test running this fusion also to verify that the broadcast batch
   // dimension does not cause unforeseen issues
@@ -227,7 +221,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 
   fusion.addOutput(tv2);
 
-  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
+  performSubstitution(&fusion);
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
@@ -315,7 +309,7 @@ using MatmulNodeTranslationTest =
 // Test that a simple matmul op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   const int64_t A_dim = std::get<0>(GetParam());
   const int64_t B_dim = std::get<1>(GetParam());
   const bool enable_fusion = std::get<2>(GetParam());
@@ -342,8 +336,8 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      alloc_pass_guard(false);
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass> alloc_pass_guard(
+      false);
 
   int batch_size = 3, M = 504, N = 136, K = 248;
   auto fusion = std::make_unique<Fusion>();
@@ -475,12 +469,12 @@ using LinearNodeTranslationTest =
 // Test that a simple linear op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      alloc_pass_guard(false);
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass> alloc_pass_guard(
+      false);
   const int64_t A_dim = std::get<0>(GetParam());
   const int64_t B_dim = std::get<1>(GetParam());
   const int64_t bias_dim = std::get<2>(GetParam());
@@ -496,8 +490,8 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   EnableOptionsGuard eog;
   if (enable_fusion) {
     if (A_dim != 2 && !cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP()
-          << "Translating linear with batch dims is not yet supported on Hopper";
+      GTEST_SKIP() << "Translating linear with batch dims is not yet supported "
+                      "on Hopper";
     }
 
     EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
@@ -769,7 +763,27 @@ TEST_P(TranslationCastTest, CountCasts) {
     }
     return false;
   });
-  EXPECT_EQ(num_casts, 1);
+  if (sin_epilogue && output_pre_epilogue) {
+    // Fusion looks like
+    // Inputs:
+    //   A
+    //   B
+    // Outputs:
+    //   C
+    //   D
+    // C = linear(A, B)
+    // D = sin(C)
+    // We will need to cast both C and D.
+    EXPECT_EQ(num_casts, 2);
+  } else {
+    // Fusion is either
+    //   C = linear(A, B)
+    // or
+    //   C = linear(A, B)
+    //   D = sin(C)
+    // but we are not outputting both C and D so there is only one cast.
+    EXPECT_EQ(num_casts, 1);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

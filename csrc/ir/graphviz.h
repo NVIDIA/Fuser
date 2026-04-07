@@ -7,14 +7,14 @@
 // clang-format on
 #pragma once
 
-#include <dispatch.h>
-#include <exceptions.h>
-
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include "dispatch.h"
+#include "exceptions.h"
 
 namespace nvfuser {
 
@@ -80,6 +80,7 @@ class IrGraphGenerator : private OptInConstDispatch {
   void handle(const TensorDomain*) override;
   void handle(const TensorView*) override;
   void handle(const IterDomain*) override;
+  void handle(const RaggedIterDomain*) override;
 
   void handle(const Val*) override;
   void handle(const NamedScalar*) override;

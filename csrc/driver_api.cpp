@@ -5,26 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <driver_api.h>
-#include <sys_utils.h>
-#include <utils.h>
-
 #include <cuda.h>
+#include <cuda_runtime.h>
 
-#include <iostream>
-
+#include <cuda_utils.h>
+#include <driver_api.h>
 #include <exceptions.h>
-
-namespace {
-
-class CUDADriverAPIDynamicLoader : public nvfuser::LibraryLoader {
- public:
-  CUDADriverAPIDynamicLoader() {
-    setFilename("libcuda.so");
-  }
-} loader;
-
-} // namespace
+#include <sys_utils.h>
+#include "base.h"
 
 // How does the magic work?
 //
@@ -68,32 +56,63 @@ class CUDADriverAPIDynamicLoader : public nvfuser::LibraryLoader {
 //
 // Doc for CTAD:
 // https://en.cppreference.com/w/cpp/language/class_template_argument_deduction
-#define DEFINE_DRIVER_API_WRAPPER(funcName)                       \
-  namespace {                                                     \
-  template <typename ReturnType, typename... Args>                \
-  struct funcName##Loader {                                       \
-    static ReturnType lazilyLoadAndInvoke(Args... args) {         \
-      funcName = (decltype(funcName))loader.getSymbol(#funcName); \
-      return funcName(args...);                                   \
-    }                                                             \
-    /* This ctor is just a CTAD helper, it is only used in a */   \
-    /* non-evaluated environment*/                                \
-    funcName##Loader(ReturnType(Args...)){};                      \
-  };                                                              \
-                                                                  \
-  /* Use CTAD rule to deduct return and argument types */         \
-  template <typename ReturnType, typename... Args>                \
-  funcName##Loader(ReturnType(Args...))                           \
-      ->funcName##Loader<ReturnType, Args...>;                    \
-  }                                                               \
-                                                                  \
-  decltype(::funcName)* funcName =                                \
-      decltype(funcName##Loader(::funcName))::lazilyLoadAndInvoke
+//
+// Driver APIs are loaded using cudaGetDriverEntryPoint as recommended by
+// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#using-the-runtime-api
+namespace {
+void getDriverEntryPoint(
+    const char* symbol,
+    unsigned int version,
+    void** entry_point,
+    cudaDriverEntryPointQueryResult* query_result) {
+#if (CUDA_VERSION >= 12050)
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPointByVersion(
+      symbol, entry_point, version, cudaEnableDefault, query_result));
+#else
+  (void)version;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPoint(
+      symbol, entry_point, cudaEnableDefault, query_result));
+#endif
+}
+} // namespace
+
+#define NVF_DEFINE_DRIVER_API_WRAPPER(fn, requested_version)        \
+  namespace {                                                       \
+  template <typename ReturnType, typename... Args>                  \
+  struct fn##Loader {                                               \
+    static ReturnType lazilyLoadAndInvoke(Args... args) {           \
+      static auto* entry_point = [&]() {                            \
+        decltype(::fn)* entry_point;                                \
+        cudaDriverEntryPointQueryResult query_result;               \
+        getDriverEntryPoint(                                        \
+            #fn,                                                    \
+            requested_version,                                      \
+            reinterpret_cast<void**>(&entry_point),                 \
+            &query_result);                                         \
+        NVF_CHECK(                                                  \
+            query_result == cudaDriverEntryPointSuccess,            \
+            "Failed to get the entry point for ",                   \
+            #fn,                                                    \
+            ": ",                                                   \
+            query_result);                                          \
+        return entry_point;                                         \
+      }();                                                          \
+      return entry_point(args...);                                  \
+    }                                                               \
+    /* This ctor is just a CTAD helper, it is only used in a */     \
+    /* non-evaluated environment. */                                \
+    fn##Loader(ReturnType(Args...)){};                              \
+  };                                                                \
+                                                                    \
+  /* Use CTAD rule to deduct return and argument types */           \
+  template <typename ReturnType, typename... Args>                  \
+  fn##Loader(ReturnType(Args...))->fn##Loader<ReturnType, Args...>; \
+  } /* namespace */                                                 \
+                                                                    \
+  decltype(::fn)* fn = decltype(fn##Loader(::fn))::lazilyLoadAndInvoke
 
 namespace nvfuser {
-
-ALL_DRIVER_API_WRAPPER(DEFINE_DRIVER_API_WRAPPER);
-
+NVF_FOR_EACH_DRIVER_API(NVF_DEFINE_DRIVER_API_WRAPPER);
 } // namespace nvfuser
 
-#undef DEFINE_DRIVER_API_WRAPPER
+#undef NVF_DEFINE_DRIVER_API_WRAPPER

@@ -5,12 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "ops/composite.h"
+
+#include <ranges>
+
 #include <ATen/cuda/CUDAContext.h>
-#include <ir/builder.h>
-#include <ir/iostream.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <transform_view.h>
+
+#include "ir/builder.h"
+#include "ir/composite_nodes.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "transform_view.h"
 
 namespace nvfuser {
 
@@ -26,12 +31,10 @@ ForwardDropoutResult dropout(TensorView* x, Val* prob) {
 ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   NVF_ERROR(
-      prob != nullptr && prob->getDataType().has_value() &&
-          prob->getDataType().value() == DataType::Double,
+      prob != nullptr && prob->getDataType() == DataType::Double,
       "Probability is not a valid Double.");
   NVF_ERROR(
-      scale != nullptr && scale->getDataType().has_value() &&
-          scale->getDataType().value() == DataType::Double,
+      scale != nullptr && scale->getDataType() == DataType::Double,
       "Scale is not a valid Double.");
 
   auto rand_vals = rand_like(x);
@@ -39,15 +42,14 @@ ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale) {
   auto apply_mask = mul(x, mask);
   auto y = mul(apply_mask, scale);
 
-  return {y, mask};
+  return {.output = y, .mask = mask};
 }
 
 TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
   NVF_ERROR(mask != nullptr, "Mask is invalid");
   NVF_ERROR(
-      scale != nullptr && scale->getDataType().has_value() &&
-          scale->getDataType().value() == DataType::Double,
+      scale != nullptr && scale->getDataType() == DataType::Double,
       "Scale is not a valid Double.");
 
   auto grad_mask = mul(dy, mask);
@@ -58,8 +60,7 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 
 TensorView* triu(TensorView* tv, Val* offset) {
   NVF_CHECK(
-      isIntegralType(offset->getDataType().value()),
-      "offset must have integral type");
+      isIntegralType(offset->getDataType()), "offset must have integral type");
 
   // Let's say we want a triu of a 2D tensor of shape [2, 4]
   // We broadcast the iota of the outer dim
@@ -106,7 +107,7 @@ TensorView* triu(TensorView* tv, Val* offset) {
   auto tv_rows_b = broadcast(tv_rows, {false, true});
   auto tv_cols_b = broadcast(tv_columns, {true, false});
   auto mask = le(tv_rows_b, tv_cols_b);
-  return where(mask, tv, fusion->zeroVal(DataType::Index));
+  return where(mask, tv, fusion->zeroVal(tv->getDataType()));
 }
 
 namespace {
@@ -146,7 +147,7 @@ TensorView* newForLinear(
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - red_dims)) {
+  for (auto idx : arange(ndims_out - red_dims)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
   }
@@ -161,14 +162,16 @@ TensorView* newForLinear(
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, input->dtype());
+  auto* output = IrBuilder::create<TensorView>(td, input->dtype());
+  output->setDeviceMesh(input->getDeviceMesh());
+  return output;
 }
 
 } // namespace
 
 TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
-  auto input_ndims =
-      TensorDomain::noReductions(input->getLogicalDomain()).size();
+  const auto input_ndims = std::ranges::distance(
+      input->getLogicalDomain() | TensorDomain::kNoReductions);
   NVF_CHECK(input_ndims > 0, "Input A must be at least 1D.");
 
   // `linear` previously supported 1D weight and 0D bias. The support was
@@ -181,8 +184,8 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
   // unsqueeze followed by a 2D/1D linear followed by a squeeze. It'll likely
   // be the same speed because nvFuser treats squeezes and unsqueezes as meta
   // ops and run them on the host.
-  auto weight_ndims =
-      TensorDomain::noReductions(weight->getLogicalDomain()).size();
+  const auto weight_ndims = std::ranges::distance(
+      weight->getLogicalDomain() | TensorDomain::kNoReductions);
   NVF_CHECK(
       weight_ndims >= 2,
       "Input B must be at least 2D. The last two dimensions represent out "
@@ -198,7 +201,8 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
 
   if (bias != nullptr) {
     NVF_CHECK(
-        !TensorDomain::noReductions(bias->getLogicalDomain()).empty(),
+        !std::ranges::empty(
+            bias->getLogicalDomain() | TensorDomain::kNoReductions),
         "Input bias must be at least 1D. The last dimension represents out "
         "features. The extra, preceding dimensions are expected to be "
         "parallelized on DIDs during scheduling: ",
@@ -240,7 +244,7 @@ LstmResult lstm(
   const auto cell = add(mul(forget_gate, prev_cell), mul(in_gate, cell_gate));
   const auto hidden = mul(out_gate, tanh(cell));
 
-  return {cell, hidden};
+  return {.cell = cell, .hidden = hidden};
 }
 
 namespace {
@@ -251,7 +255,7 @@ T* sign(T* x) {
   auto one = IrBuilder::createInContainer<Val>(x->container(), 1.);
   auto minus_one = IrBuilder::createInContainer<Val>(x->container(), -1.);
   auto sign = where(gt(x, zero), one, where(lt(x, zero), minus_one, zero));
-  return castOp(x->getDataType().value(), sign);
+  return castOp(x->getDataType(), sign);
 }
 } // namespace
 
@@ -387,20 +391,24 @@ TensorView* leaky_relu(TensorView* x, Val* negative_slope) {
 }
 
 TensorView* view_as_real(TensorView* x) {
-  auto input_type = x->getDataType().value();
+  auto input_type = x->getDataType();
   NVF_CHECK(
       isComplexType(input_type),
       "Operand of view_as_real must have complex type");
 
   auto vec_type = ArrayType{
-      std::make_shared<DataType>(getTypeFromComplexType(input_type)), 2};
+      .type = std::make_shared<DataType>(getTypeFromComplexType(input_type)),
+      .size = 2};
   auto tv_vector = bitCastOp(vec_type, x);
   return viewAsScalar(tv_vector);
 }
 namespace {
 
 //! Create new output for matmul
-TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+TensorView* newForMatmul(
+    TensorView* tv_a,
+    TensorView* tv_b,
+    DataType dtype = DataType::Null) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
@@ -435,7 +443,7 @@ TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   const std::vector<IterDomain*>& mapping_b =
       ops::mapMatmulOpIterDomains(orig_domain_b, 1, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out - red_dims)) {
+  for (auto idx : arange(ndims_out - red_dims)) {
     out_domain[idx] =
         ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
@@ -448,7 +456,8 @@ TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, tv_a->dtype());
+  return IrBuilder::create<TensorView>(
+      td, dtype == DataType::Null ? tv_a->dtype() : dtype);
 }
 
 } // namespace
@@ -478,10 +487,107 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   return out;
 }
 
+ScaledTensorView scaled_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* scale1,
+    TensorView* scale2,
+    TensorView* alpha,
+    TensorView* bias,
+    TensorView* beta,
+    DataType dtype,
+    int64_t output_block_scale_size,
+    DataType output_block_scale_dtype,
+    bool output_gamma) {
+  bool has_bias = bias != nullptr;
+  NVF_CHECK(
+      beta == nullptr || has_bias,
+      "beta argument requires bias to be present. Got bias : ",
+      has_bias ? "true" : "false",
+      " and beta : ",
+      beta != nullptr ? "true" : "false");
+  // TODO: support scaled output
+  NVF_CHECK(
+      output_block_scale_size == 0, "output_block_scale is not yet supported");
+  NVF_CHECK(!output_gamma, "output_gamma is not yet supported");
+
+  ScaledTensorView scaled_out;
+
+  scaled_out.tv = newForMatmul(mat1, mat2, dtype);
+
+  IrBuilder::create<ScaledMmaOp>(
+      scaled_out.tv,
+      scaled_out.block_scaling_factor,
+      scaled_out.global_scaling_factor,
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      alpha,
+      bias,
+      beta);
+  return scaled_out;
+}
+
+TensorView* cutlass_nvfp4_grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* scale1,
+    TensorView* scale2,
+    TensorView* alpha,
+    TensorView* problem_sizes,
+    TensorView* expert_offsets,
+    TensorView* sf_offsets,
+    DataType dtype) {
+  // Validate inputs
+  NVF_CHECK(mat1 != nullptr, "mat1 cannot be null");
+  NVF_CHECK(mat2 != nullptr, "mat2 cannot be null");
+  NVF_CHECK(scale1 != nullptr, "scale1 cannot be null");
+  NVF_CHECK(scale2 != nullptr, "scale2 cannot be null");
+  NVF_CHECK(alpha != nullptr, "alpha cannot be null");
+  NVF_CHECK(problem_sizes != nullptr, "problem_sizes cannot be null");
+  NVF_CHECK(expert_offsets != nullptr, "expert_offsets cannot be null");
+  NVF_CHECK(sf_offsets != nullptr, "sf_offsets cannot be null");
+
+  // Create output tensor
+  // The output shape depends on the problem sizes and expert structure
+  // For now, we'll create a simple output based on the input shapes
+  // This should be refined based on the actual requirements
+  auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
+  auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
+  NVF_CHECK(mat1_domain.size() == 2);
+  NVF_CHECK(mat2_domain.size() == 3);
+
+  // Create output domain - this is a simplified approach
+  // The actual output shape calculation should be more sophisticated
+  std::vector<IterDomain*> out_domain;
+  out_domain.push_back(ops::newOutputIterDomain({mat1_domain[0]}));
+  out_domain.push_back(ops::newOutputIterDomain({mat2_domain[2]}));
+
+  TensorDomain* out_td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+  TensorView* output = IrBuilder::create<TensorView>(out_td, dtype);
+
+  IrBuilder::create<CutlassNvfp4GroupedMmaOp>(
+      output,
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      alpha,
+      problem_sizes,
+      expert_offsets,
+      sf_offsets);
+
+  return output;
+}
+
 SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
     TensorView* value,
+    TensorView* bias,
+    TensorView* mask,
     Val* dropout_p,
     Val* is_causal,
     Val* scale) {
@@ -491,11 +597,21 @@ SdpfaFwdResult sdpfa_fwd(
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
   checkAllEqual({query_domain.size(), key_domain.size(), value_domain.size()});
-  NVF_CHECK(
-      query_domain.size() == 4 || query_domain.size() == 5,
-      "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
-      "expected to be device parallel during expression evaluation: ",
-      query_domain);
+  NVF_CHECK_GE(query_domain.size(), 4, "query_domain = ", query_domain);
+
+  if (bias != nullptr) {
+    NVF_CHECK_EQ(
+        TensorDomain::noReductions(bias->getLogicalDomain()).size(),
+        query_domain.size());
+    NVF_CHECK_EQ(bias->dtype(), query->dtype());
+  }
+
+  if (mask != nullptr) {
+    NVF_CHECK_EQ(
+        TensorDomain::noReductions(mask->getLogicalDomain()).size(),
+        query_domain.size());
+    NVF_CHECK_EQ(mask->dtype(), DataType::Bool);
+  }
 
   NVF_CHECK(
       !dropout_p || dropout_p->isFloatingPointScalar() ||
@@ -508,16 +624,10 @@ SdpfaFwdResult sdpfa_fwd(
       !scale || scale->isFloatingPointScalar() || scale->isIntegralScalar(),
       "Expected scale to be a real-valued scalar.");
 
-  // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
-  // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
-  // inputs to outputs. L is mapped from query to output. Ev is mapped from
-  // value to output. Note: There is no mapping for S, E. This may change in the
-  // future if we add additional reduction ids to the output.
-  auto ndims_out = query_domain.size();
-
   // TensorView for attention output
+  const auto ndims_out = query_domain.size();
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
-  for (auto idx : c10::irange(ndims_out - 2)) {
+  for (auto idx : arange(ndims_out - 2)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
@@ -526,32 +636,32 @@ SdpfaFwdResult sdpfa_fwd(
   out_domain[ndims_out - 1] =
       ops::newOutputIterDomain({value_domain.at(ndims_out - 1)});
 
-  TensorDomain* attn_td = IrBuilder::create<TensorDomain>(
+  auto* attn_td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
-  TensorView* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
+  auto* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
 
-  // TensorView for log_sumexp [DIDx(D)?,N, H, L]
-  std::vector<IterDomain*> log_sumexp_dom(ndims_out - 1, nullptr);
-  for (auto idx : c10::irange(ndims_out - 2)) {
-    log_sumexp_dom[idx] = ops::newOutputIterDomain(
+  std::vector<IterDomain*> logsumexp_dom(ndims_out - 1, nullptr);
+  for (auto idx : arange(ndims_out - 2)) {
+    logsumexp_dom[idx] = ops::newOutputIterDomain(
         {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
-  log_sumexp_dom[ndims_out - 2] =
+  logsumexp_dom[ndims_out - 2] =
       ops::newOutputIterDomain({query_domain.at(ndims_out - 2)});
-  TensorDomain* log_sumexp_td = IrBuilder::create<TensorDomain>(
-      log_sumexp_dom,
-      TensorDomain::getContiguityFilledWith(log_sumexp_dom, true));
-  TensorView* log_sumexp =
-      IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
+  auto* logsumexp_td = IrBuilder::create<TensorDomain>(
+      logsumexp_dom,
+      TensorDomain::getContiguityFilledWith(logsumexp_dom, true));
+  auto* logsumexp =
+      IrBuilder::create<TensorView>(logsumexp_td, DataType::Float);
 
 #if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
   // API changes in torch 2.7.0
   // The torch API returns philox_seed -> rng_state (uint64_t[2])
   // and philox_offset -> _unused (empty tensor)
-  TensorView* philox_seed = TensorViewBuilder()
-                                .shape(std::vector<int64_t>{2})
-                                .dtype(DataType::UInt64)
-                                .build();
+  TensorView* philox_seed = nullptr;
+  philox_seed = TensorViewBuilder()
+                    .shape(std::vector<int64_t>{2})
+                    .dtype(DataType::UInt64)
+                    .build();
   TensorView* philox_offset =
       TensorViewBuilder().dtype(DataType::UInt64).build();
 #else
@@ -573,18 +683,24 @@ SdpfaFwdResult sdpfa_fwd(
 
   IrBuilder::create<SdpaFwdOp>(
       output,
-      log_sumexp,
+      logsumexp,
       philox_seed,
       philox_offset,
       query,
       key,
       value,
+      bias,
+      mask,
       SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       scale == nullptr
           ? scale
           : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
-  return {output, log_sumexp, philox_seed, philox_offset};
+  return {
+      .output = output,
+      .logsumexp = logsumexp,
+      .philox_seed = philox_seed,
+      .philox_offset = philox_offset};
 }
 
 SdpfaBwdResult sdpfa_bwd(
@@ -593,7 +709,7 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* key,
     TensorView* value,
     TensorView* output,
-    TensorView* log_sumexp,
+    TensorView* logsumexp,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -624,12 +740,12 @@ SdpfaBwdResult sdpfa_bwd(
       "expected to be device parallel during expression evaluation: ",
       query_domain);
 
-  auto log_sumexp_domain =
-      TensorDomain::noReductions(log_sumexp->getLogicalDomain());
+  auto logsumexp_domain =
+      TensorDomain::noReductions(logsumexp->getLogicalDomain());
   NVF_CHECK(
-      log_sumexp_domain.size() == query_domain.size() - 1,
-      "Expected log_sumexp to have one less dimension than Q/K/V: ",
-      log_sumexp_domain.size(),
+      logsumexp_domain.size() == query_domain.size() - 1,
+      "Expected logsumexp to have one less dimension than Q/K/V: ",
+      logsumexp_domain.size(),
       " vs ",
       query_domain.size());
 
@@ -667,7 +783,7 @@ SdpfaBwdResult sdpfa_bwd(
       key,
       value,
       output,
-      log_sumexp,
+      logsumexp,
       SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       philox_seed,
@@ -675,7 +791,8 @@ SdpfaBwdResult sdpfa_bwd(
       scale == nullptr
           ? scale
           : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
-  return {grad_query, grad_key, grad_value};
+  return {
+      .grad_query = grad_query, .grad_key = grad_key, .grad_value = grad_value};
 }
 
 TensorView* embedding_fwd(
@@ -715,7 +832,7 @@ TensorView* embedding_fwd(
   auto ndims_out = input_domain.size() + 1;
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : arange(ndims_out - 1)) {
     out_domain[idx] = ops::newOutputIterDomain({input_domain[idx]});
   }
   out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.back()});

@@ -5,16 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <val_graph_visitor.h>
+#include "exceptions.h"
+#include "ops/all_ops.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "val_graph_visitor.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -579,7 +579,7 @@ using FindAllExprsTest = NVFuserTest;
 #define VALIDATE_EXPR_PATH(actual, ref)                             \
   do {                                                              \
     ASSERT_EQ(actual.size(), ref.size());                           \
-    for (const auto i : c10::irange(actual.size())) {               \
+    for (const auto i : arange(actual.size())) {                    \
       EXPECT_EQ(actual.at(i).first, ref.at(i).first)                \
           << "Mismathed expr at " << i                              \
           << ". Expected: " << nvfuser::toString(ref.at(i).first)   \
@@ -865,7 +865,6 @@ TEST_F(FindAllExprsTest, Rotation) {
   std::vector<int64_t> shape({16, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);

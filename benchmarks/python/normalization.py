@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-from nvfuser import FusionDefinition, DataType
+from nvfuser_direct import FusionDefinition, DataType
 from .global_params import PROMOTE_DTYPES
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 import torch
 from .core import run_benchmark, unary_bwd_torch, clear_dynamo_cache, with_executor
 import numpy as np
+from functools import reduce
 
 
 def norm_fwd_fusion(
@@ -151,9 +152,7 @@ def norm_bwd_fusion(
         grad = fd.ops.cast(grad, dtype=DataType.Float)
         weight = fd.ops.cast(weight, dtype=DataType.Float)
 
-    num_features = fd.define_scalar(1)
-    for ax in reduction_axes:
-        num_features *= input.size(ax)
+    num_features = reduce(fd.ops.mul, [input.size(ax) for ax in reduction_axes], 1)
 
     norm = fd.ops.reciprocal(num_features)
 
@@ -443,8 +442,8 @@ def norm_fwd_baseline_benchmark(
 
     # Size is assumed to be in the order N, C, ...
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
-    weight = torch.randn(size[1], device="cuda", dtype=dtype)
-    bias = torch.randn(size[1], device="cuda", dtype=dtype)
+    weight = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
+    bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     running_mean = torch.zeros(size[1], device="cuda", dtype=dtype)
     running_var = torch.ones(size[1], device="cuda", dtype=dtype)
@@ -479,8 +478,8 @@ def norm_bwd_baseline_benchmark(
 
     # Size is assumed to be in the order N, C, ...
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
-    weight = torch.randn(size[1], device="cuda", dtype=dtype)
-    bias = torch.randn(size[1], device="cuda", dtype=dtype)
+    weight = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
+    bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     running_mean = torch.zeros(size[1], device="cuda", dtype=dtype)
     running_var = torch.ones(size[1], device="cuda", dtype=dtype)

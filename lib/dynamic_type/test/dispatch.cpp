@@ -106,7 +106,7 @@ TEST_F(DynamicTypeTest, DispatchArgumentPerfectForwarding) {
 TEST_F(DynamicTypeTest, DispatchReturnsDynamicType) {
   using IntOrFloat = DynamicType<NoContainers, int64_t, float>;
   auto add = [](auto x, auto y) {
-    if constexpr (opcheck<decltype(x)> + opcheck<decltype(y)>) {
+    if constexpr (requires { x + y; }) {
       return x + y;
     } else {
       return;

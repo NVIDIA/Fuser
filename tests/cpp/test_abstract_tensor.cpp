@@ -8,9 +8,8 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <tests/cpp/utils.h>
-
-#include <scheduler/tools/abstract_tensor.h>
+#include "scheduler/tools/abstract_tensor.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 
@@ -890,12 +889,6 @@ TEST_F(AbstractTensorTest, SwizzleTaggedTensor) {
     v1.swizzle(SwizzleType::NoSwizzle, 0, 1);
 
     ASSERT_EQ(v1.size(), 3);
-    EXPECT_EQ(v1.getTag(0), TestTag::A);
-    EXPECT_EQ(v1.getTag(1), TestTag::B);
-    EXPECT_EQ(v1.getTag(2), TestTag::C);
-
-    v1.swizzle(Swizzle2DType::NoSwizzle, 0, 1);
-
     EXPECT_EQ(v1.getTag(0), TestTag::A);
     EXPECT_EQ(v1.getTag(1), TestTag::B);
     EXPECT_EQ(v1.getTag(2), TestTag::C);

@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 #include <kernel.h>
+#include <type.h>
 #include <visibility.h>
 
 #include <string>
@@ -20,7 +21,7 @@ namespace codegen {
 NVF_API std::string generateCudaKernel(
     const kir::Kernel* kernel,
     const std::string& kernel_name = "CUDAGeneratedKernel",
-    std::optional<int64_t> num_threads_per_cta = std::nullopt);
+    const LaunchParams& lparams = LaunchParams());
 
 } // namespace codegen
 } // namespace nvfuser

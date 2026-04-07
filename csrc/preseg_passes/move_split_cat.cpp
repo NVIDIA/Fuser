@@ -5,18 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/move_split_cat.h>
+#include "preseg_passes/move_split_cat.h"
 
 #include <vector>
 
-#include <fusion.h>
-#include <id_model/id_model.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <transform_replay.h>
+#include "fusion.h"
+#include "id_model/id_model.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/utils.h"
+#include "ops/alias.h"
+#include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {
 
@@ -257,7 +257,7 @@ TensorView* slicesFormSplit(
     }
 
     // Check only the split axis is sliced.
-    for (auto j : c10::irange(
+    for (auto j : arange(
              static_cast<int64_t>(slice->out()->getMaybeRootDomain().size()))) {
       const bool sliced =
           (slice->out()->getMaybeRootDomain()[j] !=
@@ -384,7 +384,7 @@ findPairingSplit(CatOp* cat) {
     // Currently, I limit this to only reshapes and permutes to reduce blast
     // radius.
     auto supported = [](Expr* e) -> bool {
-      if (e->isA<ViewOp>()) {
+      if (e->isA<ReshapeOp>()) {
         return true;
       }
       if (auto* set = dynamic_cast<LoadStoreOp*>(e)) {

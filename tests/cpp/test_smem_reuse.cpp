@@ -5,37 +5,32 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <algorithm>
+#include <complex>
+#include <sstream>
+#include <thread>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <utils.h>
-
-#include <algorithm>
-#include <complex>
-#include <iostream>
-#include <sstream>
-#include <thread>
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
 using namespace at::indexing;
 
-class SmemReuseTest : public NVFuserTest {};
-
-int64_t alignInt(int64_t unaligned, int64_t alignment = 16L) {
-  return (unaligned + (alignment - 1)) & (-alignment);
-}
+using SmemReuseTest = NVFuserTest;
 
 // Test that we re-use different-size smem allocations
 //
@@ -93,13 +88,13 @@ TEST_F(SmemReuseTest, SimpleCase) {
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
     // tv1{H} comes before tv5{W}, and the last uses follow the same order. When
     // we reorder pushed allocations, we sort them by last read in descending
     // order, so tv5 goes on the bottom.
-    EXPECT_EQ(smem_usage, alignInt(W_int * 4) + H_int * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes(W_int * 4) + H_int * 4);
   }
 
   { // Now introduce a block reduction and check that we re-use memory
@@ -113,7 +108,7 @@ TEST_F(SmemReuseTest, SimpleCase) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
     // (Aligned size of H) plus W
@@ -193,11 +188,14 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
     EXPECT_EQ(
-        smem_usage, alignInt(alignInt((H + 1) * 4) + (H + 1) * 4) + H * 4);
+        smem_usage,
+        alignSharedMemoryBytes(
+            alignSharedMemoryBytes((H + 1) * 4) + (H + 1) * 4) +
+            H * 4);
   }
 
   { // Now introduce a block reduction and check that we re-use memory
@@ -210,10 +208,10 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
-    EXPECT_EQ(smem_usage, alignInt((H + 1) * 4) + (H + 1) * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes((H + 1) * 4) + (H + 1) * 4);
   }
 }
 
@@ -239,11 +237,14 @@ TEST_F(SmemReuseTest, PromoteReuse) {
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
     EXPECT_EQ(
-        smem_usage, alignInt(alignInt((H + 1) * 4) + (H + 1) * 4) + H * 4);
+        smem_usage,
+        alignSharedMemoryBytes(
+            alignSharedMemoryBytes((H + 1) * 4) + (H + 1) * 4) +
+            H * 4);
   }
 
   { // Request that we re-use the allocation for tv0. This should place a
@@ -257,10 +258,10 @@ TEST_F(SmemReuseTest, PromoteReuse) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
-    EXPECT_EQ(smem_usage, alignInt((H + 1) * 4) + (H + 1) * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes((H + 1) * 4) + (H + 1) * 4);
   }
 }
 
@@ -307,11 +308,14 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
     EXPECT_EQ(
-        smem_usage, alignInt(alignInt((H + 2) * 4) + (H + 1) * 4) + H * 4);
+        smem_usage,
+        alignSharedMemoryBytes(
+            alignSharedMemoryBytes((H + 2) * 4) + (H + 1) * 4) +
+            H * 4);
   }
 
   { // Request that we re-use the allocation for tv0. This should place a
@@ -325,10 +329,10 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
-    EXPECT_EQ(smem_usage, alignInt((H + 2) * 4) + (H + 1) * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes((H + 2) * 4) + (H + 1) * 4);
   }
 }
 
@@ -339,7 +343,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
 // the assigned addresses are:
 //
 //   A: 0. Assigned then reclaimed before assignment of B.
-//   B: alignInt((H + 2) * 4). Stacked on top of C
+//   B: alignSharedMemoryBytes((H + 2) * 4). Stacked on top of C
 //   C: 0. Assigned along with B in reverse order of last use
 //   D: 0. B and C are reclaimed before this assignment.
 //
@@ -389,12 +393,15 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
     EXPECT_EQ(
         smem_usage,
-        alignInt(alignInt(alignInt((H + 3) * 4) + (H + 2) * 4) + (H + 1) * 4) +
+        alignSharedMemoryBytes(
+            alignSharedMemoryBytes(
+                alignSharedMemoryBytes((H + 3) * 4) + (H + 2) * 4) +
+            (H + 1) * 4) +
             H * 4);
   }
 
@@ -409,11 +416,11 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
-          dataTypeSize(alloc->buffer()->dtype());
+          dataTypeSizeByte(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
     // High water mark has C stacked on top of B
-    EXPECT_EQ(smem_usage, alignInt((H + 2) * 4) + (H + 1) * 4);
+    EXPECT_EQ(smem_usage, alignSharedMemoryBytes((H + 2) * 4) + (H + 1) * 4);
   }
 }
 

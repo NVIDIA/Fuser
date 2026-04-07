@@ -7,11 +7,11 @@
 // clang-format on
 #include <type.h>
 
-#include <ATen/cuda/CUDAContext.h>
-
+#include <ranges>
 #include <sstream>
-#include <stdexcept>
-#include <unordered_map>
+#include <unordered_set>
+
+#include <ATen/cuda/CUDAContextLight.h>
 
 #include <ir/all_nodes.h>
 #include <tensor_metadata.h>
@@ -23,7 +23,7 @@ StructType NotImplementedStruct::type() const {
 }
 
 StructType globalTensorMetaData(
-    const PrimDataType& dtype,
+    const DataType& dtype,
     size_t dim,
     size_t alloc_dim) {
   std::stringstream ss;
@@ -77,11 +77,11 @@ DataType metaDataTypeOf(const Val* v) {
     return PointerType{std::make_shared<DataType>(tv->dtype())};
   }
 
-  size_t dim = TensorDomain::noReductions(tv->getLogicalDomain()).size();
-  size_t alloc_dim =
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
-  return globalTensorMetaData(
-      std::get<PrimDataType>(tv->dtype().type), dim, alloc_dim);
+  const auto dim = std::ranges::distance(
+      tv->getLogicalDomain() | TensorDomain::kNoReductions);
+  const auto alloc_dim = std::ranges::distance(
+      tv->getMaybeAllocationDomain() | TensorDomain::kNoReductions);
+  return globalTensorMetaData(tv->dtype().type, dim, alloc_dim);
 }
 
 PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
@@ -90,9 +90,8 @@ PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
       return DataType::Int32;
     case KernelIndexMode::INT64:
       return DataType::Int;
-    default:
-      NVF_CHECK(false, "Invalid kernel index mode type.");
   }
+  std::unreachable();
 }
 
 KernelIndexMode indexTypeToMode(DataType index_type) {
@@ -113,19 +112,37 @@ bool isInclusiveType(const DataType& base_type, const DataType& wider_type) {
       (base_type == DataType::Double || base_type == DataType::Float ||
        base_type == DataType::Half || base_type == DataType::BFloat16 ||
        base_type == DataType::Float8_e4m3fn ||
-       base_type == DataType::Float8_e5m2)) {
+       base_type == DataType::Float8_e5m2 ||
+       base_type == DataType::Float8_e8m0fnu ||
+       base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if ((wider_type == DataType::Float || wider_type == DataType::ComplexFloat) &&
       (base_type == DataType::Float || base_type == DataType::Half ||
        base_type == DataType::BFloat16 ||
        base_type == DataType::Float8_e4m3fn ||
-       base_type == DataType::Float8_e5m2)) {
+       base_type == DataType::Float8_e5m2 ||
+       base_type == DataType::Float8_e8m0fnu ||
+       base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if ((wider_type == DataType::Half || wider_type == DataType::BFloat16) &&
       (base_type == DataType::Float8_e4m3fn ||
-       base_type == DataType::Float8_e5m2)) {
+       base_type == DataType::Float8_e5m2 ||
+       base_type == DataType::Float4_e2m1fn)) {
+    return true;
+  }
+  if (wider_type == DataType::BFloat16 &&
+      (base_type == DataType::Float8_e8m0fnu ||
+       base_type == DataType::Float4_e2m1fn)) {
+    return true;
+  }
+  if (wider_type == DataType::Float8_e4m3fn &&
+      (base_type == DataType::Float4_e2m1fn)) {
+    return true;
+  }
+  if (wider_type == DataType::Float8_e5m2 &&
+      (base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if ((wider_type == DataType::Int || wider_type == DataType::Double ||
@@ -173,6 +190,10 @@ bool isSupportedTypeByDevice(DataType dtype) {
   }
   if (dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2) {
     return major_ver >= 9;
+  }
+  if (dtype == DataType::Float8_e8m0fnu || dtype == DataType::Float4_e2m1fn ||
+      dtype == DataType::Float4_e2m1fn_x2) {
+    return major_ver >= 10;
   }
   return true;
 }
@@ -228,6 +249,12 @@ static std::string data_type2string(DataType t) {
               return "__e4m3";
             case DataType::Float8_e5m2:
               return "__e5m2";
+            case DataType::Float8_e8m0fnu:
+              return "__e8m0";
+            case DataType::Float4_e2m1fn:
+              return "__e2m1";
+            case DataType::Float4_e2m1fn_x2:
+              return "__e2m1_x2";
             case DataType::Index:
               return "nvfuser_index_t";
             case DataType::Char:
@@ -295,6 +322,8 @@ static const char* val_type2string(ValType t) {
       return "TensorDomain";
     case ValType::IterDomain:
       return "IterDomain";
+    case ValType::RaggedIterDomain:
+      return "RaggedIterDomain";
     case ValType::Others:
       return "Scalar";
     case ValType::NamedScalar:
@@ -303,9 +332,18 @@ static const char* val_type2string(ValType t) {
       return "Predicate";
     case ValType::TensorIndex:
       return "TensorIndex";
-    default:
-      NVF_THROW("No string found for val type.");
+    case ValType::Stream:
+      return "Stream";
   }
+  std::unreachable();
+}
+
+const char* block_sf_layout2string(BlockScalingFactorLayout t) {
+  switch (t) {
+    case BlockScalingFactorLayout::Block128x4:
+      return "block_128_4";
+  }
+  std::unreachable();
 }
 
 const char* predicate_type2string(PredicateType t) {
@@ -322,13 +360,14 @@ const char* predicate_type2string(PredicateType t) {
       return "Misaligned";
     case PredicateType::ReductionWrite:
       return "ReductionWrite";
-    case PredicateType::LoopRotation:
-      return "LoopRotation";
     case PredicateType::ElectSync:
       return "ElectSync";
-    default:
-      NVF_THROW("No string found for predicate type.");
+    case PredicateType::OneDimTmaLoadExpectArrive:
+      return "OneDimTmaLoadExpectArrive";
+    case PredicateType::OneDimTmaWaitParity:
+      return "OneDimTmaWaitParity";
   }
+  std::unreachable();
 }
 
 bool needFloatSuffix(UnaryOpType t) {
@@ -428,6 +467,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "bit_cast";
     case UnaryOpType::Neg:
       return "neg";
+    case UnaryOpType::BitCeil:
+      return "bit_ceil";
     case UnaryOpType::LogicalNot:
       return "logical_not";
     case UnaryOpType::BitwiseNot:
@@ -527,8 +568,12 @@ static const char* binary_op_type2string(BinaryOpType t) {
     case BinaryOpType::Fmod:
       return "fmod";
     case BinaryOpType::Max:
+      return "max";
+    case BinaryOpType::FMax:
       return "fmax";
     case BinaryOpType::Min:
+      return "min";
+    case BinaryOpType::FMin:
       return "fmin";
     case BinaryOpType::Mul:
       return "mul";
@@ -580,17 +625,20 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "lessThan";
     case BinaryOpType::NE:
       return "notEqual";
-    default:
-      NVF_THROW("No string found for binary op type.");
   }
+  std::unreachable();
 }
 
 static const char* binary_op_integer_op2string(BinaryOpType t) {
   switch (t) {
     case BinaryOpType::Max:
       return "max";
+    case BinaryOpType::FMax:
+      return "fmax";
     case BinaryOpType::Min:
       return "min";
+    case BinaryOpType::FMin:
+      return "fmin";
     case BinaryOpType::Fmod:
       return "fmod";
     default:
@@ -603,8 +651,12 @@ static const char* binary_op_bool_op2string(BinaryOpType t) {
   switch (t) {
     case BinaryOpType::Max:
       return "max";
+    case BinaryOpType::FMax:
+      return "fmax";
     case BinaryOpType::Min:
       return "min";
+    case BinaryOpType::FMin:
+      return "fmin";
     default:
       break;
   }
@@ -686,9 +738,8 @@ static const char* ternary_op_type2string(TernaryOpType t) {
       return "where";
     case TernaryOpType::Philox:
       return "philox";
-    default:
-      NVF_THROW("Unexpected TernaryOpType");
   }
+  std::unreachable();
 }
 
 static const char* rng_op_type2string(RNGOpType t) {
@@ -710,6 +761,10 @@ static const char* parallel_type2string(ParallelType t) {
   switch (t) {
     case ParallelType::DIDx:
       return "deviceIdx.x";
+    case ParallelType::DIDy:
+      return "deviceIdx.y";
+    case ParallelType::DIDz:
+      return "deviceIdx.z";
     case ParallelType::BIDz:
       return "blockIdx.z";
     case ParallelType::BIDy:
@@ -723,11 +778,9 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::TIDx:
       return "threadIdx.x";
     case ParallelType::Stream:
-      return "Stream";
+      return "streamIdx";
     case ParallelType::Vectorize:
       return "V";
-    case ParallelType::MisalignedVectorize:
-      return "MV";
     case ParallelType::Unroll:
       return "UR";
     case ParallelType::Unswitch:
@@ -745,27 +798,44 @@ static const char* parallel_type2string(ParallelType t) {
   }
 }
 
+std::unordered_set<ParallelType> allParallelTypes() {
+  static auto all_parallel_types = []() {
+    std::unordered_set<ParallelType> s;
+    for (auto i : arange(static_cast<int>(ParallelType::Count))) {
+      s.insert(static_cast<ParallelType>(i));
+    }
+    return s;
+  }();
+
+  return all_parallel_types;
+}
+
 std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except) {
-  std::unordered_set<ParallelType> result = {
-      ParallelType::BIDz,
-      ParallelType::BIDy,
-      ParallelType::BIDx,
-      ParallelType::TIDz,
-      ParallelType::TIDy,
-      ParallelType::TIDx,
-      ParallelType::Vectorize,
-      ParallelType::MisalignedVectorize,
-      ParallelType::Unroll,
-      ParallelType::Unswitch,
-      ParallelType::Mma,
-      ParallelType::Group,
-      ParallelType::Serial,
-      ParallelType::Bulk};
-  for (auto t : except) {
-    result.erase(t);
+  std::unordered_set<ParallelType> s = allParallelTypes();
+  for (const auto t : except) {
+    s.erase(t);
   }
-  return result;
+  return s;
+}
+
+std::unordered_set<ParallelType> deviceParallelTypes() {
+  static auto s = [&] {
+    std::unordered_set<ParallelType> s(
+        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
+    return s;
+  }();
+  return s;
+}
+
+std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {
+  static auto s = [&] {
+    std::unordered_set<ParallelType> s(
+        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
+    s.insert(ParallelType::Stream);
+    return s;
+  }();
+  return s;
 }
 
 static const char* memory_type2string(MemoryType t) {
@@ -778,9 +848,10 @@ static const char* memory_type2string(MemoryType t) {
       return "global";
     case MemoryType::Tensor:
       return "tensor";
-    default:
-      NVF_THROW("Unexpected MemoryType");
+    case MemoryType::Symmetric:
+      return "symmetric";
   }
+  std::unreachable();
 }
 
 static const char* id_map_mode_type2string(IdMappingMode t) {
@@ -799,10 +870,8 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "innermost";
     case IdMappingMode::PERMISSIVE_RESIZE:
       return "permissive_resize";
-    default:
-      // Don't try to print t as it would recursively call this function
-      NVF_THROW("Unexpected IdMappingMode Type.");
   }
+  std::unreachable();
 }
 
 static const char* iter_type2string(IterType t) {
@@ -821,10 +890,8 @@ static const char* iter_type2string(IterType t) {
       return "v";
     case IterType::Symbolic:
       return "?";
-    default:
-      // Don't try to print t as it would recursively call this function
-      NVF_THROW("Unexpected IterType");
   }
+  std::unreachable();
 }
 
 static const char* thread_size2string(ParallelType t) {
@@ -866,9 +933,8 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "LdTMem";
     case LoadStoreOpType::StTMem:
       return "StTMem";
-    default:
-      NVF_THROW("Unexpected parallel type");
   }
+  std::unreachable();
 }
 
 const unsigned int _WORD_SHIFT = 16;
@@ -894,10 +960,10 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::UInt64, DataType::Float):
     case supported_switch_pair(DataType::Double, DataType::Float):
     case supported_switch_pair(DataType::Bool, DataType::Float):
-      return "(float)";
+      return "__to_float";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Float):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Float):
-      return "(float)std::real";
+      return "__real_then_to_float";
     case supported_switch_pair(DataType::Index, DataType::Char):
     case supported_switch_pair(DataType::Short, DataType::Char):
     case supported_switch_pair(DataType::Int32, DataType::Char):
@@ -909,7 +975,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::Char):
     case supported_switch_pair(DataType::Double, DataType::Char):
     case supported_switch_pair(DataType::Bool, DataType::Char):
-      return "(int8_t)";
+      return "__to_int8";
     case supported_switch_pair(DataType::Index, DataType::Short):
     case supported_switch_pair(DataType::Char, DataType::Short):
     case supported_switch_pair(DataType::Int32, DataType::Short):
@@ -921,7 +987,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::Short):
     case supported_switch_pair(DataType::Double, DataType::Short):
     case supported_switch_pair(DataType::Bool, DataType::Short):
-      return "(int16_t)";
+      return "__to_int16";
     case supported_switch_pair(DataType::Index, DataType::Int32):
     case supported_switch_pair(DataType::Char, DataType::Int32):
     case supported_switch_pair(DataType::Short, DataType::Int32):
@@ -933,7 +999,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::Int32):
     case supported_switch_pair(DataType::Double, DataType::Int32):
     case supported_switch_pair(DataType::Bool, DataType::Int32):
-      return "(int32_t)";
+      return "__to_int32";
     case supported_switch_pair(DataType::Index, DataType::Int):
     case supported_switch_pair(DataType::Char, DataType::Int):
     case supported_switch_pair(DataType::Short, DataType::Int):
@@ -945,19 +1011,19 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::Int):
     case supported_switch_pair(DataType::Double, DataType::Int):
     case supported_switch_pair(DataType::Bool, DataType::Int):
-      return "(int64_t)";
+      return "__to_int64";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Char):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Char):
-      return "(int8_t)std::real";
+      return "__real_then_to_int8";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Short):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Short):
-      return "(int16_t)std::real";
+      return "__real_then_to_int16";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Int32):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Int32):
-      return "(int32_t)std::real";
+      return "__real_then_to_int32";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Int):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Int):
-      return "(int64_t)std::real";
+      return "__real_then_to_int64";
     case supported_switch_pair(DataType::Index, DataType::Byte):
     case supported_switch_pair(DataType::Char, DataType::Byte):
     case supported_switch_pair(DataType::Short, DataType::Byte):
@@ -969,7 +1035,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::Byte):
     case supported_switch_pair(DataType::Double, DataType::Byte):
     case supported_switch_pair(DataType::Bool, DataType::Byte):
-      return "(uint8_t)";
+      return "__to_uint8";
     case supported_switch_pair(DataType::Index, DataType::UInt16):
     case supported_switch_pair(DataType::Char, DataType::UInt16):
     case supported_switch_pair(DataType::Short, DataType::UInt16):
@@ -981,7 +1047,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::UInt16):
     case supported_switch_pair(DataType::Double, DataType::UInt16):
     case supported_switch_pair(DataType::Bool, DataType::UInt16):
-      return "(uint16_t)";
+      return "__to_uint16";
     case supported_switch_pair(DataType::Index, DataType::UInt32):
     case supported_switch_pair(DataType::Char, DataType::UInt32):
     case supported_switch_pair(DataType::Short, DataType::UInt32):
@@ -993,7 +1059,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::UInt32):
     case supported_switch_pair(DataType::Double, DataType::UInt32):
     case supported_switch_pair(DataType::Bool, DataType::UInt32):
-      return "(uint32_t)";
+      return "__to_uint32";
     case supported_switch_pair(DataType::Index, DataType::UInt64):
     case supported_switch_pair(DataType::Char, DataType::UInt64):
     case supported_switch_pair(DataType::Short, DataType::UInt64):
@@ -1005,19 +1071,19 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::UInt64):
     case supported_switch_pair(DataType::Double, DataType::UInt64):
     case supported_switch_pair(DataType::Bool, DataType::UInt64):
-      return "(uint64_t)";
+      return "__to_uint64";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Byte):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Byte):
-      return "(uint8_t)std::real";
+      return "__real_then_to_uint8";
     case supported_switch_pair(DataType::ComplexFloat, DataType::UInt16):
     case supported_switch_pair(DataType::ComplexDouble, DataType::UInt16):
-      return "(uint16_t)std::real";
+      return "__real_then_to_uint16";
     case supported_switch_pair(DataType::ComplexFloat, DataType::UInt32):
     case supported_switch_pair(DataType::ComplexDouble, DataType::UInt32):
-      return "(uint32_t)std::real";
+      return "__real_then_to_uint32";
     case supported_switch_pair(DataType::ComplexFloat, DataType::UInt64):
     case supported_switch_pair(DataType::ComplexDouble, DataType::UInt64):
-      return "(uint64_t)std::real";
+      return "__real_then_to_uint64";
     case supported_switch_pair(DataType::Char, DataType::Index):
     case supported_switch_pair(DataType::Short, DataType::Index):
     case supported_switch_pair(DataType::Int32, DataType::Index):
@@ -1029,10 +1095,10 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::Index):
     case supported_switch_pair(DataType::Double, DataType::Index):
     case supported_switch_pair(DataType::Bool, DataType::Index):
-      return "(nvfuser_index_t)";
+      return "__to_index";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Index):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Index):
-      return "(nvfuser_index_t)std::real";
+      return "__real_then_to_index";
     case supported_switch_pair(DataType::Index, DataType::Double):
     case supported_switch_pair(DataType::Char, DataType::Double):
     case supported_switch_pair(DataType::Short, DataType::Double):
@@ -1044,10 +1110,10 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::UInt64, DataType::Double):
     case supported_switch_pair(DataType::Float, DataType::Double):
     case supported_switch_pair(DataType::Bool, DataType::Double):
-      return "(double)";
+      return "__to_double";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Double):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Double):
-      return "(double)std::real";
+      return "__real_then_to_double";
     case supported_switch_pair(DataType::Float, DataType::Bool):
     case supported_switch_pair(DataType::Double, DataType::Bool):
     case supported_switch_pair(DataType::Index, DataType::Bool):
@@ -1059,10 +1125,10 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::UInt16, DataType::Bool):
     case supported_switch_pair(DataType::UInt32, DataType::Bool):
     case supported_switch_pair(DataType::UInt64, DataType::Bool):
-      return "(bool)";
+      return "__to_bool";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Bool):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Bool):
-      return "(bool)std::real";
+      return "__real_then_to_bool";
     case supported_switch_pair(DataType::Index, DataType::ComplexDouble):
     case supported_switch_pair(DataType::Char, DataType::ComplexDouble):
     case supported_switch_pair(DataType::Short, DataType::ComplexDouble):
@@ -1076,7 +1142,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::ComplexDouble):
     case supported_switch_pair(DataType::Bool, DataType::ComplexDouble):
     case supported_switch_pair(DataType::ComplexFloat, DataType::ComplexDouble):
-      return "(std::complex<double>)";
+      return "__to_complex_double";
     case supported_switch_pair(DataType::Index, DataType::ComplexFloat):
     case supported_switch_pair(DataType::Char, DataType::ComplexFloat):
     case supported_switch_pair(DataType::Short, DataType::ComplexFloat):
@@ -1090,7 +1156,7 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Float, DataType::ComplexFloat):
     case supported_switch_pair(DataType::Bool, DataType::ComplexFloat):
     case supported_switch_pair(DataType::ComplexDouble, DataType::ComplexFloat):
-      return "(std::complex<float>)";
+      return "__to_complex_float";
 
     case supported_switch_pair(DataType::Float, DataType::Half):
       return "__float2half";
@@ -1133,9 +1199,9 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::Half, DataType::Bool):
       return "__half2bool";
     case supported_switch_pair(DataType::Half, DataType::ComplexFloat):
-      return "(std::complex<float>)__half2float";
+      return "__half2complex_float";
     case supported_switch_pair(DataType::Half, DataType::ComplexDouble):
-      return "(std::complex<double>)__half2double";
+      return "__half2complex_double";
 
     case supported_switch_pair(DataType::Float, DataType::BFloat16):
       return "__float2bfloat";
@@ -1182,9 +1248,9 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::BFloat16, DataType::Bool):
       return "__bfloat2bool";
     case supported_switch_pair(DataType::BFloat16, DataType::ComplexFloat):
-      return "(std::complex<float>)__bfloat2float";
+      return "__bfloat2complex_float";
     case supported_switch_pair(DataType::BFloat16, DataType::ComplexDouble):
-      return "(std::complex<double>)__bfloat2double";
+      return "__bfloat2complex_double";
 
     case supported_switch_pair(DataType::Float8_e5m2, DataType::Float):
       return "__e5m22float";
@@ -1220,6 +1286,40 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::BFloat16, DataType::Float8_e4m3fn):
       return "__bfloat2e4m3";
 
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::Float):
+      return "__e8m02float";
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::Double):
+      return "__e8m02double";
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::Half):
+      return "__e8m02half";
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::BFloat16):
+      return "__e8m02bfloat";
+    case supported_switch_pair(DataType::Float, DataType::Float8_e8m0fnu):
+      return "__float2e8m0";
+    case supported_switch_pair(DataType::Double, DataType::Float8_e8m0fnu):
+      return "__double2e8m0";
+    case supported_switch_pair(DataType::Half, DataType::Float8_e8m0fnu):
+      return "__half2e8m0";
+    case supported_switch_pair(DataType::BFloat16, DataType::Float8_e8m0fnu):
+      return "__bfloat2e8m0";
+
+    case supported_switch_pair(DataType::Float4_e2m1fn, DataType::Float):
+      return "__e2m12float";
+    case supported_switch_pair(DataType::Float4_e2m1fn, DataType::Double):
+      return "__e2m12double";
+    case supported_switch_pair(DataType::Float4_e2m1fn, DataType::Half):
+      return "__e2m12half";
+    case supported_switch_pair(DataType::Float4_e2m1fn, DataType::BFloat16):
+      return "__e2m12bfloat";
+    case supported_switch_pair(DataType::Float, DataType::Float4_e2m1fn):
+      return "__float2e2m1";
+    case supported_switch_pair(DataType::Double, DataType::Float4_e2m1fn):
+      return "__double2e2m1";
+    case supported_switch_pair(DataType::Half, DataType::Float4_e2m1fn):
+      return "__half2e2m1";
+    case supported_switch_pair(DataType::BFloat16, DataType::Float4_e2m1fn):
+      return "__bfloat2e2m1";
+
     default:
       return nullptr;
   }
@@ -1241,6 +1341,12 @@ DataType aten_to_data_type(const at::ScalarType& scalar_type) {
       return DataType::Float8_e4m3fn;
     case at::ScalarType::Float8_e5m2:
       return DataType::Float8_e5m2;
+    case at::ScalarType::Float8_e8m0fnu:
+      return DataType::Float8_e8m0fnu;
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+    case at::ScalarType::Float4_e2m1fn_x2:
+      return DataType::Float4_e2m1fn;
+#endif
     case at::ScalarType::Char:
       return DataType::Char;
     case at::ScalarType::Short:
@@ -1267,54 +1373,119 @@ DataType aten_to_data_type(const at::ScalarType& scalar_type) {
 }
 
 at::ScalarType data_type_to_aten(const DataType& data_type) {
-  switch (std::get<PrimDataType>(data_type.type)) {
-    case DataType::Bool:
-      return at::ScalarType::Bool;
-    case DataType::Double:
-      return at::ScalarType::Double;
-    case DataType::Float:
-      return at::ScalarType::Float;
-    case DataType::Half:
-      return at::ScalarType::Half;
-    case DataType::BFloat16:
-      return at::ScalarType::BFloat16;
-    case DataType::Float8_e4m3fn:
-      return at::ScalarType::Float8_e4m3fn;
-    case DataType::Float8_e5m2:
-      return at::ScalarType::Float8_e5m2;
-    case DataType::Index:
-      NVF_THROW(
-          "Index is determined at compile time,",
-          " to convert from an aten type you need to have the compiled information. ",
-          "This information is passed to GpuLower at compile time, and then copied to kerned.",
-          "There's also this information in FusionExecutorCache and the Registry system.");
-    case DataType::Char:
-      return at::ScalarType::Char;
-    case DataType::Short:
-      return at::ScalarType::Short;
-    case DataType::Int32:
-      return at::ScalarType::Int;
-    case DataType::Int:
-      return at::ScalarType::Long;
-    case DataType::Byte:
-      return at::ScalarType::Byte;
-    case DataType::UInt16:
-      return at::ScalarType::UInt16;
-    case DataType::UInt32:
-      return at::ScalarType::UInt32;
-    case DataType::UInt64:
-      return at::ScalarType::UInt64;
-    case DataType::ComplexFloat:
-      return at::ScalarType::ComplexFloat;
-    case DataType::ComplexDouble:
-      return at::ScalarType::ComplexDouble;
-    default:
-      NVF_THROW("No data type found for scalar type.");
+  if (std::holds_alternative<PrimDataType>(data_type.type)) {
+    switch (std::get<PrimDataType>(data_type.type)) {
+      case DataType::Bool:
+        return at::ScalarType::Bool;
+      case DataType::Double:
+        return at::ScalarType::Double;
+      case DataType::Float:
+        return at::ScalarType::Float;
+      case DataType::Half:
+        return at::ScalarType::Half;
+      case DataType::BFloat16:
+        return at::ScalarType::BFloat16;
+      case DataType::Float8_e4m3fn:
+        return at::ScalarType::Float8_e4m3fn;
+      case DataType::Float8_e5m2:
+        return at::ScalarType::Float8_e5m2;
+      case DataType::Float8_e8m0fnu:
+        return at::ScalarType::Float8_e8m0fnu;
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+      case DataType::Float4_e2m1fn_x2:
+        return at::ScalarType::Float4_e2m1fn_x2;
+      case DataType::Float4_e2m1fn:
+        return at::ScalarType::Float4_e2m1fn_x2;
+#endif
+      case DataType::Index:
+        NVF_THROW(
+            "Index is determined at compile time,",
+            " to convert from an aten type you need to have the compiled "
+            "information. ",
+            "This information is passed to GpuLower at compile time, and then "
+            "copied to kerned.",
+            "There's also this information in FusionExecutorCache and the "
+            "Registry system.");
+      case DataType::Char:
+        return at::ScalarType::Char;
+      case DataType::Short:
+        return at::ScalarType::Short;
+      case DataType::Int32:
+        return at::ScalarType::Int;
+      case DataType::Int:
+        return at::ScalarType::Long;
+      case DataType::Byte:
+        return at::ScalarType::Byte;
+      case DataType::UInt16:
+        return at::ScalarType::UInt16;
+      case DataType::UInt32:
+        return at::ScalarType::UInt32;
+      case DataType::UInt64:
+        return at::ScalarType::UInt64;
+      case DataType::ComplexFloat:
+        return at::ScalarType::ComplexFloat;
+      case DataType::ComplexDouble:
+        return at::ScalarType::ComplexDouble;
+      default:
+        break;
+    }
   }
+  // NVFuser's DataType is much wider than PyTorch's ScalarType. If
+  // there is no direct mapping, we use some data type as a proxy.
+  // If there is a data type with the same size, we use that
+  const int64_t size_bit = dataTypeSizeBit(data_type);
+  if (size_bit == 8) {
+    return at::ScalarType::Byte;
+  } else if (size_bit == 16) {
+    return at::ScalarType::UInt16;
+  } else if (size_bit == 32) {
+    return at::ScalarType::UInt32;
+  } else if (size_bit == 64) {
+    return at::ScalarType::UInt64;
+  } else if (size_bit == 128) {
+    return at::ScalarType::ComplexDouble;
+  } else {
+    // If there is no data type with the same size, we use byte.
+    // For this case, we adjust the size of the last dimension.
+    // For example, if we have a TensorView with shape [10, 4],
+    // and dtype is 3 bytes, then the corresponding ScalarType is Byte,
+    // and the shape of the corresponding at::Tensor is [10, 12].
+    return at::ScalarType::Byte;
+  }
+}
+
+at::ScalarType data_type_to_aten(
+    const DataType& data_type,
+    const DataType& index_type) {
+  if (data_type == DataType::Index) {
+    return data_type_to_aten(index_type);
+  }
+  return data_type_to_aten(data_type);
+}
+
+AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
+  if (dtype == DataType::Index) {
+    return AdjustLastDim{1, 1};
+  }
+  const int64_t scalar_type_bit =
+      (int64_t)c10::elementSize(data_type_to_aten(dtype)) * 8;
+  const int64_t dtype_bit = dataTypeSizeBit(dtype);
+  // Example: dtype_bit = 6, scalar_type_bit = 8
+  // Then we need to adjust the last dimension by 4/3, that is,
+  // at_size * 4 / 3 is the size of the last dimension of the corresponding
+  // TensorView.
+  const int64_t gcd = std::gcd(scalar_type_bit, dtype_bit);
+  return AdjustLastDim{scalar_type_bit / gcd, dtype_bit / gcd};
 }
 
 std::ostream& operator<<(std::ostream& out, const ValType vtype) {
   return out << val_type2string(vtype);
+}
+
+std::ostream& operator<<(
+    std::ostream& out,
+    const BlockScalingFactorLayout layout) {
+  return out << block_sf_layout2string(layout);
 }
 
 std::ostream& operator<<(std::ostream& out, const PredicateType ptype) {
@@ -1331,13 +1502,6 @@ std::ostream& operator<<(std::ostream& out, const UnaryOpType uotype) {
 
 std::ostream& operator<<(std::ostream& out, const BinaryOpType botype) {
   return out << binary_op_type2string(botype);
-}
-
-std::ostream& operator<<(std::ostream& out, const ScatterOpType sotype) {
-  if (sotype == ScatterOpType::Set) {
-    return out << "scatter";
-  }
-  NVF_THROW("No scatterOp type found for scatterOp.");
 }
 
 std::ostream& operator<<(std::ostream& out, const TernaryOpType totype) {
@@ -1378,29 +1542,8 @@ std::ostream& operator<<(std::ostream& os, const SwizzleType& swizzle) {
     case SwizzleType::XOR:
       os << "Xor";
       break;
-    default:
-      NVF_THROW("undefined 2D swizzle");
-      break;
-  }
-  return os;
-}
-
-std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
-  switch (swizzle) {
-    case Swizzle2DType::NoSwizzle:
-      os << "NoSwizzle";
-      break;
-    case Swizzle2DType::ZShape:
-      os << "ZShape";
-      break;
-    case Swizzle2DType::XOR:
-      os << "Xor";
-      break;
-    case Swizzle2DType::CyclicShift:
+    case SwizzleType::CyclicShift:
       os << "CyclicShift";
-      break;
-    default:
-      NVF_THROW("undefined 2D swizzle");
       break;
   }
   return os;
@@ -1417,9 +1560,6 @@ std::ostream& operator<<(std::ostream& os, const SwizzleMode& swizzle) {
     case SwizzleMode::Data:
       os << "Data";
       break;
-    default:
-      NVF_THROW("undefined 2D swizzle");
-      break;
   }
   return os;
 }
@@ -1431,9 +1571,6 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
       break;
     case KernelIndexMode::INT64:
       os << "INT64";
-      break;
-    default:
-      NVF_THROW("undefined index mode");
       break;
   }
   return os;
@@ -1452,9 +1589,6 @@ std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
       break;
     case CacheOp::Global:
       os << "Global";
-      break;
-    default:
-      NVF_THROW("undefined cache operator");
       break;
   }
   return os;
@@ -1525,7 +1659,11 @@ std::string typePrefix(const DataType data_type) {
     case DataType::BFloat16:
     case DataType::Float8_e4m3fn:
     case DataType::Float8_e5m2:
+    case DataType::Float8_e8m0fnu:
+    case DataType::Float4_e2m1fn:
       return "f";
+    case DataType::Float4_e2m1fn_x2:
+      return "f4x2_";
     case DataType::Index:
     case DataType::Int:
     case DataType::Int32:
@@ -1554,7 +1692,8 @@ bool isParallelTypeBlockDim(ParallelType ptype) {
 }
 
 bool isParallelTypeDeviceDim(ParallelType ptype) {
-  return ptype == ParallelType::DIDx;
+  return ptype == ParallelType::DIDx || ptype == ParallelType::DIDy ||
+      ptype == ParallelType::DIDz;
 }
 
 bool isParallelTypeThread(ParallelType ptype) {
@@ -1562,8 +1701,7 @@ bool isParallelTypeThread(ParallelType ptype) {
 }
 
 bool isParallelTypeVectorize(ParallelType ptype) {
-  return ptype == ParallelType::Vectorize ||
-      ptype == ParallelType::MisalignedVectorize;
+  return ptype == ParallelType::Vectorize;
 }
 
 std::optional<std::string> cast_func_str(
@@ -1573,42 +1711,62 @@ std::optional<std::string> cast_func_str(
                         : std::nullopt;
 }
 
-int64_t dataTypeSize(DataType type) {
+int64_t dataTypeSizeBit(DataType type) {
   return std::visit(
       [](auto&& dtype) -> int64_t {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
-          return primDataTypeSize(dtype);
+          return primDataTypeSizeBit(dtype);
         } else if constexpr (std::is_same_v<T, PointerType>) {
-          return sizeof(void*);
+          return sizeof(void*) * 8;
         } else if constexpr (std::is_same_v<T, ArrayType>) {
-          return dataTypeSize(*dtype.type) * dtype.size;
+          return dataTypeSizeBit(*dtype.type) * dtype.size;
         } else if constexpr (std::is_same_v<T, StructType>) {
           int64_t size = 0;
           for (const auto& field : dtype.fields) {
             if (!field.used_in_kernel) {
               continue;
             }
-            size += dataTypeSize(*field.type);
+            size += dataTypeSizeBit(*field.type);
           }
           return size;
         } else if constexpr (std::is_same_v<T, OpaqueType>) {
-          return dtype.size;
+          return dtype.size * 8;
         }
         NVF_THROW("Size undefined for data type.");
       },
       type.type);
 }
 
-int64_t dataTypeSize(DataType type, DataType index_type) {
+int64_t dataTypeSizeByte(DataType type) {
+  int64_t bits = dataTypeSizeBit(type);
+  // FIXME: this isn't right
+  if (bits < 8) {
+    return 1;
+  }
+  NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");
+  return bits / 8;
+}
+
+int64_t dataTypeSizeBit(DataType type, DataType index_type) {
   if (type == DataType::Index) {
     NVF_ERROR(
         index_type == DataType::Int32 || index_type == DataType::Int,
         "Invalid index type of ",
         index_type);
-    return dataTypeSize(index_type);
+    return dataTypeSizeBit(index_type);
   }
-  return dataTypeSize(type);
+  return dataTypeSizeBit(type);
+}
+
+int64_t dataTypeSizeByte(DataType type, DataType index_type) {
+  int64_t bits = dataTypeSizeBit(type, index_type);
+  // FIXME: this isn't right
+  if (bits < 8) {
+    return 1;
+  }
+  NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");
+  return bits / 8;
 }
 
 std::ostream& operator<<(
@@ -1626,8 +1784,8 @@ std::ostream& operator<<(
     case CircularBufferLoopStage::Epilog:
       os << "{CircularBufferEpilog}";
       break;
-    case CircularBufferLoopStage::LoadWarp:
-      os << "{LoadWarp}";
+    case CircularBufferLoopStage::AsyncWarp:
+      os << "{AsyncWarp}";
       break;
     case CircularBufferLoopStage::ComputeWarp:
       os << "{ComputeWarp}";
@@ -1647,6 +1805,8 @@ int max_digits10(DataType dtype) {
   //    Type      Precision   max_digits10
   //   fp8_e5m2       3           2
   //   fp8_e4m3       4           3
+  //   fp8_e8m0       1           2
+  //   fp4_e2m1       2           2
   //   bfloat16       8           4
   //   float16       11           5
   //   float32       24           9
@@ -1662,7 +1822,10 @@ int max_digits10(DataType dtype) {
     return 4;
   } else if (dtype == DataType::Float8_e4m3fn) {
     return 3;
-  } else if (dtype == DataType::Float8_e5m2) {
+  } else if (
+      dtype == DataType::Float8_e5m2 || dtype == DataType::Float8_e8m0fnu) {
+    return 2;
+  } else if (dtype == DataType::Float4_e2m1fn) {
     return 2;
   } else {
     NVF_CHECK(
@@ -1685,9 +1848,29 @@ std::ostream& operator<<(std::ostream& os, TMemRegisterDataPath dp) {
       return os << "16x256b";
     case TMemRegisterDataPath::Path16x32bx2:
       return os << "16x32bx2";
-    default:
-      NVF_THROW("Unknown TMemRegisterDataPath");
   }
+  std::unreachable();
+}
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const cudaDriverEntryPointQueryResult result) {
+  switch (result) {
+    case cudaDriverEntryPointSuccess:
+      os << "Success";
+      break;
+    case cudaDriverEntryPointSymbolNotFound:
+      os << "SymbolNotFound";
+      break;
+    case cudaDriverEntryPointVersionNotSufficent:
+      os << "VersionNotSufficient";
+      break;
+    default:
+      NVF_THROW(
+          "Unknown cudaDriverEntryPointQueryResult: ",
+          static_cast<int>(result));
+  }
+  return os;
 }
 
 } // namespace nvfuser

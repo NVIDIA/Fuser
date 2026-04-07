@@ -8,7 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
-#include <utils.h>
+#include "base.h"
 
 #include <nvtx3/nvToolsExt.h>
 

@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -43,10 +43,9 @@ def groupnorm_fwd_fusion(
     V0 = T0.shape()
     G0 = fd.define_scalar(n_groups, dtype=DataType.Int)
     C0 = fd.ops.div(T0.size(1), G0)
-    V1 = fd.define_vector(
-        [T0.size(0), n_groups, C0, T0.size(2), T0.size(3)], dtype=DataType.Int
+    T0 = fd.ops.reshape(
+        T0, new_shape=[T0.size(0), n_groups, C0, T0.size(2), T0.size(3)]
     )
-    T0 = fd.ops.reshape(T0, new_shape=V1)
     if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
@@ -54,9 +53,12 @@ def groupnorm_fwd_fusion(
 
     T3, T4 = fd.ops.var_mean(T0, dims=[2, 3, 4], correction=0, keepdim=False)
 
-    V2 = fd.define_vector([T0.size(0), n_groups, 1, 1, 1], dtype=DataType.Int)
-    T7 = fd.ops.broadcast_in_dim(T3, shape=V2, broadcast_dims=[0, 1])
-    T11 = fd.ops.broadcast_in_dim(T4, shape=V2, broadcast_dims=[0, 1])
+    T7 = fd.ops.broadcast_in_dim(
+        T3, shape=[T0.size(0), n_groups, 1, 1, 1], broadcast_dims=[0, 1]
+    )
+    T11 = fd.ops.broadcast_in_dim(
+        T4, shape=[T0.size(0), n_groups, 1, 1, 1], broadcast_dims=[0, 1]
+    )
 
     S12 = fd.define_scalar(eps, dtype=DataType.Double)
     T13 = fd.ops.add(T7, S12)
@@ -72,12 +74,10 @@ def groupnorm_fwd_fusion(
     # due to https://github.com/NVIDIA/Fuser/issues/2671 must define C1 and C2
     # using T1.size(0) and T2.size(0), can't directly reuse C0 which is based on T0.size(1)
     C1 = fd.ops.div(T1.size(0), G0)
-    V4 = fd.define_vector([1, n_groups, C1, 1, 1], dtype=DataType.Int)
-    T1 = fd.ops.reshape(T1, new_shape=V4)
+    T1 = fd.ops.reshape(T1, new_shape=[1, n_groups, C1, 1, 1])
 
     C2 = fd.ops.div(T2.size(0), G0)
-    V5 = fd.define_vector([1, n_groups, C2, 1, 1], dtype=DataType.Int)
-    T2 = fd.ops.reshape(T2, new_shape=V5)
+    T2 = fd.ops.reshape(T2, new_shape=[1, n_groups, C2, 1, 1])
 
     # broadcast weights and bias to [N, n_groups, C//n_groups, H, W]
     T25 = fd.ops.broadcast_in_dim(T1, shape=V3, broadcast_dims=[0, 1, 2, 3, 4])
@@ -129,6 +129,7 @@ def test_groupnorm_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_groupnorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,

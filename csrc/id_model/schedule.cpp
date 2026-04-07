@@ -5,8 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/schedule.h>
-#include <val_graph.h>
+#include "id_model/schedule.h"
+
+#include "val_graph.h"
 
 namespace nvfuser {
 

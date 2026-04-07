@@ -56,3 +56,12 @@ mark it public.
 Due to the way our library is designed to be used, this happens rarely. Most
 users are going through the Python API, and if something is only accessed
 through Python then there should not be a need to mark it public.
+
+## Symbol Visibility Checking
+
+We provide a script `tools/check_symbol_visibility.sh` that can be used to
+verify that all symbols required by Python extensions are properly exported
+from our shared libraries. This script analyzes the undefined symbols in the
+Python modules and checks that they are available in `libnvfuser_codegen.so`
+and `libnvf_cutlass.so`. Run it after building to ensure proper symbol
+visibility.

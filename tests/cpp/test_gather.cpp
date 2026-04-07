@@ -5,24 +5,26 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <torch/torch.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <torch/torch.h>
+#include <c10/core/ScalarType.h>
 
-#include <exceptions.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/tools/inlining.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "exceptions.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
-
+using testing::UnorderedElementsAre;
 class GatherTest : public NVFuserTest {
  protected:
   void SetUp() override {
@@ -87,13 +89,6 @@ TEST_F(GatherTest, GatherAllRankAllSelectedDim) {
                                            : gather(tv1, dim, tv_idx);
         fusion.addOutput(tv_out);
 
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
-
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
             randomIndexVector(input_dims, 1, rank, is_take_along, dim);
@@ -129,13 +124,6 @@ TEST_F(GatherTest, GatherAddMul) {
         auto tv_add = add(tv_gather, tv_gather);
         auto tv_out = mul(tv_gather, tv_add);
         fusion.addOutput(tv_out);
-
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
@@ -176,13 +164,6 @@ TEST_F(GatherTest, AddGatherSumAdd) {
                                     : gather(tv_lookup, dim, tv_index);
 
         fusion.addOutput(tv_out);
-
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
@@ -234,13 +215,6 @@ TEST_F(GatherTest, GatherSumAdd) {
 
         fusion.addOutput(tv_out);
 
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
-
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
             randomIndexVector(input_dims, 1, rank, is_take_along, dim);
@@ -282,13 +256,6 @@ TEST_F(GatherTest, GatherAddMulHugeSize) {
         auto tv_add = add(tv_gather, tv_gather);
         auto tv_out = mul(tv_gather, tv_add);
         fusion.addOutput(tv_out);
-
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
@@ -392,8 +359,6 @@ TEST_F(GatherTest, TakeAlongBroadcastIndex) {
     auto tv5 = add(tv4, tv2);
     fusion.addOutput(tv5);
 
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-
     std::vector<int64_t> input_dims{10, 11, 12};
     std::vector<int64_t> index_dims{index_dim};
     std::vector<int64_t> out_dims = input_dims;
@@ -453,13 +418,6 @@ TEST_F(GatherTest, GatherBroadcastInput) {
         auto tv4 = takeAlongAxis(tv0, tv3, 1);
         auto tv5 = add(tv4, tv2);
         fusion.addOutput(tv5);
-
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
 
         auto options =
             at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -567,7 +525,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({99, 101});
@@ -625,7 +582,7 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction1) {
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(),
-      {SchedulerType::Reduction, SchedulerType::PointWise});
+      {SchedulerType::Reduction, SchedulerType::ExprEval});
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -637,7 +594,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({100, 100});
@@ -675,7 +631,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction3) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape_before_gather({100, 100});
@@ -753,7 +708,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({32, 1024});
@@ -843,7 +797,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape_before_gather({100, 100});
@@ -931,7 +884,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalizationAndReduction2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({32, 1024});
@@ -976,7 +928,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   // Make sure the shape is large enough to trigger the Transpose
@@ -1023,7 +974,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   // Make sure the shape is large enough to trigger the Transpose
@@ -1063,7 +1013,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape_before(
@@ -1107,7 +1056,6 @@ TEST_F(GatherTest, TakeAlongAxisCrossEntropyLoss) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   auto tv0 = makeContigTensor(2);
@@ -1176,91 +1124,6 @@ TEST_F(GatherTest, TakeAlongAxisCrossEntropyLoss) {
   //   sum  -> 2
   auto ref = at::cross_entropy_loss_symint(t0, t1, {}, 1, 5, 0.0);
   testValidate(fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
-}
-
-// Test grouped reduction on IterType::GatherScatter
-TEST_F(GatherTest, GatherIterGoupedReduction) {
-  const int max_dim_size = 128;
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-
-  int rank = 3;
-  int dim = 2;
-
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  TensorView* tv1 = makeContigTensor(rank);
-  TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
-  fusion.addInput(tv1);
-  fusion.addInput(tv_idx);
-  auto tv_gather = gather(tv1, dim, tv_idx);
-  auto tv_sum = sum(tv_gather, {0}, false);
-  fusion.addOutput(tv_sum);
-
-  // simply gather all elements
-  auto input_dims =
-      std::vector<int64_t>({max_dim_size, max_dim_size, max_dim_size});
-  auto index_dims = input_dims;
-  std::vector<int64_t> input2_dims(rank - 1, 0);
-  for (int idim = 0; idim < rank - 1; ++idim) {
-    input2_dims[idim] = index_dims[idim + 1];
-  }
-
-  at::Tensor t0 = at::randn(input_dims, options);
-  at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
-
-  auto reduction_scheduler =
-      SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
-  SchedulerRuntimeInfo runtime_info(&fusion, {t0, idx});
-  auto heuristic_params =
-      reduction_scheduler->computeHeuristics(&fusion, runtime_info);
-  auto rparams = heuristic_params->as<ReductionParams>();
-
-  // Enforce vectorization so we can group them
-  const int vect_factor = 2;
-  rparams->vectorize_iter_dom = true;
-  rparams->unroll_factor_iter_dom = vect_factor;
-  // Enforce grid reduction, which requires a determined BIDy
-  // If the heuristic does not have a BIDy, bind it to 2
-  rparams->cross_grid_inner_reduction = true;
-  rparams->split_grid_dim_inner_reduction = true;
-  rparams->grid_dim_inner_reduction = ParallelType::BIDy;
-  if (!rparams->lparams.hasDim(ParallelType::BIDy)) {
-    rparams->lparams.bind(2L, ParallelType::BIDy);
-  }
-
-  reduction_scheduler->schedule(&fusion, rparams);
-
-  // lowering & check iteration grouped reductions
-  GpuLower gpulw(&fusion);
-  gpulw.run();
-  NVF_CHECK(
-      gpulw.kernel()->summary().has_iter_grouped_reductions,
-      "There must be iter domain grouped reductions.");
-  NVF_CHECK(
-      gpulw.kernel()->summary().num_grouped_iterations == vect_factor,
-      "Expected ",
-      vect_factor,
-      " grouped iterations, found ",
-      gpulw.kernel()->summary().num_grouped_iterations);
-
-  KernelExecutor ke;
-  auto lparams = rparams->lparams;
-  ke.compile(&fusion, {t0, idx}, lparams);
-  auto cg_outputs = ke.run({t0, idx}, {}, lparams);
-
-  auto t_gather = at::gather(t0, dim, idx);
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {t0, idx},
-      {t_gather.sum(0)},
-      __LINE__,
-      __FILE__,
-      "",
-      lparams);
 }
 
 } // namespace nvfuser
