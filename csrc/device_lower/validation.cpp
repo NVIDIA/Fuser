@@ -1818,8 +1818,6 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       // Grouping only makes sense for the normal iteration type
       NVF_CHECK(
           id->getIterType() == IterType::Iteration,
-      NVF_CHECK(
-          id->getIterType() == IterType::Iteration,
           "Invalid use of ParallelType::Group.",
           " Grouping of ",
           id->getIterType(),
