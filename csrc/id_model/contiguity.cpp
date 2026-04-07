@@ -63,7 +63,7 @@ ContigIDGroups::ContigIDGroups(
     const auto outputs = direction == Direction::Forward
         ? graph_.outputGroups(eg)
         : graph_.inputGroups(eg);
-    if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& inp) {
+    if (std::ranges::any_of(inputs, [&](const ValGroup& inp) {
           return resize_deps_.count(inp) > 0;
         })) {
       for (const auto& out : outputs) {
@@ -71,7 +71,7 @@ ContigIDGroups::ContigIDGroups(
       }
     }
 
-    if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& inp) {
+    if (std::ranges::any_of(inputs, [&](const ValGroup& inp) {
           return non_divisible_deps_.count(inp) > 0;
         })) {
       for (const auto& out : outputs) {
@@ -168,10 +168,8 @@ void ContigIDGroups::handle(Split* split, Direction direction) {
   if (direction == Direction::Forward) {
     const auto& divisible_splits = GpuLower::current()->divisibleSplitSet();
     const ExprGroup& split_group = graph_.toGroup(split);
-    bool divisible = std::any_of(
-        divisible_splits.begin(),
-        divisible_splits.end(),
-        [&](Split* divisible_split) -> bool {
+    bool divisible = std::ranges::any_of(
+        divisible_splits, [&](Split* divisible_split) -> bool {
           return split_group->has(divisible_split);
         });
     if (!divisible) {

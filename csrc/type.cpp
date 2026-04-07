@@ -37,26 +37,26 @@ StructType globalTensorMetaData(
 
   StructType::FieldInfo logical_size_field;
   logical_size_field.name = "logical_size";
-  logical_size_field.type = std::make_shared<DataType>(
-      ArrayType{std::make_shared<DataType>(DataType::Index), dim});
+  logical_size_field.type = std::make_shared<DataType>(ArrayType{
+      .type = std::make_shared<DataType>(DataType::Index), .size = dim});
   logical_size_field.used_in_kernel = true;
 
   StructType::FieldInfo logical_stride_field;
   logical_stride_field.name = "logical_stride";
-  logical_stride_field.type = std::make_shared<DataType>(
-      ArrayType{std::make_shared<DataType>(DataType::Index), dim});
+  logical_stride_field.type = std::make_shared<DataType>(ArrayType{
+      .type = std::make_shared<DataType>(DataType::Index), .size = dim});
   logical_stride_field.used_in_kernel = false;
 
   StructType::FieldInfo alloc_size_field;
   alloc_size_field.name = "alloc_size";
-  alloc_size_field.type = std::make_shared<DataType>(
-      ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
+  alloc_size_field.type = std::make_shared<DataType>(ArrayType{
+      .type = std::make_shared<DataType>(DataType::Index), .size = alloc_dim});
   alloc_size_field.used_in_kernel = false;
 
   StructType::FieldInfo alloc_stride_field;
   alloc_stride_field.name = "alloc_stride";
-  alloc_stride_field.type = std::make_shared<DataType>(
-      ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
+  alloc_stride_field.type = std::make_shared<DataType>(ArrayType{
+      .type = std::make_shared<DataType>(DataType::Index), .size = alloc_dim});
   alloc_stride_field.used_in_kernel = true;
 
   return StructType::make<TensorMetaData>(
@@ -1391,7 +1391,6 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
         return at::ScalarType::Float8_e8m0fnu;
 #if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
       case DataType::Float4_e2m1fn_x2:
-        return at::ScalarType::Float4_e2m1fn_x2;
       case DataType::Float4_e2m1fn:
         return at::ScalarType::Float4_e2m1fn_x2;
 #endif
@@ -1432,9 +1431,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
   // there is no direct mapping, we use some data type as a proxy.
   // If there is a data type with the same size, we use that
   const int64_t size_bit = dataTypeSizeBit(data_type);
-  if (size_bit == 8) {
-    return at::ScalarType::Byte;
-  } else if (size_bit == 16) {
+  if (size_bit == 16) {
     return at::ScalarType::UInt16;
   } else if (size_bit == 32) {
     return at::ScalarType::UInt32;
@@ -1463,7 +1460,7 @@ at::ScalarType data_type_to_aten(
 
 AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
   if (dtype == DataType::Index) {
-    return AdjustLastDim{1, 1};
+    return AdjustLastDim{.numerator = 1, .denominator = 1};
   }
   const int64_t scalar_type_bit =
       (int64_t)c10::elementSize(data_type_to_aten(dtype)) * 8;
@@ -1473,7 +1470,8 @@ AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
   // at_size * 4 / 3 is the size of the last dimension of the corresponding
   // TensorView.
   const int64_t gcd = std::gcd(scalar_type_bit, dtype_bit);
-  return AdjustLastDim{scalar_type_bit / gcd, dtype_bit / gcd};
+  return AdjustLastDim{
+      .numerator = scalar_type_bit / gcd, .denominator = dtype_bit / gcd};
 }
 
 std::ostream& operator<<(std::ostream& out, const ValType vtype) {
@@ -1821,9 +1819,8 @@ int max_digits10(DataType dtype) {
   } else if (dtype == DataType::Float8_e4m3fn) {
     return 3;
   } else if (
-      dtype == DataType::Float8_e5m2 || dtype == DataType::Float8_e8m0fnu) {
-    return 2;
-  } else if (dtype == DataType::Float4_e2m1fn) {
+      dtype == DataType::Float8_e5m2 || dtype == DataType::Float8_e8m0fnu ||
+      dtype == DataType::Float4_e2m1fn) {
     return 2;
   } else {
     NVF_CHECK(

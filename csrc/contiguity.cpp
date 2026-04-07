@@ -441,8 +441,7 @@ NonDivisibleSplitDependencies::NonDivisibleSplitDependencies(
   for (auto transform : transforms) {
     auto inp_ids = ir_utils::filterByType<IterDomain>(transform->inputs());
     for (auto inp_id : inp_ids) {
-      if (std::find(alloc_domain.begin(), alloc_domain.end(), inp_id) !=
-          alloc_domain.end()) {
+      if (std::ranges::find(alloc_domain, inp_id) != alloc_domain.end()) {
         // This generally shouldn't happen as there shouldn't be
         // transformations before the allocation ids, but in case for some
         // reason we eventually do have cases like that, we should reset the
@@ -453,7 +452,7 @@ NonDivisibleSplitDependencies::NonDivisibleSplitDependencies(
     }
 
     bool inputs_non_divisible =
-        std::any_of(inp_ids.begin(), inp_ids.end(), [this](IterDomain* inp_id) {
+        std::ranges::any_of(inp_ids, [this](IterDomain* inp_id) {
           return depends_on_non_divisible_split.find(inp_id) !=
               depends_on_non_divisible_split.end();
         });
