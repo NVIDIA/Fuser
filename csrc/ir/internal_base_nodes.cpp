@@ -398,12 +398,6 @@ IterDomain* IterDomain::merge(
          inner->getIterType() == IterType::Iteration)) {
       iter_type = IterType::Iteration;
     }
-
-    if ((outer->isBroadcast() || inner->isBroadcast()) &&
-        (outer->getIterType() == IterType::GatherScatter ||
-         inner->getIterType() == IterType::GatherScatter)) {
-      iter_type = IterType::GatherScatter;
-    }
   }
 
   Val* expanded_extent = nullptr;
@@ -700,10 +694,8 @@ void IterDomain::parallelize(ParallelType t) {
 
   if (t == ParallelType::Group) {
     NVF_CHECK(
-        getIterType() == IterType::Iteration ||
-            getIterType() == IterType::GatherScatter,
-        "Grouping IterDomain of non Iteration / GatherScatter type is not "
-        "allowed. ",
+        getIterType() == IterType::Iteration,
+        "Grouping IterDomain of non Iteration type is not allowed. ",
         getIterType());
   }
 

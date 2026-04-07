@@ -575,8 +575,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
         alloc_domain_id->toString());
     // Index of merged reductions can always be coalesced, so considering
     // reduction as true contiguity.
-    if (alloc_contiguity.value_or(true) &&
-        alloc_domain_id->getIterType() != IterType::GatherScatter) {
+    if (alloc_contiguity.value_or(true)) {
       contig_ids_.emplace(alloc_domain_id);
       is_contig_alloc_.at(alloc_domain_id) = true;
       within_contig_ids_[alloc_domain_id] = std::unordered_set<IterDomain*>();

@@ -1474,16 +1474,6 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
         compare_result.dom1_has_unreachable_ids;
 
     if (has_disjoint_loop_logical) {
-      // NOTE: This is only the case for scatter outputs, for which loop and
-      // logical are disjoint. Consequently, the loop domain cannot be replayed.
-      // Since this scatter output is a fusion input to this segment, its loop
-      // domain is immaterial now and we can skip replaying it.
-      NVF_ERROR(
-          std::ranges::any_of(
-              tv->getLogicalDomain(),
-              [](IterDomain* id) { return id->isGatherScatter(); }),
-          "Disjoint loop and logical are only permitted for scatter outputs, ",
-          tv->domain()->toString(0, false));
       NVF_ERROR(
           !isSharded(tv),
           "Sharding is not permitted when loop domain is disjoint from logical "

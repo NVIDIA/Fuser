@@ -201,10 +201,6 @@ class NVF_API IterDomain : public Val {
     return getIterType() == IterType::Symbolic;
   }
 
-  bool isGatherScatter() const {
-    return getIterType() == IterType::GatherScatter;
-  }
-
   bool isStride() const {
     return getIterType() == IterType::Stride;
   }

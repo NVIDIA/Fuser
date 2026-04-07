@@ -50,8 +50,7 @@ ContigIDGroups::ContigIDGroups(
 
     auto alloc_contiguity = alloc_contiguity_.at(index_domain_i);
 
-    if (alloc_contiguity &&
-        index_domain->getIterType() != IterType::GatherScatter) {
+    if (alloc_contiguity) {
       contig_ids_.emplace(graph_.toGroup(index_domain));
     }
   }

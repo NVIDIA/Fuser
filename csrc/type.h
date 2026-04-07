@@ -729,7 +729,6 @@ enum class IterType {
   Reduction,
   Broadcast,
   Stride,
-  GatherScatter,
   VectorComponent,
   Symbolic
 };
