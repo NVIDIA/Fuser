@@ -42,7 +42,7 @@
 namespace nvfuser {
 
 // Order of strength
-enum class ValType {
+enum class ValType : std::uint8_t {
   TensorDomain,
   IterDomain,
   RaggedIterDomain,
@@ -62,7 +62,7 @@ enum class ValType {
 // ElectSync - Select a single thread to launch asynchronous operations.
 // OneDimTmaLoadExpectArrive - Predicate for expect arrive bytes and 1D TMA
 // load. OneDimTmaWaitParity - Predicate for wait parity for 1D TMA load.
-enum class PredicateType {
+enum class PredicateType : std::uint8_t {
   Manual,
   Inline,
   Unswitch,
@@ -79,7 +79,7 @@ enum class PredicateType {
 // type might be. This allows us to prevent assuming the welford count must be
 // int64_t which is relatively heavy to carry around. Index will be resolved
 // at compile time with KernelIndexMode.
-enum class PrimDataType {
+enum class PrimDataType : std::uint8_t {
   // Floating point types
   Double,
   Float,
@@ -145,7 +145,7 @@ struct StructType {
   template <typename T>
   static StructType make(std::vector<FieldInfo> fields, std::string name = "") {
     static_assert(
-        std::is_base_of<Struct, T>::value,
+        std::is_base_of_v<Struct, T>,
         "StructType::make only accepts Struct types");
     return StructType{
         .name = std::move(name),
@@ -271,7 +271,7 @@ class Val;
 //! Get the type of a Val's metadata, currently only supporting tensors
 NVF_API DataType metaDataTypeOf(const Val* tv);
 
-enum class KernelIndexMode { INT32, INT64 };
+enum class KernelIndexMode : std::uint8_t { INT32, INT64 };
 
 PrimDataType indexModeToDtype(KernelIndexMode index_mode);
 KernelIndexMode indexTypeToMode(DataType index_type);
@@ -529,7 +529,7 @@ inline bool hasCompatibleDataType(
 //! binary->text->binary round-trip. For exact types, this function returns 0.
 int max_digits10(DataType dtype);
 
-enum class UnaryOpType {
+enum class UnaryOpType : std::uint8_t {
   Cast,
   BitCast,
   RefCast,
@@ -603,7 +603,7 @@ enum class UnaryOpType {
 
 // TODO: Order of this list is important as it affects type promotion. it's not
 // in the right order now.
-enum class BinaryOpType {
+enum class BinaryOpType : std::uint8_t {
   // Math Ops
   Add,
   Atan2,
@@ -652,7 +652,7 @@ enum class BinaryOpType {
   Complex
 };
 
-enum class RNGOpType {
+enum class RNGOpType : std::uint8_t {
   Uniform, // Uniform in [0, 1)
   UniformRange, // Uniform in [low, high]
   NormalStandard, // Normal with mean 0, std 1
@@ -666,9 +666,15 @@ bool isIntegerOp(const BinaryOpType bopt);
 // Return if output of operator should be a boolean
 bool isLogicalOp(const BinaryOpType bopt);
 
-enum class TernaryOpType { Clamp, Lerp, Threshold, Where, Philox };
+enum class TernaryOpType : std::uint8_t {
+  Clamp,
+  Lerp,
+  Threshold,
+  Where,
+  Philox
+};
 
-enum class ParallelType {
+enum class ParallelType : std::uint8_t {
   DIDx = 0,
   DIDy,
   DIDz,
@@ -721,21 +727,26 @@ static constexpr std::array<ParallelType, 3> kParallelTypeDIDs = {
     ParallelType::DIDy,
     ParallelType::DIDz};
 
-enum class MemoryType { Local, Shared, Global, Tensor, Symmetric };
+enum class MemoryType : std::uint8_t {
+  Local,
+  Shared,
+  Global,
+  Tensor,
+  Symmetric
+};
 
 // Symbolic: Undetermined between Iteration or Broadcast
-enum class IterType {
+enum class IterType : std::uint8_t {
   Iteration,
   Reduction,
   Broadcast,
   Stride,
-  GatherScatter,
   VectorComponent,
   Symbolic
 };
 
 // Used for Iteration Domain mapping modes in ComputeAtMap
-enum class IdMappingMode {
+enum class IdMappingMode : std::uint8_t {
   EXACT,
   ALMOSTEXACT,
   BROADCAST,
@@ -760,7 +771,7 @@ static constexpr std::array<IdMappingMode, 7> kIdMappingModes = {
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
 // for what each option means. Will also consider .L1::no_allocate because .cs
 // still pollutes cache to some extent.
-enum class CacheOp {
+enum class CacheOp : std::uint8_t {
   Unspecified, // Opt in for the default cache operator or when the LoadStoreOp
                // doesn't take a cache operator.
   AllLevels,
@@ -773,7 +784,7 @@ enum class CacheOp {
 //!
 //!  SegmenterSet here is used to hint segmenter to break kernel on the output
 //!  of the node
-enum class LoadStoreOpType {
+enum class LoadStoreOpType : std::uint8_t {
   Set,
   SegmenterSet,
   LdMatrix,
@@ -787,7 +798,7 @@ enum class LoadStoreOpType {
 
 // Used to label what part of the circular buffered iterdomain
 //  a for loop is materializing.
-enum class CircularBufferLoopStage {
+enum class CircularBufferLoopStage : std::uint8_t {
   Prolog = 0,
   Main,
   Epilog,
@@ -833,10 +844,10 @@ inline bool mayHaveWarHazard(CircularBufferLoopStage stage) {
 //!
 //!  TODO: unify with existing swizzle logic, currently
 //!    doesn't have the same type.
-enum class SwizzleType { NoSwizzle = 0, XOR, CyclicShift };
+enum class SwizzleType : std::uint8_t { NoSwizzle = 0, XOR, CyclicShift };
 
 //! Modes of swizzle, see [Note on swizzle mode].
-enum class SwizzleMode { NoSwizzle = 0, Data, Loop };
+enum class SwizzleMode : std::uint8_t { NoSwizzle = 0, Data, Loop };
 
 // Returns if function needs an f suffix on the operator when operating on a
 // float value i.e. sin->sinf
@@ -1100,12 +1111,12 @@ constexpr inline size_t primDataTypeSizeBit(PrimDataType type) {
 }
 
 constexpr inline size_t primDataTypeSizeByte(PrimDataType type) {
-  int64_t bits = primDataTypeSizeBit(type);
+  size_t bits = primDataTypeSizeBit(type);
   NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");
   return bits / 8;
 }
 
-enum class LaunchConfigType {
+enum class LaunchConfigType : std::uint8_t {
   Compatible,
   SharedMemory,
   BIDz,
@@ -1157,7 +1168,7 @@ constexpr auto toUnderlying(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);
 }
 
-enum class AsyncOpType { NotAsync, CpAsync, CpAsyncBulk, WgMma };
+enum class AsyncOpType : std::uint8_t { NotAsync, CpAsync, CpAsyncBulk, WgMma };
 
 // Data path between TMem and register file. Tensor memory is not a general
 // byte-addressable memory like other memory types. The register <-> TMem
@@ -1165,7 +1176,7 @@ enum class AsyncOpType { NotAsync, CpAsync, CpAsyncBulk, WgMma };
 // well-defined specification about which thread's which register access to
 // which part of TMem. See:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-memory-layout
-enum class TMemRegisterDataPath {
+enum class TMemRegisterDataPath : std::uint8_t {
   Path32x32b,
   Path16x64b,
   Path16x128b,
@@ -1180,7 +1191,7 @@ std::ostream& operator<<(std::ostream&, cudaDriverEntryPointQueryResult);
 // Layout for block scaling factor used by mx-format with narrow precision, this
 // indicates how to index into block scaling factor. see:
 // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
-enum class BlockScalingFactorLayout {
+enum class BlockScalingFactorLayout : std::uint8_t {
   Block128x4,
 };
 

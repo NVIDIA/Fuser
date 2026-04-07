@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
 #include <mutex>
 #include <type_traits>
 #include <unordered_map>
@@ -28,7 +29,7 @@ class ExactLogicalDomainMap;
 class Fusion;
 class FusionKernelRuntime;
 class KernelArgumentHolder;
-enum class PrimDataType;
+enum class PrimDataType : std::uint8_t;
 
 //! [ Note -- Post-definition cache implementation ]
 //!

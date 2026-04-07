@@ -151,7 +151,6 @@ IterType promoteIterType(IterType type1, IterType type2) {
   // Iteration: Default
   // Reduction: Should not appear here
   // Broadcast: Propagated only if type1 and type2 are Broadcast
-  // GatherScatter: Converted to Iteration
   // Stride: Shold not appear here
   // VectorComponent: Converted to Iteration
 
@@ -164,11 +163,11 @@ IterType promoteIterType(IterType type1, IterType type2) {
       "Invalid IterType: ",
       type2);
 
-  // Do not propagate GatherScatter and VectorComponent
-  if (type1 == IterType::VectorComponent || type1 == IterType::GatherScatter) {
+  // Do not propagate VectorComponent
+  if (type1 == IterType::VectorComponent) {
     type1 = IterType::Iteration;
   }
-  if (type2 == IterType::VectorComponent || type2 == IterType::GatherScatter) {
+  if (type2 == IterType::VectorComponent) {
     type2 = IterType::Iteration;
   }
 
@@ -408,8 +407,6 @@ IterDomain* newOutputIterDomain(
     extent_val = promoteSize(extent_val, id->extent());
     if (iter_type.has_value()) {
       iter_type = promoteIterType(iter_type.value(), id->getIterType());
-    } else if (id->isGatherScatter()) {
-      iter_type = IterType::Iteration;
     } else {
       iter_type = id->getIterType();
     }
