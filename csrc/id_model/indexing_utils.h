@@ -22,8 +22,8 @@ inline kir::ForLoop* getForLoop(
     IterDomain* loop_id,
     const std::vector<kir::ForLoop*>& for_loops,
     const ValGraph& loop_graph) {
-  auto it = std::find_if(
-      for_loops.begin(), for_loops.end(), [&](kir::ForLoop* for_loop) -> bool {
+  auto it =
+      std::ranges::find_if(for_loops, [&](kir::ForLoop* for_loop) -> bool {
         IterDomain* for_loop_id = for_loop->iter_domain();
         return loop_graph.disjointValSets().strictAreMapped(
             loop_id, for_loop_id);

@@ -38,6 +38,7 @@ class RNGInserter : public kir::ExprMutator {
   Val* rng_subseq_ = nullptr;
   Val* rng_offset_ = nullptr;
   TensorView* rng_result_ = nullptr;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const std::vector<Expr*>& exprs;
 
   struct InsertionInfo {
@@ -192,10 +193,8 @@ std::vector<Expr*> addRNG(const std::vector<Expr*>& exprs) {
   // Check if magic zero was even used, if not we don't have to define it or
   // update it.
   auto kernel_exprs = GpuLower::current()->kernel()->exprs();
-  const bool has_rng =
-      std::any_of(kernel_exprs.begin(), kernel_exprs.end(), [](Expr* expr) {
-        return expr->isA<RNGOp>();
-      });
+  const bool has_rng = std::ranges::any_of(
+      kernel_exprs, [](Expr* expr) { return expr->isA<RNGOp>(); });
 
   if (!has_rng) {
     return exprs;
