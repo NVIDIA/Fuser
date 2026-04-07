@@ -176,7 +176,7 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   std::vector<IterDomain*> out_domain;
   out_domain.reserve(idx_domain.size());
   for (auto idx_domain_ptr : idx_domain) {
-    out_domain.push_back(IterDomainBuilder(idx_domain_ptr).build());
+    out_domain.push_back(idx_domain_ptr->cloneWithoutRFactor());
   }
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
@@ -248,13 +248,7 @@ TensorView* scatter(
   // The shape of output tensor is same as self tensor.
   std::vector<IterDomain*> out_logical;
   for (const auto i : arange(self_dom.size())) {
-    out_logical.push_back(
-        IterDomainBuilder(self_dom[i])
-            .iter_type(
-                self_dom[i]->getIterType() == IterType::Iteration
-                    ? IterType::GatherScatter
-                    : self_dom[i]->getIterType())
-            .build());
+    out_logical.push_back(self_dom[i]->cloneWithoutRFactor());
   }
 
   // Create the loop domain based on the logical domain of the index
