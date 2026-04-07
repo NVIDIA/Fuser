@@ -10,7 +10,6 @@
 #include <algorithm>
 
 #include "debug.h"
-#include "device_lower/analysis/index_compute.h"
 #include "device_lower/analysis/non_divisible_split.h"
 #include "device_lower/lower2device.h"
 #include "device_lower/pass/magic_zero.h"
@@ -705,7 +704,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
   std::unordered_set<ValGroup> already_indexed_domains;
 
-  // Follow the same approach as Index::getReferenceRootPredicates.
   for (const auto& predicate_domain : predicate_domains) {
     const auto& predicate_domain_group =
         traversalGraph().toGroup(predicate_domain);
