@@ -13,6 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "ir/all_nodes.h"
 #include "type.h"
 
 namespace nvfuser {
