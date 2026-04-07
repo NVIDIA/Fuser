@@ -623,6 +623,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
+    case UnaryOpType::UniformWarpId:
       return {in};
       break;
     case UnaryOpType::Dereference:

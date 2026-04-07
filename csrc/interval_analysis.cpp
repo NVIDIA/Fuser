@@ -577,6 +577,11 @@ void ScalarBoundsCalculator::handle(UnaryOp* uop) {
       // castsFromIndexAreSafe().
       result = a;
       break;
+    case UnaryOpType::UniformWarpId:
+      // __shfl_sync broadcast does not change the value, just proves
+      // warp-uniformity to PTXAS.
+      result = a;
+      break;
     case UnaryOpType::Neg:
       result = {-a.max, -a.min};
       break;

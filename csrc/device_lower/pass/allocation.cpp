@@ -965,7 +965,8 @@ Expr* initializeCircularBufferMbarrier(
         GpuLower::current()
             ->info()
             .parallelDimensionMap()
-            .getNumComputeThreadsEachBlock());
+            .getNumComputeThreadsEachBlock(
+                /*only_count_same_compute_warp_groups=*/true));
   }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
@@ -1217,6 +1218,66 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     return alloc_expr;
+  }
+
+  // Compute a warp-uniform warp ID for use in warp-specialization predicates.
+  //
+  // Warp-specialized kernels split a CTA into compute warps and async (TMA
+  // loader) warps. Branch predicates like `warp_id >= num_compute_warps` need
+  // to be recognized as warp-uniform by PTXAS to avoid redundant VOTEU.ALL
+  // and WARPSYNC.ALL instructions. A simple `flat_tid / 32` is mathematically
+  // uniform within a warp, but PTXAS cannot prove this statically. Following
+  // the CUTLASS canonical_warp_idx_sync() pattern, we broadcast the warp ID
+  // from lane 0 via __shfl_sync, which is an explicit proof of uniformity.
+  //
+  // Generated code:
+  //   unsigned T1 = warp::uniformWarpId(
+  //       (unsigned)((threadIdx.x + threadIdx.y * blockDim.x) / 32));
+  //
+  // The result is stored in GpuLower and reused by all warp-dispatch
+  // predicates (getAsyncWarpPredicate, selectFirstWarpElectSyncPredicate,
+  // createElectSyncPredicateAsync, createMultipleExpressionElectSync).
+  void computeUniformWarpId() {
+    // flat_tid = threadIdx.x + threadIdx.y * blockDim.x
+    //          + threadIdx.z * blockDim.x * blockDim.y
+    const auto& pdim = GpuLower::current()->info().parallelDimensionMap();
+    Val* tid = FusionGuard::getCurFusion()->zeroVal();
+    Val* bdimx = pdim.getRaw(ParallelType::TIDx);
+    Val* bdimy = pdim.getRaw(ParallelType::TIDy);
+    Val* bdimz = pdim.getRaw(ParallelType::TIDz);
+
+    if (bdimx != nullptr) {
+      tid = NamedScalar::getParallelIndex(ParallelType::TIDx);
+    }
+    if (bdimy != nullptr) {
+      Val* tidy = NamedScalar::getParallelIndex(ParallelType::TIDy);
+      if (bdimx != nullptr) {
+        tidy = SimplifyingIrBuilder::mulExpr(tidy, bdimx);
+      }
+      tid = SimplifyingIrBuilder::addExpr(tid, tidy);
+    }
+    if (bdimz != nullptr) {
+      Val* tidz = NamedScalar::getParallelIndex(ParallelType::TIDz);
+      if (bdimy != nullptr) {
+        tidz = SimplifyingIrBuilder::mulExpr(tidz, bdimy);
+      }
+      if (bdimx != nullptr) {
+        tidz = SimplifyingIrBuilder::mulExpr(tidz, bdimx);
+      }
+      tid = SimplifyingIrBuilder::addExpr(tid, tidz);
+    }
+
+    Val* warp_size = IrBuilder::create<Val>(32L, DataType::Index);
+    Val* warp_id = SimplifyingIrBuilder::divExpr(tid, warp_size);
+
+    // Broadcast from lane 0 via __shfl_sync to prove warp-uniformity.
+    Val* warp_id_u32 =
+        SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, warp_id);
+    Val* uniform_warp_id = IrBuilder::create<Val>(DataType::UInt32);
+    IrBuilder::create<UnaryOp>(
+        UnaryOpType::UniformWarpId, uniform_warp_id, warp_id_u32);
+
+    GpuLower::current()->setUniformWarpId(uniform_warp_id);
   }
 
   // Insert cluster reduction mbarrier allocation and initialization at the
@@ -1747,6 +1808,13 @@ class AllocationInserter : public kir::ExprMutator {
 
   AllocationInserter(const std::vector<Expr*>& exprs)
       : gpu_lower_(GpuLower::current()) {
+    // Warp-id-based predicates (e.g., warp_id >= threshold) only work when
+    // async/compute warps have consecutive warp IDs.
+    if (gpu_lower_->info()
+            .parallelDimensionMap()
+            .canUseWarpIdBasedPredicate()) {
+      computeUniformWarpId();
+    }
     // insert cluster reduction mbarrier at top-level scope
     if (GpuLower::current()->clusterReductionCount() >= 1) {
       insertClusterReductionMBarrier(exprs.at(0));
