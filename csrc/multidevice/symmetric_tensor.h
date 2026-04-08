@@ -78,12 +78,14 @@ class SymmetricTensor {
   mutable bool are_remote_tensors_setup_ = false;
   at::Tensor remote_ptrs_tensor_;
   bool is_multicast_setup_ = false;
+  void* mc_ptr_{nullptr};
+#if (CUDA_VERSION >= 13000)
   CUmemGenericAllocationHandle mcast_handle_{};
   CUdevice cu_dev_{};
-  void* mc_ptr_{nullptr};
   CUdeviceptr mc_base_ptr_{0};
   int exporter_rank_{-1};
   int peer_fd_{-1};
+#endif
   bool is_contiguous_view_setup_ = false;
   at::Tensor contiguous_view_;
 };
