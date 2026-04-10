@@ -745,21 +745,20 @@ void SymmetricTensor::setupMulticast(
       aligned_size_,
       0));
 
-  CUdeviceptr multicast_ptr_ = 0;
+  CUdeviceptr mc_ptr = 0;
   NVFUSER_CUDA_SAFE_CALL(
-      cuMemAddressReserve(&multicast_ptr_, aligned_size_, granularity_, 0, 0));
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMemMap(multicast_ptr_, aligned_size_, 0, mcast_handle_, 0));
+      cuMemAddressReserve(&mc_ptr, aligned_size_, granularity_, 0, 0));
+  NVFUSER_CUDA_SAFE_CALL(cuMemMap(mc_ptr, aligned_size_, 0, mcast_handle_, 0));
 
   CUmemAccessDesc access{};
   access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   access.location.id = static_cast<int>(local_rank);
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMemSetAccess(multicast_ptr_, aligned_size_, &access, 1));
+  NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(mc_ptr, aligned_size_, &access, 1));
 
-  multicast_ptr_ = multicast_ptr_ + offset_diff;
-  mc_base_ptr_ = multicast_ptr_;
+  // NOLINTNEXTLINE(performance-no-int-to-ptr)
+  multicast_ptr_ = reinterpret_cast<void*>(mc_ptr + offset_diff);
+  mc_base_ptr_ = mc_ptr;
   is_multicast_setup_ = true;
 
   comm.barrier();
