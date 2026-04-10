@@ -85,10 +85,10 @@ class SymmetricTensor {
   int peer_fd_{-1};
   bool is_contiguous_view_setup_ = false;
   at::Tensor contiguous_view_;
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
+  // #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
   c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory>
       torch_symm_handle_;
-#endif
+  // #endif
 };
 
 } // namespace nvfuser

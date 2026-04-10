@@ -334,14 +334,14 @@ Communicator& Communicator::getInstance() {
   return *communicator;
 }
 
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
+// #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
 void Communicator::registerProcessGroup(
     const std::string& name,
     const c10::intrusive_ptr<c10d::ProcessGroup>& pg) {
   c10d::register_process_group(name, pg);
   process_groups_[name] = pg;
 }
-#endif
+// #endif
 
 void Communicator::cleanup() {
   static bool cleaned_up = false;
@@ -402,16 +402,20 @@ c10d::Backend* Communicator::getBackendForTeam(
   // generate a string key which is unique to the team
   // create the team and cache it
   std::string team_key = prefix + getTeamKey(team, b);
+  auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
+  if (rank_it == team.end()) {
+    return nullptr;
+  }
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
       backends_.end()) { // create the backend and cache it
 #ifdef NVFUSER_DISTRIBUTED
     backends_[team_key] = [&]() -> c10::intrusive_ptr<c10d::Backend> {
       // check that the caller's rank belongs to the requested team
-      auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
-      if (rank_it == team.end()) {
-        return nullptr;
-      }
+      // auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
+      // if (rank_it == team.end()) {
+      //   return nullptr;
+      // }
       // retrieve the caller's rank index/position in the team
       RankType team_rank = std::distance(team.begin(), rank_it);
       return createBackend(
@@ -427,7 +431,10 @@ c10d::Backend* Communicator::getBackendForTeam(
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
   if (process_groups_.find(team_key) == process_groups_.end()) {
     if (b == CommunicatorBackend::kNccl) {
-      auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
+      // auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
+      // if (rank_it == team.end()) {
+      //   return nullptr;
+      // }
       RankType team_rank = std::distance(team.begin(), rank_it);
 
       auto pg = c10::make_intrusive<c10d::ProcessGroup>(

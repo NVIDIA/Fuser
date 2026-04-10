@@ -111,11 +111,11 @@ class NVF_API Communicator {
   c10d::Backend* getWorld(
       std::optional<CommunicatorBackend> backend = std::nullopt);
 
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
+  // #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
   void registerProcessGroup(
       const std::string& name,
       const c10::intrusive_ptr<c10d::ProcessGroup>& pg);
-#endif
+  // #endif
 
   // returns if a backend is available for creation
   bool isBackendAvailable(CommunicatorBackend backend) const {
