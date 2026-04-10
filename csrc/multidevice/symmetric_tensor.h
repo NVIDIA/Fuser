@@ -12,6 +12,8 @@
 
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
 #include <torch/csrc/distributed/c10d/symm_mem/SymmetricMemory.hpp>
+#else
+#include "multidevice/c10d_mock.h"
 #endif
 
 namespace nvfuser {
