@@ -336,6 +336,7 @@ class MoeCombine : public Expr {
       TensorView* in_src_idx,
       TensorView* in_n_tokens_to_rank,
       TensorView* in_n_tokens_from_rank,
+      Val* num_tokens,
       CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
   MoeCombine(const MoeCombine& other) = delete;
@@ -373,6 +374,17 @@ class MoeCombine : public Expr {
 
   TensorView* inTokensFromRank() const {
     return input(4)->as<TensorView>();
+  }
+
+  //! Extent of the dispatch input's first axis (= original local
+  //! token count T).
+  //!
+  //! Used by the CUDA backend to size recv buffers and the output
+  //! without GPU-to-CPU sync. When pre-allocated outputs are
+  //! supported, the combine output TensorView's shape could be used
+  //! directly instead.
+  Val* numTokens() const {
+    return input(5);
   }
 
   CommunicatorBackend backend() const {

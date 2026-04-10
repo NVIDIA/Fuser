@@ -3099,7 +3099,8 @@ INSTANTIATE_TEST_SUITE_P(
 
 // Test outer reduction with auto-scheduled TMA
 using TmaOuterReductionTestParams =
-    std::tuple<int64_t, int64_t>; // <outer_size, iter_size>
+    std::tuple<int64_t, int64_t, int64_t, DataType>;
+// <outer_size, iter_size, n_inputs, dtype>
 
 class TmaOuterReductionTest
     : public NVFuserFixtureParamTest<TmaOuterReductionTestParams> {
@@ -3115,6 +3116,7 @@ class TmaOuterReductionTest
   bool expectOuterTmaUsed(
       int64_t outer_size,
       int64_t iter_size,
+      int64_t n_inputs,
       int64_t dtype_bytes) {
     uint64_t total_reduction_bytes = outer_size * dtype_bytes;
     uint64_t min_tma_bytes = 16384;
@@ -3125,6 +3127,15 @@ class TmaOuterReductionTest
     if ((iter_size * dtype_bytes) % 16 != 0) {
       return false;
     }
+    // Check minimum tile smem fits for all inputs, accounting for
+    // block reduction workspace + static smem overhead.
+    int64_t min_smem_per_input = 16 * 32 * dtype_bytes;
+    int64_t smem_overhead = ((512 * dtype_bytes + 127) & ~127) + 128;
+    auto* dev_prop = at::cuda::getCurrentDeviceProperties();
+    if (min_smem_per_input * n_inputs + smem_overhead >
+        (int64_t)dev_prop->sharedMemPerBlockOptin) {
+      return false;
+    }
     return true;
   }
 
@@ -3133,8 +3144,7 @@ class TmaOuterReductionTest
 };
 
 TEST_P(TmaOuterReductionTest, Sum) {
-  auto [outer_size, iter_size] = GetParam();
-  auto dtype = DataType::Float;
+  auto [outer_size, iter_size, n_inputs, dtype] = GetParam();
   int64_t dtype_bytes = dataTypeSizeByte(dtype);
 
   // TMA requires the stride (iter_size * dtype_bytes) to be 16-byte aligned
@@ -3143,56 +3153,78 @@ TEST_P(TmaOuterReductionTest, Sum) {
     return;
   }
 
-  std::vector<int64_t> shape = {outer_size, iter_size};
-
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
 
-  auto tv0 = makeContigTensor(2);
-  fusion.addInput(tv0);
-  auto tv1 = sum(tv0, {0}); // reduce along axis 0 (outer reduction)
-  fusion.addOutput(tv1);
+  // Create n_inputs tensors and sum them element-wise before reducing
+  std::vector<TensorView*> inputs;
+  for (int64_t i = 0; i < n_inputs; i++) {
+    auto tv = makeContigTensor(2, dtype);
+    fusion.addInput(tv);
+    inputs.push_back(tv);
+  }
+  auto accum = inputs[0];
+  for (int64_t i = 1; i < n_inputs; i++) {
+    accum = add(accum, inputs[i]);
+  }
+  auto reduced = sum(accum, {0});
+  fusion.addOutput(reduced);
 
   auto unscheduled_fusion_copy = fusion;
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(shape, options);
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
-
-  if (expectOuterTmaUsed(outer_size, iter_size, dtype_bytes)) {
-    EXPECT_TRUE(tma_reduction_check::isOuterTmaParams(executor_cache))
-        << "Expected outer TMA scheduler for outer_size=" << outer_size
-        << " iter_size=" << iter_size;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  std::vector<c10::IValue> aten_inputs;
+  for (int64_t i = 0; i < n_inputs; i++) {
+    aten_inputs.push_back(at::randn({outer_size, iter_size}, options));
   }
 
-  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__, "");
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  if (expectOuterTmaUsed(outer_size, iter_size, n_inputs, dtype_bytes)) {
+    EXPECT_TRUE(tma_reduction_check::isOuterTmaParams(executor_cache))
+        << "Expected outer TMA scheduler for outer_size=" << outer_size
+        << " iter_size=" << iter_size << " n_inputs=" << n_inputs;
+  }
+
+  testValidate(
+      &unscheduled_fusion_copy, outputs, aten_inputs, __LINE__, __FILE__, "");
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ,
     TmaOuterReductionTest,
-    testing::Combine(
-        testing::ValuesIn([] { // outer_size
-          std::vector<int64_t> vals;
-          for (int64_t v = 256; v <= 65536; v *= 4) {
-            vals.push_back(v);
-          }
-          return vals;
-        }()),
-        testing::ValuesIn([] { // iter_size
-          std::vector<int64_t> vals;
-          for (int64_t v = 256; v <= 65536; v *= 4) {
-            vals.push_back(v);
-          }
-          return vals;
-        }())),
+    testing::Values(
+        // Size sweep with single input, float
+        TmaOuterReductionTestParams{256, 256, 1, DataType::Float},
+        TmaOuterReductionTestParams{256, 4096, 1, DataType::Float},
+        TmaOuterReductionTestParams{256, 65536, 1, DataType::Float},
+        TmaOuterReductionTestParams{4096, 256, 1, DataType::Float},
+        TmaOuterReductionTestParams{4096, 4096, 1, DataType::Float},
+        TmaOuterReductionTestParams{4096, 65536, 1, DataType::Float},
+        TmaOuterReductionTestParams{65536, 256, 1, DataType::Float},
+        TmaOuterReductionTestParams{65536, 4096, 1, DataType::Float},
+        TmaOuterReductionTestParams{65536, 65536, 1, DataType::Float},
+        // Multi-input (exercises smem budget / tile shrinking)
+        TmaOuterReductionTestParams{4096, 1024, 2, DataType::Float},
+        TmaOuterReductionTestParams{4096, 1024, 3, DataType::Float},
+        TmaOuterReductionTestParams{4096, 1024, 5, DataType::Float},
+        TmaOuterReductionTestParams{4096, 1024, 2, DataType::Half},
+        TmaOuterReductionTestParams{4096, 1024, 3, DataType::Half},
+        TmaOuterReductionTestParams{4096, 1024, 5, DataType::Half}),
     ([](const testing::TestParamInfo<TmaOuterReductionTestParams>& info) {
-      auto [outer_size, iter_size] = info.param;
-      return "outer_" + std::to_string(outer_size) + "_iter_" +
+      auto [outer_size, iter_size, n_inputs, dtype] = info.param;
+      std::string name = "outer_" + std::to_string(outer_size) + "_iter_" +
           std::to_string(iter_size);
+      if (n_inputs > 1) {
+        name += "_" + std::to_string(n_inputs) + "inputs";
+      }
+      if (dtype != DataType::Float) {
+        name += "_half";
+      }
+      return name;
     }));
 
 } // namespace nvfuser

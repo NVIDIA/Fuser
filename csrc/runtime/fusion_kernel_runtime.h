@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
 #include <mutex>
 #include <vector>
 
@@ -23,7 +24,7 @@
 namespace nvfuser {
 
 class HeuristicParamsList;
-enum class PrimDataType;
+enum class PrimDataType : std::uint8_t;
 class Fusion;
 class Val;
 

@@ -860,9 +860,9 @@ TEST_F(IndexingTest, Reshape) {
           // to provide the extent of the group. However, since everything
           // should be deterministic, string match should also work.
           return std::string(
-              "( ( ( ( ( i126 * 20 ) + ( ( i127 * 10 ) + i128 ) ) / 25 ) * 25 "
+              "( ( ( ( ( i130 * 20 ) + ( ( i131 * 10 ) + i132 ) ) / 25 ) * 25 "
               ") "
-              "+ ( ( ( i126 * 20 ) + ( ( i127 * 10 ) + i128 ) ) % 25 ) )");
+              "+ ( ( ( i130 * 20 ) + ( ( i131 * 10 ) + i132 ) ) % 25 ) )");
         }
         default:
           return std::string();

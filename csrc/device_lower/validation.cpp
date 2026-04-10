@@ -1815,11 +1815,9 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       // Remember if a grouped ID is found
       is_grouped = true;
 
-      // Grouping only makes sense for the normal iteration or gather scatter
-      // type
+      // Grouping only makes sense for the normal iteration type
       NVF_CHECK(
-          id->getIterType() == IterType::Iteration ||
-              id->getIterType() == IterType::GatherScatter,
+          id->getIterType() == IterType::Iteration,
           "Invalid use of ParallelType::Group.",
           " Grouping of ",
           id->getIterType(),

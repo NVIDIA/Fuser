@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <device_lower/analysis/fusion_info.h>
-#include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <id_model/indexing.h>
 #include <id_model/utils.h>
@@ -554,17 +553,13 @@ std::string SyncMap::toString() const {
   std::stringstream ss;
   ss << "SyncMap:";
   std::vector<TensorView*> sorted_tvs;
-  std::transform(
-      needs_raw_sync_.begin(),
-      needs_raw_sync_.end(),
-      std::back_inserter(sorted_tvs),
-      [](auto kv) { return kv.first; });
-  std::sort(
-      sorted_tvs.begin(),
-      sorted_tvs.end(),
-      [](TensorView* tv1, TensorView* tv2) {
-        return tv1->name() < tv2->name();
+  std::ranges::transform(
+      needs_raw_sync_, std::back_inserter(sorted_tvs), [](auto kv) {
+        return kv.first;
       });
+  std::ranges::sort(sorted_tvs, [](TensorView* tv1, TensorView* tv2) {
+    return tv1->name() < tv2->name();
+  });
   bool is_first = true;
   for (auto tv : sorted_tvs) {
     if (!is_first) {

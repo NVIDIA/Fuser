@@ -87,7 +87,7 @@ std::string initSymmMemBackendAndGetGroup(SymmetricMemoryBackend backend) {
 // - query_mcast_granularity: if true, considers multicast granularity
 // - query_mcast_recommended_granularity: if true, uses recommended (larger)
 // multicast granularity
-int64_t getGranularityForSymmetricMemory(
+size_t getGranularityForSymmetricMemory(
     const CUmemAllocationProp& prop,
     size_t requested_size_bytes,
     bool query_mcast_granularity = true,
@@ -192,21 +192,20 @@ at::Tensor SymmetricTensor::allocate(
       device.index()));
   NVF_ERROR(is_vmm_supported, "Device does not support VMM");
 
-  const int64_t numel = static_cast<int64_t>(
-      std::accumulate(sizes.begin(), sizes.end(), 1, std::multiplies<>()));
-  const int64_t element_size = static_cast<int64_t>(c10::elementSize(dtype));
-  const int64_t alloc_size = numel * element_size;
+  const int64_t numel = std::accumulate(
+      sizes.begin(), sizes.end(), int64_t{1}, std::multiplies<>());
+  const size_t element_size = c10::elementSize(dtype);
+  const size_t alloc_size = static_cast<size_t>(numel) * element_size;
 
   CUmemAllocationProp prop{};
   prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
   prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   prop.location.id =
-      static_cast<int>(static_cast<unsigned char>(device.index()));
+      static_cast<int>(device.index()); // NOLINT(bugprone-signed-char-misuse)
   prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
 
-  int64_t granularity =
-      getGranularityForSymmetricMemory(prop, static_cast<size_t>(alloc_size));
-  int64_t rounded_size =
+  size_t granularity = getGranularityForSymmetricMemory(prop, alloc_size);
+  size_t rounded_size =
       ((alloc_size + granularity - 1) / granularity) * granularity;
 
   CUmemGenericAllocationHandle handle = 0;
@@ -220,7 +219,7 @@ at::Tensor SymmetricTensor::allocate(
   CUmemAccessDesc access{};
   access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   access.location.id =
-      static_cast<int>(static_cast<unsigned char>(device.index()));
+      static_cast<int>(device.index()); // NOLINT(bugprone-signed-char-misuse)
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(ptr, rounded_size, &access, 1));
 
@@ -231,13 +230,12 @@ at::Tensor SymmetricTensor::allocate(
   }
 
   return at::from_blob(
-      // NOLINTNEXTLINE(performance-no-int-to-ptr)
-      reinterpret_cast<void*>(ptr),
+      reinterpret_cast<void*>(ptr), // NOLINT(performance-no-int-to-ptr)
       sizes,
       strides,
       [=](void* ptr) {
-        cuMemUnmap((CUdeviceptr)(ptr), rounded_size);
-        cuMemAddressFree((CUdeviceptr)(ptr), rounded_size);
+        cuMemUnmap(reinterpret_cast<CUdeviceptr>(ptr), rounded_size);
+        cuMemAddressFree(reinterpret_cast<CUdeviceptr>(ptr), rounded_size);
         cuMemRelease(handle);
       },
       at::TensorOptions().dtype(dtype).device(device));
@@ -256,7 +254,7 @@ std::string SymmetricTensor::validate(at::Tensor tensor) {
     return "Device does not support VMM";
   }
 
-  auto ptr = (CUdeviceptr)tensor.data_ptr();
+  auto ptr = reinterpret_cast<CUdeviceptr>(tensor.data_ptr());
 
   CUmemLocation location{};
   location.type = CU_MEM_LOCATION_TYPE_DEVICE;
@@ -268,8 +266,9 @@ std::string SymmetricTensor::validate(at::Tensor tensor) {
   }
 
   CUmemGenericAllocationHandle alloc_handle = 0;
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMemRetainAllocationHandle(&alloc_handle, tensor.data_ptr()));
+  NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(
+      &alloc_handle,
+      reinterpret_cast<void*>(ptr))); // NOLINT(performance-no-int-to-ptr)
 
   CUmemAllocationProp prop{};
   NVFUSER_CUDA_SAFE_CALL(
@@ -359,8 +358,9 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
   remote_ptrs_.resize(world_size_);
 
   CUmemGenericAllocationHandle local_handle = 0;
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMemRetainAllocationHandle(&local_handle, local_tensor_.data_ptr()));
+  NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(
+      &local_handle,
+      reinterpret_cast<void*>(local_ptr))); // NOLINT(performance-no-int-to-ptr)
 
   alloc_handles_[my_device_id_] = local_handle;
   remote_ptrs_[my_device_id_] = local_ptr;
@@ -510,6 +510,22 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   are_remote_tensors_setup_ = true;
 }
 
+at::Tensor SymmetricTensor::remotePointersTensor() {
+  NVF_CHECK(are_remote_tensors_setup_, "Remote tensors not setup");
+  if (remote_ptrs_tensor_.defined()) {
+    return remote_ptrs_tensor_;
+  }
+
+  auto cpu_tensor =
+      at::empty({world_size_}, at::TensorOptions().dtype(at::kLong));
+  auto* ptr = cpu_tensor.data_ptr<int64_t>();
+  for (int64_t r = 0; r < world_size_; r++) {
+    ptr[r] = static_cast<int64_t>(remote_ptrs_[r]);
+  }
+  remote_ptrs_tensor_ = cpu_tensor.to(local_tensor_.device());
+  return remote_ptrs_tensor_;
+}
+
 at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
   NVF_CHECK(rank >= 0 && rank < world_size_, "Rank out of range");
 
@@ -597,8 +613,7 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
 
   size_t map_size = aligned_size_;
   contiguous_view_ = at::from_blob(
-      // NOLINTNEXTLINE(performance-no-int-to-ptr)
-      reinterpret_cast<void*>(base),
+      reinterpret_cast<void*>(base), // NOLINT(performance-no-int-to-ptr)
       sizes,
       strides,
       [=](void* ptr) {
@@ -730,20 +745,21 @@ void SymmetricTensor::setupMulticast(
       aligned_size_,
       0));
 
-  CUdeviceptr mc_ptr = 0;
+  CUdeviceptr multicast_ptr_ = 0;
   NVFUSER_CUDA_SAFE_CALL(
-      cuMemAddressReserve(&mc_ptr, aligned_size_, granularity_, 0, 0));
-  NVFUSER_CUDA_SAFE_CALL(cuMemMap(mc_ptr, aligned_size_, 0, mcast_handle_, 0));
+      cuMemAddressReserve(&multicast_ptr_, aligned_size_, granularity_, 0, 0));
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemMap(multicast_ptr_, aligned_size_, 0, mcast_handle_, 0));
 
   CUmemAccessDesc access{};
   access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   access.location.id = static_cast<int>(local_rank);
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-  NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(mc_ptr, aligned_size_, &access, 1));
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemSetAccess(multicast_ptr_, aligned_size_, &access, 1));
 
-  // NOLINTNEXTLINE(performance-no-int-to-ptr)
-  multicast_ptr_ = reinterpret_cast<void*>(mc_ptr + offset_diff);
-  mc_base_ptr_ = mc_ptr;
+  multicast_ptr_ = multicast_ptr_ + offset_diff;
+  mc_base_ptr_ = multicast_ptr_;
   is_multicast_setup_ = true;
 
   comm.barrier();
