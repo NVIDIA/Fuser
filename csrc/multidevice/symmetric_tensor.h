@@ -11,6 +11,7 @@
 #include <cuda.h>
 
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
+#include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
 #include <torch/csrc/distributed/c10d/symm_mem/SymmetricMemory.hpp>
 #else
 #include "multidevice/c10d_mock.h"
@@ -94,10 +95,8 @@ class SymmetricTensor {
   int peer_fd_{-1};
   bool is_contiguous_view_setup_ = false;
   at::Tensor contiguous_view_;
-  // #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
   c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory>
       torch_symm_handle_;
-  // #endif
 };
 
 } // namespace nvfuser

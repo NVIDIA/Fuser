@@ -220,13 +220,15 @@ class ProcessGroup : public torch::CustomClassHolder {
 };
 
 inline c10::intrusive_ptr<ProcessGroup> resolve_process_group(
-    const std::string&) {
+    const std::string& group_name) {
   return c10::make_intrusive<ProcessGroup>();
 }
 
 inline void register_process_group(
-    const std::string&,
-    const c10::intrusive_ptr<ProcessGroup>&) {}
+    const std::string& group_name,
+    const c10::intrusive_ptr<ProcessGroup>& group) {}
+
+inline void unregister_process_group(const std::string& group_name) {}
 
 } // namespace c10d
 
@@ -257,13 +259,13 @@ inline at::Tensor empty_strided_p2p(
     c10::ScalarType dtype,
     c10::Device device,
     const std::optional<std::string>& group_name,
-    std::optional<uint64_t>) {
+    std::optional<uint64_t> alloc_id) {
   return at::empty(size, at::TensorOptions().dtype(dtype));
 }
 
 inline c10::intrusive_ptr<SymmetricMemory> rendezvous(
-    const at::Tensor&,
-    const std::optional<std::string>& = std::nullopt) {
+    const at::Tensor& tensor,
+    const std::optional<std::string>& group_name = std::nullopt) {
   return c10::make_intrusive<SymmetricMemory>();
 }
 

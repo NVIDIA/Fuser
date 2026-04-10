@@ -16,7 +16,6 @@
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
-#include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 #include <torch/csrc/distributed/c10d/exception.h>
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
@@ -334,14 +333,12 @@ Communicator& Communicator::getInstance() {
   return *communicator;
 }
 
-// #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
 void Communicator::registerProcessGroup(
     const std::string& name,
     const c10::intrusive_ptr<c10d::ProcessGroup>& pg) {
   c10d::register_process_group(name, pg);
   process_groups_[name] = pg;
 }
-// #endif
 
 void Communicator::cleanup() {
   static bool cleaned_up = false;
@@ -376,12 +373,10 @@ void Communicator::cleanup() {
     }
   }
 #endif
-#if defined(USE_DISTRIBUTED)
   for (const auto& entry : process_groups_) {
     c10d::unregister_process_group(entry.first);
   }
   process_groups_.clear();
-#endif
 #endif
   backends_.clear();
 }
@@ -402,6 +397,7 @@ c10d::Backend* Communicator::getBackendForTeam(
   // generate a string key which is unique to the team
   // create the team and cache it
   std::string team_key = prefix + getTeamKey(team, b);
+  // check that the caller's rank belongs to the requested team
   auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
   if (rank_it == team.end()) {
     return nullptr;
@@ -411,11 +407,6 @@ c10d::Backend* Communicator::getBackendForTeam(
       backends_.end()) { // create the backend and cache it
 #ifdef NVFUSER_DISTRIBUTED
     backends_[team_key] = [&]() -> c10::intrusive_ptr<c10d::Backend> {
-      // check that the caller's rank belongs to the requested team
-      // auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
-      // if (rank_it == team.end()) {
-      //   return nullptr;
-      // }
       // retrieve the caller's rank index/position in the team
       RankType team_rank = std::distance(team.begin(), rank_it);
       return createBackend(
@@ -431,10 +422,6 @@ c10d::Backend* Communicator::getBackendForTeam(
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
   if (process_groups_.find(team_key) == process_groups_.end()) {
     if (b == CommunicatorBackend::kNccl) {
-      // auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
-      // if (rank_it == team.end()) {
-      //   return nullptr;
-      // }
       RankType team_rank = std::distance(team.begin(), rank_it);
 
       auto pg = c10::make_intrusive<c10d::ProcessGroup>(
