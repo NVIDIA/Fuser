@@ -376,9 +376,15 @@ void HostIrEvaluator::handle(Communication* communication) {
          communication->type() == CommunicationType::Reduce)
         ? root_val
         : -1;
-    // For Reduce, non-roots may have no output; use input for cache key
+    // For Broadcast and Reduce, non-roots may have no output; use input for
+    // cache key
     at::Tensor cache_buffer =
         output_tensor.defined() ? output_tensor : input_tensor;
+    // For Reduce specifically, use the input tensor for the cache key
+    // since the output doesn't need to be symmetric
+    if (communication->type() == CommunicationType::Reduce) {
+      cache_buffer = input_tensor;
+    }
     SymmetricMemoryHandle* multicast_handle = multicast_handle_cache_.get(
         {.buffer = cache_buffer, .expr = communication, .root = cache_root});
     postWithCudaBackend(

@@ -280,17 +280,14 @@ void* SymmetricMemoryForAllreduce::semaphoreUnicastPtr(
 SymmetricMemoryForReduce::SymmetricMemoryForReduce(
     Communication* communication,
     int64_t root,
-    at::Tensor output_buffer)
-    : size_bytes_(output_buffer.numel() * output_buffer.element_size()) {
+    at::Tensor buffer)
+    : size_bytes_(buffer.numel() * buffer.element_size()) {
   std::string name_suffix =
       "for_Communication" + std::to_string(communication->name());
   std::string store_key_prefix = "nvls_reduce_" + name_suffix;
 
-  at::Tensor input_sym = SymmetricTensor::allocate(
-      output_buffer.sizes(),
-      output_buffer.scalar_type(),
-      output_buffer.device());
-  input_sym_tensor_ = std::make_unique<SymmetricTensor>(input_sym);
+  // We assume the input buffer is already a symmetric tensor
+  input_sym_tensor_ = std::make_unique<SymmetricTensor>(buffer);
   input_sym_tensor_->setupRemoteHandles(store_key_prefix + "_input_unicast");
 
   MulticastProtocol protocol = getMulticastProtocol();
@@ -303,7 +300,7 @@ SymmetricMemoryForReduce::SymmetricMemoryForReduce(
   at::Tensor semaphore = SymmetricTensor::allocate(
       /*sizes=*/at::IntArrayRef({1}),
       /*dtype=*/at::ScalarType::Int,
-      /*device=*/output_buffer.device());
+      /*device=*/buffer.device());
 
   // Initialize the semaphore to kIdle
   IpcSemaphore init_value = IpcSemaphore::kIdle;
