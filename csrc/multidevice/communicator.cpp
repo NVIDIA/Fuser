@@ -14,6 +14,7 @@
 #include <numeric>
 
 #ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
 #include <torch/csrc/distributed/c10d/exception.h>
 #ifdef USE_C10D_NCCL
@@ -121,7 +122,8 @@ bool parseEnv(
   }
 
   // retrieves master port
-  if ((env = std::getenv("NVFUSER_MASTER_PORT")) != nullptr) {
+  env = std::getenv("NVFUSER_MASTER_PORT");
+  if (env != nullptr) {
     master_port = std::atoi(env);
   } else {
     LOG(INFO) << "The environment variable NVFUSER_MASTER_PORT has not been "
@@ -248,10 +250,10 @@ void waitForDebuggerAtRanks(
     std::cerr << "Process " << pid
               << " is waiting for the debugger. To continue debugging, "
               << "start gdb, `attach " << pid
-              << "`, `set var waiting=false`, and `fini`." << std::endl;
+              << "`, `set var waiting=false`, and `fini`.\n";
     while (waiting) { // Please change `waiting` in the debugger.
     }
-    std::cerr << "Process " << getpid() << " finished waiting." << std::endl;
+    std::cerr << "Process " << getpid() << " finished waiting.\n";
   }
 
   if (communicator->is_available()) {
@@ -331,6 +333,13 @@ Communicator& Communicator::getInstance() {
   return *communicator;
 }
 
+void Communicator::registerProcessGroup(
+    const std::string& name,
+    const c10::intrusive_ptr<c10d::ProcessGroup>& pg) {
+  c10d::register_process_group(name, pg);
+  process_groups_[name] = pg;
+}
+
 void Communicator::cleanup() {
   static bool cleaned_up = false;
   NVF_CHECK(
@@ -349,12 +358,13 @@ void Communicator::cleanup() {
 
   store_ = nullptr;
 
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
+#if defined(NVFUSER_DISTRIBUTED)
+#if defined(USE_C10D_NCCL)
   // Sort backends to work around a NCCL bug (nvbugs/4889623). Closing backends
   // in different orders between ranks have been causing a hang.
   std::vector<std::pair<std::string, c10::intrusive_ptr<c10d::Backend>>>
       keyed_backends(backends_.begin(), backends_.end());
-  std::sort(keyed_backends.begin(), keyed_backends.end());
+  std::ranges::sort(keyed_backends.begin(), keyed_backends.end());
   for (auto& [key, backend] : keyed_backends) {
     // Call shutdown before destructing a ProcessGroupNCCL as instructed by
     // https://github.com/pytorch/pytorch/blob/e62073d7997c9e63896cb5289ffd0874a8cc1838/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L1164-L1170.
@@ -362,6 +372,11 @@ void Communicator::cleanup() {
       pg_nccl->shutdown();
     }
   }
+#endif
+  for (const auto& entry : process_groups_) {
+    c10d::unregister_process_group(entry.first);
+  }
+  process_groups_.clear();
 #endif
   backends_.clear();
 }
@@ -382,16 +397,16 @@ c10d::Backend* Communicator::getBackendForTeam(
   // generate a string key which is unique to the team
   // create the team and cache it
   std::string team_key = prefix + getTeamKey(team, b);
+  // check that the caller's rank belongs to the requested team
+  auto rank_it = std::ranges::find(team.begin(), team.end(), deviceId());
+  if (rank_it == team.end()) {
+    return nullptr;
+  }
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
       backends_.end()) { // create the backend and cache it
 #ifdef NVFUSER_DISTRIBUTED
     backends_[team_key] = [&]() -> c10::intrusive_ptr<c10d::Backend> {
-      // check that the caller's rank belongs to the requested team
-      auto rank_it = std::find(team.begin(), team.end(), deviceId());
-      if (rank_it == team.end()) {
-        return nullptr;
-      }
       // retrieve the caller's rank index/position in the team
       RankType team_rank = std::distance(team.begin(), rank_it);
       return createBackend(
@@ -404,6 +419,26 @@ c10d::Backend* Communicator::getBackendForTeam(
     backends_[team_key] = nullptr;
 #endif
   }
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
+  if (process_groups_.find(team_key) == process_groups_.end()) {
+    if (b == CommunicatorBackend::kNccl) {
+      RankType team_rank = std::distance(team.begin(), rank_it);
+
+      auto pg = c10::make_intrusive<c10d::ProcessGroup>(
+          c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
+          team_rank,
+          static_cast<int>(team.size()));
+      pg->setBackend(
+          c10::DeviceType::CUDA,
+          c10d::ProcessGroup::BackendType::NCCL,
+          backends_[team_key]);
+      pg->setDefaultBackend(c10d::ProcessGroup::BackendType::NCCL);
+      pg->setGroupName(team_key);
+
+      registerProcessGroup(team_key, pg);
+    }
+  }
+#endif
   return backends_.at(team_key).get();
 }
 

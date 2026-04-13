@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include "multidevice/cuda_p2p.h"
+#include "multidevice/ipc_utils.h"
 #include "multidevice/symmetric_tensor.h"
 #include "tests/cpp/multidevice.h"
 
@@ -239,6 +240,9 @@ TEST_F(SymmetricTensorTest, MulticastReduce) {
 TEST_F(SymmetricTensorTest, ContiguousView) {
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
+  }
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::Native) {
+    GTEST_SKIP() << "Skipping test for Pytorch symmetric memory backend";
   }
 
   const int64_t rank = communicator_->deviceId();

@@ -29,9 +29,23 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 
 // IPC Utils for sharing file descriptors
 
-enum class MulticastProtocol { Memcpy, Multimem, BatchMemcpy };
+enum class MulticastProtocol : uint8_t { Memcpy, Multimem, BatchMemcpy };
 
 MulticastProtocol getMulticastProtocol();
+
+// Backend for symmetric memory allocation and rendezvous.
+// Native: Fuser's own CUDA VMM + IPC implementation (default, maintained).
+// PyTorch*: Use PyTorch's symmetric memory
+// (torch.distributed._symmetric_memory) with the given transport backend (Nccl,
+// Nvshmem, or Cuda).
+enum class SymmetricMemoryBackend : uint8_t {
+  Native,
+  PyTorchNccl,
+  PyTorchNvshmem,
+  PyTorchCuda,
+};
+
+SymmetricMemoryBackend getSymmetricMemoryBackend();
 
 // Creates a listening Unix domain socket bound to path.
 // If path starts with '@', it uses the abstract namespace (replaced with \0).

@@ -129,6 +129,8 @@ enum class EnableOption : std::uint8_t {
                 //! CopyEngine)
   MulticastProtocol, //! Prescribe multicast protocol:
                      //! memcpy|multimem|batch_memcpy
+  SymmetricMemoryBackend, //! Prescribe symmetric memory backend:
+                          //! native|pytorch_nccl|pytorch_nvshmem|pytorch_cuda
   EndOfOption //! Placeholder for counting the number of elements
 };
 
