@@ -64,8 +64,6 @@ __device__ void warpReduceTIDX(
     unsigned int num_of_warps = reduction_size / WARP_SIZE;
     unsigned int smem_offset = reduce_group_id * num_of_warps;
 
-    block_sync::sync<Aligned>(block_dim);
-
     if (is_warp_head) {
       shared_mem[smem_offset + warp_idx] = reduce_val;
     }
@@ -137,7 +135,6 @@ __device__ void warpReduceTIDXY(
     unsigned int idx = threadIdx.x + threadIdx.y * BDIMX;
     unsigned int warp_idx = idx / WARP_SIZE;
     unsigned int lane_idx = idx % WARP_SIZE;
-    block_sync::sync<Aligned>(block_dim);
     if (lane_idx == 0) {
       shared_mem[warp_idx] = reduce_val;
     }
