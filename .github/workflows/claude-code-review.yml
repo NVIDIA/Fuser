@@ -1,0 +1,187 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Claude CLI PR Review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+run-name: Claude review for PR ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  claude-code-review:
+    name: Run Claude Code Review
+    # Skip if PR is in draft
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    env:
+      CLAUDE_OUTPUT_DIR: artifacts/claude_review/${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install npm dependencies
+        run: |
+          npm install -g @anthropic-ai/claude-code @musistudio/claude-code-router@1.0.72
+          echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
+
+      - name: Setup and start Claude Code Router
+        env:
+          NIM_KEY: ${{ secrets.NIM_KEY }}
+        run: |
+          mkdir -p $HOME/.claude-code-router
+          cat <<EOF > $HOME/.claude-code-router/config.json
+          {
+            "LOG": true,
+            "API_TIMEOUT_MS": 60000,
+            "NON_INTERACTIVE_MODE": true,
+            "Providers": [
+              {
+                "name": "nim",
+                "api_base_url": "https://integrate.api.nvidia.com/v1/chat/completions",
+                "api_key": "\$NIM_KEY",
+                "models": [
+                  "moonshotai/kimi-k2-thinking",
+                  "minimaxai/minimax-m2"
+                ],
+                "transformer": {
+                  "use": []
+                }
+              }
+            ],
+            "Router": {
+              "default": "nim,moonshotai/kimi-k2-thinking"
+            },
+            "transformers": []
+          }
+          EOF
+          nohup ccr restart &
+          sleep 5
+        shell: bash
+
+      - name: Run Claude Code via wrapper
+        env:
+          ANTHROPIC_AUTH_TOKEN: 'test'
+          ANTHROPIC_API_KEY: ''
+          ANTHROPIC_BASE_URL: http://localhost:3456
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          python -m tools.pr_preflight_launcher --ai-backend claude --output-dir "${CLAUDE_OUTPUT_DIR}"
+      
+      - name: Print Claude error (if any)
+        if: always()
+        run: |
+          if [ -f "${{ env.CLAUDE_OUTPUT_DIR }}/error.txt" ]; then
+            echo "===== Claude error.txt ====="
+            sed -n '1,200p' "${{ env.CLAUDE_OUTPUT_DIR }}/error.txt"
+          else
+            echo "No error.txt found in ${{ env.CLAUDE_OUTPUT_DIR }}"
+          fi
+
+      - name: Upload Claude review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ env.CLAUDE_OUTPUT_DIR }}/**
+
+      - name: Post Claude review to PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const outputDir = process.env.CLAUDE_OUTPUT_DIR;
+            const commentMarker = '<!-- claude-pr-review-bot -->';
+
+            // Check if review errored or has no output
+            const errorFile = path.join(outputDir, 'error.txt');
+            const successFile = path.join(outputDir, 'success_raw_output.txt');
+
+            // Skip posting if error occurred
+            if (fs.existsSync(errorFile)) {
+              console.log('Review encountered an error. Skipping comment post.');
+              return;
+            }
+
+            // Skip if no success output
+            if (!fs.existsSync(successFile)) {
+              console.log('No review output found. Skipping comment post.');
+              return;
+            }
+
+            // Note: We post even if verdict is FAILED because that helps
+            // PR developers address issues and improve their code
+
+            // Read review output
+            const reviewContent = fs.readFileSync(successFile, 'utf8');
+
+            // Prepare comment body
+            const commentBody = `${commentMarker}
+            ## 🤖 Claude PR Review
+
+            **Commit:** ${context.payload.pull_request.head.sha}
+
+            ${reviewContent}
+
+            ---
+            *Review generated at ${new Date().toISOString()}*`;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+
+            const existingComment = comments.find(comment =>
+              comment.body && comment.body.includes(commentMarker)
+            );
+
+            // Create or update comment
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: commentBody,
+              });
+              console.log('Updated existing PR comment');
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: commentBody,
+              });
+              console.log('Created new PR comment');
+            }
