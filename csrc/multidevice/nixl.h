@@ -38,9 +38,9 @@ enum class NixlXferStatus : std::uint8_t {
 // Helper functions for serializing and deserializing tensors descriptors for
 // TCP store
 struct TensorDesc {
-  uintptr_t addr;
-  size_t size;
-  uint32_t dev; // CUDA device index (tensor.device().index())
+  void* addr;
+  int64_t size;
+  uint32_t local_rank; // CUDA device index (tensor.device().index())
   int64_t rank; // communicator rank owning this tensor
 };
 static_assert(
@@ -49,9 +49,9 @@ static_assert(
 
 inline TensorDesc toTensorDesc(const at::Tensor& tensor, int64_t rank) {
   return {
-      .addr = reinterpret_cast<uintptr_t>(tensor.data_ptr()),
-      .size = static_cast<size_t>(tensor.numel()) * tensor.element_size(),
-      .dev = static_cast<uint32_t>(tensor.device().index()),
+      .addr = tensor.data_ptr(),
+      .size = tensor.numel() * tensor.element_size(),
+      .local_rank = static_cast<uint32_t>(tensor.device().index()),
       .rank = rank};
 }
 
@@ -196,8 +196,8 @@ class NixlBackend {
   // The returned handle can be posted multiple times (preparation is
   // amortized).
   [[nodiscard]] NixlTransferHandle prepareTransfer(
-      const std::vector<TensorDesc>& local_descs,
-      const std::vector<TensorDesc>& remote_descs,
+      const std::vector<TensorDesc>& local_descs, // buffers on this rank
+      const std::vector<TensorDesc>& remote_descs, // buffers on the remote peer
       NixlXferOp op);
 
   // Post a previously prepared transfer for execution (non-blocking).

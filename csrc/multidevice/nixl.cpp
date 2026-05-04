@@ -76,7 +76,8 @@ nixl_reg_dlist_t buildRegDlist(const std::vector<at::Tensor>& tensors) {
 nixl_xfer_dlist_t buildXferDlist(const std::vector<TensorDesc>& descs) {
   nixl_xfer_dlist_t dlist(VRAM_SEG);
   for (const auto& desc : descs) {
-    dlist.addDesc({desc.addr, desc.size, desc.dev});
+    dlist.addDesc(
+        {reinterpret_cast<uintptr_t>(desc.addr), desc.size, desc.local_rank});
   }
   return dlist;
 }
