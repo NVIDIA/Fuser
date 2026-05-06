@@ -13,6 +13,7 @@ from .compiler import CompilerRequirement
 from .git_submodules import GitSubmodulesRequirement
 from .ninja import NinjaRequirement
 from .nvmmh import NVMMHRequirement
+from .nixl import NIXLRequirement
 
 __all__ = [
     # Base classes
@@ -30,4 +31,5 @@ __all__ = [
     "GitSubmodulesRequirement",
     "NinjaRequirement",
     "NVMMHRequirement",
+    "NIXLRequirement",
 ]

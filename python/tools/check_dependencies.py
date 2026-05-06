@@ -29,6 +29,7 @@ from prereqs.requirements import (
     CompilerRequirement,
     NinjaRequirement,
     NVMMHRequirement,
+    NIXLRequirement,
     GitSubmodulesRequirement,
 )
 
@@ -59,6 +60,7 @@ class DependencyReporter:
         self.requirements.append(Pybind11Requirement(cmake_vars))
         self.requirements.append(LLVMRequirement(cmake_vars))
         self.requirements.append(NVMMHRequirement(cmake_vars))
+        self.requirements.append(NIXLRequirement(cmake_vars))
 
     def _load_cmake_vars(self, deps_path: Path) -> Dict:
         """Load CMake variables from JSON file"""

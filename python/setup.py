@@ -32,6 +32,9 @@
 #   NVFUSER_BUILD_WITH_UCC
 #     Build nvfuser with UCC support. You may need to specify environment variables of UCC_HOME, UCC_DIR, UCX_HOME, UCX_DIR.
 #
+#   NVFUSER_BUILD_WITH_NIXL
+#     Build nvfuser with NIXL support. You may need to set NIXL_PREFIX to the NIXL install directory.
+#
 #   NVFUSER_BUILD_WITHOUT_DISTRIBUTED
 #     Build nvfuser without multidevice support
 #
