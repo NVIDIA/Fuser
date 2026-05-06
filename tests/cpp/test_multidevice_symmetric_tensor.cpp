@@ -5,7 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <numeric>
+
 #include "multidevice/cuda_p2p.h"
+#include "multidevice/communicator.h"
 #include "multidevice/ipc_utils.h"
 #include "multidevice/symmetric_tensor.h"
 #include "tests/cpp/multidevice.h"
@@ -383,6 +386,65 @@ TEST_F(SymmetricTensorTest, SmallAllocationMulticast) {
 
   EXPECT_EQ(readback, 42);
 #endif
+}
+
+// Verifies that allgather over symm_mem-allocated tensors produces correct
+// results when the NCCL PG is configured with CTAPolicy=ZERO (CE path).
+// Run with NVFUSER_ENABLE=symmetric_memory_backend(pytorch_nccl).
+TEST_F(SymmetricTensorTest, CopyEngineAllgather) {
+  if (getSymmetricMemoryBackend() != SymmetricMemoryBackend::PyTorchNccl) {
+    GTEST_SKIP()
+        << "Test requires NVFUSER_ENABLE=symmetric_memory_backend(pytorch_nccl)";
+  }
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping single-device run";
+  }
+  if (!communicator_->isBackendAvailable(CommunicatorBackend::kNccl)) {
+    GTEST_SKIP() << "NCCL backend not available";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t world_size = communicator_->size();
+  // 4MB per rank — large enough that CE scheduling overhead is worthwhile.
+  constexpr int64_t kNumElems = 1024 * 1024;
+
+  // Allocate via empty_strided_p2p so NCCL can window-register the buffers,
+  // which is required for the Copy Engine collective path.
+  at::Tensor input = SymmetricTensor::allocate(
+      {kNumElems}, at::ScalarType::Float, communicator_->device());
+  at::Tensor output = SymmetricTensor::allocate(
+      {world_size * kNumElems}, at::ScalarType::Float, communicator_->device());
+
+  // setupRemoteHandles triggers c10d::symmetric_memory::rendezvous, which
+  // performs the NCCL window registration on both buffers.
+  SymmetricTensor input_sym(input);
+  SymmetricTensor output_sym(output);
+  input_sym.setupRemoteHandles();
+  output_sym.setupRemoteHandles();
+
+  // Each rank fills its input with a unique value (rank+1).
+  input.fill_(static_cast<float>(rank + 1));
+
+  // getBackendForTeam returns the NCCL PG created with CTAPolicy=ZERO by our
+  // change, so _allgather_base will use the Copy Engine when both conditions
+  // (CTAPolicy=ZERO + window-registered buffers) are met.
+  Team all_ranks(world_size);
+  std::iota(all_ranks.begin(), all_ranks.end(), 0);
+  c10d::Backend* backend =
+      communicator_->getBackendForTeam(all_ranks, CommunicatorBackend::kNccl);
+  ASSERT_NE(backend, nullptr);
+
+  auto work = backend->_allgather_base(output, input, {});
+  work->wait();
+
+  // Validate: gathered slice for rank r must equal r+1 on every rank.
+  at::Tensor output_cpu = output.cpu();
+  for (int64_t r = 0; r < world_size; ++r) {
+    at::Tensor slice =
+        output_cpu.slice(0, r * kNumElems, (r + 1) * kNumElems);
+    EXPECT_TRUE(slice.eq(static_cast<float>(r + 1)).all().item<bool>())
+        << "Rank " << rank << ": allgather mismatch for source rank " << r;
+  }
 }
 
 } // namespace nvfuser

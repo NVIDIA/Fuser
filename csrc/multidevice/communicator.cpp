@@ -27,6 +27,7 @@
 
 #include "base.h"
 #include "cuda_utils.h"
+#include "multidevice/ipc_utils.h"
 #include "options.h"
 
 namespace nvfuser {
@@ -156,6 +157,11 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 #ifdef USE_C10D_NCCL
   if (backend == CommunicatorBackend::kNccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();
+#ifdef NCCL_HAS_CTA_POLICY
+    if (getSymmetricMemoryBackend() == SymmetricMemoryBackend::PyTorchNccl) {
+      pg_opts->config.CTAPolicy = NCCL_CTA_POLICY_ZERO;
+    }
+#endif
     return c10::make_intrusive<::c10d::ProcessGroupNCCL>(
         store, rank, size, pg_opts);
   }
