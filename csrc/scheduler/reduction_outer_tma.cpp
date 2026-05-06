@@ -10,6 +10,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
+#include "ir/utils.h"
 #include "scheduler/cache_policy_refiner.h"
 #include "scheduler/reduction_utils.h"
 #include "scheduler/runtime_info.h"
@@ -34,9 +35,32 @@ std::unique_ptr<TmaOuterReductionParams> getReductionHeuristics(
   const int64_t bdimx = 32;
   const int64_t bdimy = 16;
 
-  // TMA tile sizes. Unroll factors are derived from these and thread dims.
-  const int64_t tma_tile_i = 128;
-  const int64_t tma_tile_r = 128;
+  // Compute TMA tile sizes based on available shared memory budget.
+  // Each input tensor gets a tma_tile_r * tma_tile_i tile in smem.
+  // Reserve space for block reduction workspace and static smem.
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t dtype_bytes = props.max_dtype_size_bit_for_vectorization / 8;
+  const int64_t threads_per_block = bdimx * bdimy;
+  const int64_t smem_overhead =
+      alignSharedMemoryBytes(threads_per_block * dtype_bytes) +
+      kSharedMemoryAlignmentBytes;
+  const int64_t smem_bytes =
+      (int64_t)dev_prop->sharedMemPerBlockOptin - smem_overhead;
+  const int64_t n_inputs = std::max(props.n_tensor_inputs, (int64_t)1);
+  const int64_t smem_per_input = smem_bytes / n_inputs;
+
+  // Start with default tile sizes and shrink if they exceed the per-input
+  // smem budget. Tile sizes must remain multiples of thread block dims.
+  int64_t tma_tile_i = 128;
+  int64_t tma_tile_r = 128;
+  while (tma_tile_r * tma_tile_i * dtype_bytes > smem_per_input &&
+         tma_tile_r > bdimy) {
+    tma_tile_r /= 2;
+  }
+  while (tma_tile_r * tma_tile_i * dtype_bytes > smem_per_input &&
+         tma_tile_i > bdimx) {
+    tma_tile_i /= 2;
+  }
 
   NVF_ERROR(tma_tile_i % bdimx == 0);
   NVF_ERROR(tma_tile_r % bdimy == 0);
@@ -110,6 +134,10 @@ void scheduleReduction(Fusion* fusion, const TmaOuterReductionParams* rparams) {
   // Reorder from [I, R] -> [R, I] for outer reduction pattern
   reduction_tv->reorder({{0, 1}, {1, 0}});
 
+  // Propagate the canonicalized [R, I] merges to all tensors.
+  TransformPropagator canon_propagator(reduction_tv);
+  MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&canon_propagator);
+
   // The reduction_tv already has a cacheBefore from cacheAndForkOutputs.
   // Use reduction_tv directly as our reduction reference for scheduling.
   TensorView* redu_tv = reduction_tv;
@@ -118,9 +146,8 @@ void scheduleReduction(Fusion* fusion, const TmaOuterReductionParams* rparams) {
   const int64_t outer_reduce_axis = 0;
 
   // Phase 2: Schedule TMA tensor with 2D TMA tiling
-  // Apply transforms to the TMA smem TV.
-  // We start from the TMA TV, which shares the same logical domain as the
-  // reduction TV's producer.
+  // Apply transforms to the TMA smem TV (now in [R, I] form after
+  // canonicalization propagation).
   TensorView* tma_tv = tma_tvs[0];
 
   // [R, I] -> [R/tma_tile_r, tma_tile_r, I]
@@ -166,8 +193,12 @@ void scheduleReduction(Fusion* fusion, const TmaOuterReductionParams* rparams) {
   redu_tv->axis(3)->parallelize(ParallelType::TIDy); // bdimy
   redu_tv->axis(4)->parallelize(ParallelType::BIDx);
   redu_tv->axis(5)->parallelize(ParallelType::TIDx); // bdimx
-  // Use Vectorize so it gets converted to Group for iterGroupedGridReduce
-  redu_tv->axis(6)->parallelize(ParallelType::Vectorize); // iter_unroll
+
+  // Vectorize gets converted to Group for iterGroupedGridReduce.
+  // When iter_unroll_factor == 1, use Serial to avoid an invalid size-1
+  // Vectorize axis; this falls back to regular (non-grouped) grid reduction.
+  redu_tv->axis(6)->parallelize(
+      iter_unroll_factor > 1 ? ParallelType::Vectorize : ParallelType::Serial);
 
   // Phase 7: rFactor for grid reduction
   // rFactor reduction axes that are not thread-parallelized
@@ -180,7 +211,7 @@ void scheduleReduction(Fusion* fusion, const TmaOuterReductionParams* rparams) {
 
   TensorView* reference_tv = redu_tv;
   if (!rfactor_axes.empty()) {
-    reference_tv = redu_tv->rFactor(rfactor_axes);
+    reference_tv = ir_utils::rFactorHelper(redu_tv, rfactor_axes);
   }
 
   // Phase 8: Propagate thread-level splits to non-TMA TVs
@@ -191,8 +222,9 @@ void scheduleReduction(Fusion* fusion, const TmaOuterReductionParams* rparams) {
   MaxLogicalDomainInfoSpanningTree(reference_tv, &non_tma_selector)
       .traverse(&non_tma_propagator);
 
-  // Phase 9: Propagate parallelization with iter-grouped reduction
-  const bool use_iter_grouped_reduction = true;
+  // Phase 9: Propagate parallelization with iter-grouped reduction.
+  // Iter-grouping requires iter_unroll_factor > 1 (Vectorize -> Group).
+  const bool use_iter_grouped_reduction = iter_unroll_factor > 1;
 
   if (reference_tv != redu_tv) {
     reduction_scheduler_utils::propagateRFactor(

@@ -10,6 +10,13 @@
 #include <ATen/core/Tensor.h>
 #include <cuda.h>
 
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_DISTRIBUTED)
+#include <torch/csrc/distributed/c10d/GroupRegistry.hpp>
+#include <torch/csrc/distributed/c10d/symm_mem/SymmetricMemory.hpp>
+#else
+#include "multidevice/c10d_mock.h"
+#endif
+
 namespace nvfuser {
 
 // SymmetricTensor wraps a local symmetric memory allocation and enables:
@@ -18,13 +25,15 @@ namespace nvfuser {
 // - Contiguous view creation across all ranks
 //
 // Design: Decouples local allocation from IPC handle exchange for better
-// interoperability and support for pre-allocated user buffers
+// interoperability and support for pre-allocated user buffers.
 //
-// TODO: Long term plan is to integrate pytorch's native symmetric memory as a
-// possible backend. One important reason to use pytorch's allocator is to use
-// pytorch's memory pool to let the framework own the memory stack and not
-// further fragment the memory. On the other hand, having our own implementation
-// allows us to experiment more advanced features like contigous view creation.
+// Backends (see SymmetricMemoryBackend in ipc_utils.h):
+// - Native (default): Fuser's own CUDA VMM + IPC implementation
+// - PyTorch (Nccl, Nvshmem, Cuda): Use PyTorch's symmetric memory
+//   (torch.distributed._symmetric_memory) with the chosen transport backend.
+//   Select via
+//   NVFUSER_ENABLE=symmetric_memory_backend(native|pytorch_nccl|pytorch_nvshmem|pytorch_cuda).
+//   Native remains the default when the option is not set.
 class SymmetricTensor {
  public:
   // Wrap pre-allocated symmetric tensor (must use allocate())
@@ -52,6 +61,12 @@ class SymmetricTensor {
   void setupRemoteHandles(const std::string& tag = "");
   at::Tensor remoteTensor(int64_t rank) const;
 
+  //! Returns a CUDA [world_size] int64 tensor whose elements are the
+  //! remote data_ptr values (as uint64 cast to int64). Lazily allocated
+  //! on first call; subsequent calls return the cached tensor.
+  //! Requires setupRemoteHandles to have been called.
+  at::Tensor remotePointersTensor();
+
   // Setup multicast (CUDA 13.0+, init-once)
   void setupMulticast(int64_t exporter_rank, const std::string& tag = "");
   void* multicastPtr() const;
@@ -70,15 +85,18 @@ class SymmetricTensor {
   size_t aligned_size_;
   size_t requested_size_;
   mutable bool are_remote_tensors_setup_ = false;
+  at::Tensor remote_ptrs_tensor_;
   bool is_multicast_setup_ = false;
   CUmemGenericAllocationHandle mcast_handle_{};
   CUdevice cu_dev_{};
-  void* mc_ptr_{nullptr};
+  void* multicast_ptr_{nullptr};
   CUdeviceptr mc_base_ptr_{0};
   int exporter_rank_{-1};
   int peer_fd_{-1};
   bool is_contiguous_view_setup_ = false;
   at::Tensor contiguous_view_;
+  c10::intrusive_ptr<c10d::symmetric_memory::SymmetricMemory>
+      torch_symm_handle_;
 };
 
 } // namespace nvfuser

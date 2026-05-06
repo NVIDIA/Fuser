@@ -180,7 +180,9 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"insert_resharding_after", EnableOption::InsertReshardingAfter},
           {"fast_math", EnableOption::FastMath},
           {"p2p_protocol", EnableOption::P2pProtocol},
+          {"p2p_transport", EnableOption::P2pTransport},
           {"multicast_protocol", EnableOption::MulticastProtocol},
+          {"symmetric_memory_backend", EnableOption::SymmetricMemoryBackend},
       };
   return available_options;
 }

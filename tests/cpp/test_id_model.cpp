@@ -3385,4 +3385,22 @@ TEST_F(IdModelTest, NonDivisibleSplits_NotMapped) {
       in->axis(0), out->axis(0)));
 }
 
+TEST_F(IdModelTest, MergingReshapeOuterSplit_Mapped) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2LL * 2, 2});
+  fusion.addInput(in);
+  TensorView* out = reshape(in, {2LL * 2, 2}, {2LL * 2 * 2});
+  fusion.addOutput(out);
+
+  in->outer_split(0, 2);
+  out->outer_split(0, 2);
+
+  IdModel id_model(&fusion);
+  const ValGraph& almost_exact_graph = id_model.buildAlmostExactGraph();
+  EXPECT_TRUE(almost_exact_graph.disjointValSets().strictAreMapped(
+      in->axis(0), out->axis(0)));
+}
+
 } // namespace nvfuser

@@ -20,8 +20,12 @@
 
 #pragma once
 
+#include <ATen/ATen.h>
 #include <ATen/core/TensorBody.h>
 #include <ATen/core/ivalue.h>
+#include <c10/core/Device.h>
+#include <c10/core/ScalarType.h>
+#include <c10/util/ArrayRef.h>
 #include <c10/util/intrusive_ptr.h>
 
 namespace c10d {
@@ -34,7 +38,7 @@ class Work : public torch::CustomClassHolder {
 };
 
 struct ReduceOp : torch::CustomClassHolder {
-  enum RedOpType {
+  enum RedOpType : std::uint8_t {
     SUM,
     AVG,
     PRODUCT,
@@ -211,4 +215,58 @@ class TCPStore : public torch::CustomClassHolder {
   }
 };
 
+class ProcessGroup : public torch::CustomClassHolder {
+ public:
+};
+
+inline c10::intrusive_ptr<ProcessGroup> resolve_process_group(
+    const std::string& group_name) {
+  return c10::make_intrusive<ProcessGroup>();
+}
+
+inline void register_process_group(
+    const std::string& group_name,
+    const c10::intrusive_ptr<ProcessGroup>& group) {}
+
+inline void unregister_process_group(const std::string& group_name) {}
+
 } // namespace c10d
+
+namespace c10d::symmetric_memory {
+
+class SymmetricMemory : public torch::CustomClassHolder {
+ public:
+  ~SymmetricMemory() override = default;
+  virtual bool has_multicast_support() {
+    return false;
+  }
+  virtual void* get_multicast_ptr() {
+    return nullptr;
+  }
+  at::Tensor get_remote_tensor(
+      int peer,
+      c10::IntArrayRef sizes,
+      c10::ScalarType dtype) {
+    return at::empty(sizes, at::TensorOptions().dtype(dtype));
+  }
+};
+
+inline void set_backend(const std::string&) {}
+
+inline at::Tensor empty_strided_p2p(
+    c10::IntArrayRef size,
+    c10::IntArrayRef stride,
+    c10::ScalarType dtype,
+    c10::Device device,
+    const std::optional<std::string>& group_name,
+    std::optional<uint64_t> alloc_id) {
+  return at::empty(size, at::TensorOptions().dtype(dtype));
+}
+
+inline c10::intrusive_ptr<SymmetricMemory> rendezvous(
+    const at::Tensor& tensor,
+    const std::optional<std::string>& group_name = std::nullopt) {
+  return c10::make_intrusive<SymmetricMemory>();
+}
+
+} // namespace c10d::symmetric_memory

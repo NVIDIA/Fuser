@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -827,10 +826,27 @@ void IndexLowering::handleSerialGridReduction(
   auto work_buffer_domain = IrBuilder::create<TensorDomain>(work_buffer_root);
   auto work_buffer_tv = IrBuilder::create<TensorView>(
       work_buffer_domain, out_tv->dtype(), MemoryType::Global);
+
+  // Generate the index for the work buffer. As it is allocated based
+  // on the loop domain, the index just consists of the loop indices
+  // with corresponding strides.
   Val* work_buffer_idx_val = nullptr;
-  for (auto v : Index::getGlobalConsumerStridedIndices(out_tv, for_loops_)) {
-    work_buffer_idx_val = SimplifyingIrBuilder::addExpr(work_buffer_idx_val, v);
+  Val* stride = out_tv->fusion()->oneVal();
+  for (auto id : out_tv->getLoopDomain() | std::views::reverse) {
+    if (id->isReduction()) {
+      continue;
+    }
+    auto idx =
+        GpuLower::current()->tensorIndexer().getLoopIndex(id, for_loops_);
+    work_buffer_idx_val = SimplifyingIrBuilder::addExpr(
+        work_buffer_idx_val, SimplifyingIrBuilder::mulExpr(idx, stride));
+    stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
   }
+  const auto replacement_map =
+      GpuLower::current()->tensorIndexer().getIndexReplacementMap(
+          out_tv->definition(), true, out_tv->getLoopDomain(), for_loops_);
+  work_buffer_idx_val =
+      ir_utils::replaceValRecursively(work_buffer_idx_val, replacement_map);
 
   auto work_buffer_idx = IrBuilder::create<kir::TensorIndex>(
       work_buffer_tv,

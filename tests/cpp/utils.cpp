@@ -769,6 +769,7 @@ size_t getCRandomSeed() {
                  std::chrono::system_clock::now().time_since_epoch())
                  .count();
     }
+    found_seed = true;
   }
 
   return seed;
@@ -803,6 +804,7 @@ size_t getATenRandomSeed() {
       // tests pass.
       seed = 0L;
     }
+    found_seed = true;
   }
 
   return seed;

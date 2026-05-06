@@ -5,6 +5,7 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include "driver_api.h"
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
@@ -21,7 +22,18 @@ namespace nvfuser {
 
 using testing::ElementsAre;
 
-using MultiDeviceStreamParallelTypeTest = MultiDeviceTest;
+class MultiDeviceStreamParallelTypeTest : public MultiDeviceTest {
+ protected:
+  bool isMulticastSupported() {
+    const int64_t local_rank = communicator_->local_rank();
+    int is_multicast_supported = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &is_multicast_supported,
+        CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+        static_cast<int>(local_rank)));
+    return is_multicast_supported != 0;
+  }
+};
 
 TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
@@ -398,7 +410,7 @@ class StreamParallelBackendTest : public MultiDeviceStreamParallelTypeTest,
                                       std::tuple<bool, CommunicatorBackend>> {};
 
 TEST_P(StreamParallelBackendTest, AllgatherP2p) {
-  constexpr int64_t kTensorSize = 2 * 1024 * 1024;
+  constexpr int64_t kTensorSize = 2LL * 1024 * 1024;
 
   // set the protocol to batch_memcpy to avoid relying on multicast support
   EnableOptionsGuard guard;
@@ -613,6 +625,11 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
   constexpr int64_t K = 8;
   constexpr int64_t N = 2;
   constexpr int64_t S = 4;
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
   const int64_t D = communicator_->size();
   if (M % (S * D) != 0) {
     GTEST_SKIP() << "M must be a multiple of S * D, but got M = " << M
@@ -694,7 +711,13 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
   constexpr int64_t K = 64;
   constexpr int64_t N = 64;
   constexpr int64_t S = 4;
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
   const int64_t D = communicator_->size();
+
   if (M % (S * D) != 0) {
     GTEST_SKIP() << "M must be a multiple of S * D, but got M = " << M
                  << ", S = " << S << ", D = " << D;
@@ -704,7 +727,11 @@ TEST_P(RSMatmulTest, ReduceScatterReduceBased) {
                  << ", D = " << D;
   }
   if (communicator_backend == CommunicatorBackend::kCuda) {
-    GTEST_SKIP() << "CUDA backend is not supported for this test";
+    if (!isMulticastSupported()) {
+      GTEST_SKIP() << "Device does not support Multicast; skipping.";
+    }
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"multimem"});
   }
 
   EnableOptionsGuard::getCurOptions().set(EnableOption::InsertReshardingAfter);

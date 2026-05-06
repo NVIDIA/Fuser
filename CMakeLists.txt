@@ -152,7 +152,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fusion_info.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/padded_parallel_dimensions.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
@@ -1002,6 +1001,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_tma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication_cuda.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
@@ -1013,6 +1013,9 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
   )
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
+  target_include_directories(test_multidevice PRIVATE
+    "${CMAKE_BINARY_DIR}/include")
+  add_dependencies(test_multidevice nvfuser_rt_tma_copy)
   list(APPEND TEST_BINARIES test_multidevice)
 
   set(MULTIDEVICE_TUTORIAL_SRCS)
@@ -1244,7 +1247,9 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/multicast.cu
-  ${NVFUSER_SRCS_DIR}/multidevice/alltoallv.cu
+  ${NVFUSER_ROOT}/runtime/multicast_reduce.cu
+  ${NVFUSER_ROOT}/runtime/alltoallv.cu
+  ${NVFUSER_ROOT}/runtime/tma_copy.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu

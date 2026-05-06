@@ -1444,10 +1444,14 @@ std::string GridReduction::toString(int indent_size) const {
                           << ", initial value = " << init()->toString()
                           << ",\n";
   ++indent_size;
-  indent(ss, indent_size) << "reduction buffer = "
-                          << reduction_buffer()->buffer()->toString() << ",\n";
-  indent(ss, indent_size) << "sync buffer = "
-                          << sync_buffer()->buffer()->toString() << ",\n";
+  // Serial reduction does not have these buffers
+  if (!isSerial()) {
+    indent(ss, indent_size)
+        << "reduction buffer = " << reduction_buffer()->buffer()->toString()
+        << ",\n";
+    indent(ss, indent_size)
+        << "sync buffer = " << sync_buffer()->buffer()->toString() << ",\n";
+  }
   indent(ss, indent_size) << "read predicate = ";
   if (predicate() != nullptr) {
     ss << predicate()->toString();
