@@ -181,6 +181,21 @@ void bindHeuristicParams(py::module& nvfuser) {
       .def_readwrite(
           "unroll_factor_outer", &PointwiseParams::unroll_factor_outer, R"(
                 Unroll factor for outer dimension to reuse loaded data.
+              )")
+      .def_readwrite("use_tma_load", &PointwiseParams::use_tma_load, R"(
+                Use TMA for loading inputs.
+              )")
+      .def_readwrite("use_tma_store", &PointwiseParams::use_tma_store, R"(
+                Use TMA for storing outputs.
+              )")
+      .def_readwrite("tma_domain_inner", &PointwiseParams::tma_domain_inner, R"(
+                Size of the inner contiguous dimension of the TMA domain.
+              )")
+      .def_readwrite("tma_tile_outer", &PointwiseParams::tma_tile_outer, R"(
+                Outer dimension size of each TMA tile.
+              )")
+      .def_readwrite("tma_tile_inner", &PointwiseParams::tma_tile_inner, R"(
+                Inner dimension size of each TMA tile.
               )");
 
   py::class_<ReductionParams, HeuristicParams>(

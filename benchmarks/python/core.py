@@ -8,10 +8,12 @@ from typing import List, Callable, Union
 import numpy as np
 from nvfuser_direct import FusionDefinition, PythonProfiler
 from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
-from nvfuser_direct.benchmark_utils import FusionProfileTimer, CuptiTimer
+from nvfuser_direct.benchmark_utils import (
+    CuptiTimer,
+    FusionProfileTimer,
+    TorchProfilerTimer,
+)
 import warnings
-import thunder
-from thunder.executors.nvfuserex import nvfuserex
 import importlib.util
 
 # These variables can be overwritten through CLI commands
@@ -22,6 +24,7 @@ BENCHMARK_CONFIG = {
     "warmup_rounds": 1,
     "num_inputs": None,
     "with_nsys": False,
+    "cuda_timer": "torchprofiler",
 }
 
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
@@ -68,10 +71,15 @@ def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
     if executor == "torchcompile":
         return torch.compile(fwd_fn, **kwargs)
     if executor == "thunder":
+        import thunder
+        from thunder.executors.nvfuserex import nvfuserex
+
         return thunder.jit(
             fwd_fn, nv_enable_bookend=False, executors=[nvfuserex], **kwargs
         )
     if executor == "thunder-torchcompile":
+        import thunder
+
         return thunder.jit(fwd_fn, executors=["torchcompile"], **kwargs)
 
 
@@ -126,7 +134,16 @@ class NVFBenchmark:
             return
 
         # Timer selection based on device
-        timer_class = CuptiTimer if device == "cuda" else FusionProfileTimer
+        if device == "cuda":
+            cuda_timer = BENCHMARK_CONFIG["cuda_timer"]
+            if cuda_timer == "cupti":
+                timer_class = CuptiTimer
+            elif cuda_timer == "torchprofiler":
+                timer_class = TorchProfilerTimer
+            else:
+                raise ValueError(f"Unsupported CUDA benchmark timer: {cuda_timer}")
+        else:
+            timer_class = FusionProfileTimer
         benchmark_fixture._timer = timer_class()
         # Externally set the precision to avoid timer calibration. Since the timer uses CUDA times,
         # calibration using subsequent timer calls produces invalid results.

@@ -182,7 +182,14 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // elements_per_cta: Target number of elements for each CTA to process
   // Each CTA has 128 threads, round up to 1024 for divisible by 128 and leave 8
   // for vectorization and unroll.
-  constexpr int64_t cta_per_sm = 8;
+  // On newer architectures, large pointwise BF16 TMA kernels performed better
+  // with smaller per-CTA TMA tiles. The smaller tile reduces shared-memory
+  // footprint and keeps more independent CTAs in flight for this streaming
+  // workload.
+  const bool prefer_small_bf16_tma_tile =
+      at::cuda::getCurrentDeviceProperties()->major >= 10 &&
+      bits_per_element <= 16 && prop.n_elems >= (1LL << 20);
+  const int64_t cta_per_sm = prefer_small_bf16_tma_tile ? 16 : 8;
   const int64_t bits_per_sm = scheduler_utils::getRequiredBitsInFlight();
   const int64_t bits_per_cta = bits_per_sm / cta_per_sm;
   if (bits_per_element == 0) {
@@ -203,8 +210,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // tma_tile_inner_max: Maximum size for tma tile inner dimension
   // Division by 2 ensures at least 2 tiles fit within tma_domain_inner
   // Don't exceed the hardware limit
+  const int64_t tma_tile_inner_dim_cap =
+      prefer_small_bf16_tma_tile ? 128 : kMaxElementsPerTmaTileDim;
   const int64_t tma_tile_inner_max =
-      std::min(tma_domain_inner / 2, kMaxElementsPerTmaTileDim);
+      std::min(tma_domain_inner / 2, tma_tile_inner_dim_cap);
 
   // tma_tile_outer_max: Maximum size for tma tile outer dimension
   // Don't exceed the total number of "rows" in tma_domain_outer
@@ -350,8 +359,18 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // n_valid_dims: Number of logical dimensions in the reference tensor
   int64_t n_valid_dims = scheduler_utils::nLogicalDims(reference_tv);
 
-  // tma_tvs: Inputs that will use TMA load (same dimensionality as reference)
-  std::vector<TensorView*> tma_tvs;
+  // tma_load_tvs: Inputs that will use TMA load (same dimensionality as reference)
+  std::vector<TensorView*> tma_load_tvs;
+
+  // tma_store_tvs: Fusion outputs that will use TMA store. Their shared-memory
+  // producer remains in the non-TMA compute path.
+  std::vector<TensorView*> tma_store_tvs;
+  std::vector<TensorView*> tma_store_smem_tvs;
+
+  // Reference used for the register/shared-memory compute path. When the
+  // original reference output is a TMA store tensor, use its shared-memory
+  // producer instead so the output keeps Bulk tile axes.
+  TensorView* compute_reference_tv = reference_tv;
 
   // ldg_tvs: Inputs that will use standard global loads (different
   // dimensionality)
@@ -371,8 +390,43 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     tv->setMemoryType(MemoryType::Shared);
     // Create a register cache after the shared memory tensor
     tv->cacheAfter();
-    tma_tvs.push_back(tv);
+    tma_load_tvs.push_back(tv);
   }
+
+  if (pparams->use_tma_store) {
+    for (const auto& [_, original_idx] : cached_outputs) {
+      auto output_tv =
+          dynamic_cast<TensorView*>(fusion->outputs().at(original_idx));
+      NVF_ERROR(
+          output_tv != nullptr,
+          "TMA store is only supported for TensorView outputs");
+      NVF_ERROR(
+          isTvSuitableForTma(output_tv, n_valid_dims),
+          "Output is not suitable for pointwise TMA store: ",
+          output_tv->toString());
+      const int64_t output_dtype_bits =
+          dataTypeSizeBit(output_tv->getDataType());
+      NVF_ERROR(
+          !(output_dtype_bits == 16 && pparams->tma_tile_inner == 128),
+          "16-bit pointwise TMA store with tma_tile_inner=128 produced ",
+          "incorrect results on this path; use 64 or 256 instead.");
+
+      auto output_smem =
+          output_tv->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+      output_smem->setMemoryType(MemoryType::Shared);
+      tma_store_tvs.push_back(output_tv);
+      tma_store_smem_tvs.push_back(output_smem);
+      if (output_tv == reference_tv) {
+        compute_reference_tv = output_smem;
+      }
+    }
+    NVF_ERROR(
+        !tma_store_tvs.empty(),
+        "TMA store requested but no eligible cached outputs were found");
+  }
+
+  std::vector<TensorView*> tma_tvs(tma_load_tvs.begin(), tma_load_tvs.end());
+  tma_tvs.insert(tma_tvs.end(), tma_store_tvs.begin(), tma_store_tvs.end());
 
   // ========== Phase 3: Split Into TMA Domain and Tiles ==========
   // Transform the flattened domain through a two-level hierarchy:
@@ -435,11 +489,17 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Apply same parallelization to all TMA input tensors
   scheduler_utils::parallelizeAllLike(reference_tv, tma_tvs);
 
-  // Reset reference tensor's tile axes to Serial for subsequent scheduling
-  // (TMA tensors keep Bulk parallelization; reference is for non-TMA
-  // scheduling)
-  reference_tv->axis(ogpos + 2)->parallelize(ParallelType::Serial);
-  reference_tv->axis(ogpos + 3)->parallelize(ParallelType::Serial);
+  // TMA store reads a dense shared-memory tile. Preserve the TMA tile layout as
+  // the allocation domain before adding per-thread compute axes.
+  for (auto tv : tma_store_smem_tvs) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  // Reset the compute reference tensor's tile axes to Serial for subsequent
+  // scheduling. If reference_tv is itself a TMA store output, keep its Bulk
+  // axes and schedule the shared-memory producer instead.
+  compute_reference_tv->axis(ogpos + 2)->parallelize(ParallelType::Serial);
+  compute_reference_tv->axis(ogpos + 3)->parallelize(ParallelType::Serial);
 
   // ========== Phase 5: Schedule Non-TMA Tensors ==========
   // Starting structure: [outer_grid, inner_grid, outer_tile, inner_tile]
@@ -448,23 +508,23 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   //   where y = TIDy (threads), x = TIDx (threads), v = vectorization
 
   // Split inner tile: inner_tile -> [inner_tile/v/x, x, v]
-  reference_tv->split(ogpos + 3, pparams->vectorization_factor);
-  reference_tv->split(ogpos + 3, pparams->lparams.bdimx());
+  compute_reference_tv->split(ogpos + 3, pparams->vectorization_factor);
+  compute_reference_tv->split(ogpos + 3, pparams->lparams.bdimx());
 
   // Split outer tile: tma_tile_outer -> [tma_tile_outer/y, y]
-  reference_tv->split(ogpos + 2, pparams->lparams.bdimy());
+  compute_reference_tv->split(ogpos + 2, pparams->lparams.bdimy());
 
   // from: [..., inner_grid, outer_tile/y, y, inner_tile/v/x, x, v]
   //   to: [..., inner_grid, outer_tile/y, inner_tile/v/x, y, x, v]
   // basically swap [y] with [inner_tile/v/x]
-  reference_tv->reorder({{ogpos + 3, ogpos + 4}});
+  compute_reference_tv->reorder({{ogpos + 3, ogpos + 4}});
   // Propagate these transformations to all non-TMA tensors
   // (TMA tensors already have their final schedule from Phase 4)
   std::vector<TensorView*> non_tma_tvs =
       ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
-  TransformPropagator non_tma_propagator(reference_tv);
+  TransformPropagator non_tma_propagator(compute_reference_tv);
   SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
-  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+  MaxLogicalDomainInfoSpanningTree(compute_reference_tv, &selector)
       .traverse(&non_tma_propagator);
 
   // ========== Phase 6: Apply Thread Parallelization ==========
@@ -477,11 +537,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   //   axis(ogpos + 4): Thread block Y dimension (TIDy)
   //   axis(ogpos + 5): Thread block X dimension (TIDx)
   //   axis(ogpos + 6): Vectorization dimension
-  reference_tv->axis(ogpos + 4)->parallelize(ParallelType::TIDy); // Thread Y
-  reference_tv->axis(ogpos + 5)->parallelize(ParallelType::TIDx); // Thread X
+  compute_reference_tv->axis(ogpos + 4)->parallelize(ParallelType::TIDy); // Thread Y
+  compute_reference_tv->axis(ogpos + 5)->parallelize(ParallelType::TIDx); // Thread X
 
   int64_t vect_pos = ogpos + 6; // Position of vectorization axis
-  scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
+  scheduler_utils::parallelizeAllLike(compute_reference_tv, non_tma_tvs);
 
   // ========== Phase 7: Apply Vectorization ==========
   // Vectorize register <-> global memory transfers for non-TMA tensors
@@ -518,7 +578,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     }
     return 0;
   };
-  std::vector<TensorView*> tma_or_ldg_tvs(tma_tvs.begin(), tma_tvs.end());
+  std::vector<TensorView*> tma_or_ldg_tvs(
+      tma_load_tvs.begin(), tma_load_tvs.end());
   tma_or_ldg_tvs.insert(tma_or_ldg_tvs.end(), ldg_tvs.begin(), ldg_tvs.end());
   for (auto tv : tma_or_ldg_tvs) {
     int64_t inline_pos = getLastBlockParallelizationAxisPosition(tv);
@@ -534,9 +595,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         tv->toString());
     tv->inlineAt(inline_pos);
   }
-  // inline other tensors to minimize register pressure
+  // inline other tensors to minimize register pressure. Keep TMA store outputs
+  // out of this list; their shared-memory producers are still eligible.
+  std::vector<TensorView*> inline_excluded_tvs(
+      tma_or_ldg_tvs.begin(), tma_or_ldg_tvs.end());
+  inline_excluded_tvs.insert(
+      inline_excluded_tvs.end(), tma_store_tvs.begin(), tma_store_tvs.end());
   std::vector<TensorView*> compute_tvs = ir_utils::allTvsExcept(
-      fusion, {tma_or_ldg_tvs.begin(), tma_or_ldg_tvs.end()});
+      fusion, {inline_excluded_tvs.begin(), inline_excluded_tvs.end()});
   inlineMost(compute_tvs);
 }
 

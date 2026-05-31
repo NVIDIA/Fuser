@@ -127,6 +127,26 @@ int64_t getElementBasedUnrollFactor(int64_t total_blocks) {
   return n_elems_limited_unroll;
 }
 
+int64_t getDivisibleUnrollFactor(
+    int64_t unroll_factor,
+    int64_t unroll_axis_extent,
+    bool divisible_unroll_axis) {
+  if (!divisible_unroll_axis || unroll_factor <= 1 ||
+      unroll_axis_extent <= 0 ||
+      unroll_axis_extent % unroll_factor == 0) {
+    return unroll_factor;
+  }
+
+  for (int64_t candidate = std::min(unroll_factor - 1, unroll_axis_extent);
+       candidate > 1;
+       --candidate) {
+    if (unroll_axis_extent % candidate == 0) {
+      return candidate;
+    }
+  }
+  return 1;
+}
+
 // returns unroll factor.
 // The unroll factor is calculated based on the following:
 // (1) ensure enough bytes in flight to cover gmem access latency
@@ -308,17 +328,27 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   int64_t total_blocks = break_point > 0
       ? gdim_left * gdim_right
       : ceilDiv(n_elems / vectorization_factor, kThreadX);
-  bool divisible_split = break_point > 0
-      ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
-      : (n_elems % (params->vectorization_factor * kThreadX) == 0);
+  const int64_t left_elem_count =
+      break_point > 0 ? n_elems / right_elem_count : 1;
+  const int64_t unroll_axis_extent = break_point == 0
+      ? total_blocks
+      : (is_outer_broadcast_dominated ? gdim_left : gdim_right);
+  const bool divisible_unroll_axis = break_point == 0
+      ? (n_elems % (params->vectorization_factor * kThreadX) == 0)
+      : (is_outer_broadcast_dominated
+             ? (left_elem_count % bdimy == 0)
+             : (right_elem_count % (params->vectorization_factor * bdimx) ==
+                0));
   int64_t unroll_factor = getUnrollFactor(
       fusion,
       break_point,
       total_blocks,
       params->vectorization_factor * max_dtype_size_bit_for_vectorization,
-      divisible_split,
+      divisible_unroll_axis,
       vectorizable_inputs_outputs,
       data_cache);
+  unroll_factor = getDivisibleUnrollFactor(
+      unroll_factor, unroll_axis_extent, divisible_unroll_axis);
 
   if (is_outer_broadcast_dominated) {
     params->unroll_factor_outer = unroll_factor;

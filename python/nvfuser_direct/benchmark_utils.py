@@ -3,8 +3,16 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
-from cupti import cupti
-import cxxfilt
+
+try:
+    from cupti import cupti
+except ModuleNotFoundError:
+    cupti = None
+
+try:
+    import cxxfilt
+except ModuleNotFoundError:
+    cxxfilt = None
 import pytest
 from ._C_DIRECT import get_fusion_profile
 
@@ -25,6 +33,8 @@ class Timer:
 
 
 def demangle_kernel_name(mangled_name):
+    if cxxfilt is None:
+        return mangled_name
     try:
         return cxxfilt.demangle(mangled_name)
     except Exception:
@@ -42,9 +52,9 @@ def cupti_call_safe(func, *args):
 
 class CuptiProfiler:
     # List of activities to be recorded by CUPTI.
-    activity_kinds: list[cupti.ActivityKind] = [
-        cupti.ActivityKind.CONCURRENT_KERNEL,
-    ]
+    activity_kinds = (
+        [] if cupti is None else [cupti.ActivityKind.CONCURRENT_KERNEL]
+    )
 
     # Private class variable to store the subscriber handle.
     __subscriber_handle = None
@@ -62,13 +72,18 @@ class CuptiProfiler:
         max_num_records = 0
         return buffer_size, max_num_records
 
-    def _func_buffer_completed(self, activities: list[cupti.ActivityAPI]) -> None:
+    def _func_buffer_completed(self, activities: list) -> None:
         for activity in activities:
             # Activity.end and Activity.start are in nanoseconds.
             duration = (activity.end - activity.start) / 1e9
             self.profiler_output.append((demangle_kernel_name(activity.name), duration))
 
     def __init__(self):
+        if cupti is None:
+            raise RuntimeError(
+                "cupti-python is not installed; use "
+                "--benchmark-cuda-timer=torchprofiler or install benchmark requirements."
+            )
         if CuptiProfiler.__subscriber_handle is not None:
             raise RuntimeError(
                 "Only one instance of CuptiProfiler can be created. "
@@ -139,6 +154,57 @@ class CuptiTimer(Timer):
     def cleanup(self):
         self.is_running = False
         self.cupti_profiler.teardown_cupti()
+
+
+class TorchProfilerTimer(Timer):
+    def __init__(self):
+        super().__init__()
+        self.profiler = None
+        self.is_running = False
+
+    @staticmethod
+    def _is_cuda_event(event):
+        device_type = getattr(event, "device_type", None)
+        return getattr(device_type, "name", None) == "CUDA"
+
+    def __call__(self):
+        torch.cuda.synchronize()
+
+        if not self.is_running:
+            self.profiler = torch.profiler.profile(
+                activities=[torch.profiler.ProfilerActivity.CUDA],
+                record_shapes=False,
+                profile_memory=False,
+                with_stack=False,
+            )
+            self.profiler.__enter__()
+            self.is_running = True
+            return self.current_time
+
+        profiler = self.profiler
+        self.profiler = None
+        self.is_running = False
+        profiler.__exit__(None, None, None)
+
+        cuda_time_us = sum(
+            event.self_device_time_total
+            for event in profiler.events()
+            if self._is_cuda_event(event) and event.self_device_time_total > 0
+        )
+        if cuda_time_us == 0:
+            raise RuntimeError("No CUDA activities were recorded.")
+
+        self._increment_global_time(cuda_time_us / 1e6)
+        return self.current_time
+
+    def cleanup(self):
+        if self.is_running and self.profiler is not None:
+            try:
+                torch.cuda.synchronize()
+                self.profiler.__exit__(None, None, None)
+            finally:
+                self.profiler = None
+                self.is_running = False
 
 
 class FusionProfileTimer(Timer):

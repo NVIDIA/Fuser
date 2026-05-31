@@ -96,6 +96,12 @@ def pytest_addoption(parser):
         default=False,
         help="Run benchmark scripts with nsys. Disable all other profilers.",
     )
+    parser.addoption(
+        "--benchmark-cuda-timer",
+        choices=["torchprofiler", "cupti"],
+        default="torchprofiler",
+        help="CUDA timer backend for pytest-benchmark runs.",
+    )
 
 
 @pytest.fixture
@@ -124,6 +130,7 @@ def pytest_configure(config):
         config.getoption("--benchmark-warmup-rounds")
     )
     BENCHMARK_CONFIG["with_nsys"] = config.getoption("--with-nsys")
+    BENCHMARK_CONFIG["cuda_timer"] = config.getoption("--benchmark-cuda-timer")
 
     if config.getoption("--benchmark-num-inputs"):
         BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
