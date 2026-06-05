@@ -94,13 +94,96 @@ If you already cloned without `--recursive`, initialize submodules:
 git submodule update --init --recursive
 ```
 
-2. Install Python dependencies:
+2. Install system dependencies:
+
+The build process requires a few utilities to be installed. The following is a
+probably-incomplete list, expressed in terms of what must be added to Docker
+image ubuntu:24.04. The commands should be run as `root`.
+
+```bash
+apt update # may get errors re: needing ca-certificates if running in a fresh Docker container
+apt-get -y install ca-certificates
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+dpkg -i cuda-keyring_1.1-1_all.deb
+apt update
+apt-get -y install \
+  build-essential \
+  cmake \
+  cuda-toolkit-13-2 \
+  git \
+  libcurl4-openssl-dev \
+  libedit-dev \
+  libnccl-dev \
+  libzstd-dev \
+  llvm-dev \
+  python3-pip \
+  virtualenv \
+  #
+```
+
+3. Set up CUDA
+
+Some environment variables need to be set up to build against CUDA. An example
+of how to do this is:
+
+```bash
+cat >> ~/.bashrc <<'ENDOFHERE'
+export CUDA_HOME=/usr/local/cuda
+export PATH="${CUDA_HOME}/bin":"${PATH}"
+export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}"
+export CUDACXX="${CUDA_HOME}/bin/nvcc"
+ENDOFHERE
+```
+
+Then log out and in, or otherwise restart your shell.
+
+4. Create a Python virtual environment
+
+By default, `pip` installs Python packages system-wide. This should never be
+done on a system that uses a package-manager, and indeed recent versions of
+`pip` refuse to do so, to prevent conflicts with system packages. The correct
+approach is to create a Python virtual environment. `pip` supports this, and
+it avoids conflicts with system-provided packages:
+
+```bash
+virtualenv venv
+. ./venv/bin/activate
+```
+
+5. Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Build and install nvFuser:
+Some build-time dependencies are missing from `requirements.txt`. To install
+them, execute:
+
+```bash
+pip install setuptools wheel numpy
+pip install torch --index-url https://download.pytorch.org/whl/cu132
+```
+
+6. Optionally select a GPU architecture to build for
+
+*IF* you are building within Docker, you will need to either:
+- Import your GPU into the container (not described here), or
+- Set environment variables to tell the build process which GPU architecture
+  to compile for (see below).
+
+To find your GPU architecture, run the following on the host:
+
+```bash
+nvidia-smi --query-gpu=compute_cap --format=csv
+```
+
+To tell the build process which GPU to build for:
+
+```bash
+export TORCH_CUDA_ARCH_LIST="8.9"
+```
+
+7. Build and install nvFuser:
 
 ```bash
 pip install --no-build-isolation -e python -v
@@ -146,7 +229,7 @@ MAX_JOBS=8 NVFUSER_BUILD_BUILD_TYPE=Debug pip install --no-build-isolation -e py
 Test your installation with a simple fusion:
 
 ```python
-python -c "import nvfuser; print('nvFuser successfully imported from:', nvfuser.__file__)"
+python -c "import nvfuser_direct as nvfuser; print('nvFuser successfully imported from:', nvfuser.__file__)"
 ```
 
 Run the Python test suite:
