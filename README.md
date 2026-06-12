@@ -121,6 +121,23 @@ apt-get -y install \
   #
 ```
 
+Some additional packages are required for runtime operation and tests:
+
+```bash
+apt-get install \
+  cudnn9-cuda-13-2=9.22.0.52-1 \
+  libcudnn9-cuda-13=9.22.0.52-1 \
+  libcudnn9-static-cuda-13=9.22.0.52-1 \
+  libcudnn9-dev-cuda-13=9.22.0.52-1 \
+  libcudnn9-headers-cuda-13=9.22.0.52-1
+```
+
+The specific versions and packages must be adapted to suite the CUDA version
+that you have installed, and the dependencies of the relevant version of
+package `cudnn9-cuda-13-2`. A simple `apt install cudnn9-cuda-13-2` may yield
+errors re: package version conflicts for the auto-installed dependency
+libraries.
+
 3. Set up CUDA
 
 Some environment variables need to be set up to build against CUDA. An example
@@ -163,6 +180,31 @@ them, execute:
 pip install setuptools wheel numpy
 pip install torch --index-url https://download.pytorch.org/whl/cu132
 ```
+
+The specific index URL for Torch should be adapted to suite the CUDA version
+that you have installed.
+
+Some additional packages are required for runtime operation on tests:
+
+```bash
+pip install \
+  apache-tvm-ffi \
+  expecttest \
+  looseversion \
+  nvidia-cutlass-dsl \
+  pytest \
+  thunder \
+  transformers
+pip install \
+  --no-build-isolation transformer_engine[pytorch]
+pip install \
+  lightning-thunder
+```
+
+You may need to restart your shell so that the shell "sees" the new executables
+installed into any virtual environment; confirm e.g. whether `command -V pytest`
+points at your virtual environment's version of `pytest` or not. `hash -r` or
+`hash -r pytest` may fix any issues.
 
 6. Optionally select a GPU architecture to build for
 
