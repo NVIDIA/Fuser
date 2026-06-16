@@ -81,3 +81,5 @@ compile_commands.json
 # nvFuser environment configuration tool temporary files
 nvfuser_env.sh
 .nvfuser-apply.*.sh
+
+venv
