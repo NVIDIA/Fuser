@@ -565,9 +565,9 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
   FILES_MATCHING
   PATTERN "*.h"
-  PATTERN "csrc/C++20/compare"
-  PATTERN "csrc/C++23/utility"
-  PATTERN "csrc/struct.inl")
+  PATTERN "C++20/compare" EXCLUDE
+  PATTERN "C++23/utility"
+  PATTERN "struct.inl")
 
 # installing dynamic_type headers
 install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
