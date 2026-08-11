@@ -7,7 +7,7 @@ build
 
 nvfuser_common/version.py
 nvfuser_common/include
-nvfuser_comon/lib
+nvfuser_common/lib
 nvfuser_common/share
 nvfuser_common/cmake
 
