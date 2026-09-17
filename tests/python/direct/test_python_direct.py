@@ -342,6 +342,42 @@ fd.execute(inputs)\n"""
     assert repro_with_inputs == last_repro
 
 
+def test_repro_script_for_non_tensor_inputs():
+    # test_repro_script_for above only passes tensors, so the non-tensor branch
+    # of repro_script_for is never exercised. That branch rewrites inf and nan
+    # into float("inf") and float("nan") so the emitted script is valid Python.
+    # The inputs match the fusion, one tensor and one scalar, so the emitted
+    # script is a reproduction that can actually be run against this fusion.
+    with FusionDefinition() as fd:
+        tv0 = fd.define_tensor(
+            shape=[-1],
+            contiguity=[True],
+            dtype=DataType.Float,
+        )
+        s0 = fd.define_scalar(dtype=DataType.Float)
+        fd.add_output(fd.ops.mul(tv0, s0))
+
+    tensor_inp = torch.randn(4, dtype=torch.float32, device="cuda:0")
+    for scalar_inp, expected_scalar in [
+        (2.5, "2.5"),
+        (float("inf"), 'float("inf")'),
+        (float("nan"), 'float("nan")'),
+        (-float("inf"), '-float("inf")'),
+    ]:
+        inputs = [tensor_inp, scalar_inp]
+        # The input list is valid for the fusion, so the repro is executable.
+        fd.execute(inputs)
+
+        expected_inputs = (
+            "\ninputs = [\n"
+            "    torch.testing.make_tensor((4,), dtype=torch.float32, device='cuda:0'),\n"
+            f"    {expected_scalar},\n"
+            "]\n"
+            "fd.execute(inputs)\n"
+        )
+        assert expected_inputs in fd.repro_script_for(inputs)
+
+
 def test_define_tensor():
     with FusionDefinition() as fd:
         tv0 = fd.define_tensor(
@@ -689,3 +725,23 @@ def test_lru_cache():
     assert torch.allclose(
         fd1.execute([full_input, bcast_input])[0], bcast_input - full_input
     )
+
+
+def test_retry_on_oom_or_skip_test():
+    # The decorator wraps every python benchmark in benchmarks/python/conftest.py
+    # and the opinfo tests, so its recovery path has to work. Raise
+    # torch.OutOfMemoryError once and check the wrapped function is retried
+    # rather than the decorator itself blowing up.
+    from nvfuser_direct.pytorch_utils import retry_on_oom_or_skip_test
+
+    calls = []
+
+    @retry_on_oom_or_skip_test
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise torch.OutOfMemoryError("simulated OOM")
+        return "second attempt"
+
+    assert flaky() == "second attempt"
+    assert len(calls) == 2

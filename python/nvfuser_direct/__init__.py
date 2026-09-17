@@ -7,6 +7,7 @@ import traceback
 import warnings
 from typing import Iterable, Optional
 import functools
+import re
 
 if "nvfuser" in sys.modules:
     warnings.warn(

@@ -6,8 +6,9 @@ import torch
 from ._C_DIRECT import DataType
 
 import ctypes
-from typing import Type, Union, Tuple
 import functools
+import gc
+from typing import Type, Union, Tuple
 
 NumberTypeType = Union[Type[bool], Type[int], Type[float], Type[complex]]
 
